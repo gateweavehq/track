@@ -60,6 +60,25 @@ admins manage teams) and clients need member names to render assignees. Better A
 every join, role change and removal to the DO. The replica also heals itself, because each time a
 member connects their current profile is upserted.
 
+### Roles and invitations
+
+Roles are Better Auth's defaults: `owner`, `admin` and `member`. Admins invite people, change
+roles, remove members and manage teams. Only owners can make or manage owners, and a workspace
+always keeps at least one.
+
+An invitation is for one email address and lasts seven days. Until email sending lands, an admin
+creates a link (`/invite/:id`) and sends it themselves. Accepting requires being signed in with
+the invited address; Better Auth checks that.
+
+Email addresses are not verified yet, so anyone can sign up with any address, and the invitation
+id is what actually protects a workspace: whoever holds the link can join. So only admins see
+invitation ids. Better Auth hands them to any member through two endpoints, which would let a
+member pick up an admin invitation: `list-invitations` is limited to admins by a `before` hook in
+`apps/web/src/server/auth/config.ts`, and `get-full-organization`, which the app does not use, is
+disabled. The public invite page only describes pending invitations that have not expired.
+Verified email addresses, with `requireEmailVerificationOnInvitation`, are on the launch
+checklist.
+
 ## Request flow and security
 
 The Durable Object has **no public route**. Only the Worker can reach it, through its binding.
@@ -184,7 +203,9 @@ pending mutations. A reload renders straight from storage and then catches up fr
 without downloading a snapshot. Pending mutations are written with strict durability, because
 until the server has them they exist nowhere else. The database version includes the protocol
 version, so a protocol change discards the old cache instead of misreading it. Signing out
-deletes every replica.
+deletes every replica, and losing access deletes that workspace's: when the server reports that
+the user is no longer a member, or they leave, the app deletes the database, so a removed
+member's browser does not keep a copy.
 
 ### One connection per browser
 
