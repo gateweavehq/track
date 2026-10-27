@@ -1,0 +1,20 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "tangent",
+	"main": "src/server.ts",
+	"compatibility_date": "2026-10-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"observability": { "enabled": true },
+	"upload_source_maps": true,
+	// Workspace directory and auth. The database is provisioned on first deploy.
+	"d1_databases": [{ "binding": "DB", "database_name": "tangent", "migrations_dir": "migrations" }],
+	// One Durable Object per workspace holds its issues and serves realtime sync.
+	"durable_objects": {
+		"bindings": [{ "name": "WORKSPACE", "class_name": "WorkspaceDO" }]
+	},
+	"exports": {
+		"WorkspaceDO": { "type": "durable-object", "storage": "sqlite" }
+	},
+	// Optional: GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, BETTER_AUTH_URL (see src/server/env.d.ts).
+	"secrets": { "required": ["BETTER_AUTH_SECRET"] }
+}
