@@ -87,6 +87,10 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
 - Dependencies are pinned to exact versions. Shared ones go in the `catalog:` of
   `pnpm-workspace.yaml`. `drizzle-orm` stays on 0.45: the 1.0 migration format does not work
   with Wrangler's D1 migrations.
+- UI code copied into the repository (components, blocks, hooks) must come from an MIT or
+  Apache-2.0 source, such as shadcn/ui, Magic UI or SmoothUI. Note the source and keep its
+  copyright notice in a comment at the top of the file. Paid or restricted kits (Aceternity UI,
+  shadcn.io blocks, shadcnstudio Pro) cannot ship in an AGPL repository.
 
 ## Testing
 
