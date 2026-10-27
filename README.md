@@ -6,14 +6,15 @@ Tangent keeps every workspace in its own Durable Object, so edits reach everyone
 app stays fast at any size, and the whole thing deploys as a single Worker you can run on your
 own Cloudflare account.
 
-> **Status: early development.** The sync server, auth and workspaces work end to end. The client
-> sync engine and the issue UI are next. Expect breaking changes.
+> **Status: early development.** Sync (server and client), auth and workspaces work end to end.
+> The issue UI is next. Expect breaking changes.
 
 ## Highlights
 
 - **Realtime by default.** Changes stream over WebSockets to every open client.
-- **Built for offline edits.** Clients apply changes optimistically, and mutations are idempotent
-  and safe to retry. Concurrent edits merge per field instead of overwriting each other.
+- **Instant and offline-ready.** The app opens from a local IndexedDB copy and shows edits
+  before the server confirms them. Edits made offline are kept and sent on reconnect.
+  Concurrent edits merge per field instead of overwriting each other.
 - **Cloudflare-native.** Workers, Durable Objects with SQLite, and D1. No servers, containers or
   external databases.
 - **One deploy.** UI, API, auth and sync ship together as one Worker.
@@ -64,6 +65,7 @@ pnpm db:migrate:remote
 apps/web               The Worker: UI, auth, sync gateway, D1 schema
 packages/protocol      Wire contract shared by client and server
 packages/sync-server   WorkspaceDO: storage, mutations, realtime fan-out
+packages/sync-client   Browser replica: local cache, optimistic edits, one connection per browser
 docs/                  Architecture and design notes
 ```
 
