@@ -8,6 +8,7 @@
 	"files": {
 		"includes": [
 			"**",
+			"!pnpm-lock.yaml",
 			"!**/routeTree.gen.ts",
 			"!**/worker-configuration.d.ts",
 			"!**/drizzle/meta",
