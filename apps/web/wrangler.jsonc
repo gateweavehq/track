@@ -18,5 +18,23 @@
 		"WorkspaceDO": { "type": "durable-object", "storage": "sqlite" }
 	},
 	// Optional: GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, BETTER_AUTH_URL (see src/server/env.d.ts).
-	"secrets": { "required": ["BETTER_AUTH_SECRET"] }
+	"secrets": { "required": ["BETTER_AUTH_SECRET"] },
+	// The top level is production. Staging is a separate Worker with its own database and
+	// workspaces; bindings are not inherited, so they are repeated here.
+	"env": {
+		"staging": {
+			"name": "gateweave-track-staging",
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "gateweave-track-staging",
+					"migrations_dir": "migrations"
+				}
+			],
+			"durable_objects": {
+				"bindings": [{ "name": "WORKSPACE", "class_name": "WorkspaceDO" }]
+			},
+			"secrets": { "required": ["BETTER_AUTH_SECRET"] }
+		}
+	}
 }

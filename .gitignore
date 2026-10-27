@@ -13,5 +13,7 @@ worker-configuration.d.ts
 !.dev.vars.example
 .env
 .env.*
+# Only selects the Wrangler environment for `vite build --mode staging`; holds no secrets.
+!apps/web/.env.staging
 
 .DS_Store
