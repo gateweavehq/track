@@ -1,12 +1,13 @@
 # Contributing to Tangent
 
 Thanks for helping out! This guide covers how to get a working setup and what we look for in a
-pull request.
+pull request. Everyone taking part is expected to follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Setup
 
 ```sh
 pnpm install
+pnpm doctor      # checks Node, pnpm and the local setup, with fixes for anything missing
 pnpm dev:setup
 pnpm dev
 ```
@@ -27,12 +28,14 @@ A bot asks you to sign on your first pull request. To sign, reply with the sente
 ## Before you open a pull request
 
 ```sh
-pnpm check       # Biome lint + format (pnpm format fixes most issues)
-pnpm typecheck
-pnpm test
+pnpm verify      # Biome check, typecheck, tests and a production build: what CI runs
 ```
 
-CI runs the same commands plus a production build.
+`pnpm format` fixes most Biome findings. While iterating, scope a command to one package, for
+example `pnpm --filter @tangent/sync-client test`.
+
+Fill in the pull request template: it asks how you tested the change and whether it needs a
+protocol bump or a migration.
 
 ## Guidelines
 
@@ -59,7 +62,15 @@ We use [Conventional Commits](https://www.conventionalcommits.org): `feat:`, `fi
 `refactor:`, `test:`, `chore:`. Add a scope when it helps, for example
 `fix(sync-server): reject updates to deleted issues`.
 
+## Working with AI coding agents
+
+You are welcome to use one. [AGENTS.md](AGENTS.md) gives agents the project's commands,
+invariants and conventions, and `.claude/skills/` holds step-by-step playbooks for recurring
+tasks such as adding a mutation or changing a schema. You remain responsible for the change:
+review it, run `pnpm verify`, and make sure you can explain it in review.
+
 ## Reporting bugs
 
-Open an issue that includes the steps to reproduce, what you expected, and what happened.
-Security problems should be reported privately to the maintainers, not in a public issue.
+Open an issue using the bug report form: the steps to reproduce, what you expected, and what
+happened. Report security problems privately, as described in [SECURITY.md](SECURITY.md), never
+in a public issue.

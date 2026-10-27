@@ -6,6 +6,9 @@ Tangent keeps every workspace in its own Durable Object, so edits reach everyone
 app stays fast at any size, and the whole thing deploys as a single Worker you can run on your
 own Cloudflare account.
 
+Tangent is the first product of [Gateweave](https://gateweave.com), a family of open-source,
+Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
+
 > **Status: early development.** Sync (server and client), auth and workspaces work end to end.
 > The issue UI is next. Expect breaking changes.
 
@@ -27,10 +30,11 @@ Cloudflare Workers, Durable Objects and D1 · TypeScript 7 · Vitest · Biome
 
 ## Getting started
 
-Requirements: Node.js 22+ and pnpm 12.
+Requirements: Node.js 24 (22+ works) and pnpm 12.
 
 ```sh
 pnpm install
+pnpm doctor      # checks your toolchain and setup, and explains how to fix anything missing
 pnpm dev:setup   # creates apps/web/.dev.vars with a random secret, migrates the local database
 pnpm dev         # http://localhost:3000
 ```
@@ -43,11 +47,13 @@ fill in `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `apps/web/.dev.vars`.
 | Command          | What it does                                             |
 | ---------------- | -------------------------------------------------------- |
 | `pnpm dev`       | Run the app locally with Workers, D1 and Durable Objects |
+| `pnpm doctor`    | Check the local toolchain and setup                      |
 | `pnpm check`     | Lint and format check (Biome)                            |
 | `pnpm format`    | Apply formatting and safe lint fixes                     |
 | `pnpm typecheck` | Type-check every package                                 |
 | `pnpm test`      | Run the test suites                                      |
 | `pnpm build`     | Production build                                         |
+| `pnpm verify`    | Everything CI runs: check, typecheck, test and build     |
 
 ## Deploying
 
@@ -66,14 +72,19 @@ apps/web               The Worker: UI, auth, sync gateway, D1 schema
 packages/protocol      Wire contract shared by client and server
 packages/sync-server   WorkspaceDO: storage, mutations, realtime fan-out
 packages/sync-client   Browser replica: local cache, optimistic edits, one connection per browser
-docs/                  Architecture and design notes
+docs/                  Architecture, roadmap and ecosystem notes
+scripts/               Repository tooling
 ```
 
-Read [docs/architecture.md](docs/architecture.md) for how sync, auth and storage fit together.
+Read [docs/architecture.md](docs/architecture.md) for how sync, auth and storage fit together, and
+[docs/roadmap.md](docs/roadmap.md) for what comes next.
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) and our
+[Code of Conduct](CODE_OF_CONDUCT.md). If you work with an AI coding agent, point it at
+[AGENTS.md](AGENTS.md). Report security issues privately, as described in
+[SECURITY.md](SECURITY.md).
 
 ## License
 
