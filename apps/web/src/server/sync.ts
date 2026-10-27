@@ -12,17 +12,19 @@ export function isSyncRequest(url: URL): boolean {
  * Gateway to a workspace's Durable Object. The DO has no public route; every request passes
  * through here, where the session and membership are checked against D1.
  *
- *   GET /api/sync/:slug/snapshot  full workspace state (JSON)
- *   GET /api/sync/:slug/socket    WebSocket for live sync
+ *   GET  /api/sync/:slug/snapshot  full workspace state (JSON)
+ *   HEAD /api/sync/:slug/snapshot  access check only; clients use it to learn why a socket failed
+ *   GET  /api/sync/:slug/socket    WebSocket for live sync
  */
 export async function handleSyncRequest(request: Request): Promise<Response> {
 	const url = new URL(request.url);
 	const match = SYNC_ROUTE.exec(url.pathname);
 	if (!match) return error(404, "Not found");
-	if (request.method !== "GET") return error(405, "Method not allowed");
 
 	const [, slug, endpoint] = match as unknown as [string, string, "snapshot" | "socket"];
 	const isSocket = endpoint === "socket";
+	const isProbe = request.method === "HEAD" && !isSocket;
+	if (request.method !== "GET" && !isProbe) return error(405, "Method not allowed");
 	if (isSocket && request.headers.get("Upgrade") !== "websocket") {
 		return error(426, "Expected a WebSocket upgrade");
 	}
@@ -36,6 +38,7 @@ export async function handleSyncRequest(request: Request): Promise<Response> {
 	const membership = await findMembership(db, decodeURIComponent(slug), session.user.id);
 	// Same response as a missing workspace, so slugs cannot be probed.
 	if (!membership) return error(404, "Workspace not found");
+	if (isProbe) return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
 
 	const stub = workspaceStub(membership.workspaceId);
 	if (!isSocket) {
