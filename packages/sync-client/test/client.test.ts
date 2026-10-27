@@ -1,6 +1,7 @@
 import { PROTOCOL_VERSION } from "@tangent/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	deleteIdbReplica,
 	MemoryPersistence,
 	MutationError,
 	openIdbPersistence,
@@ -235,6 +236,38 @@ describe("offline", () => {
 		await waitForConvergence(synced, alice);
 		expect(issueBy(alice, "Survives the reload").creatorId).toBe("bob");
 		expect(online.snapshots).toBe(0);
+	});
+
+	it("forgets a workspace whose replica was deleted", async () => {
+		const ws = setup();
+		const key = `forget-${ws.id}`;
+		const other = `keep-${ws.id}`;
+		const alice = await ws.live("alice", { persistence: openIdbPersistence(key) });
+		const kept = await ws.live("alice", { persistence: openIdbPersistence(other) });
+		await alice.mutate(make.team());
+		await waitForConvergence(alice, kept);
+		await alice.close();
+		await kept.close();
+
+		await deleteIdbReplica(key);
+
+		// Offline, a reopened client can only show what storage still holds.
+		const reopen = async (storageKey: string) => {
+			const network = ws.network("alice");
+			network.offline();
+			const client = ws.client("alice", { network, persistence: openIdbPersistence(storageKey) });
+			await waitFor(() => client.getStatus().connection === "offline");
+			return client;
+		};
+		const forgotten = await reopen(key);
+		expect(forgotten.getStatus().loaded).toBe(false);
+		expect(forgotten.getState().teams.size).toBe(0);
+		await forgotten.close();
+
+		const untouched = await reopen(other);
+		await waitFor(() => untouched.getStatus().loaded);
+		expect(untouched.getState().teams.size).toBe(1);
+		await untouched.close();
 	});
 
 	it("starts from a fresh snapshot when the server cannot catch it up", async () => {

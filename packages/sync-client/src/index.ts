@@ -1,6 +1,6 @@
 export { type BrowserSyncClientOptions, createBrowserSyncClient } from "./browser";
 export { MutationError, SyncClient, type SyncClientOptions, type SyncStatus } from "./client";
-export { deleteIdbReplicas, openIdbPersistence } from "./idb";
+export { deleteIdbReplica, deleteIdbReplicas, openIdbPersistence } from "./idb";
 export { uuidv7 } from "./ids";
 export { MemoryPersistence, type Persistence, type StoredReplica } from "./persistence";
 export type { PendingMutation, SyncState } from "./store";
