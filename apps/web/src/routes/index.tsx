@@ -1,3 +1,4 @@
+import { deleteIdbReplicas } from "@tangent/sync-client";
 import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Button } from "#/components/ui/button";
@@ -33,6 +34,8 @@ function WorkspacesPage() {
 					size="sm"
 					onClick={async () => {
 						await authClient.signOut();
+						// Workspace replicas are cached per user; leave nothing behind on a shared device.
+						await deleteIdbReplicas().catch(() => {});
 						await router.invalidate();
 					}}
 				>
