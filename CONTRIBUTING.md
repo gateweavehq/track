@@ -10,6 +10,7 @@ pnpm install
 pnpm doctor      # checks Node, pnpm and the local setup, with fixes for anything missing
 pnpm dev:setup
 pnpm dev
+pnpm dev:seed    # in a second terminal: sample people, teams and issues to work with
 ```
 
 See the [README](README.md) for details and [docs/architecture.md](docs/architecture.md) for how

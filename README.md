@@ -38,16 +38,19 @@ pnpm install
 pnpm doctor      # checks your toolchain and setup, and explains how to fix anything missing
 pnpm dev:setup   # creates apps/web/.dev.vars with a random secret, migrates the local database
 pnpm dev         # http://localhost:3000
+pnpm dev:seed    # in a second terminal: a sample workspace with people, teams and issues
 ```
 
-Sign up with any email and password, then create a workspace. To enable "Sign in with GitHub",
-fill in `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `apps/web/.dev.vars`.
+The seed prints the sample accounts to sign in with. You can also sign up with any email and
+password and create a workspace from scratch. To enable "Sign in with GitHub", fill in
+`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `apps/web/.dev.vars`.
 
 ## Scripts
 
 | Command          | What it does                                             |
 | ---------------- | -------------------------------------------------------- |
 | `pnpm dev`       | Run the app locally with Workers, D1 and Durable Objects |
+| `pnpm dev:seed`  | Fill the running app with a sample workspace             |
 | `pnpm doctor`    | Check the local toolchain and setup                      |
 | `pnpm check`     | Lint and format check (Biome)                            |
 | `pnpm format`    | Apply formatting and safe lint fixes                     |

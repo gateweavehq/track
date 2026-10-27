@@ -10,6 +10,7 @@
 	"scripts": {
 		"dev": "pnpm --filter @gateweave/track-web dev",
 		"dev:setup": "pnpm --filter @gateweave/track-web dev:setup",
+		"dev:seed": "pnpm --filter @gateweave/track-web dev:seed",
 		"doctor": "node scripts/doctor.mjs",
 		"build": "pnpm -r build",
 		"typecheck": "pnpm -r typecheck",

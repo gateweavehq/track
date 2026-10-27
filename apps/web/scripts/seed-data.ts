@@ -1,0 +1,372 @@
+// Sample content for `pnpm dev:seed`: a small product company with a few people, teams and
+// issues in every state. Names and addresses are fictional; example.com never receives mail.
+import type { IssuePriority, IssueStatus, MemberRole } from "@gateweave/track-protocol";
+
+export const PASSWORD = "track-demo-password";
+
+export const WORKSPACE_NAME = "Acme";
+
+export type PersonKey = "maya" | "sam" | "lena" | "diego";
+
+export interface Person {
+	name: string;
+	email: string;
+	role: MemberRole;
+}
+
+export const PEOPLE: Record<PersonKey, Person> = {
+	maya: { name: "Maya Chen", email: "maya@example.com", role: "owner" },
+	sam: { name: "Sam Okafor", email: "sam@example.com", role: "admin" },
+	lena: { name: "Lena Fischer", email: "lena@example.com", role: "member" },
+	diego: { name: "Diego Ramos", email: "diego@example.com", role: "member" },
+};
+
+export type TeamKey = "ENG" | "DES" | "GRO";
+
+export const TEAMS: Record<TeamKey, string> = {
+	ENG: "Engineering",
+	DES: "Design",
+	GRO: "Growth",
+};
+
+export interface SampleIssue {
+	team: TeamKey;
+	title: string;
+	status: IssueStatus;
+	priority: IssuePriority;
+	assignee: PersonKey | null;
+	by: PersonKey;
+	description?: string;
+}
+
+export const ISSUES: SampleIssue[] = [
+	{
+		team: "ENG",
+		title: "Sign-in fails when the email has uppercase letters",
+		status: "in_progress",
+		priority: 1,
+		assignee: "sam",
+		by: "lena",
+		description:
+			"Signing up as Lena@acme.test works, but signing in with the same address fails with " +
+			"'Invalid email or password'. Lowercase works.\n\nNormalize the address on both paths and " +
+			"add a test for mixed case.",
+	},
+	{
+		team: "ENG",
+		title: "Crash when pasting an image into the description",
+		status: "todo",
+		priority: 1,
+		assignee: "sam",
+		by: "diego",
+		description: "Paste a screenshot into an issue description: the editor goes blank.",
+	},
+	{
+		team: "ENG",
+		title: "Search issues by title from the command palette",
+		status: "in_progress",
+		priority: 2,
+		assignee: "maya",
+		by: "maya",
+	},
+	{
+		team: "ENG",
+		title: "Slow first load on large workspaces",
+		status: "in_progress",
+		priority: 2,
+		assignee: "lena",
+		by: "sam",
+		description:
+			"A workspace with 20,000 issues takes about four seconds to open without a cache. " +
+			"Profile the snapshot path and stream it if needed.",
+	},
+	{
+		team: "ENG",
+		title: "Flaky test: realtime sync drops the last edit",
+		status: "in_review",
+		priority: 2,
+		assignee: "lena",
+		by: "lena",
+	},
+	{
+		team: "ENG",
+		title: "Rate limit the sign-up endpoint",
+		status: "todo",
+		priority: 2,
+		assignee: null,
+		by: "sam",
+	},
+	{
+		team: "ENG",
+		title: "Audit log for admin actions",
+		status: "backlog",
+		priority: 2,
+		assignee: null,
+		by: "maya",
+	},
+	{
+		team: "ENG",
+		title: "Paginate the activity feed",
+		status: "todo",
+		priority: 3,
+		assignee: "diego",
+		by: "sam",
+	},
+	{
+		team: "ENG",
+		title: "Webhooks for issue changes",
+		status: "backlog",
+		priority: 3,
+		assignee: null,
+		by: "maya",
+	},
+	{
+		team: "ENG",
+		title: "Move background jobs to Queues",
+		status: "backlog",
+		priority: 3,
+		assignee: null,
+		by: "sam",
+	},
+	{
+		team: "ENG",
+		title: "Keyboard shortcut to copy the issue link",
+		status: "in_review",
+		priority: 4,
+		assignee: "diego",
+		by: "diego",
+	},
+	{
+		team: "ENG",
+		title: "Export issues as CSV",
+		status: "backlog",
+		priority: 4,
+		assignee: null,
+		by: "lena",
+	},
+	{
+		team: "ENG",
+		title: "Upgrade to TypeScript 7",
+		status: "done",
+		priority: 3,
+		assignee: "sam",
+		by: "sam",
+	},
+	{
+		team: "ENG",
+		title: "Set up error tracking for the Worker",
+		status: "done",
+		priority: 3,
+		assignee: "sam",
+		by: "maya",
+	},
+	{
+		team: "ENG",
+		title: "Disabled buttons are hard to read in dark mode",
+		status: "done",
+		priority: 4,
+		assignee: "diego",
+		by: "lena",
+	},
+	{
+		team: "ENG",
+		title: "Remove the legacy v1 API",
+		status: "canceled",
+		priority: 0,
+		assignee: null,
+		by: "sam",
+		description: "Nobody uses it any more, and it was never public.",
+	},
+	{
+		team: "DES",
+		title: "Mobile layout for the issue page",
+		status: "in_review",
+		priority: 2,
+		assignee: "diego",
+		by: "maya",
+	},
+	{
+		team: "DES",
+		title: "Empty states for lists and boards",
+		status: "in_progress",
+		priority: 3,
+		assignee: "diego",
+		by: "diego",
+	},
+	{
+		team: "DES",
+		title: "Onboarding checklist for new workspaces",
+		status: "todo",
+		priority: 2,
+		assignee: "diego",
+		by: "maya",
+		description:
+			"Three steps: create a team, invite someone, create the first issue. It disappears " +
+			"once all three are done.",
+	},
+	{
+		team: "DES",
+		title: "Accessible focus rings across the app",
+		status: "todo",
+		priority: 2,
+		assignee: "maya",
+		by: "lena",
+	},
+	{
+		team: "DES",
+		title: "Settings navigation feels hidden",
+		status: "todo",
+		priority: 3,
+		assignee: null,
+		by: "sam",
+	},
+	{
+		team: "DES",
+		title: "Refresh the marketing site hero",
+		status: "backlog",
+		priority: 3,
+		assignee: null,
+		by: "maya",
+	},
+	{
+		team: "DES",
+		title: "Illustrations for the 404 page",
+		status: "backlog",
+		priority: 4,
+		assignee: null,
+		by: "diego",
+	},
+	{
+		team: "DES",
+		title: "Icon set for issue priorities",
+		status: "done",
+		priority: 4,
+		assignee: "diego",
+		by: "diego",
+	},
+	{
+		team: "DES",
+		title: "Design tokens for spacing and radius",
+		status: "done",
+		priority: 3,
+		assignee: "diego",
+		by: "diego",
+	},
+	{
+		team: "DES",
+		title: "Explore a compact density mode",
+		status: "canceled",
+		priority: 0,
+		assignee: null,
+		by: "lena",
+	},
+	{
+		team: "GRO",
+		title: "Launch post for Show HN",
+		status: "todo",
+		priority: 1,
+		assignee: "maya",
+		by: "maya",
+		description:
+			"Lead with the architecture: one Durable Object per workspace, a local replica and " +
+			"instant edits. Link the self-hosting guide and the demo workspace.",
+	},
+	{
+		team: "GRO",
+		title: "Pricing page draft",
+		status: "in_progress",
+		priority: 2,
+		assignee: "maya",
+		by: "maya",
+	},
+	{
+		team: "GRO",
+		title: "Customer interviews: five teams moving off spreadsheets",
+		status: "in_progress",
+		priority: 3,
+		assignee: "maya",
+		by: "maya",
+	},
+	{
+		team: "GRO",
+		title: "Self-hosting guide",
+		status: "todo",
+		priority: 2,
+		assignee: "sam",
+		by: "maya",
+	},
+	{
+		team: "GRO",
+		title: "Demo workspace that resets every night",
+		status: "todo",
+		priority: 2,
+		assignee: "lena",
+		by: "sam",
+	},
+	{
+		team: "GRO",
+		title: "Changelog page",
+		status: "backlog",
+		priority: 3,
+		assignee: null,
+		by: "diego",
+	},
+	{
+		team: "GRO",
+		title: "Referral credits for invited workspaces",
+		status: "backlog",
+		priority: 4,
+		assignee: null,
+		by: "maya",
+	},
+	{
+		team: "GRO",
+		title: "Weekly product metrics email",
+		status: "backlog",
+		priority: 4,
+		assignee: null,
+		by: "sam",
+	},
+];
+
+const VERBS = ["Fix", "Improve", "Refactor", "Document", "Test", "Speed up", "Clean up", "Review"];
+const AREAS = [
+	"the issue list",
+	"the board view",
+	"sign-in",
+	"invitations",
+	"the command palette",
+	"team settings",
+	"offline sync",
+	"the issue page",
+	"keyboard navigation",
+	"the sync gateway",
+];
+
+/** Deterministic filler issues for load testing, spread over every team, state and person. */
+export function generatedIssues(count: number): SampleIssue[] {
+	const teams = Object.keys(TEAMS) as TeamKey[];
+	const people = Object.keys(PEOPLE) as PersonKey[];
+	const statuses: IssueStatus[] = [
+		"backlog",
+		"todo",
+		"in_progress",
+		"in_review",
+		"done",
+		"canceled",
+	];
+	return Array.from({ length: count }, (_, i) => ({
+		team: pick(teams, i),
+		title: `${pick(VERBS, i)} ${pick(AREAS, Math.floor(i / VERBS.length))} (${i + 1})`,
+		status: pick(statuses, Math.floor(i / 3)),
+		priority: pick([0, 1, 2, 3, 4] as const, Math.floor(i / 5)),
+		assignee: i % 4 === 0 ? null : pick(people, Math.floor(i / 2)),
+		by: pick(people, i),
+	}));
+}
+
+function pick<T>(items: readonly T[], i: number): T {
+	const item = items[i % items.length];
+	if (item === undefined) throw new Error("pick() needs a non-empty list");
+	return item;
+}
