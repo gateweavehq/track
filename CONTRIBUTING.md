@@ -13,7 +13,7 @@ pnpm dev
 
 See the [README](README.md) for details and [docs/architecture.md](docs/architecture.md) for how
 the system fits together. Read the architecture doc before changing anything in
-`packages/protocol` or `packages/sync-server`.
+`packages/protocol`, `packages/sync-server` or `packages/sync-client`.
 
 ## Contributor License Agreement
 
@@ -39,7 +39,12 @@ CI runs the same commands plus a production build.
 - **Keep changes focused.** One pull request should cover one concern. Open an issue first for
   large features or anything that changes the sync protocol.
 - **Test behavior, not implementation.** Sync-server tests drive a real Durable Object over real
-  WebSockets (`packages/sync-server/test`). Add a test for every bug fix and every new mutation.
+  WebSockets (`packages/sync-server/test`), and sync-client tests run the client against that
+  same Durable Object (`packages/sync-client/test`). Add a test for every bug fix and every new
+  mutation.
+- **Keep predictions in step with the server.** A new or changed mutation needs its optimistic
+  version in `packages/sync-client/src/optimistic.ts` as well as its handler in
+  `packages/sync-server/src/mutations.ts`.
 - **Protocol changes are breaking changes.** If you change a message or entity shape in
   `packages/protocol`, bump `PROTOCOL_VERSION` and describe the migration in the pull request.
 - **Schema changes need migrations.** Edit the Drizzle schema, then run `pnpm db:generate` in the

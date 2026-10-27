@@ -1,0 +1,41 @@
+{
+	"name": "@tangent/sync-client",
+	"version": "0.0.0",
+	"private": true,
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./react": "./src/react.tsx"
+	},
+	"scripts": {
+		"typecheck": "wrangler types test/worker/worker-configuration.d.ts --config test/worker/wrangler.jsonc && tsc && tsc -p test/worker",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@tangent/protocol": "workspace:*",
+		"idb": "8.0.4"
+	},
+	"peerDependencies": {
+		"react": "^19.0.0"
+	},
+	"peerDependenciesMeta": {
+		"react": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-plugin": "catalog:",
+		"@tangent/sync-server": "workspace:*",
+		"@testing-library/react": "16.3.3",
+		"@types/react": "19.3.0",
+		"@types/react-dom": "19.3.0",
+		"fake-indexeddb": "6.2.6",
+		"happy-dom": "21.0.4",
+		"react": "19.3.1",
+		"react-dom": "19.3.1",
+		"typescript": "catalog:",
+		"vitest": "catalog:",
+		"wrangler": "catalog:"
+	}
+}

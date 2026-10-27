@@ -42,6 +42,7 @@ different protocol versions in production. It also gives self-hosters one thing 
 | `apps/web`             | The Worker: UI, auth, the sync gateway, and the D1 schema                |
 | `packages/protocol`    | Wire contract shared by client and server: entities, mutations, messages |
 | `packages/sync-server` | `WorkspaceDO`: storage, mutation logic, realtime fan-out                 |
+| `packages/sync-client` | Browser replica: IndexedDB cache, optimistic mutations, tab coordination |
 
 `protocol` has no server dependencies, so the browser bundle never pulls in database code.
 
@@ -74,6 +75,10 @@ The Durable Object has **no public route**. Only the Worker can reach it, throug
    the client cannot set.
 
 The DO is keyed by workspace id, not slug, so renaming a workspace does not move its data.
+
+`HEAD /api/sync/:slug/snapshot` runs the same checks without touching the DO. A browser cannot
+see the HTTP status of a refused WebSocket handshake, so the client uses this probe to tell
+"offline" apart from "signed out" or "no longer a member".
 
 ## Sync protocol
 
@@ -151,7 +156,80 @@ An alarm compacts the oplog every six hours. Ops are dropped only when they are 
 the floor, and clients behind it get `reset`. Recorded mutation ids are pruned on the same
 schedule.
 
+## Client sync engine
+
+`packages/sync-client` keeps a replica of one workspace in the browser. Reads are synchronous
+and come from memory, so the UI never waits on the network.
+
+### Replica and rebasing
+
+The replica holds two things: the **confirmed** state, exactly as the server last reported it,
+and the **pending** mutations this browser has made that the server has not confirmed yet. What
+the UI sees is derived: the pending mutations replayed, in order, on top of the confirmed state.
+
+Every server delta updates the confirmed state, and every ack or reject removes a pending
+mutation. Either way the visible state is rebuilt. Server results therefore always win, a
+rejected mutation simply stops being replayed, and no undo logic is needed. Optimistic
+predictions mirror the server's rules closely enough to look right (a new issue gets the next
+number in its team); the server's row replaces the prediction as soon as it arrives.
+
+Tables are copy-on-write. A change to issues leaves the teams and members maps untouched, and
+unchanged rows keep their identity, so memoized selectors stay valid.
+
+### Storage
+
+The replica is stored in IndexedDB, one database per user and workspace (keyed by ids, so a
+renamed workspace keeps its cache). It holds the confirmed rows, the confirmed version and the
+pending mutations. A reload renders straight from storage and then catches up from the oplog,
+without downloading a snapshot. Pending mutations are written with strict durability, because
+until the server has them they exist nowhere else. The database version includes the protocol
+version, so a protocol change discards the old cache instead of misreading it. Signing out
+deletes every replica.
+
+### One connection per browser
+
+When storage is shared, the tabs of a browser elect a **leader** with the Web Locks API. Only the
+leader opens a socket. It writes what the server sends to IndexedDB and then announces it to the
+other tabs over a `BroadcastChannel`. Followers apply the announcements to their own memory and
+send their mutations to the leader the same way. Every tab shows every tab's pending mutations,
+so an edit appears everywhere at once.
+
+Announcing only after the write commits keeps tabs consistent: a follower that misses an
+announcement, or sees a gap in versions, reloads from storage and is guaranteed to find at least
+what it was told about. When the leader closes, the lock passes to the next tab, which connects
+and resends any unacknowledged mutations. Mutation ids make that resend safe.
+
+Where IndexedDB or Web Locks are unavailable, each tab keeps its replica in memory and connects
+on its own.
+
+### Connection lifecycle
+
+1. Without local data, the leader fetches a snapshot first. Otherwise it connects straight away.
+2. It sends `hello` with its confirmed version and applies the catch-up deltas. On `ready` it
+   sends every pending mutation in order.
+3. On `reset` it fetches a fresh snapshot and says `hello` again. Pending mutations survive.
+4. A lost connection is retried with exponential backoff and jitter. Coming back online or
+   returning to the tab retries immediately.
+5. A ping every 30 seconds detects connections that died silently.
+6. A protocol mismatch, an ended session and removal from the workspace are final: the client
+   stops and reports why, so the UI can ask for a reload or a sign-in, or explain.
+
+`mutate()` validates its input, applies it optimistically and returns a promise for the server
+result. The UI does not wait for it. Rejections also reach an `onReject` callback, so the app can
+report them in one place.
+
+### React
+
+`@tangent/sync-client/react` provides `SyncProvider`, `useQuery(selector, isEqual)` and
+`useSyncStatus()`, built on `useSyncExternalStore`. A component re-renders only when its
+selection changes.
+
 ## Testing
 
 `packages/sync-server` tests run inside `workerd` with `@cloudflare/vitest-plugin`. They exercise
 the real Durable Object and SQLite storage over real WebSockets.
+
+`packages/sync-client` tests run in Node against the same Durable Object, hosted by Wrangler's
+local runtime behind a stand-in for the gateway. The client reaches it through its real `fetch`
+and `WebSocket` transport. IndexedDB comes from `fake-indexeddb`, and Node's own
+`BroadcastChannel` and Web Locks run the multi-tab code unchanged.
