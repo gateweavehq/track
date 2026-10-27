@@ -15,10 +15,12 @@ when" holds. For the wider Gateweave product family, see [ecosystem.md](ecosyste
   saves as you type, a command palette, and keyboard shortcuts for every common action.
 - **Boards and manual ordering.** A board view next to each list. Issues are reordered and moved
   between statuses by drag and drop or from the keyboard, with fractional indexes.
+- **Teams, members and invitations.** Settings pages to rename teams and change their keys,
+  invitation links, role changes and removal. A removed member loses access at once, and their
+  browser forgets the workspace.
 
 ## Next: a usable issue tracker
 
-- Team management and member invitations.
 - Labels, comments and an activity history, as new entities and mutations.
 
 **Done when** a small team can run its week in Tangent without falling back to another tool.
@@ -27,6 +29,8 @@ when" holds. For the wider Gateweave product family, see [ecosystem.md](ecosyste
 
 - Email through Cloudflare Email Routing and Email Sending: invitations, password reset,
   notifications.
+- Verified email addresses, and `requireEmailVerificationOnInvitation`, so that an invitation link
+  on its own is no longer enough to join a workspace.
 - A verified one-click "Deploy to Cloudflare" and a self-hosting guide.
 - A public demo workspace.
 - End-to-end tests with Playwright: real IndexedDB, several tabs, going offline and back.
