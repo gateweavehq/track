@@ -60,6 +60,14 @@ export async function openIdbPersistence(key: string): Promise<Persistence> {
 	return persistence;
 }
 
+/**
+ * Deletes the replica stored under `key`, for example once the user has lost access to its
+ * workspace. Tabs that still have it open close their copy and carry on from memory.
+ */
+export async function deleteIdbReplica(key: string): Promise<void> {
+	await deleteDB(DB_PREFIX + key);
+}
+
 /** Deletes every replica stored by this app in this browser, for example on sign-out. */
 export async function deleteIdbReplicas(): Promise<void> {
 	const databases = await indexedDB.databases();
