@@ -21,8 +21,8 @@ the system fits together. Read the architecture doc before changing anything in
 
 Gateweave Track is open source under the AGPL-3.0. The maintainer also offers it under other terms,
 such as a hosted service and commercial licenses, and these help fund the project. So that every
-contribution can be part of both, contributors sign the [CLA](CLA.md) once. You keep the copyright
-to your work.
+contribution can be part of both, contributors sign the [CLA](CLA.md) once, and it covers every
+Gateweave project. You keep the copyright to your work.
 
 A bot asks you to sign on your first pull request. To sign, reply with the sentence it gives you.
 
