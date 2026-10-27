@@ -5,7 +5,7 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev --port 3000",
+		"dev": "vite dev --port 4710 --strictPort",
 		"dev:setup": "node scripts/dev-setup.mjs",
 		"dev:seed": "tsx scripts/seed.ts",
 		"build": "vite build",

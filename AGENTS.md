@@ -35,7 +35,7 @@ root unless noted.
 | `pnpm install`   | Install dependencies                                                         |
 | `pnpm doctor`    | Check the local toolchain and setup, with fixes for anything missing         |
 | `pnpm dev:setup` | One-time: create `apps/web/.dev.vars` and migrate the local D1 database      |
-| `pnpm dev`       | Run the app on http://localhost:3000 (Workers, D1 and Durable Objects local) |
+| `pnpm dev`       | Run the app on http://localhost:4710 (Workers, D1 and Durable Objects local) |
 | `pnpm dev:seed`  | Fill the running app with sample people, teams and issues (`--help`)         |
 | `pnpm check`     | Biome lint and format check (`pnpm format` fixes most findings)              |
 | `pnpm typecheck` | Type-check every package (regenerates Wrangler and route types first)        |

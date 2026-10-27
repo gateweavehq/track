@@ -11,12 +11,14 @@ description: Start Gateweave Track locally (Workers, D1 and Durable Objects via 
 ```sh
 pnpm doctor       # toolchain, setup and port check, with fixes
 pnpm dev:setup    # first time only: .dev.vars + local D1 migrations
-pnpm dev          # http://localhost:3000
+pnpm dev          # http://localhost:4710
 pnpm dev:seed     # sample workspace "acme": 4 people, 3 teams, 34 issues
 ```
 
-- If port 3000 is taken, check whether a Track dev server is already running and reuse it.
-  Otherwise pick another port: `pnpm --filter @gateweave/track-web exec vite dev --port 3001`.
+- Gateweave products use 47xx ports (site 4700, Track 4710, Agents 4720), and `pnpm dev`
+  fails instead of moving when 4710 is taken. Check whether a Track dev server is already
+  running and reuse it. Otherwise pick another port:
+  `pnpm --filter @gateweave/track-web exec vite dev --port 4711`.
 - Don't run two dev servers at once. They would share the local state in
   `apps/web/.wrangler/state`.
 - Server code reloads on save. After installing a dependency, restart the server.
@@ -25,7 +27,7 @@ pnpm dev:seed     # sample workspace "acme": 4 people, 3 teams, 34 issues
 
 1. Sign in at `/login` as one of the accounts `pnpm dev:seed` prints (all share the password
    `track-demo-password`): `maya@example.com` is the owner, `sam@` an admin, `lena@` and
-   `diego@` members. Pass `--url` if the server is not on port 3000.
+   `diego@` members. Pass `--url` if the server is not on port 4710.
 2. Open `/acme`. The workspace runs on the sync client: the badge in the corner shows the
    connection state and the number of unsynced edits.
 3. Edit, move and create issues. Changes should appear instantly and stay after a reload.

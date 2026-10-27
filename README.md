@@ -37,7 +37,7 @@ Requirements: Node.js 24 (22+ works) and pnpm 12.
 pnpm install
 pnpm doctor      # checks your toolchain and setup, and explains how to fix anything missing
 pnpm dev:setup   # creates apps/web/.dev.vars with a random secret, migrates the local database
-pnpm dev         # http://localhost:3000
+pnpm dev         # http://localhost:4710
 pnpm dev:seed    # in a second terminal: a sample workspace with people, teams and issues
 ```
 

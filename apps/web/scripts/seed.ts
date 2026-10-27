@@ -26,7 +26,7 @@ import {
 
 const { values: args } = parseArgs({
 	options: {
-		url: { type: "string", default: "http://localhost:3000" },
+		url: { type: "string", default: "http://localhost:4710" },
 		slug: { type: "string", default: "acme" },
 		issues: { type: "string", default: "0" },
 		help: { type: "boolean", default: false },
@@ -34,7 +34,7 @@ const { values: args } = parseArgs({
 });
 
 if (args.help) {
-	console.log(`Usage: pnpm dev:seed [--url http://localhost:3000] [--slug acme] [--issues 0]
+	console.log(`Usage: pnpm dev:seed [--url http://localhost:4710] [--slug acme] [--issues 0]
 
   --url     where the dev server runs
   --slug    the workspace to create; an existing one is left alone
