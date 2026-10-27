@@ -28,7 +28,7 @@ export function MemberAvatar({
 	}
 	return (
 		<Avatar className={cn("size-5 text-[10px] font-medium", className)} title={member.name}>
-			{member.image && <AvatarImage src={member.image} alt="" />}
+			{member.image && <AvatarImage src={member.image} alt="" draggable={false} />}
 			<AvatarFallback className={cn(member.removedAt !== null && "opacity-60")}>
 				{initials(member.name)}
 			</AvatarFallback>
