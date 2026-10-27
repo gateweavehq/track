@@ -23,6 +23,16 @@ export const LIST_STATUS_ORDER = [
 	"canceled",
 ] as const satisfies readonly IssueStatus[];
 
+/** The order of columns on a board: the workflow, left to right. */
+export const BOARD_STATUS_ORDER = [
+	"backlog",
+	"todo",
+	"in_progress",
+	"in_review",
+	"done",
+	"canceled",
+] as const satisfies readonly IssueStatus[];
+
 /** Manual order, with the id as a tiebreaker so concurrent inserts still sort the same everywhere. */
 export function compareIssues(a: Issue, b: Issue): number {
 	if (a.sortOrder !== b.sortOrder) return a.sortOrder < b.sortOrder ? -1 : 1;
@@ -34,11 +44,14 @@ export interface StatusGroup {
 	issues: Issue[];
 }
 
-/** Groups issues by status in list order. Every status gets a group, even an empty one. */
-export function groupByStatus(issues: readonly Issue[]): StatusGroup[] {
-	const groups = new Map<IssueStatus, Issue[]>(LIST_STATUS_ORDER.map((status) => [status, []]));
+/** Groups issues by status, in the given order. Every status gets a group, even an empty one. */
+export function groupByStatus(
+	issues: readonly Issue[],
+	order: readonly IssueStatus[] = LIST_STATUS_ORDER,
+): StatusGroup[] {
+	const groups = new Map<IssueStatus, Issue[]>(order.map((status) => [status, []]));
 	for (const issue of issues) groups.get(issue.status)?.push(issue);
-	return LIST_STATUS_ORDER.map((status) => ({
+	return order.map((status) => ({
 		status,
 		issues: (groups.get(status) ?? []).sort(compareIssues),
 	}));
@@ -51,6 +64,39 @@ export function sortOrderAfter(issues: Iterable<Pick<Issue, "sortOrder">>): stri
 		if (last === null || issue.sortOrder > last) last = issue.sortOrder;
 	}
 	return generateKeyBetween(last, null);
+}
+
+/**
+ * A sort order that places an issue at `index` in `sorted`, a list in display order that does
+ * not contain the issue. Issues that share a sort order (two people added them at the same
+ * moment) have no room between them, so the issue goes after all of them.
+ */
+export function sortOrderAt(sorted: readonly Pick<Issue, "sortOrder">[], index: number): string {
+	const before = sorted[index - 1]?.sortOrder ?? null;
+	const after =
+		sorted.slice(Math.max(index, 0)).find((issue) => before === null || issue.sortOrder > before)
+			?.sortOrder ?? null;
+	return generateKeyBetween(before, after);
+}
+
+/**
+ * What changes when `issue` moves to `index` among the issues of `status`. `group` holds that
+ * status's issues in display order and may include the issue itself; `index` counts positions
+ * without it. Returns null when the issue would end up where it already is.
+ */
+export function planMove(
+	group: readonly Issue[],
+	issue: Issue,
+	status: IssueStatus,
+	index: number,
+): { status?: IssueStatus; sortOrder: string } | null {
+	const others = group.filter((other) => other.id !== issue.id);
+	const target = Math.min(Math.max(index, 0), others.length);
+	if (status === issue.status && group.findIndex((other) => other.id === issue.id) === target) {
+		return null;
+	}
+	const sortOrder = sortOrderAt(others, target);
+	return status === issue.status ? { sortOrder } : { status, sortOrder };
 }
 
 /**

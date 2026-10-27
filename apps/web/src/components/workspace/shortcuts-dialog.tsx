@@ -18,12 +18,19 @@ const SHORTCUTS: { group: string; items: { keys: string[][]; label: string }[] }
 		],
 	},
 	{
-		group: "Issue lists",
+		group: "Lists and boards",
 		items: [
 			{ keys: [["J"], ["↓"]], label: "Next issue" },
 			{ keys: [["K"], ["↑"]], label: "Previous issue" },
+			{ keys: [["H"], ["←"]], label: "Previous column" },
+			{ keys: [["L"], ["→"]], label: "Next column" },
+			{ keys: [["Alt", "↑"]], label: "Move the issue up" },
+			{ keys: [["Alt", "↓"]], label: "Move the issue down" },
+			{ keys: [["Alt", "←"]], label: "Move the issue to the previous column" },
+			{ keys: [["Alt", "→"]], label: "Move the issue to the next column" },
 			{ keys: [["Enter"]], label: "Open the selected issue" },
 			{ keys: [["/"]], label: "Filter issues" },
+			{ keys: [[MOD_LABEL, "B"]], label: "Switch between list and board" },
 		],
 	},
 	{
@@ -40,7 +47,7 @@ const SHORTCUTS: { group: string; items: { keys: string[][]; label: string }[] }
 export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
-			<DialogContent className="max-w-md">
+			<DialogContent className="max-h-[85dvh] max-w-md overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>Keyboard shortcuts</DialogTitle>
 					<DialogDescription>Tangent works without a mouse.</DialogDescription>

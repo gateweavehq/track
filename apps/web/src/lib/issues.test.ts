@@ -1,13 +1,16 @@
 import type { Issue } from "@tangent/protocol";
 import { describe, expect, it } from "vitest";
 import {
+	BOARD_STATUS_ORDER,
 	compareIssues,
 	groupByStatus,
 	issueKey,
 	LIST_STATUS_ORDER,
 	matchesQuery,
 	parseIssueKey,
+	planMove,
 	sortOrderAfter,
+	sortOrderAt,
 } from "./issues";
 
 function issue(overrides: Partial<Issue>): Issue {
@@ -90,6 +93,65 @@ describe("ordering and grouping", () => {
 		const next = sortOrderAfter(existing);
 		expect(existing.every((i) => i.sortOrder < next)).toBe(true);
 		expect(sortOrderAfter([])).toEqual(expect.any(String));
+	});
+
+	it("groups in a custom order", () => {
+		const groups = groupByStatus([], BOARD_STATUS_ORDER);
+		expect(groups.map((group) => group.status)).toEqual([...BOARD_STATUS_ORDER]);
+	});
+});
+
+describe("moving issues", () => {
+	const a = issue({ id: "a", sortOrder: "a1" });
+	const b = issue({ id: "b", sortOrder: "a2" });
+	const c = issue({ id: "c", sortOrder: "a3" });
+
+	/** The ids in display order after applying a planned move. */
+	function order(group: Issue[], moved: Issue, sortOrder: string) {
+		return [...group.filter((i) => i.id !== moved.id), { ...moved, sortOrder }]
+			.sort(compareIssues)
+			.map((i) => i.id);
+	}
+
+	it("finds a key at the start, in between and at the end", () => {
+		const sorted = [a, b, c];
+		expect(sortOrderAt(sorted, 0) < "a1").toBe(true);
+		const middle = sortOrderAt(sorted, 2);
+		expect(middle > "a2" && middle < "a3").toBe(true);
+		expect(sortOrderAt(sorted, 3) > "a3").toBe(true);
+		expect(sortOrderAt([], 0)).toEqual(expect.any(String));
+	});
+
+	it("skips past issues that share a sort order", () => {
+		const twins = [a, issue({ id: "x", sortOrder: "a2" }), issue({ id: "y", sortOrder: "a2" }), c];
+		const key = sortOrderAt(twins, 2);
+		expect(key > "a2" && key < "a3").toBe(true);
+	});
+
+	it("reorders within a status", () => {
+		const down = planMove([a, b, c], a, "backlog", 2);
+		expect(down).toEqual({ sortOrder: expect.any(String) });
+		expect(order([a, b, c], a, down?.sortOrder ?? "")).toEqual(["b", "c", "a"]);
+
+		const up = planMove([a, b, c], c, "backlog", 0);
+		expect(order([a, b, c], c, up?.sortOrder ?? "")).toEqual(["c", "a", "b"]);
+	});
+
+	it("moves to another status at a position", () => {
+		const moved = issue({ id: "m", status: "todo", sortOrder: "a9" });
+		const plan = planMove([a, b, c], moved, "backlog", 1);
+		expect(plan?.status).toBe("backlog");
+		expect(order([a, b, c], moved, plan?.sortOrder ?? "")).toEqual(["a", "m", "b", "c"]);
+	});
+
+	it("does nothing when the issue stays where it is", () => {
+		expect(planMove([a, b, c], b, "backlog", 1)).toBeNull();
+	});
+
+	it("clamps positions outside the group", () => {
+		const plan = planMove([a, b, c], a, "backlog", 99);
+		expect(order([a, b, c], a, plan?.sortOrder ?? "")).toEqual(["b", "c", "a"]);
+		expect(planMove([a, b, c], a, "backlog", -5)).toBeNull();
 	});
 });
 

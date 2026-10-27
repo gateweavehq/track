@@ -6,6 +6,9 @@ import { useWorkspace } from "#/components/workspace/context";
 import { formatDateTime, formatShortDate } from "#/lib/dates";
 import { issueKey } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
+import { cn } from "#/lib/utils";
+import { useDraggableIssue } from "./dnd";
+import { DropIndicator } from "./drop-indicator";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 import { AssigneePicker, PriorityPicker, StatusPicker } from "./pickers";
 
@@ -25,7 +28,8 @@ interface IssueRowProps {
 
 /**
  * One issue in a list. The title link stretches over the whole row, so the row opens the issue
- * from anywhere, while the property buttons sit above it and open their menus instead.
+ * from anywhere, while the property buttons sit above it and open their menus instead. Rows can
+ * be dragged to reorder them or to move them to another status.
  */
 export const IssueRow = memo(function IssueRow({
 	issue,
@@ -40,6 +44,7 @@ export const IssueRow = memo(function IssueRow({
 	const { slug } = useWorkspace();
 	const update = useUpdateIssue();
 	const key = issueKey(team, issue);
+	const [rowRef, drag] = useDraggableIssue<HTMLDivElement>(issue.id);
 	const menuProps = (field: IssueField) => ({
 		open: menu === field,
 		onOpenChange: (open: boolean) => onMenuChange(issue.id, open ? field : null),
@@ -47,9 +52,14 @@ export const IssueRow = memo(function IssueRow({
 
 	return (
 		<div
+			ref={rowRef}
 			data-selected={selected}
-			className="relative flex h-10 items-center gap-2 border-b px-3 text-sm last:border-b-0 hover:bg-accent/40 data-[selected=true]:bg-accent sm:px-4"
+			className={cn(
+				"relative flex h-10 items-center gap-2 border-b px-3 text-sm last:border-b-0 hover:bg-accent/40 data-[selected=true]:bg-accent sm:px-4",
+				drag.dragging && "opacity-40",
+			)}
 		>
+			{drag.edge && <DropIndicator edge={drag.edge} />}
 			<PriorityPicker
 				value={issue.priority}
 				onChange={(priority) => update(issue, { priority })}
@@ -79,6 +89,7 @@ export const IssueRow = memo(function IssueRow({
 				to="/$workspace/issue/$issueKey"
 				params={{ workspace: slug, issueKey: key }}
 				onFocus={() => onSelect(issue.id)}
+				draggable={false}
 				className="min-w-0 flex-1 truncate outline-none after:absolute after:inset-0"
 			>
 				<span className="sr-only">{key} </span>
@@ -104,7 +115,8 @@ export const IssueRow = memo(function IssueRow({
 	);
 });
 
-const RowButton = forwardRef<HTMLButtonElement, { label: string; children: ReactNode }>(
+/** A small icon button that opens a property menu, kept above a row's or card's stretched link. */
+export const RowButton = forwardRef<HTMLButtonElement, { label: string; children: ReactNode }>(
 	function RowButton({ label, children, ...props }, ref) {
 		return (
 			<button

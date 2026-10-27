@@ -1,13 +1,16 @@
 import type { Team } from "@tangent/protocol";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useCallback } from "react";
 import { IssuesPage } from "#/components/issues/issues-page";
 import { Button } from "#/components/ui/button";
 import { useWorkspaceActions } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
 import { useTeamByKey, useTeamIssues } from "#/lib/queries";
 import { useDocumentTitle } from "#/lib/title";
+import { type IssueView, issueViewSearch, useIssueView } from "#/lib/views";
 
 export const Route = createFileRoute("/$workspace/team/$teamKey")({
+	validateSearch: issueViewSearch,
 	component: TeamPage,
 });
 
@@ -32,12 +35,19 @@ function TeamPage() {
 			</Notice>
 		);
 	}
-	return <TeamIssues team={team} />;
+	// Keyed by team, so switching teams starts fresh: its own view, filter and selection.
+	return <TeamIssues key={team.id} team={team} />;
 }
 
 function TeamIssues({ team }: { team: Team }) {
 	const actions = useWorkspaceActions();
 	const issues = useTeamIssues(team.id);
+	const navigate = useNavigate({ from: Route.fullPath });
+	const setUrlView = useCallback(
+		(view: IssueView) => void navigate({ search: { view }, replace: true }),
+		[navigate],
+	);
+	const [view, setView] = useIssueView(`team.${team.id}`, Route.useSearch().view, setUrlView);
 
 	return (
 		<IssuesPage
@@ -49,6 +59,8 @@ function TeamIssues({ team }: { team: Team }) {
 			}
 			issues={issues}
 			defaults={{ teamId: team.id }}
+			view={view}
+			onViewChange={setView}
 			empty={
 				<Notice
 					title="No issues yet"
