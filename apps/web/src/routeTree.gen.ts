@@ -16,6 +16,7 @@ import { Route as WorkspaceIndexRouteImport } from './routes/$workspace/index'
 import { Route as WorkspaceMyIssuesRouteImport } from './routes/$workspace/my-issues'
 import { Route as WorkspaceSettingsRouteImport } from './routes/$workspace/settings'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite.$invitationId'
+import { Route as OauthConsentRouteImport } from './routes/oauth.consent'
 import { Route as WorkspaceIssueIssueKeyRouteImport } from './routes/$workspace/issue.$issueKey'
 import { Route as WorkspaceSettingsIndexRouteImport } from './routes/$workspace/settings.index'
 import { Route as WorkspaceSettingsMembersRouteImport } from './routes/$workspace/settings.members'
@@ -58,6 +59,11 @@ const InviteInvitationIdRoute = InviteInvitationIdRouteImport.update({
   path: '/invite/$invitationId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OauthConsentRoute = OauthConsentRouteImport.update({
+  id: '/oauth/consent',
+  path: '/oauth/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WorkspaceIssueIssueKeyRoute = WorkspaceIssueIssueKeyRouteImport.update({
   id: '/issue/$issueKey',
   path: '/issue/$issueKey',
@@ -97,6 +103,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/invite/$invitationId': typeof InviteInvitationIdRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/$workspace/': typeof WorkspaceIndexRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
@@ -110,6 +117,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/$workspace': typeof WorkspaceIndexRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
@@ -126,6 +134,7 @@ export interface FileRoutesById {
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/invite/$invitationId': typeof InviteInvitationIdRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/$workspace/': typeof WorkspaceIndexRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
@@ -143,6 +152,7 @@ export interface FileRouteTypes {
     | '/$workspace/my-issues'
     | '/$workspace/settings'
     | '/invite/$invitationId'
+    | '/oauth/consent'
     | '/$workspace/'
     | '/$workspace/issue/$issueKey'
     | '/$workspace/settings/members'
@@ -156,6 +166,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/$workspace/my-issues'
     | '/invite/$invitationId'
+    | '/oauth/consent'
     | '/$workspace'
     | '/$workspace/issue/$issueKey'
     | '/$workspace/settings/members'
@@ -171,6 +182,7 @@ export interface FileRouteTypes {
     | '/$workspace/my-issues'
     | '/$workspace/settings'
     | '/invite/$invitationId'
+    | '/oauth/consent'
     | '/$workspace/'
     | '/$workspace/issue/$issueKey'
     | '/$workspace/settings/members'
@@ -185,6 +197,7 @@ export interface RootRouteChildren {
   WorkspaceRoute: typeof WorkspaceRouteWithChildren
   LoginRoute: typeof LoginRoute
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
+  OauthConsentRoute: typeof OauthConsentRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -237,6 +250,13 @@ declare module '@tanstack/react-router' {
       path: '/invite/$invitationId'
       fullPath: '/invite/$invitationId'
       preLoaderRoute: typeof InviteInvitationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/oauth/consent': {
+      id: '/oauth/consent'
+      path: '/oauth/consent'
+      fullPath: '/oauth/consent'
+      preLoaderRoute: typeof OauthConsentRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$workspace/issue/$issueKey': {
@@ -324,6 +344,7 @@ const rootRouteChildren: RootRouteChildren = {
   WorkspaceRoute: WorkspaceRouteWithChildren,
   LoginRoute: LoginRoute,
   InviteInvitationIdRoute: InviteInvitationIdRoute,
+  OauthConsentRoute: OauthConsentRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

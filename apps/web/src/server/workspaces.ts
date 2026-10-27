@@ -30,6 +30,28 @@ export async function findMembership(
 		: null;
 }
 
+export interface WorkspaceSummary {
+	slug: string;
+	name: string;
+	role: MemberRole;
+}
+
+/** Every workspace the user belongs to, by name. */
+export async function listWorkspaces(db: Database, userId: string): Promise<WorkspaceSummary[]> {
+	const rows = await db
+		.select({
+			slug: schema.organization.slug,
+			name: schema.organization.name,
+			role: schema.member.role,
+		})
+		.from(schema.member)
+		.innerJoin(schema.organization, eq(schema.member.organizationId, schema.organization.id))
+		.where(eq(schema.member.userId, userId))
+		.orderBy(schema.organization.name)
+		.all();
+	return rows.map((row) => ({ ...row, role: toRole(row.role) }));
+}
+
 /** Pushes one user's current membership (or its absence) to the workspace's Durable Object. */
 export async function syncMembership(db: Database, workspaceId: string, userId: string) {
 	const row = await membershipQuery(db)

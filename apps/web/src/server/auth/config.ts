@@ -1,7 +1,8 @@
+import { mcp } from "@better-auth/mcp";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { betterAuth } from "better-auth/minimal";
-import { organization } from "better-auth/plugins";
+import { jwt, organization } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { and, eq } from "drizzle-orm";
 import { slugProblem } from "../../lib/slug";
@@ -13,6 +14,11 @@ export interface AuthConfig {
 	secret: string;
 	baseURL?: string | undefined;
 	github?: { clientId: string; clientSecret: string } | undefined;
+	/**
+	 * URL of the MCP endpoint. Turns Track into an OAuth server that AI agents sign in to, with
+	 * tokens bound to this URL. It must be canonical, so it needs a pinned `baseURL`.
+	 */
+	mcpResource?: string | undefined;
 	/** Called after any change to who belongs to a workspace, or with which role. */
 	onMembershipChange?: (workspaceId: string, userId: string) => Promise<void>;
 	/** Called after a workspace is deleted. */
@@ -38,9 +44,13 @@ export function createAuth(config: AuthConfig) {
 		telemetry: { enabled: false },
 		emailAndPassword: { enabled: true },
 		socialProviders: config.github ? { github: config.github } : {},
-		// Returns every pending invitation to any member, ids included (see the hook below). The
-		// app does not use it.
-		disabledPaths: ["/organization/get-full-organization"],
+		disabledPaths: [
+			// Returns every pending invitation to any member, ids included (see the hook below).
+			// The app does not use it.
+			"/organization/get-full-organization",
+			// The JWT plugin's session-to-token exchange. Agents get tokens through OAuth instead.
+			"/token",
+		],
 		hooks: {
 			before: createAuthMiddleware(async (ctx) => {
 				if (ctx.path !== "/organization/list-invitations") return;
@@ -105,6 +115,25 @@ export function createAuth(config: AuthConfig) {
 					},
 				},
 			}),
+			...(config.mcpResource
+				? [
+						// Signs access tokens; the MCP endpoint verifies them against its JWKS. Sessions
+						// are not turned into JWTs: tokens come only from the OAuth flow.
+						jwt({ disableSettingJwtHeader: true }),
+						mcp({
+							resource: config.mcpResource,
+							loginPage: "/login",
+							consentPage: "/oauth/consent",
+							scopes: ["openid", "profile", "email", "offline_access", MCP_SCOPE],
+							// MCP clients register themselves. Anyone can register a client, so the
+							// consent page names where the grant will go, and consent is never skipped.
+							allowDynamicClientRegistration: true,
+							allowUnauthenticatedClientRegistration: true,
+							// Some clients leave out application_type; infer it from the redirect URIs.
+							clientRegistrationDefaultApplicationType: "infer",
+						}),
+					]
+				: []),
 			// Must stay last: forwards Set-Cookie headers from server-side auth calls.
 			tanstackStartCookies(),
 		],
@@ -114,6 +143,9 @@ export function createAuth(config: AuthConfig) {
 export type Auth = ReturnType<typeof createAuth>;
 
 export const INVITATION_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
+
+/** Lets an agent act as the user in Track: read and change what the user can. */
+export const MCP_SCOPE = "track";
 
 /** Owners and admins can invite, matching Better Auth's default access control. */
 function canInvite(role: string) {

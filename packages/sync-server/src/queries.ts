@@ -52,6 +52,15 @@ export function findIssues(db: Db, query: IssueQuery): Issue[] {
 		.map(toIssue);
 }
 
+export function findIssueById(db: Db, id: string): Issue | undefined {
+	const row = db
+		.select()
+		.from(schema.issues)
+		.where(and(eq(schema.issues.id, id), isNull(schema.issues.deletedAt)))
+		.get();
+	return row && toIssue(row);
+}
+
 /** A live issue by its human-readable key, such as `ENG` and 42 for `ENG-42`. */
 export function findIssueByKey(db: Db, teamKey: string, number: number): Issue | undefined {
 	const row = db

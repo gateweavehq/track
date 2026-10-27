@@ -534,7 +534,7 @@ describe("server-side clients", () => {
 		expect(await ids({ limit: 1 })).toHaveLength(1);
 	});
 
-	it("looks issues up by key and knows the last sort order", async () => {
+	it("looks issues up by id and key, and knows the last sort order", async () => {
 		const { workspace, admin } = await withTeam();
 		await createIssue(admin, "issue-1");
 		await admin.apply({
@@ -542,6 +542,8 @@ describe("server-side clients", () => {
 			args: { id: "issue-2", teamId: TEAM_ID, title: "Later", sortOrder: "b5" },
 		});
 
+		expect(await workspace.issue("issue-2")).toMatchObject({ number: 2, title: "Later" });
+		expect(await workspace.issue("missing")).toBeNull();
 		expect(await workspace.issueByKey("ENG", 2)).toMatchObject({ id: "issue-2" });
 		expect(await workspace.issueByKey("ENG", 3)).toBeNull();
 		expect(await workspace.issueByKey("OPS", 1)).toBeNull();

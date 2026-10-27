@@ -4,11 +4,13 @@ import { z } from "zod";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
-import { authClient } from "#/lib/auth-client";
+import { authClient, inAuthorizationFlow } from "#/lib/auth-client";
 import { safeRedirect } from "#/lib/redirect";
 import { getAuthOptions, getSession } from "#/lib/session";
 
-const loginSearch = z.object({
+// Loose, so the parameters of an agent's authorization request stay in the URL. The OAuth client
+// plugin reads them from there when signing in.
+const loginSearch = z.looseObject({
 	/** Where to go once signed in, such as the invitation that sent the user here. */
 	redirect: z.string().optional().catch(undefined),
 	/** Prefills the email field, for example with the address an invitation was sent to. */
@@ -18,7 +20,9 @@ const loginSearch = z.object({
 
 export const Route = createFileRoute("/login")({
 	validateSearch: loginSearch,
-	beforeLoad: async ({ search }) => {
+	beforeLoad: async ({ search, location }) => {
+		// An authorization request can ask a signed-in user to sign in again (`prompt=login`).
+		if (inAuthorizationFlow(location.searchStr)) return;
 		if (await getSession()) throw redirect({ href: safeRedirect(search.redirect) ?? "/" });
 	},
 	loader: () => getAuthOptions(),
@@ -45,11 +49,14 @@ function LoginPage() {
 			mode === "sign-in"
 				? await authClient.signIn.email({ email, password })
 				: await authClient.signUp.email({ email, password, name: String(form.get("name")) });
-		setPending(false);
 		if (result.error) {
+			setPending(false);
 			setError(result.error.message ?? "Something went wrong");
 			return;
 		}
+		// The auth client is already on its way back to the agent's authorization.
+		if (inAuthorizationFlow(window.location.search)) return;
+		setPending(false);
 		await router.invalidate();
 		await router.navigate({ href: next });
 	}
