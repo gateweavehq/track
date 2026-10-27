@@ -75,6 +75,10 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-[GNU Affero General Public License v3.0](LICENSE). You can self-host, use and modify Tangent
-freely. If you run a modified version as a network service, you must make your changes available
-to its users under the same license.
+Copyright © 2026 Yiğit Tanrıverdi.
+
+Tangent is licensed under the [GNU Affero General Public License v3.0](LICENSE). You can
+self-host, use and modify Tangent freely. If you run a modified version as a network service, you
+must make your changes available to its users under the same license.
+
+Contributions are accepted under the [Contributor License Agreement](CLA.md).

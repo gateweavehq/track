@@ -15,6 +15,15 @@ See the [README](README.md) for details and [docs/architecture.md](docs/architec
 the system fits together. Read the architecture doc before changing anything in
 `packages/protocol` or `packages/sync-server`.
 
+## Contributor License Agreement
+
+Tangent is open source under the AGPL-3.0. The maintainer also offers it under other terms,
+such as a hosted service and commercial licenses, and these help fund the project. So that every
+contribution can be part of both, contributors sign the [CLA](CLA.md) once. You keep the
+copyright to your work.
+
+A bot asks you to sign on your first pull request. To sign, reply with the sentence it gives you.
+
 ## Before you open a pull request
 
 ```sh
