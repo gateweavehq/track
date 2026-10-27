@@ -82,6 +82,10 @@ npx wrangler secret put BETTER_AUTH_SECRET --env staging    # staging
 
 From then on, apply migrations before deploying, so new code never meets an old schema.
 
+Gateweave Cloud deploys itself from GitHub Actions (`.github/workflows/deploy.yml`): every green
+build of `main` goes to staging, and publishing a release deploys that tag to production. Forks
+skip those jobs.
+
 Each Worker answers on its `workers.dev` address. To serve Track on your own domain, add a custom
 domain to the Worker in the Cloudflare dashboard (Workers & Pages → the Worker → Settings →
 Domains & Routes), or add `"routes": [{ "pattern": "track.example.com", "custom_domain": true }]`
