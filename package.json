@@ -10,11 +10,13 @@
 	"scripts": {
 		"dev": "pnpm --filter @tangent/web dev",
 		"dev:setup": "pnpm --filter @tangent/web dev:setup",
+		"doctor": "node scripts/doctor.mjs",
 		"build": "pnpm -r build",
 		"typecheck": "pnpm -r typecheck",
 		"test": "pnpm -r test",
 		"check": "biome check",
-		"format": "biome check --write"
+		"format": "biome check --write",
+		"verify": "pnpm check && pnpm typecheck && pnpm test && pnpm build"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.6.3",
