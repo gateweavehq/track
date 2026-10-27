@@ -61,7 +61,8 @@ database across products.
 
 Tangent's sync engine is general except for its domain: its entities, mutation schemas, server
 handlers and client predictions. When the second product starts, extract the engine into a
-`@gateweave/sync` package that takes a domain definition and runs it.
+`@gateweave/sync` package that takes a domain definition and runs it. The `@gateweave` npm
+organization is already reserved for shared packages like this one.
 
 The seams are already in place. The protocol separates messages from mutations. The server
 dispatches through `applyMutation`. The client replays `optimistic.ts` on a `Replica` whose tables
@@ -134,7 +135,6 @@ same time as the sync engine. Every product gets the same keyboard-first command
 - **GitHub organization.** The `gateweave` name is taken by an inactive personal account;
   `gateweavehq` is free. Move this repository there before it goes public; GitHub redirects the
   old URLs.
-- **npm scope.** `@gateweave` is free. Reserve it before publishing any package.
 - **CLA scope.** The CLA currently covers "Tangent". Widen it to all Gateweave projects before the
   first outside contributor signs, so nobody has to sign twice.
 - **Repository layout.** Products as separate repositories with shared packages published from a
