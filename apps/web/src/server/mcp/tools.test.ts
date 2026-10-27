@@ -1,4 +1,11 @@
-import type { Issue, Member, Mutation, MutationInput, Team } from "@gateweave/track-protocol";
+import type {
+	Issue,
+	Label,
+	Member,
+	Mutation,
+	MutationInput,
+	Team,
+} from "@gateweave/track-protocol";
 import { mutationSchema } from "@gateweave/track-protocol";
 import type { IssueQuery, MemberProfile, MutateResult } from "@gateweave/track-sync-server";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
@@ -32,17 +39,19 @@ class FakeWorkspace implements WorkspaceAccess {
 	readonly slug = "acme";
 	readonly me = me;
 	issues_: Issue[] = [];
+	labels: Label[] = [];
 	mutations: Mutation[] = [];
 	nextResult: MutateResult | null = null;
 	#version = 10;
 
 	async directory() {
-		return { teams: [team], members: [{ ...me, removedAt: null }, sam] };
+		return { teams: [team], labels: this.labels, members: [{ ...me, removedAt: null }, sam] };
 	}
 	async issues(query: IssueQuery) {
 		return this.issues_
 			.filter((issue) => query.assigneeId === undefined || issue.assigneeId === query.assigneeId)
 			.filter((issue) => !query.statuses || query.statuses.includes(issue.status))
+			.filter((issue) => query.labelId === undefined || issue.labelIds.includes(query.labelId))
 			.slice(0, query.limit);
 	}
 	async issue(id: string) {
@@ -66,10 +75,10 @@ class FakeWorkspace implements WorkspaceAccess {
 		if (this.nextResult) return this.nextResult;
 		const version = ++this.#version;
 		if (mutation.name === "issue.create") {
-			const { id, teamId, title, description, status, priority, assigneeId, sortOrder } =
+			const { id, teamId, title, description, status, priority, assigneeId, labelIds, sortOrder } =
 				mutation.args;
 			this.issues_.push({
-				...{ id, teamId, title, description, status, priority, assigneeId, sortOrder },
+				...{ id, teamId, title, description, status, priority, assigneeId, labelIds, sortOrder },
 				number: this.issues_.length + 1,
 				creatorId: me.id,
 				version,
@@ -79,6 +88,16 @@ class FakeWorkspace implements WorkspaceAccess {
 		} else if (mutation.name === "issue.update") {
 			const issue = this.issues_.find((issue) => issue.id === mutation.args.id);
 			if (issue) Object.assign(issue, mutation.args.patch, { version });
+		} else if (mutation.name === "issue.addLabel" || mutation.name === "issue.removeLabel") {
+			const { id, labelId } = mutation.args;
+			const issue = this.issues_.find((issue) => issue.id === id);
+			if (issue) {
+				const rest = issue.labelIds.filter((other) => other !== labelId);
+				issue.labelIds = mutation.name === "issue.addLabel" ? [...rest, labelId] : rest;
+				issue.version = version;
+			}
+		} else if (mutation.name === "label.create") {
+			this.labels.push({ ...mutation.args, createdAt: 0, updatedAt: 0 });
 		}
 		return { ok: true, version };
 	}
@@ -118,6 +137,7 @@ describe("Track MCP tools", () => {
 		const { tools } = await client.listTools();
 		expect(tools.map((tool) => tool.name).sort()).toEqual([
 			"create_issue",
+			"create_label",
 			"get_issue",
 			"get_workspace",
 			"list_workspaces",
@@ -132,6 +152,7 @@ describe("Track MCP tools", () => {
 		});
 		expect((await call("get_workspace", { workspace: "acme" })).structuredContent).toEqual({
 			teams: [{ key: "ENG", name: "Engineering" }],
+			labels: [],
 			members: [
 				{ id: me.id, name: "Maya", email: "maya@example.com", role: "owner" },
 				{ id: sam.id, name: "Sam", email: "sam@example.com", role: "member" },
@@ -265,5 +286,45 @@ describe("Track MCP tools", () => {
 		expect(found.structuredContent).toMatchObject({ key: "ENG-1", description: "Body" });
 		expect(missing.content).toEqual([{ type: "text", text: "Issue ENG-9 not found." }]);
 		expect(malformed.isError).toBe(true);
+	});
+
+	it("creates labels, with a color picked from the name unless given", async () => {
+		const picked = await call("create_label", { workspace: "acme", name: "Bug" });
+		const given = await call("create_label", { workspace: "acme", name: "Docs", color: "#0090ff" });
+		const duplicate = await call("create_label", { workspace: "acme", name: "bug" });
+
+		expect(picked.structuredContent).toEqual({ name: "Bug", color: expect.stringMatching(/^#/) });
+		expect(given.structuredContent).toEqual({ name: "Docs", color: "#0090ff" });
+		expect(duplicate.isError).toBe(true);
+		expect(workspace.mutations.filter((m) => m.name === "label.create")).toHaveLength(2);
+	});
+
+	it("labels issues by name, and finds them by label", async () => {
+		await call("create_label", { workspace: "acme", name: "Bug" });
+		await call("create_label", { workspace: "acme", name: "Docs" });
+		const issue = await created({ title: "Broken link", labels: ["bug"] });
+		await created({ title: "Unlabeled" });
+
+		const updated = await call("update_issue", {
+			workspace: "acme",
+			key: "ENG-1",
+			add_labels: ["Docs"],
+			remove_labels: ["Bug"],
+		});
+		const found = await call("search_issues", { workspace: "acme", label: "docs" });
+		const unknown = await call("update_issue", {
+			workspace: "acme",
+			key: "ENG-1",
+			add_labels: ["Nope"],
+		});
+
+		expect(issue).toMatchObject({ key: "ENG-1", labels: ["Bug"] });
+		expect(updated.structuredContent).toMatchObject({ labels: ["Docs"] });
+		// Label changes are their own mutations, never a patch that could conflict.
+		expect(workspace.mutations.map((m) => m.name)).not.toContain("issue.update");
+		expect(found.structuredContent).toMatchObject({ issues: [{ key: "ENG-1" }] });
+		expect(unknown.content).toEqual([
+			{ type: "text", text: 'No label "Nope". Labels: Bug, Docs. Make one with create_label.' },
+		]);
 	});
 });

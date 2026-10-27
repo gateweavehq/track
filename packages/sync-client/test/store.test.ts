@@ -13,12 +13,19 @@ const issue: Issue = {
 	priority: 0,
 	assigneeId: null,
 	creatorId: "alice",
+	labelIds: [],
 	sortOrder: "a0",
 	version: 2,
 	createdAt: 2,
 	updatedAt: 2,
 };
-const snapshot: Snapshot = { version: 2, teams: [team], issues: [issue], members: [] };
+const snapshot: Snapshot = {
+	version: 2,
+	teams: [team],
+	issues: [issue],
+	labels: [],
+	members: [],
+};
 
 function replica(): Replica {
 	const r = new Replica("alice");
@@ -117,6 +124,7 @@ describe("Replica", () => {
 				status: "backlog",
 				priority: 0,
 				assigneeId: null,
+				labelIds: [],
 				sortOrder: "a1",
 			},
 		});
@@ -142,6 +150,65 @@ describe("Replica", () => {
 		);
 		expect(r.getState().issues.size).toBe(1);
 		expect(r.pending).toHaveLength(1);
+	});
+
+	it("predicts label changes, and replays them safely over the server's result", () => {
+		const r = replica();
+		r.addPending(
+			pending("m1", { name: "label.create", args: { id: "l1", name: "Bug", color: "#e5484d" } }),
+			pending("m2", { name: "issue.addLabel", args: { id: "i1", labelId: "l1" } }),
+			pending("m3", { name: "issue.addLabel", args: { id: "i1", labelId: "l1" } }),
+		);
+		expect(r.getState().labels.get("l1")).toMatchObject({ name: "Bug" });
+		expect(r.getState().issues.get("i1")?.labelIds).toEqual(["l1"]);
+
+		// The server has applied all three; the acks have not arrived yet.
+		const label = { id: "l1", name: "Bug", color: "#e5484d", createdAt: 3, updatedAt: 3 };
+		r.applyOps([
+			{ version: 3, entity: "label", id: "l1", op: "put", data: label },
+			put(4, { ...issue, labelIds: ["l1"], version: 4 }),
+		]);
+		expect(r.getState().issues.get("i1")?.labelIds).toEqual(["l1"]);
+
+		r.addPending(pending("m4", { name: "issue.removeLabel", args: { id: "i1", labelId: "l1" } }));
+		expect(r.getState().issues.get("i1")?.labelIds).toEqual([]);
+	});
+
+	it("predicts a label's deletion on every issue that has it", () => {
+		const r = replica();
+		const label = { id: "l1", name: "Bug", color: "#e5484d", createdAt: 3, updatedAt: 3 };
+		r.applyOps([
+			{ version: 3, entity: "label", id: "l1", op: "put", data: label },
+			put(4, { ...issue, labelIds: ["l1"], version: 4 }),
+		]);
+
+		r.addPending(pending("m1", { name: "label.delete", args: { id: "l1" } }));
+
+		expect(r.getState().labels.has("l1")).toBe(false);
+		expect(r.getState().issues.get("i1")?.labelIds).toEqual([]);
+	});
+
+	it("leaves issues with unknown labels to the server", () => {
+		const r = replica();
+		r.addPending(
+			pending("m1", {
+				name: "issue.create",
+				args: {
+					id: "i2",
+					teamId: "t1",
+					title: "Labeled",
+					description: null,
+					status: "backlog",
+					priority: 0,
+					assigneeId: null,
+					labelIds: ["unknown"],
+					sortOrder: "a1",
+				},
+			}),
+			pending("m2", { name: "issue.addLabel", args: { id: "i1", labelId: "unknown" } }),
+		);
+		expect(r.getState().issues.has("i2")).toBe(false);
+		expect(r.getState().issues.get("i1")?.labelIds).toEqual([]);
 	});
 
 	it("only replaces state with newer snapshots when asked to", () => {

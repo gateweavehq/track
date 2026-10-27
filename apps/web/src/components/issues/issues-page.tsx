@@ -6,7 +6,7 @@ import { type IssueDefaults, useWorkspaceActions } from "#/components/workspace/
 import { Notice } from "#/components/workspace/notice";
 import { MOD_LABEL, useHotkeys } from "#/lib/hotkeys";
 import { issueKey, matchesQuery } from "#/lib/issues";
-import { useMembersById, useTeamsById } from "#/lib/queries";
+import { useLabelsById, useMembersById, useTeamsById } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import type { IssueView } from "#/lib/views";
 import { useDragAutoScroll } from "./dnd";
@@ -37,6 +37,7 @@ export function IssuesPage({
 	const actions = useWorkspaceActions();
 	const teams = useTeamsById();
 	const members = useMembersById();
+	const labels = useLabelsById();
 	const [query, setQuery] = useState("");
 	const deferredQuery = useDeferredValue(query);
 	const filterRef = useRef<HTMLInputElement>(null);
@@ -57,9 +58,10 @@ export function IssuesPage({
 				issueKey(teams.get(issue.teamId), issue),
 				issue.title,
 				(issue.assigneeId && members.get(issue.assigneeId)?.name) || "",
+				...issue.labelIds.map((id) => labels.get(id)?.name ?? ""),
 			),
 		);
-	}, [issues, deferredQuery, teams, members]);
+	}, [issues, deferredQuery, teams, members, labels]);
 
 	const emptyState = query.trim() ? (
 		<Notice title="No matching issues">Nothing here matches “{query.trim()}”.</Notice>

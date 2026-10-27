@@ -19,6 +19,7 @@ import { Route as InviteInvitationIdRouteImport } from './routes/invite.$invitat
 import { Route as OauthConsentRouteImport } from './routes/oauth.consent'
 import { Route as WorkspaceIssueIssueKeyRouteImport } from './routes/$workspace/issue.$issueKey'
 import { Route as WorkspaceSettingsIndexRouteImport } from './routes/$workspace/settings.index'
+import { Route as WorkspaceSettingsLabelsRouteImport } from './routes/$workspace/settings.labels'
 import { Route as WorkspaceSettingsMembersRouteImport } from './routes/$workspace/settings.members'
 import { Route as WorkspaceSettingsTeamsRouteImport } from './routes/$workspace/settings.teams'
 import { Route as WorkspaceTeamTeamKeyRouteImport } from './routes/$workspace/team.$teamKey'
@@ -74,6 +75,11 @@ const WorkspaceSettingsIndexRoute = WorkspaceSettingsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => WorkspaceSettingsRoute,
 } as any)
+const WorkspaceSettingsLabelsRoute = WorkspaceSettingsLabelsRouteImport.update({
+  id: '/labels',
+  path: '/labels',
+  getParentRoute: () => WorkspaceSettingsRoute,
+} as any)
 const WorkspaceSettingsMembersRoute =
   WorkspaceSettingsMembersRouteImport.update({
     id: '/members',
@@ -106,6 +112,7 @@ export interface FileRoutesByFullPath {
   '/oauth/consent': typeof OauthConsentRoute
   '/$workspace/': typeof WorkspaceIndexRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
+  '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
   '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
@@ -120,6 +127,7 @@ export interface FileRoutesByTo {
   '/oauth/consent': typeof OauthConsentRoute
   '/$workspace': typeof WorkspaceIndexRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
+  '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
   '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
@@ -137,6 +145,7 @@ export interface FileRoutesById {
   '/oauth/consent': typeof OauthConsentRoute
   '/$workspace/': typeof WorkspaceIndexRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
+  '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
   '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
@@ -155,6 +164,7 @@ export interface FileRouteTypes {
     | '/oauth/consent'
     | '/$workspace/'
     | '/$workspace/issue/$issueKey'
+    | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
     | '/$workspace/settings/teams'
     | '/$workspace/team/$teamKey'
@@ -169,6 +179,7 @@ export interface FileRouteTypes {
     | '/oauth/consent'
     | '/$workspace'
     | '/$workspace/issue/$issueKey'
+    | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
     | '/$workspace/settings/teams'
     | '/$workspace/team/$teamKey'
@@ -185,6 +196,7 @@ export interface FileRouteTypes {
     | '/oauth/consent'
     | '/$workspace/'
     | '/$workspace/issue/$issueKey'
+    | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
     | '/$workspace/settings/teams'
     | '/$workspace/team/$teamKey'
@@ -273,6 +285,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceSettingsIndexRouteImport
       parentRoute: typeof WorkspaceSettingsRoute
     }
+    '/$workspace/settings/labels': {
+      id: '/$workspace/settings/labels'
+      path: '/labels'
+      fullPath: '/$workspace/settings/labels'
+      preLoaderRoute: typeof WorkspaceSettingsLabelsRouteImport
+      parentRoute: typeof WorkspaceSettingsRoute
+    }
     '/$workspace/settings/members': {
       id: '/$workspace/settings/members'
       path: '/members'
@@ -305,12 +324,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface WorkspaceSettingsRouteChildren {
+  WorkspaceSettingsLabelsRoute: typeof WorkspaceSettingsLabelsRoute
   WorkspaceSettingsMembersRoute: typeof WorkspaceSettingsMembersRoute
   WorkspaceSettingsTeamsRoute: typeof WorkspaceSettingsTeamsRoute
   WorkspaceSettingsIndexRoute: typeof WorkspaceSettingsIndexRoute
 }
 
 const WorkspaceSettingsRouteChildren: WorkspaceSettingsRouteChildren = {
+  WorkspaceSettingsLabelsRoute: WorkspaceSettingsLabelsRoute,
   WorkspaceSettingsMembersRoute: WorkspaceSettingsMembersRoute,
   WorkspaceSettingsTeamsRoute: WorkspaceSettingsTeamsRoute,
   WorkspaceSettingsIndexRoute: WorkspaceSettingsIndexRoute,

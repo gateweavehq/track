@@ -40,6 +40,8 @@ export interface Issue {
 	priority: IssuePriority;
 	assigneeId: string | null;
 	creatorId: string;
+	/** Ids of the issue's labels, in the order they were added. */
+	labelIds: string[];
 	/** Fractional index used for manual ordering. */
 	sortOrder: string;
 	/** Workspace version of the last write to this issue. Used as `baseVersion` for updates. */
@@ -47,6 +49,18 @@ export interface Issue {
 	createdAt: number;
 	updatedAt: number;
 }
+
+/** A workspace-wide tag for issues, such as "Bug". Names are unique, ignoring case. */
+export interface Label {
+	id: string;
+	name: string;
+	/** `#rrggbb`, lowercase. */
+	color: string;
+	createdAt: number;
+	updatedAt: number;
+}
+
+export const MAX_LABELS_PER_ISSUE = 20;
 
 export interface Member {
 	/** The user's id. */
@@ -62,7 +76,13 @@ export interface Member {
 export interface Entities {
 	team: Team;
 	issue: Issue;
+	label: Label;
 	member: Member;
 }
 export type EntityName = keyof Entities;
-export const ENTITY_NAMES = ["team", "issue", "member"] as const satisfies readonly EntityName[];
+export const ENTITY_NAMES = [
+	"team",
+	"issue",
+	"label",
+	"member",
+] as const satisfies readonly EntityName[];

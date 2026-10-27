@@ -1,9 +1,9 @@
 import { z } from "zod";
-import type { Entities, EntityName, Issue, Member, Team } from "./domain";
+import type { Entities, EntityName, Issue, Label, Member, Team } from "./domain";
 import type { MutationInput } from "./mutations";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";
@@ -76,5 +76,6 @@ export interface Snapshot {
 	version: number;
 	teams: Team[];
 	issues: Issue[];
+	labels: Label[];
 	members: Member[];
 }

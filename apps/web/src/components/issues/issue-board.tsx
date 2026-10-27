@@ -17,6 +17,7 @@ import { cn } from "#/lib/utils";
 import { useDragAutoScroll, useDraggableIssue, useIssueDropZone, useIssueMoves } from "./dnd";
 import { DropIndicator } from "./drop-indicator";
 import { type IssueField, RowButton } from "./issue-row";
+import { LabelChips } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 import { AssigneePicker, PriorityPicker, StatusPicker } from "./pickers";
 
@@ -289,7 +290,7 @@ const IssueCard = memo(function IssueCard({
 				<span className="sr-only">{key} </span>
 				{issue.title}
 			</Link>
-			<div className="mt-1.5 flex items-center">
+			<div className="mt-1.5 flex min-w-0 items-center gap-1">
 				<PriorityPicker
 					value={issue.priority}
 					onChange={(priority) => update(issue, { priority })}
@@ -299,6 +300,7 @@ const IssueCard = memo(function IssueCard({
 						<PriorityIcon priority={issue.priority} />
 					</RowButton>
 				</PriorityPicker>
+				<LabelChips labelIds={issue.labelIds} max={3} />
 			</div>
 		</div>
 	);

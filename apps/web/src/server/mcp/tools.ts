@@ -2,6 +2,7 @@ import {
 	ISSUE_STATUSES,
 	type Issue,
 	type IssuePriority,
+	MAX_LABELS_PER_ISSUE,
 	MEMBER_ROLES,
 	type Member,
 	type MutationInput,
@@ -17,6 +18,7 @@ import { type CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
 import { issueKey, parseIssueKey } from "#/lib/issues";
+import { defaultLabelColor, findLabelByName } from "#/lib/labels";
 
 // Track's MCP tools. They only reach Track through TrackAccess, which offers what the signed-in
 // user can see and do, and nothing more. Free of `cloudflare:workers` imports so the tools can be
@@ -56,6 +58,10 @@ const workspaceInput = z
 const keyInput = z.string().min(1).describe("The issue's key, such as ENG-42.");
 const statusInput = z.enum(ISSUE_STATUSES);
 const priorityInput = z.enum(PRIORITIES);
+const labelsInput = z
+	.array(z.string().min(1))
+	.max(MAX_LABELS_PER_ISSUE)
+	.describe("Label names, from get_workspace. Make new ones with create_label.");
 const assigneeInput = z
 	.string()
 	.min(1)
@@ -67,6 +73,7 @@ const issueSummary = z.object({
 	status: statusInput,
 	priority: priorityInput,
 	assignee: z.string().nullable().describe("The assignee's email."),
+	labels: z.array(z.string()).describe("Label names."),
 	url: z.string(),
 	updatedAt: z.string(),
 });
@@ -105,10 +112,11 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Get workspace",
 			description:
-				"Lists a workspace's teams (whose keys prefix issue keys) and its members (who can be assignees).",
+				"Lists a workspace's teams (whose keys prefix issue keys), its labels, and its members (who can be assignees).",
 			inputSchema: z.object({ workspace: workspaceInput }),
 			outputSchema: z.object({
 				teams: z.array(z.object({ key: z.string(), name: z.string() })),
+				labels: z.array(z.object({ name: z.string(), color: z.string() })),
 				members: z.array(
 					z.object({
 						id: z.string(),
@@ -122,9 +130,10 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		},
 		({ workspace }) =>
 			run(async () => {
-				const { teams, members } = await (await open(access, workspace)).directory();
+				const { teams, labels, members } = await (await open(access, workspace)).directory();
 				return {
 					teams: teams.map(({ key, name }) => ({ key, name })),
+					labels: labels.map(({ name, color }) => ({ name, color })),
 					members: members
 						.filter((member) => member.removedAt === null)
 						.map(({ id, name, email, role }) => ({ id, name, email, role })),
@@ -143,6 +152,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				team: z.string().optional().describe("A team key, such as ENG."),
 				status: z.array(statusInput).optional().describe("Any of these statuses."),
 				assignee: assigneeInput.optional(),
+				label: z.string().min(1).optional().describe("A label name."),
 				text: z.string().max(200).optional().describe("Words in the title."),
 				limit: z.number().int().min(1).max(200).default(50),
 			}),
@@ -160,6 +170,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						input.assignee === undefined
 							? undefined
 							: resolveAssignee(directory, workspace.me, input.assignee),
+					labelId: input.label === undefined ? undefined : labelId(directory, input.label),
 					text: input.text,
 					limit: input.limit,
 				});
@@ -197,6 +208,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				status: statusInput.default("backlog"),
 				priority: priorityInput.default("none"),
 				assignee: assigneeInput.optional(),
+				labels: labelsInput.optional(),
 			}),
 			outputSchema: issueDetail,
 			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
@@ -219,6 +231,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 							input.assignee === undefined
 								? null
 								: resolveAssignee(directory, workspace.me, input.assignee),
+						labelIds: (input.labels ?? []).map((name) => labelId(directory, name)),
 						sortOrder: generateKeyBetween(await workspace.lastSortOrder(), null),
 					},
 				});
@@ -231,7 +244,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Update issue",
 			description:
-				"Changes an issue's title, description, status, priority or assignee. Fields you leave out stay as they are.",
+				"Changes an issue's title, description, status, priority, assignee or labels. Fields you leave out stay as they are.",
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				key: keyInput,
@@ -245,6 +258,8 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				status: statusInput.optional(),
 				priority: priorityInput.optional(),
 				assignee: assigneeInput.optional(),
+				add_labels: labelsInput.optional(),
+				remove_labels: labelsInput.optional(),
 			}),
 			outputSchema: issueDetail,
 			annotations: {
@@ -270,13 +285,61 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						assigneeId: resolveAssignee(directory, workspace.me, input.assignee),
 					}),
 				};
-				if (Object.keys(patch).length === 0) throw new ToolError("Nothing to change.");
-				// The issue was read just now, so only an edit landing in between can conflict.
-				await apply(workspace, {
-					name: "issue.update",
-					args: { id: issue.id, baseVersion: issue.version, patch },
-				});
+				const added = (input.add_labels ?? []).map((name) => labelId(directory, name));
+				const removed = (input.remove_labels ?? []).map((name) => labelId(directory, name));
+				if (Object.keys(patch).length === 0 && added.length === 0 && removed.length === 0) {
+					throw new ToolError("Nothing to change.");
+				}
+				if (Object.keys(patch).length > 0) {
+					// The issue was read just now, so only an edit landing in between can conflict.
+					await apply(workspace, {
+						name: "issue.update",
+						args: { id: issue.id, baseVersion: issue.version, patch },
+					});
+				}
+				// Label changes are set operations, so they never conflict.
+				for (const id of added) {
+					await apply(workspace, { name: "issue.addLabel", args: { id: issue.id, labelId: id } });
+				}
+				for (const id of removed) {
+					await apply(workspace, {
+						name: "issue.removeLabel",
+						args: { id: issue.id, labelId: id },
+					});
+				}
 				return detail(access, workspace, directory, await reread(workspace, issue.id));
+			}),
+	);
+
+	server.registerTool(
+		"create_label",
+		{
+			title: "Create label",
+			description:
+				"Creates a label that any issue in the workspace can have. Names are unique, ignoring case.",
+			inputSchema: z.object({
+				workspace: workspaceInput,
+				name: z.string().trim().min(1).max(64),
+				color: z
+					.string()
+					.regex(/^#[0-9a-f]{6}$/)
+					.optional()
+					.describe("A lowercase hex color, like #e5484d. One is picked if you leave it out."),
+			}),
+			outputSchema: z.object({ name: z.string(), color: z.string() }),
+			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				const existing = findLabelByName((await workspace.directory()).labels, input.name);
+				if (existing) throw new ToolError(`A label named "${existing.name}" already exists.`);
+				const color = input.color ?? defaultLabelColor(input.name);
+				await apply(workspace, {
+					name: "label.create",
+					args: { id: uuidv7(), name: input.name, color },
+				});
+				return { name: input.name, color };
 			}),
 	);
 
@@ -334,6 +397,15 @@ function teamId(directory: Directory, key: string): string {
 	return team.id;
 }
 
+function labelId(directory: Directory, name: string): string {
+	const label = findLabelByName(directory.labels, name);
+	if (!label) {
+		const names = directory.labels.map((label) => label.name).join(", ") || "none";
+		throw new ToolError(`No label "${name}". Labels: ${names}. Make one with create_label.`);
+	}
+	return label.id;
+}
+
 /** Resolves "me", "none", an email or an id to a member id, or null for unassigned. */
 export function resolveAssignee(
 	directory: Directory,
@@ -368,6 +440,9 @@ function summarize(
 		status: issue.status,
 		priority: priorityName(issue.priority),
 		assignee: emailOf(directory, issue.assigneeId),
+		labels: issue.labelIds
+			.map((id) => directory.labels.find((label) => label.id === id)?.name)
+			.filter((name) => name !== undefined),
 		url: `${access.origin}/${encodeURIComponent(workspace.slug)}/issue/${key}`,
 		updatedAt: new Date(issue.updatedAt).toISOString(),
 	};

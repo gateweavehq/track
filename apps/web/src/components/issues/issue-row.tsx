@@ -9,10 +9,11 @@ import { useUpdateIssue } from "#/lib/mutations";
 import { cn } from "#/lib/utils";
 import { useDraggableIssue } from "./dnd";
 import { DropIndicator } from "./drop-indicator";
+import { LabelChips } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 import { AssigneePicker, PriorityPicker, StatusPicker } from "./pickers";
 
-export type IssueField = "status" | "priority" | "assignee";
+export type IssueField = "status" | "priority" | "assignee" | "labels";
 
 interface IssueRowProps {
 	issue: Issue;
@@ -95,6 +96,7 @@ export const IssueRow = memo(function IssueRow({
 				<span className="sr-only">{key} </span>
 				{issue.title}
 			</Link>
+			<LabelChips labelIds={issue.labelIds} max={2} className="hidden shrink-0 lg:flex" />
 			<time
 				dateTime={new Date(issue.createdAt).toISOString()}
 				title={`Created ${formatDateTime(issue.createdAt)}`}

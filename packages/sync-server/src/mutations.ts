@@ -1,8 +1,13 @@
-import type { Mutation, MutationArgs, RejectReason } from "@gateweave/track-protocol";
-import { and, eq, ne } from "drizzle-orm";
+import {
+	MAX_LABELS_PER_ISSUE,
+	type Mutation,
+	type MutationArgs,
+	type RejectReason,
+} from "@gateweave/track-protocol";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
 import { ChangeSet, type WriteResult } from "./log";
-import { activeMember, type Db, toIssue, toTeam } from "./state";
+import { activeMember, type Db, toIssue, toLabel, toTeam } from "./state";
 
 export class MutationRejected extends Error {
 	constructor(
@@ -59,6 +64,21 @@ export function applyMutation(
 		case "issue.delete":
 			deleteIssue(db, changes, mutation.args);
 			break;
+		case "issue.addLabel":
+			addLabel(db, changes, mutation.args);
+			break;
+		case "issue.removeLabel":
+			removeLabel(db, changes, mutation.args);
+			break;
+		case "label.create":
+			createLabel(db, changes, mutation.args);
+			break;
+		case "label.update":
+			updateLabel(db, changes, mutation.args);
+			break;
+		case "label.delete":
+			deleteLabel(db, changes, actor, mutation.args);
+			break;
 	}
 
 	const result = changes.result();
@@ -69,7 +89,7 @@ export function applyMutation(
 }
 
 function createTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"team.create">) {
-	requireAdmin(actor);
+	requireAdmin(actor, "Only workspace admins can manage teams");
 	if (findTeam(db, args.id)) throw new MutationRejected("invalid", "Team id already exists");
 	assertTeamKeyFree(db, args.key);
 
@@ -84,7 +104,7 @@ function createTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 }
 
 function updateTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"team.update">) {
-	requireAdmin(actor);
+	requireAdmin(actor, "Only workspace admins can manage teams");
 	const team = findTeam(db, args.id);
 	if (!team) throw new MutationRejected("not_found", "Team not found");
 	if (args.patch.key && args.patch.key !== team.key) assertTeamKeyFree(db, args.patch.key, team.id);
@@ -105,12 +125,17 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		throw new MutationRejected("invalid", "Issue id already exists");
 	}
 	assertAssignable(db, args.assigneeId);
+	const labelIds = [...new Set(args.labelIds)];
+	for (const labelId of labelIds) {
+		if (!findLiveLabel(db, labelId)) throw new MutationRejected("not_found", "Label not found");
+	}
 
 	const number = team.issueCounter + 1;
 	db.update(schema.teams).set({ issueCounter: number }).where(eq(schema.teams.id, team.id)).run();
 
 	const row: schema.IssueRow = {
 		...args,
+		labelIds,
 		number,
 		creatorId: actor.member.userId,
 		version: changes.nextVersion,
@@ -178,10 +203,107 @@ function deleteIssue(db: Db, changes: ChangeSet, args: MutationArgs<"issue.delet
 	changes.delete("issue", issue.id);
 }
 
-function requireAdmin(actor: Actor) {
-	if (actor.member.role === "member") {
-		throw new MutationRejected("forbidden", "Only workspace admins can manage teams");
+/** Labels are sets, so adding one that is already there, or removing one that is not, is a no-op. */
+function addLabel(db: Db, changes: ChangeSet, args: MutationArgs<"issue.addLabel">) {
+	const issue = findLiveIssue(db, args.id);
+	if (!issue) throw new MutationRejected("not_found", "Issue not found");
+	if (!findLiveLabel(db, args.labelId)) throw new MutationRejected("not_found", "Label not found");
+	if (issue.labelIds.includes(args.labelId)) return;
+	if (issue.labelIds.length >= MAX_LABELS_PER_ISSUE) {
+		throw new MutationRejected(
+			"invalid",
+			`An issue can have at most ${MAX_LABELS_PER_ISSUE} labels`,
+		);
 	}
+	writeIssueLabels(db, changes, issue, [...issue.labelIds, args.labelId]);
+}
+
+function removeLabel(db: Db, changes: ChangeSet, args: MutationArgs<"issue.removeLabel">) {
+	const issue = findLiveIssue(db, args.id);
+	if (!issue) throw new MutationRejected("not_found", "Issue not found");
+	if (!issue.labelIds.includes(args.labelId)) return;
+	writeIssueLabels(
+		db,
+		changes,
+		issue,
+		issue.labelIds.filter((id) => id !== args.labelId),
+	);
+}
+
+function writeIssueLabels(db: Db, changes: ChangeSet, issue: schema.IssueRow, labelIds: string[]) {
+	const row = db
+		.update(schema.issues)
+		.set({ labelIds, version: changes.nextVersion, updatedAt: changes.now })
+		.where(eq(schema.issues.id, issue.id))
+		.returning()
+		.get();
+	if (row) changes.put("issue", toIssue(row));
+}
+
+function createLabel(db: Db, changes: ChangeSet, args: MutationArgs<"label.create">) {
+	if (db.select().from(schema.labels).where(eq(schema.labels.id, args.id)).get()) {
+		throw new MutationRejected("invalid", "Label id already exists");
+	}
+	assertLabelNameFree(db, args.name);
+
+	const row: schema.LabelRow = {
+		...args,
+		createdAt: changes.now,
+		updatedAt: changes.now,
+		deletedAt: null,
+	};
+	db.insert(schema.labels).values(row).run();
+	changes.put("label", toLabel(row));
+}
+
+function updateLabel(db: Db, changes: ChangeSet, args: MutationArgs<"label.update">) {
+	const label = findLiveLabel(db, args.id);
+	if (!label) throw new MutationRejected("not_found", "Label not found");
+	if (args.patch.name !== undefined) assertLabelNameFree(db, args.patch.name, label.id);
+
+	const row = db
+		.update(schema.labels)
+		.set({ ...args.patch, updatedAt: changes.now })
+		.where(eq(schema.labels.id, label.id))
+		.returning()
+		.get();
+	if (row) changes.put("label", toLabel(row));
+}
+
+/** Removes the label from every issue that has it, then deletes it. Admins only: it is wide. */
+function deleteLabel(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"label.delete">) {
+	requireAdmin(actor, "Only workspace admins can delete labels");
+	const label = findLiveLabel(db, args.id);
+	if (!label) throw new MutationRejected("not_found", "Label not found");
+
+	const labeled = db
+		.select()
+		.from(schema.issues)
+		.where(
+			and(
+				isNull(schema.issues.deletedAt),
+				sql`exists (select 1 from json_each(${schema.issues.labelIds}) where value = ${label.id})`,
+			),
+		)
+		.all();
+	for (const issue of labeled) {
+		writeIssueLabels(
+			db,
+			changes,
+			issue,
+			issue.labelIds.filter((id) => id !== label.id),
+		);
+	}
+
+	db.update(schema.labels)
+		.set({ deletedAt: changes.now, updatedAt: changes.now })
+		.where(eq(schema.labels.id, label.id))
+		.run();
+	changes.delete("label", label.id);
+}
+
+function requireAdmin(actor: Actor, message: string) {
+	if (actor.member.role === "member") throw new MutationRejected("forbidden", message);
 }
 
 function findTeam(db: Db, id: string) {
@@ -191,6 +313,26 @@ function findTeam(db: Db, id: string) {
 function findLiveIssue(db: Db, id: string) {
 	const issue = db.select().from(schema.issues).where(eq(schema.issues.id, id)).get();
 	return issue && issue.deletedAt === null ? issue : undefined;
+}
+
+function findLiveLabel(db: Db, id: string) {
+	return db
+		.select()
+		.from(schema.labels)
+		.where(and(eq(schema.labels.id, id), isNull(schema.labels.deletedAt)))
+		.get();
+}
+
+/** Compared in JavaScript, because SQLite's lower() only folds ASCII. */
+function assertLabelNameFree(db: Db, name: string, exceptLabelId?: string) {
+	const folded = name.toLowerCase();
+	const taken = db
+		.select({ id: schema.labels.id, name: schema.labels.name })
+		.from(schema.labels)
+		.where(isNull(schema.labels.deletedAt))
+		.all()
+		.some((label) => label.id !== exceptLabelId && label.name.toLowerCase() === folded);
+	if (taken) throw new MutationRejected("conflict", `A label named "${name}" already exists`);
 }
 
 function assertTeamKeyFree(db: Db, key: string, exceptTeamId?: string) {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ISSUE_PRIORITIES, ISSUE_STATUSES } from "./domain";
+import { ISSUE_PRIORITIES, ISSUE_STATUSES, MAX_LABELS_PER_ISSUE } from "./domain";
 
 /** Client-generated ids. UUIDv7 is recommended so ids sort by creation time. */
 const id = z.string().min(1).max(64);
@@ -12,6 +12,8 @@ const description = z.string().max(100_000).nullable();
 const status = z.enum(ISSUE_STATUSES);
 const priority = z.literal(ISSUE_PRIORITIES);
 const sortOrder = z.string().min(1).max(128);
+const labelName = z.string().trim().min(1).max(64);
+const labelColor = z.string().regex(/^#[0-9a-f]{6}$/, "A lowercase hex color, like #e5484d");
 
 const nonEmpty = (patch: object) => Object.keys(patch).length > 0;
 
@@ -37,6 +39,7 @@ export const mutationSchema = z.discriminatedUnion("name", [
 			status: status.default("backlog"),
 			priority: priority.default(0),
 			assigneeId: id.nullable().default(null),
+			labelIds: z.array(id).max(MAX_LABELS_PER_ISSUE).default([]),
 			sortOrder,
 		}),
 	}),
@@ -54,6 +57,34 @@ export const mutationSchema = z.discriminatedUnion("name", [
 	}),
 	z.object({
 		name: z.literal("issue.delete"),
+		args: z.object({ id }),
+	}),
+	// Adding and removing labels are set operations rather than a patch of `labelIds`, so that
+	// people labeling the same issue at the same time never conflict.
+	z.object({
+		name: z.literal("issue.addLabel"),
+		args: z.object({ id, labelId: id }),
+	}),
+	z.object({
+		name: z.literal("issue.removeLabel"),
+		args: z.object({ id, labelId: id }),
+	}),
+	z.object({
+		name: z.literal("label.create"),
+		args: z.object({ id, name: labelName, color: labelColor }),
+	}),
+	z.object({
+		name: z.literal("label.update"),
+		args: z.object({
+			id,
+			patch: z
+				.object({ name: labelName, color: labelColor })
+				.partial()
+				.refine(nonEmpty, "Empty patch"),
+		}),
+	}),
+	z.object({
+		name: z.literal("label.delete"),
 		args: z.object({ id }),
 	}),
 ]);

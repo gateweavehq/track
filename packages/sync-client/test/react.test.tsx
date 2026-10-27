@@ -10,6 +10,7 @@ const snapshot: Snapshot = {
 	version: 1,
 	teams: [{ id: "t1", key: "ENG", name: "Engineering", createdAt: 1, updatedAt: 1 }],
 	issues: [],
+	labels: [],
 	members: [],
 };
 

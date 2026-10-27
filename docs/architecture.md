@@ -23,7 +23,7 @@ flowchart LR
   Mcp -- "RPC" --> DO
   Auth -- "membership hooks (RPC)" --> DO
   subgraph DO["WorkspaceDO (one per workspace)"]
-    SQLite[("SQLite<br/>teams, issues, members,<br/>oplog")]
+    SQLite[("SQLite<br/>teams, issues, labels,<br/>members, oplog")]
   end
 ```
 
@@ -57,7 +57,7 @@ different protocol versions in production. It also gives self-hosters one thing 
 | Users, sessions, OAuth accounts     | D1           | Better Auth                        |
 | Workspaces, members, invitations    | D1           | Better Auth organization plugin    |
 | OAuth clients, grants, signing keys | D1           | Better Auth MCP plugin             |
-| Teams, issues                       | Workspace DO | `sync-server`                      |
+| Teams, issues, labels               | Workspace DO | `sync-server`                      |
 | Member replica (name, avatar, role) | Workspace DO | Pushed from D1 by membership hooks |
 
 The DO keeps a replica of membership for two reasons: it authorizes writes (for example, only
@@ -144,7 +144,7 @@ it has applied.
 
 ### Connecting
 
-1. `GET /api/sync/:slug/snapshot` returns `{ version, teams, issues, members }`. It is served over
+1. `GET /api/sync/:slug/snapshot` returns `{ version, teams, issues, labels, members }`. It is served over
    HTTP so it can be compressed and fetched in parallel with the socket.
 2. The client opens the socket and sends `hello { protocol, clientId, since: snapshot.version }`.
 3. The server streams any ops after `since` as `delta` messages, then `ready { version }`. From
@@ -208,6 +208,12 @@ that same field after `baseVersion`.
 
 If only some fields conflict, the rest are applied. The client sees the outcome in the broadcast
 row.
+
+Labels are kept out of the patch. An issue's `labelIds` change only through `issue.addLabel` and
+`issue.removeLabel`, which are set operations: adding a label that is already there, or removing
+one that is not, writes nothing. They never conflict, so two people labeling the same issue at the
+same time both get their label. Deleting a label (admins only) removes it from every issue that
+has it, one issue op each, before the label's own delete op.
 
 ### Compaction
 

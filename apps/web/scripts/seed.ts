@@ -15,6 +15,8 @@ import { generateNKeysBetween } from "fractional-indexing";
 import {
 	generatedIssues,
 	ISSUES,
+	LABELS,
+	type LabelKey,
 	PASSWORD,
 	PEOPLE,
 	type PersonKey,
@@ -121,8 +123,16 @@ async function main() {
 			}),
 		);
 
+		const labelIds = {} as Record<LabelKey, string>;
+		await Promise.all(
+			(Object.entries(LABELS) as [LabelKey, (typeof LABELS)[LabelKey]][]).map(([key, label]) => {
+				labelIds[key] = uuidv7();
+				return clients.maya.mutate({ name: "label.create", args: { id: labelIds[key], ...label } });
+			}),
+		);
+
 		const issues = [...ISSUES, ...generatedIssues(extra)];
-		const mutations = issueMutations(issues, teamIds, sessions);
+		const mutations = issueMutations(issues, teamIds, labelIds, sessions);
 		// One at a time, so the sample issues get numbers in the order they are listed. Generated
 		// filler only needs to arrive, so it goes in parallel.
 		const sample = mutations.slice(0, ISSUES.length);
@@ -131,7 +141,7 @@ async function main() {
 			mutations.slice(ISSUES.length).map(({ by, input }) => clients[by].mutate(input)),
 		);
 		console.log(
-			`Created ${name} with ${Object.keys(TEAMS).length} teams and ${issues.length} issues.`,
+			`Created ${name} with ${Object.keys(TEAMS).length} teams, ${Object.keys(LABELS).length} labels and ${issues.length} issues.`,
 		);
 	} finally {
 		await Promise.all(people.map((key) => clients[key].close()));
@@ -143,6 +153,7 @@ async function main() {
 function issueMutations(
 	issues: SampleIssue[],
 	teamIds: Record<TeamKey, string>,
+	labelIds: Record<LabelKey, string>,
 	sessions: Record<PersonKey, Session>,
 ): { by: PersonKey; input: MutationInput }[] {
 	const keys = new Map<TeamKey, string[]>();
@@ -165,6 +176,7 @@ function issueMutations(
 					status: issue.status,
 					priority: issue.priority,
 					assigneeId: issue.assignee && sessions[issue.assignee].userId,
+					labelIds: (issue.labels ?? []).map((key) => labelIds[key]),
 					sortOrder,
 				},
 			},

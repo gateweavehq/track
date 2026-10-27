@@ -29,9 +29,29 @@ export const TEAMS: Record<TeamKey, string> = {
 	GRO: "Growth",
 };
 
+export type LabelKey =
+	| "bug"
+	| "feature"
+	| "improvement"
+	| "performance"
+	| "security"
+	| "accessibility"
+	| "docs";
+
+export const LABELS: Record<LabelKey, { name: string; color: string }> = {
+	bug: { name: "Bug", color: "#e5484d" },
+	feature: { name: "Feature", color: "#0090ff" },
+	improvement: { name: "Improvement", color: "#12a594" },
+	performance: { name: "Performance", color: "#f76b15" },
+	security: { name: "Security", color: "#6e56cf" },
+	accessibility: { name: "Accessibility", color: "#46a758" },
+	docs: { name: "Docs", color: "#8d8d8d" },
+};
+
 export interface SampleIssue {
 	team: TeamKey;
 	title: string;
+	labels?: LabelKey[];
 	status: IssueStatus;
 	priority: IssuePriority;
 	assignee: PersonKey | null;
@@ -43,6 +63,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Sign-in fails when the email has uppercase letters",
+		labels: ["bug"],
 		status: "in_progress",
 		priority: 1,
 		assignee: "sam",
@@ -55,6 +76,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Crash when pasting an image into the description",
+		labels: ["bug"],
 		status: "todo",
 		priority: 1,
 		assignee: "sam",
@@ -64,6 +86,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Search issues by title from the command palette",
+		labels: ["feature"],
 		status: "in_progress",
 		priority: 2,
 		assignee: "maya",
@@ -72,6 +95,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Slow first load on large workspaces",
+		labels: ["performance"],
 		status: "in_progress",
 		priority: 2,
 		assignee: "lena",
@@ -83,6 +107,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Flaky test: realtime sync drops the last edit",
+		labels: ["bug"],
 		status: "in_review",
 		priority: 2,
 		assignee: "lena",
@@ -91,6 +116,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Rate limit the sign-up endpoint",
+		labels: ["security"],
 		status: "todo",
 		priority: 2,
 		assignee: null,
@@ -99,6 +125,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Audit log for admin actions",
+		labels: ["feature", "security"],
 		status: "backlog",
 		priority: 2,
 		assignee: null,
@@ -115,6 +142,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Webhooks for issue changes",
+		labels: ["feature"],
 		status: "backlog",
 		priority: 3,
 		assignee: null,
@@ -139,6 +167,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Export issues as CSV",
+		labels: ["feature"],
 		status: "backlog",
 		priority: 4,
 		assignee: null,
@@ -163,6 +192,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Disabled buttons are hard to read in dark mode",
+		labels: ["bug", "accessibility"],
 		status: "done",
 		priority: 4,
 		assignee: "diego",
@@ -180,6 +210,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "DES",
 		title: "Mobile layout for the issue page",
+		labels: ["improvement"],
 		status: "in_review",
 		priority: 2,
 		assignee: "diego",
@@ -207,6 +238,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "DES",
 		title: "Accessible focus rings across the app",
+		labels: ["accessibility"],
 		status: "todo",
 		priority: 2,
 		assignee: "maya",
@@ -290,6 +322,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "GRO",
 		title: "Self-hosting guide",
+		labels: ["docs"],
 		status: "todo",
 		priority: 2,
 		assignee: "sam",
@@ -306,6 +339,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "GRO",
 		title: "Changelog page",
+		labels: ["docs"],
 		status: "backlog",
 		priority: 3,
 		assignee: null,

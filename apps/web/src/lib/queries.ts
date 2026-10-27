@@ -1,8 +1,9 @@
-import type { Issue, Member, Team } from "@gateweave/track-protocol";
+import type { Issue, Label, Member, Team } from "@gateweave/track-protocol";
 import type { SyncState } from "@gateweave/track-sync-client";
 import { shallowEqual, useQuery } from "@gateweave/track-sync-client/react";
 import { useCallback } from "react";
 import { compareIssues } from "./issues";
+import { compareLabels } from "./labels";
 
 // Selectors over the synced state. Each hook keeps its selector stable for the inputs it
 // depends on, so useQuery can skip work when unrelated parts of the state change.
@@ -60,6 +61,31 @@ const selectMembersById = (state: SyncState) => state.members;
 
 export function useMembersById(): ReadonlyMap<string, Member> {
 	return useQuery(selectMembersById);
+}
+
+const selectLabels = (state: SyncState) => [...state.labels.values()].sort(compareLabels);
+
+export function useLabels(): Label[] {
+	return useQuery(selectLabels, shallowEqual);
+}
+
+const selectLabelsById = (state: SyncState) => state.labels;
+
+export function useLabelsById(): ReadonlyMap<string, Label> {
+	return useQuery(selectLabelsById);
+}
+
+const selectLabelCounts = (state: SyncState) => {
+	const counts = new Map<string, number>();
+	for (const issue of state.issues.values()) {
+		for (const labelId of issue.labelIds) counts.set(labelId, (counts.get(labelId) ?? 0) + 1);
+	}
+	return counts;
+};
+
+/** How many issues have each label, by label id. */
+export function useIssueCountsByLabel(): ReadonlyMap<string, number> {
+	return useQuery(selectLabelCounts, countsEqual);
 }
 
 const selectTeamsById = (state: SyncState) => state.teams;
