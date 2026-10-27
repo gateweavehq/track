@@ -1,4 +1,4 @@
-import type { Issue, Member, Team } from "@tangent/protocol";
+import type { Issue, Member, Team } from "@gateweave/track-protocol";
 import { Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { memo, type ReactNode, useCallback, useMemo, useRef, useState } from "react";

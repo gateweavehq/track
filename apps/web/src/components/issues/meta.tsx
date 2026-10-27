@@ -1,4 +1,4 @@
-import type { IssuePriority, IssueStatus } from "@tangent/protocol";
+import type { IssuePriority, IssueStatus } from "@gateweave/track-protocol";
 import {
 	Circle,
 	CircleCheck,

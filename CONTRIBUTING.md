@@ -1,4 +1,4 @@
-# Contributing to Tangent
+# Contributing to Gateweave Track
 
 Thanks for helping out! This guide covers how to get a working setup and what we look for in a
 pull request. Everyone taking part is expected to follow our [Code of Conduct](CODE_OF_CONDUCT.md).
@@ -18,10 +18,10 @@ the system fits together. Read the architecture doc before changing anything in
 
 ## Contributor License Agreement
 
-Tangent is open source under the AGPL-3.0. The maintainer also offers it under other terms,
+Gateweave Track is open source under the AGPL-3.0. The maintainer also offers it under other terms,
 such as a hosted service and commercial licenses, and these help fund the project. So that every
-contribution can be part of both, contributors sign the [CLA](CLA.md) once. You keep the
-copyright to your work.
+contribution can be part of both, contributors sign the [CLA](CLA.md) once. You keep the copyright
+to your work.
 
 A bot asks you to sign on your first pull request. To sign, reply with the sentence it gives you.
 
@@ -32,7 +32,7 @@ pnpm verify      # Biome check, typecheck, tests and a production build: what CI
 ```
 
 `pnpm format` fixes most Biome findings. While iterating, scope a command to one package, for
-example `pnpm --filter @tangent/sync-client test`.
+example `pnpm --filter @gateweave/track-sync-client test`.
 
 Fill in the pull request template: it asks how you tested the change and whether it needs a
 protocol bump or a migration.

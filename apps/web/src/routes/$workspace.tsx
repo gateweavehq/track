@@ -1,5 +1,5 @@
-import { createBrowserSyncClient, type SyncClient } from "@tangent/sync-client";
-import { SyncProvider } from "@tangent/sync-client/react";
+import { createBrowserSyncClient, type SyncClient } from "@gateweave/track-sync-client";
+import { SyncProvider } from "@gateweave/track-sync-client/react";
 import { createFileRoute, Link, notFound, Outlet, redirect } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";

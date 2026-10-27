@@ -23,7 +23,7 @@ function opener(ws: TestWorkspace, network: TestNetwork) {
 		ws.client("alice", {
 			network,
 			persistence: openIdbPersistence(key),
-			tabs: browserTabs(`tangent:${key}`),
+			tabs: browserTabs(`track:${key}`),
 		});
 }
 

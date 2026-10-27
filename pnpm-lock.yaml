@@ -253,13 +253,13 @@ importers:
       '@fontsource-variable/inter':
         specifier: 5.3.0
         version: 5.3.0
-      '@tangent/protocol':
+      '@gateweave/track-protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
-      '@tangent/sync-client':
+      '@gateweave/track-sync-client':
         specifier: workspace:*
         version: link:../../packages/sync-client
-      '@tangent/sync-server':
+      '@gateweave/track-sync-server':
         specifier: workspace:*
         version: link:../../packages/sync-server
       '@tanstack/react-router':
@@ -369,7 +369,7 @@ importers:
 
   packages/sync-client:
     dependencies:
-      '@tangent/protocol':
+      '@gateweave/track-protocol':
         specifier: workspace:*
         version: link:../protocol
       idb:
@@ -379,7 +379,7 @@ importers:
       '@cloudflare/vitest-plugin':
         specifier: 'catalog:'
         version: 1.4.8(@types/node@26.6.5)(vitest@5.0.5(@types/node@26.6.5)(happy-dom@21.0.4)(vite@8.3.5(@types/node@26.6.5)))
-      '@tangent/sync-server':
+      '@gateweave/track-sync-server':
         specifier: workspace:*
         version: link:../sync-server
       '@testing-library/react':
@@ -415,7 +415,7 @@ importers:
 
   packages/sync-server:
     dependencies:
-      '@tangent/protocol':
+      '@gateweave/track-protocol':
         specifier: workspace:*
         version: link:../protocol
       drizzle-orm:

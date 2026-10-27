@@ -1,4 +1,4 @@
-import type { Snapshot } from "@tangent/protocol";
+import type { Snapshot } from "@gateweave/track-protocol";
 
 export interface SocketHandlers {
 	open(): void;

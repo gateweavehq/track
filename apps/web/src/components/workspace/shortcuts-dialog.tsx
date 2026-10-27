@@ -50,7 +50,7 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
 			<DialogContent className="max-h-[85dvh] max-w-md overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>Keyboard shortcuts</DialogTitle>
-					<DialogDescription>Tangent works without a mouse.</DialogDescription>
+					<DialogDescription>Gateweave Track works without a mouse.</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-5">
 					{SHORTCUTS.map(({ group, items }) => (

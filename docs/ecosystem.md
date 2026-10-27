@@ -1,10 +1,12 @@
 # The Gateweave ecosystem
 
 > **Status: draft proposal.** This describes where the product family could go and the
-> architecture that would let it get there. Nothing here is built yet except Tangent itself.
+> architecture that would let it get there. Nothing here is built yet except Track itself.
 
-[Gateweave](https://gateweave.com) is the umbrella for a family of open-source business tools
-that run natively on Cloudflare. Tangent, the issue tracker in this repository, is the first.
+[Gateweave](https://gateweave.com) is the umbrella for a family of open-source business tools that
+run natively on Cloudflare. Gateweave Track, the issue tracker in this repository, is the first.
+Products are named Gateweave plus a plain word for what they do: Gateweave Track, Gateweave Mail,
+Gateweave CRM.
 
 ## Why a family
 
@@ -14,7 +16,7 @@ copy of the team. Gateweave products share one account, one workspace and one wa
 data, so they work on their own and get better together. They are also built for AI agents to
 work in alongside people, not bolted onto afterwards.
 
-Every product follows the same principles as Tangent:
+Every product follows the same principles as Track:
 
 - **Cloudflare-native.** Workers, Durable Objects, D1 and R2. Nothing to operate, and one
   deploy per product.
@@ -23,13 +25,13 @@ Every product follows the same principles as Tangent:
 
 ## Products
 
-| Product     | What it does                                          | Status               |
-| ----------- | ----------------------------------------------------- | -------------------- |
-| **Tangent** | Issues, projects and planning for product teams       | In development       |
-| **Agents**  | AI agents that work inside every product as members   | Next, inside Tangent |
-| **Mail**    | Shared inboxes, and email in and out of every product | Proposed             |
-| **CRM**     | Contacts, companies and deals                         | Proposed             |
-| **ERP**     | Invoicing, inventory and orders, one module at a time | Later                |
+| Product    | What it does                                          | Status             |
+| ---------- | ----------------------------------------------------- | ------------------ |
+| **Track**  | Issues, projects and planning for product teams       | In development     |
+| **Agents** | AI agents that work inside every product as members   | Next, inside Track |
+| **Mail**   | Shared inboxes, and email in and out of every product | Proposed           |
+| **CRM**    | Contacts, companies and deals                         | Proposed           |
+| **ERP**    | Invoicing, inventory and orders, one module at a time | Later              |
 
 ## Shared platform
 
@@ -38,7 +40,7 @@ Built once and used by every product.
 ### Identity and workspaces
 
 One Gateweave account per person and one workspace per team, shared by every product. A workspace
-is the Better Auth organization Tangent already uses, so members, roles and invitations carry
+is the Better Auth organization Track already uses, so members, roles and invitations carry
 over unchanged.
 
 - In Gateweave Cloud, an identity Worker owns the users and workspaces in D1. Product Workers
@@ -49,17 +51,17 @@ over unchanged.
 ### Data stays per product
 
 Each product keeps each workspace's data in its own Durable Object namespace, keyed by the
-workspace id, the way Tangent's `WorkspaceDO` does. Products deploy, scale and migrate
+workspace id, the way Track's `WorkspaceDO` does. Products deploy, scale and migrate
 independently, and a bug in one cannot touch another's data. Membership hooks fan out to every
 product's Durable Object.
 
-Products link to each other's records by reference (`gateweave:tangent:issue:<id>`) and resolve
+Products link to each other's records by reference (`gateweave:track:issue:<id>`) and resolve
 references with RPC over service bindings, checking membership on the way. There is no shared
 database across products.
 
 ### One sync engine
 
-Tangent's sync engine is general except for its domain: its entities, mutation schemas, server
+Track's sync engine is general except for its domain: its entities, mutation schemas, server
 handlers and client predictions. When the second product starts, extract the engine into a
 `@gateweave/sync` package that takes a domain definition and runs it. The `@gateweave` npm
 organization is already reserved for shared packages like this one.
@@ -90,26 +92,26 @@ way a person's browser does:
 - Each product also exposes its queries and mutations as an MCP server, so outside agents can use
   Gateweave with the user's permission.
 
-Starting inside Tangent, with an agent that triages new issues, grounds the framework in a real
+Starting inside Track, with an agent that triages new issues, grounds the framework in a real
 job before it becomes a product of its own.
 
 ### Email
 
-Cloudflare Email Routing handles inbound mail and Email Sending handles outbound. Tangent needs
+Cloudflare Email Routing handles inbound mail and Email Sending handles outbound. Track needs
 both first: invitations, notifications and email-to-issue. Mail grows from that into shared
 inboxes. CRM then uses it to keep conversations with customers alongside deals.
 
 ### Interface
 
-A shared design system (`@gateweave/ui`), extracted from Tangent's shadcn-based components at the
+A shared design system (`@gateweave/ui`), extracted from Track's shadcn-based components at the
 same time as the sync engine. Every product gets the same keyboard-first command palette.
 
 ## Order of work
 
-1. **Tangent:** MVP, then launch. Proves the stack and builds an audience.
-2. **Agents in Tangent:** issue triage. A differentiator for the launch and the first real user
+1. **Track:** MVP, then launch. Proves the stack and builds an audience.
+2. **Agents in Track:** issue triage. A differentiator for the launch and the first real user
    of the agent design.
-3. **Mail, starting small:** what Tangent needs anyway (notifications, email-to-issue), then
+3. **Mail, starting small:** what Track needs anyway (notifications, email-to-issue), then
    shared inboxes.
 4. **CRM:** the second full product. Starting it triggers extracting `@gateweave/sync`,
    `@gateweave/ui` and the identity Worker.
@@ -129,11 +131,8 @@ same time as the sync engine. Every product gets the same keyboard-first command
 
 ## Decisions for the maintainer
 
-- **Product names.** Keep "Tangent" as a product name under Gateweave, or use descriptive names
-  ("Gateweave Issues", "Gateweave CRM"). Descriptive names are easier to find in search;
-  distinctive names are easier to build a brand around.
-- **CLA scope.** The CLA currently covers "Tangent". Widen it to all Gateweave projects before the
-  first outside contributor signs, so nobody has to sign twice.
+- **CLA scope.** The CLA currently covers "Gateweave Track". Widen it to all Gateweave projects
+  before the first outside contributor signs, so nobody has to sign twice.
 - **Repository layout.** Products as separate repositories with shared packages published from a
   platform repository, or one monorepo. Separate repositories keep each product approachable for
   contributors; a monorepo keeps cross-product changes atomic. Recommendation: separate

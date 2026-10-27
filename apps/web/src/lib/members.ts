@@ -1,4 +1,4 @@
-import type { MemberRole } from "@tangent/protocol";
+import type { MemberRole } from "@gateweave/track-protocol";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";

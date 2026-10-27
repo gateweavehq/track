@@ -1,4 +1,4 @@
-import { deleteIdbReplicas } from "@tangent/sync-client";
+import { deleteIdbReplicas } from "@gateweave/track-sync-client";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
@@ -27,7 +27,7 @@ function InvitePage() {
 					link.
 				</p>
 				<Button asChild variant="outline" className="w-full">
-					<Link to="/">Go to Tangent</Link>
+					<Link to="/">Go to Gateweave Track</Link>
 				</Button>
 			</Card>
 		);

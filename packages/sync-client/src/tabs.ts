@@ -1,4 +1,4 @@
-import type { Op, RejectReason } from "@tangent/protocol";
+import type { Op, RejectReason } from "@gateweave/track-protocol";
 import type { PendingMutation } from "./store";
 
 export type ConnectionStatus =

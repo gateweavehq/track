@@ -1,13 +1,15 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "tangent",
+	"name": "gateweave-track",
 	"main": "src/server.ts",
 	"compatibility_date": "2026-10-01",
 	"compatibility_flags": ["nodejs_compat"],
 	"observability": { "enabled": true },
 	"upload_source_maps": true,
 	// Workspace directory and auth. The database is provisioned on first deploy.
-	"d1_databases": [{ "binding": "DB", "database_name": "tangent", "migrations_dir": "migrations" }],
+	"d1_databases": [
+		{ "binding": "DB", "database_name": "gateweave-track", "migrations_dir": "migrations" }
+	],
 	// One Durable Object per workspace holds its issues and serves realtime sync.
 	"durable_objects": {
 		"bindings": [{ "name": "WORKSPACE", "class_name": "WorkspaceDO" }]

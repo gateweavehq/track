@@ -1,6 +1,6 @@
-import type { Issue, Member, Team } from "@tangent/protocol";
-import type { SyncState } from "@tangent/sync-client";
-import { shallowEqual, useQuery } from "@tangent/sync-client/react";
+import type { Issue, Member, Team } from "@gateweave/track-protocol";
+import type { SyncState } from "@gateweave/track-sync-client";
+import { shallowEqual, useQuery } from "@gateweave/track-sync-client/react";
 import { useCallback } from "react";
 import { compareIssues } from "./issues";
 

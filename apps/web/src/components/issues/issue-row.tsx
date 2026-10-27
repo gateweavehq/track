@@ -1,4 +1,4 @@
-import type { Issue, Member, Team } from "@tangent/protocol";
+import type { Issue, Member, Team } from "@gateweave/track-protocol";
 import { Link } from "@tanstack/react-router";
 import { forwardRef, memo, type ReactNode } from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";

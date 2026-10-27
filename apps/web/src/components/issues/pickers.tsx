@@ -1,4 +1,9 @@
-import { ISSUE_STATUSES, type IssuePriority, type IssueStatus, type Team } from "@tangent/protocol";
+import {
+	ISSUE_STATUSES,
+	type IssuePriority,
+	type IssueStatus,
+	type Team,
+} from "@gateweave/track-protocol";
 import { Check } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";

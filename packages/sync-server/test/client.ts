@@ -5,7 +5,7 @@ import {
 	type Op,
 	PROTOCOL_VERSION,
 	type ServerMessage,
-} from "@tangent/protocol";
+} from "@gateweave/track-protocol";
 import { MEMBER_HEADER, type MemberProfile } from "../src";
 
 export function freshWorkspace() {

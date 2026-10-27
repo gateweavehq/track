@@ -1,4 +1,4 @@
-import type { Entities, EntityName, Op } from "@tangent/protocol";
+import type { Entities, EntityName, Op } from "@gateweave/track-protocol";
 import { and, asc, eq, gt, lt, lte, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
 import type { Db } from "./state";

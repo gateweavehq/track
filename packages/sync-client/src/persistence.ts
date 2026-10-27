@@ -1,4 +1,4 @@
-import type { Op, Snapshot } from "@tangent/protocol";
+import type { Op, Snapshot } from "@gateweave/track-protocol";
 import type { PendingMutation } from "./store";
 
 export interface StoredReplica {

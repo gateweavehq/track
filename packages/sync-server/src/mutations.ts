@@ -1,4 +1,4 @@
-import type { Mutation, MutationArgs, RejectReason } from "@tangent/protocol";
+import type { Mutation, MutationArgs, RejectReason } from "@gateweave/track-protocol";
 import { and, eq, ne } from "drizzle-orm";
 import * as schema from "./db/schema";
 import { ChangeSet, type WriteResult } from "./log";

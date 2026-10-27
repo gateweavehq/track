@@ -1,4 +1,4 @@
-import type { Issue, IssueStatus, Team } from "@tangent/protocol";
+import type { Issue, IssueStatus, Team } from "@gateweave/track-protocol";
 import { generateKeyBetween } from "fractional-indexing";
 
 /** The human-readable identifier of an issue, e.g. `ENG-42`. */

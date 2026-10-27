@@ -1,12 +1,12 @@
-# Tangent
+# Gateweave Track
 
 Open-source, realtime issue tracking built natively on Cloudflare.
 
-Tangent keeps every workspace in its own Durable Object, so edits reach everyone instantly, the
+Track keeps every workspace in its own Durable Object, so edits reach everyone instantly, the
 app stays fast at any size, and the whole thing deploys as a single Worker you can run on your
 own Cloudflare account.
 
-Tangent is the first product of [Gateweave](https://gateweave.com), a family of open-source,
+Track is the first product of [Gateweave](https://gateweave.com), a family of open-source,
 Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
 
 > **Status: early development.** Sync (server and client), auth, workspaces, invitations, issue
@@ -91,8 +91,8 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) and our
 
 Copyright © 2026 Yiğit Tanrıverdi.
 
-Tangent is licensed under the [GNU Affero General Public License v3.0](LICENSE). You can
-self-host, use and modify Tangent freely. If you run a modified version as a network service, you
-must make your changes available to its users under the same license.
+Gateweave Track is licensed under the [GNU Affero General Public License v3.0](LICENSE). You can
+self-host, use and modify Track freely. If you run a modified version as a network service, you must
+make your changes available to its users under the same license.
 
 Contributions are accepted under the [Contributor License Agreement](CLA.md).

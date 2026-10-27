@@ -1,6 +1,6 @@
-import type { IssuePriority, IssueStatus } from "@tangent/protocol";
-import { uuidv7 } from "@tangent/sync-client";
-import { useSyncClient } from "@tangent/sync-client/react";
+import type { IssuePriority, IssueStatus } from "@gateweave/track-protocol";
+import { uuidv7 } from "@gateweave/track-sync-client";
+import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useState } from "react";

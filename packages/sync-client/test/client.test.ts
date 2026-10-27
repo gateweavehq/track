@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION } from "@tangent/protocol";
+import { PROTOCOL_VERSION } from "@gateweave/track-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	deleteIdbReplica,

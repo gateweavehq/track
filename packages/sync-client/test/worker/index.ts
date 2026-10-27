@@ -1,6 +1,6 @@
-import { MEMBER_HEADER, type MemberProfile } from "@tangent/sync-server";
+import { MEMBER_HEADER, type MemberProfile } from "@gateweave/track-sync-server";
 
-export { WorkspaceDO } from "@tangent/sync-server";
+export { WorkspaceDO } from "@gateweave/track-sync-server";
 
 const MEMBERS: Record<string, MemberProfile> = {
 	alice: { id: "alice", name: "Alice", email: "alice@example.com", image: null, role: "owner" },

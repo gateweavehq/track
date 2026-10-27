@@ -1,6 +1,6 @@
-import type { Issue, MutationInput } from "@tangent/protocol";
-import type { SyncClient } from "@tangent/sync-client";
-import { useSyncClient } from "@tangent/sync-client/react";
+import type { Issue, MutationInput } from "@gateweave/track-protocol";
+import type { SyncClient } from "@gateweave/track-sync-client";
+import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { useCallback } from "react";
 import { toast } from "sonner";
 

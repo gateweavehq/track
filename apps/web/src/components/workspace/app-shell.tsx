@@ -1,5 +1,5 @@
-import { deleteIdbReplicas } from "@tangent/sync-client";
-import { useSyncClient } from "@tangent/sync-client/react";
+import { deleteIdbReplicas } from "@gateweave/track-sync-client";
+import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
 	ArrowLeftRight,

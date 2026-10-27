@@ -1,4 +1,4 @@
-import type { Issue } from "@tangent/protocol";
+import type { Issue } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import {
 	BOARD_STATUS_ORDER,

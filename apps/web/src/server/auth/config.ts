@@ -77,7 +77,7 @@ export function createAuth(config: AuthConfig) {
 		},
 		plugins: [
 			organization({
-				// Links are shared by hand until Tangent sends email, so give people time.
+				// Links are shared by hand until Track sends email, so give people time.
 				invitationExpiresIn: INVITATION_LIFETIME_SECONDS,
 				// Accounts do not verify their email yet, so requiring it would block every
 				// invitation. The list-invitations hook above keeps ids away from members instead.

@@ -82,7 +82,7 @@ if (portFree) pass("Port 3000 is free for pnpm dev");
 else
 	warn(
 		"Port 3000 is in use",
-		"If it is not a Tangent dev server, run on another port: pnpm --filter @tangent/web exec vite dev --port 3001",
+		"If it is not a Track dev server, run on another port: pnpm --filter @gateweave/track-web exec vite dev --port 3001",
 	);
 
 if (failures.length > 0) {

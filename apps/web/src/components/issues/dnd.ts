@@ -8,14 +8,14 @@ import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-sc
 import { attachClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge/attach-closest-edge";
 import { extractClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge/extract-closest-edge";
 import type { Edge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/types";
-import { ISSUE_STATUSES, type Issue, type IssueStatus } from "@tangent/protocol";
+import { ISSUE_STATUSES, type Issue, type IssueStatus } from "@gateweave/track-protocol";
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { planMove, type StatusGroup } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
 
 type Data = Record<string | symbol, unknown>;
 
-const ISSUE_DRAG = "tangent/issue";
+const ISSUE_DRAG = "track/issue";
 
 function draggedIssueId(data: Data): string | null {
 	return data.kind === ISSUE_DRAG && typeof data.issueId === "string" ? data.issueId : null;

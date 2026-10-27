@@ -1,4 +1,4 @@
-import type { Member } from "@tangent/protocol";
+import type { Member } from "@gateweave/track-protocol";
 import { CircleUserRound } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "#/components/ui/avatar";
 import { cn } from "#/lib/utils";

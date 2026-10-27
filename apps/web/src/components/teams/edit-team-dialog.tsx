@@ -1,5 +1,5 @@
-import { mutationSchema, type Team } from "@tangent/protocol";
-import { useSyncClient } from "@tangent/sync-client/react";
+import { mutationSchema, type Team } from "@gateweave/track-protocol";
+import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { type FormEvent, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {

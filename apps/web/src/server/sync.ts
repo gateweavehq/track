@@ -1,4 +1,4 @@
-import { MEMBER_HEADER } from "@tangent/sync-server";
+import { MEMBER_HEADER } from "@gateweave/track-sync-server";
 import { auth, db } from "./auth";
 import { findMembership, workspaceStub } from "./workspaces";
 

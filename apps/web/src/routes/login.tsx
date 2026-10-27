@@ -59,7 +59,7 @@ function LoginPage() {
 			<div className="w-full max-w-sm space-y-6">
 				<div className="space-y-1.5 text-center">
 					<h1 className="text-xl font-semibold tracking-tight">
-						{mode === "sign-in" ? "Sign in to Tangent" : "Create your account"}
+						{mode === "sign-in" ? "Sign in to Gateweave Track" : "Create your account"}
 					</h1>
 					<p className="text-sm text-muted-foreground">Open-source, realtime issue tracking.</p>
 				</div>
@@ -121,7 +121,7 @@ function LoginPage() {
 				</form>
 
 				<p className="text-center text-sm text-muted-foreground">
-					{mode === "sign-in" ? "New to Tangent? " : "Already have an account? "}
+					{mode === "sign-in" ? "New to Gateweave Track? " : "Already have an account? "}
 					<button
 						type="button"
 						className="font-medium text-foreground underline-offset-4 hover:underline"

@@ -12,7 +12,7 @@ export const Route = createRootRoute({
 		meta: [
 			{ charSet: "utf-8" },
 			{ name: "viewport", content: "width=device-width, initial-scale=1" },
-			{ title: "Tangent" },
+			{ title: "Gateweave Track" },
 			{ name: "description", content: "Open-source, realtime issue tracking." },
 		],
 		links: [{ rel: "stylesheet", href: appCss }],
@@ -49,7 +49,7 @@ function NotFound() {
 				title="Page not found"
 				action={
 					<Button asChild variant="outline">
-						<Link to="/">Go to Tangent</Link>
+						<Link to="/">Go to Gateweave Track</Link>
 					</Button>
 				}
 			>
