@@ -132,11 +132,6 @@ same time as the sync engine. Every product gets the same keyboard-first command
 - **Product names.** Keep "Tangent" as a product name under Gateweave, or use descriptive names
   ("Gateweave Issues", "Gateweave CRM"). Descriptive names are easier to find in search;
   distinctive names are easier to build a brand around.
-- **Moving to the GitHub organization.** The [`gateweavehq`](https://github.com/gateweavehq)
-  organization exists (the `gateweave` name belongs to an inactive personal account). Move this
-  repository there before it goes public. GitHub redirects the old URLs, but update the CLA
-  document link in `.github/workflows/cla.yml` and the advisory links that point to
-  `xgame92/tangent`.
 - **CLA scope.** The CLA currently covers "Tangent". Widen it to all Gateweave projects before the
   first outside contributor signs, so nobody has to sign twice.
 - **Repository layout.** Products as separate repositories with shared packages published from a

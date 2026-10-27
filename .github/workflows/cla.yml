@@ -27,7 +27,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          path-to-document: https://github.com/xgame92/tangent/blob/main/CLA.md
+          path-to-document: https://github.com/gateweavehq/tangent/blob/main/CLA.md
           path-to-signatures: signatures/cla.json
           # Signatures live on their own branch so main can stay protected.
           branch: cla-signatures
