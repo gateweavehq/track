@@ -38,7 +38,9 @@ account in minutes and invite their team.
 
 ## Launch
 
-- Make the repository public, with a release and a changelog.
+- Make the repository public, with a release and a changelog. Then check that the `main` ruleset
+  is enforced (on GitHub's free organization plan, rulesets apply only to public repositories)
+  and turn on private vulnerability reporting.
 - Show HN, plus a technical write-up of the sync engine: how a Durable Object per workspace, an
   oplog and a local replica make a fast, offline-capable app on serverless infrastructure.
 

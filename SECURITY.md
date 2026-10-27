@@ -8,7 +8,7 @@ Tangent is in early development. Security fixes go into `main` and the latest re
 
 Please report vulnerabilities privately, never in a public issue or pull request.
 
-- Preferred: [open a private security advisory](https://github.com/xgame92/tangent/security/advisories/new)
+- Preferred: [open a private security advisory](https://github.com/gateweavehq/tangent/security/advisories/new)
   on GitHub.
 - Or email **security@gateweave.com**.
 
