@@ -82,6 +82,12 @@ npx wrangler secret put BETTER_AUTH_SECRET --env staging    # staging
 
 From then on, apply migrations before deploying, so new code never meets an old schema.
 
+Each Worker answers on its `workers.dev` address. To serve Track on your own domain, add a custom
+domain to the Worker in the Cloudflare dashboard (Workers & Pages → the Worker → Settings →
+Domains & Routes), or add `"routes": [{ "pattern": "track.example.com", "custom_domain": true }]`
+to your copy of `wrangler.jsonc`. Auth works on any domain the Worker serves; set
+`BETTER_AUTH_URL` as a secret only if you want to pin one.
+
 ## Project structure
 
 ```
