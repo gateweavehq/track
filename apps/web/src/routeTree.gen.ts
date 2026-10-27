@@ -12,6 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkspaceRouteImport } from './routes/$workspace'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as WorkspaceIndexRouteImport } from './routes/$workspace/index'
+import { Route as WorkspaceMyIssuesRouteImport } from './routes/$workspace/my-issues'
+import { Route as WorkspaceIssueIssueKeyRouteImport } from './routes/$workspace/issue.$issueKey'
+import { Route as WorkspaceTeamTeamKeyRouteImport } from './routes/$workspace/team.$teamKey'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -29,6 +33,26 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkspaceIndexRoute = WorkspaceIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceMyIssuesRoute = WorkspaceMyIssuesRouteImport.update({
+  id: '/my-issues',
+  path: '/my-issues',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceIssueIssueKeyRoute = WorkspaceIssueIssueKeyRouteImport.update({
+  id: '/issue/$issueKey',
+  path: '/issue/$issueKey',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceTeamTeamKeyRoute = WorkspaceTeamTeamKeyRouteImport.update({
+  id: '/team/$teamKey',
+  path: '/team/$teamKey',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -37,34 +61,69 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/$workspace': typeof WorkspaceRoute
+  '/$workspace': typeof WorkspaceRouteWithChildren
   '/login': typeof LoginRoute
+  '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
+  '/$workspace/': typeof WorkspaceIndexRoute
+  '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
+  '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/$workspace': typeof WorkspaceRoute
   '/login': typeof LoginRoute
+  '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
+  '/$workspace': typeof WorkspaceIndexRoute
+  '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
+  '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/$workspace': typeof WorkspaceRoute
+  '/$workspace': typeof WorkspaceRouteWithChildren
   '/login': typeof LoginRoute
+  '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
+  '/$workspace/': typeof WorkspaceIndexRoute
+  '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
+  '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/$workspace' | '/login' | '/api/auth/$'
+  fullPaths:
+    | '/'
+    | '/$workspace'
+    | '/login'
+    | '/$workspace/my-issues'
+    | '/$workspace/'
+    | '/$workspace/issue/$issueKey'
+    | '/$workspace/team/$teamKey'
+    | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/$workspace' | '/login' | '/api/auth/$'
-  id: '__root__' | '/' | '/$workspace' | '/login' | '/api/auth/$'
+  to:
+    | '/'
+    | '/login'
+    | '/$workspace/my-issues'
+    | '/$workspace'
+    | '/$workspace/issue/$issueKey'
+    | '/$workspace/team/$teamKey'
+    | '/api/auth/$'
+  id:
+    | '__root__'
+    | '/'
+    | '/$workspace'
+    | '/login'
+    | '/$workspace/my-issues'
+    | '/$workspace/'
+    | '/$workspace/issue/$issueKey'
+    | '/$workspace/team/$teamKey'
+    | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  WorkspaceRoute: typeof WorkspaceRoute
+  WorkspaceRoute: typeof WorkspaceRouteWithChildren
   LoginRoute: typeof LoginRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -92,6 +151,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$workspace/': {
+      id: '/$workspace/'
+      path: '/'
+      fullPath: '/$workspace/'
+      preLoaderRoute: typeof WorkspaceIndexRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/$workspace/my-issues': {
+      id: '/$workspace/my-issues'
+      path: '/my-issues'
+      fullPath: '/$workspace/my-issues'
+      preLoaderRoute: typeof WorkspaceMyIssuesRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/$workspace/issue/$issueKey': {
+      id: '/$workspace/issue/$issueKey'
+      path: '/issue/$issueKey'
+      fullPath: '/$workspace/issue/$issueKey'
+      preLoaderRoute: typeof WorkspaceIssueIssueKeyRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/$workspace/team/$teamKey': {
+      id: '/$workspace/team/$teamKey'
+      path: '/team/$teamKey'
+      fullPath: '/$workspace/team/$teamKey'
+      preLoaderRoute: typeof WorkspaceTeamTeamKeyRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -102,9 +189,27 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface WorkspaceRouteChildren {
+  WorkspaceMyIssuesRoute: typeof WorkspaceMyIssuesRoute
+  WorkspaceIndexRoute: typeof WorkspaceIndexRoute
+  WorkspaceIssueIssueKeyRoute: typeof WorkspaceIssueIssueKeyRoute
+  WorkspaceTeamTeamKeyRoute: typeof WorkspaceTeamTeamKeyRoute
+}
+
+const WorkspaceRouteChildren: WorkspaceRouteChildren = {
+  WorkspaceMyIssuesRoute: WorkspaceMyIssuesRoute,
+  WorkspaceIndexRoute: WorkspaceIndexRoute,
+  WorkspaceIssueIssueKeyRoute: WorkspaceIssueIssueKeyRoute,
+  WorkspaceTeamTeamKeyRoute: WorkspaceTeamTeamKeyRoute,
+}
+
+const WorkspaceRouteWithChildren = WorkspaceRoute._addFileChildren(
+  WorkspaceRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  WorkspaceRoute: WorkspaceRoute,
+  WorkspaceRoute: WorkspaceRouteWithChildren,
   LoginRoute: LoginRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

@@ -14,6 +14,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
 		if (!membership) return null;
 		return {
 			id: membership.workspaceId,
+			name: membership.workspaceName,
 			userId: session.user.id,
 			role: membership.profile.role,
 		};
