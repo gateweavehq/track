@@ -428,3 +428,135 @@ describe("membership", () => {
 		expect([unchanged, renamed]).toEqual([before, before + 1]);
 	});
 });
+
+describe("server-side clients", () => {
+	const AGENT = "mcp:test-agent";
+
+	it("applies mutations over RPC and broadcasts them to live clients", async () => {
+		const { workspace, admin } = await withTeam();
+
+		const result = await workspace.mutate(alice, AGENT, "m-1", {
+			name: "issue.create",
+			args: { id: "issue-1", teamId: TEAM_ID, title: "Filed by an agent", sortOrder: "a0" },
+		});
+
+		expect(result).toEqual({ ok: true, version: expect.any(Number) });
+		const issue = await issueOf(admin, "issue-1");
+		expect(issue).toMatchObject({ title: "Filed by an agent", number: 1, creatorId: alice.id });
+	});
+
+	it("treats a replayed mutation id as already applied", async () => {
+		const { workspace } = await withTeam();
+		const create = {
+			name: "issue.create",
+			args: { id: "issue-1", teamId: TEAM_ID, title: "Once", sortOrder: "a0" },
+		};
+
+		const first = await workspace.mutate(alice, AGENT, "m-1", create);
+		const again = await workspace.mutate(alice, AGENT, "m-1", create);
+
+		expect(again).toEqual(first);
+		expect((await snapshotOf(workspace)).issues).toHaveLength(1);
+	});
+
+	it("rejects what a socket client could not do", async () => {
+		const { workspace } = await withTeam();
+
+		const forbidden = await workspace.mutate(alice, AGENT, "m-1", {
+			name: "team.create",
+			args: { id: "team-2", key: "OPS", name: "Operations" },
+		});
+		const invalid = await workspace.mutate(alice, AGENT, "m-2", {
+			name: "issue.create",
+			args: { id: "issue-1", teamId: TEAM_ID, title: "", sortOrder: "a0" },
+		});
+		const missing = await workspace.mutate(alice, AGENT, "m-3", {
+			name: "issue.update",
+			args: { id: "nope", baseVersion: 0, patch: { title: "Gone" } },
+		});
+
+		expect(forbidden).toMatchObject({ ok: false, reason: "forbidden" });
+		expect(invalid).toMatchObject({ ok: false, reason: "invalid" });
+		expect(missing).toMatchObject({ ok: false, reason: "not_found" });
+	});
+
+	it("keeps field-level conflict detection for agent edits", async () => {
+		const { workspace, admin } = await withTeam();
+		const issue = await createIssue(admin, "issue-1");
+		await admin.apply({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { status: "done" } },
+		});
+
+		const stale = await workspace.mutate(alice, AGENT, "m-1", {
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { status: "todo" } },
+		});
+
+		expect(stale).toMatchObject({ ok: false, reason: "conflict" });
+	});
+
+	it("finds issues by team, status, assignee and title", async () => {
+		const { workspace, admin } = await withTeam();
+		await admin.apply({
+			name: "issue.create",
+			args: { id: "i-1", teamId: TEAM_ID, title: "Fix 100% CPU", sortOrder: "a0" },
+		});
+		await admin.apply({
+			name: "issue.create",
+			args: {
+				id: "i-2",
+				teamId: TEAM_ID,
+				title: "Write docs",
+				status: "todo",
+				assigneeId: owner.id,
+				sortOrder: "a1",
+			},
+		});
+		await admin.apply({
+			name: "issue.create",
+			args: { id: "i-3", teamId: TEAM_ID, title: "Deleted", sortOrder: "a2" },
+		});
+		await admin.apply({ name: "issue.delete", args: { id: "i-3" } });
+
+		// Sorted, since issues created in the same millisecond have no meaningful order.
+		const ids = async (query: Parameters<Workspace["issues"]>[0]) =>
+			(await workspace.issues(query)).map((issue) => issue.id).sort();
+
+		expect(await ids({ limit: 10 })).toEqual(["i-1", "i-2"]);
+		expect(await ids({ teamId: TEAM_ID, statuses: ["todo"], limit: 10 })).toEqual(["i-2"]);
+		expect(await ids({ assigneeId: owner.id, limit: 10 })).toEqual(["i-2"]);
+		expect(await ids({ assigneeId: null, limit: 10 })).toEqual(["i-1"]);
+		// Wildcard characters in the text match themselves.
+		expect(await ids({ text: "100%", limit: 10 })).toEqual(["i-1"]);
+		expect(await ids({ text: "%", limit: 10 })).toEqual(["i-1"]);
+		expect(await ids({ text: "WRITE", limit: 10 })).toEqual(["i-2"]);
+		expect(await ids({ limit: 1 })).toHaveLength(1);
+	});
+
+	it("looks issues up by key and knows the last sort order", async () => {
+		const { workspace, admin } = await withTeam();
+		await createIssue(admin, "issue-1");
+		await admin.apply({
+			name: "issue.create",
+			args: { id: "issue-2", teamId: TEAM_ID, title: "Later", sortOrder: "b5" },
+		});
+
+		expect(await workspace.issueByKey("ENG", 2)).toMatchObject({ id: "issue-2" });
+		expect(await workspace.issueByKey("ENG", 3)).toBeNull();
+		expect(await workspace.issueByKey("OPS", 1)).toBeNull();
+		expect(await workspace.lastSortOrder()).toBe("b5");
+	});
+
+	it("lists teams and members", async () => {
+		const { workspace } = await withTeam();
+		await workspace.syncMember(alice);
+
+		const directory = await workspace.directory();
+
+		expect(directory.teams.map((team) => team.key)).toEqual(["ENG"]);
+		expect(directory.members.map((member) => member.id).sort()).toEqual(
+			[alice.id, owner.id].sort(),
+		);
+	});
+});
