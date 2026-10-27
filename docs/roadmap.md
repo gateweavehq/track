@@ -11,13 +11,12 @@ when" holds. For the wider Gateweave product family, see [ecosystem.md](ecosyste
   workspace's Durable Object.
 - **Client sync engine.** An IndexedDB replica per user and workspace, optimistic mutations that
   survive reloads and offline periods, and one connection per browser shared by all tabs.
+- **Issue lists and detail.** Team and "My issues" lists grouped by status, an issue page that
+  saves as you type, a command palette, and keyboard shortcuts for every common action.
 
 ## Next: a usable issue tracker
 
-- Issue list and board per team, grouped by status, with drag-and-drop ordering (fractional
-  indexes).
-- Issue detail: title, description, status, priority, assignee, and keyboard shortcuts for each.
-- A command palette and keyboard-first navigation throughout.
+- A board per team, with drag-and-drop ordering (fractional indexes) in the list and the board.
 - Team management and member invitations.
 - Labels, comments and an activity history, as new entities and mutations.
 

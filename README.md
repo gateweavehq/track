@@ -9,8 +9,8 @@ own Cloudflare account.
 Tangent is the first product of [Gateweave](https://gateweave.com), a family of open-source,
 Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
 
-> **Status: early development.** Sync (server and client), auth and workspaces work end to end.
-> The issue UI is next. Expect breaking changes.
+> **Status: early development.** Sync (server and client), auth, workspaces, issue lists and the
+> issue page work end to end. The board, labels and comments are next. Expect breaking changes.
 
 ## Highlights
 
