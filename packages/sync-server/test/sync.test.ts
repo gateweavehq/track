@@ -1,0 +1,430 @@
+import { runInDurableObject } from "cloudflare:test";
+import { CloseCode, type Issue, PING, PONG } from "@tangent/protocol";
+import { drizzle } from "drizzle-orm/durable-sqlite";
+import { describe, expect, it } from "vitest";
+import type { MemberProfile } from "../src";
+import * as schema from "../src/db/schema";
+import { compact } from "../src/log";
+import { freshWorkspace, TestClient, type Workspace } from "./client";
+
+const owner: MemberProfile = {
+	id: "user-owner",
+	name: "Olivia Owner",
+	email: "olivia@example.com",
+	image: null,
+	role: "owner",
+};
+const alice: MemberProfile = { ...owner, id: "user-alice", name: "Alice", role: "member" };
+const bob: MemberProfile = { ...owner, id: "user-bob", name: "Bob", role: "member" };
+
+const TEAM_ID = "team-eng";
+
+async function withTeam() {
+	const workspace = freshWorkspace();
+	const admin = await TestClient.live(workspace, owner);
+	await admin.apply({
+		name: "team.create",
+		args: { id: TEAM_ID, key: "ENG", name: "Engineering" },
+	});
+	return { workspace, admin };
+}
+
+async function createIssue(client: TestClient, id: string, title = "Ship sync") {
+	await client.apply({
+		name: "issue.create",
+		args: { id, teamId: TEAM_ID, title, sortOrder: "a0" },
+	});
+	return issueOf(client, id);
+}
+
+/** Latest state of an issue as seen by `client`. */
+async function issueOf(client: TestClient, id: string): Promise<Issue> {
+	await client.op((op) => op.entity === "issue" && op.id === id);
+	const op = client
+		.ops()
+		.filter((op) => op.entity === "issue" && op.id === id)
+		.at(-1);
+	if (op?.op !== "put" || op.entity !== "issue") throw new Error(`Issue ${id} is not live`);
+	return op.data;
+}
+
+async function snapshotOf(workspace: Workspace) {
+	return workspace.snapshot(owner);
+}
+
+describe("connection", () => {
+	it("catches a new client up and marks it live", async () => {
+		const workspace = freshWorkspace();
+		const client = await TestClient.connect(workspace, owner);
+
+		const ready = await client.hello();
+
+		// Connecting registers the member, which is the first op.
+		expect(ready).toEqual({ type: "ready", version: 1 });
+		expect(client.ops()).toEqual([
+			{
+				version: 1,
+				entity: "member",
+				id: owner.id,
+				op: "put",
+				data: { ...owner, removedAt: null },
+			},
+		]);
+	});
+
+	it("schedules oplog compaction", async () => {
+		const workspace = freshWorkspace();
+		await snapshotOf(workspace);
+		await runInDurableObject(workspace, async (_, state) => {
+			expect(await state.storage.getAlarm()).not.toBeNull();
+		});
+	});
+
+	it("answers keepalive pings", async () => {
+		const workspace = freshWorkspace();
+		const response = await workspace.fetch("https://workspace/socket", {
+			headers: { Upgrade: "websocket", "x-tangent-member": JSON.stringify(owner) },
+		});
+		const ws = response.webSocket;
+		if (!ws) throw new Error("no socket");
+		ws.accept();
+		const pong = new Promise<string>((resolve) =>
+			ws.addEventListener("message", (event) => resolve(event.data as string)),
+		);
+		ws.send(PING);
+		expect(await pong).toBe(PONG);
+	});
+
+	it("closes on a protocol mismatch", async () => {
+		const client = await TestClient.connect(freshWorkspace(), owner);
+		client.send({ type: "hello", protocol: 999, clientId: client.clientId, since: 0 });
+		expect((await client.closed()).code).toBe(CloseCode.ProtocolMismatch);
+	});
+
+	it("closes on messages that are not protocol", async () => {
+		const client = await TestClient.connect(freshWorkspace(), owner);
+		client.send("{not json");
+		expect((await client.closed()).code).toBe(CloseCode.InvalidMessage);
+	});
+
+	it("requires hello before mutations", async () => {
+		const client = await TestClient.connect(freshWorkspace(), owner);
+		client.send({
+			type: "mutate",
+			id: "m1",
+			mutation: { name: "issue.delete", args: { id: "x" } },
+		});
+		expect((await client.closed()).code).toBe(CloseCode.InvalidMessage);
+	});
+
+	it("rejects non-socket requests", async () => {
+		const response = await freshWorkspace().fetch("https://workspace/socket");
+		expect(response.status).toBe(404);
+	});
+});
+
+describe("catch-up", () => {
+	it("replays missed ops to a reconnecting client", async () => {
+		const { workspace, admin } = await withTeam();
+		const issue = await createIssue(admin, "issue-1");
+
+		const returning = await TestClient.connect(workspace, owner);
+		const ready = await returning.hello(issue.version - 1);
+
+		expect(ready).toEqual({ type: "ready", version: issue.version });
+		expect(returning.ops().map((op) => op.version)).toEqual([issue.version]);
+	});
+
+	it("resets clients that are ahead of the server", async () => {
+		const client = await TestClient.connect(freshWorkspace(), owner);
+		expect(await client.hello(1_000)).toEqual({ type: "reset" });
+	});
+
+	it("resets clients behind the compaction floor, and keeps recent ops", async () => {
+		const { workspace, admin } = await withTeam();
+		for (let i = 1; i <= 5; i++) await createIssue(admin, `issue-${i}`);
+		const head = (await snapshotOf(workspace)).version;
+
+		await runInDurableObject(workspace, (_, state) => {
+			const db = drizzle(state.storage, { schema });
+			compact(db, Date.now() + 1, { minOps: 2, minAgeMs: 0 });
+		});
+
+		const behind = await TestClient.connect(workspace, owner);
+		expect(await behind.hello(0)).toEqual({ type: "reset" });
+
+		const recent = await TestClient.connect(workspace, owner);
+		expect(await recent.hello(head - 2)).toEqual({ type: "ready", version: head });
+		expect(recent.ops().map((op) => op.version)).toEqual([head - 1, head]);
+	});
+});
+
+describe("teams", () => {
+	it("broadcasts new teams to other live clients", async () => {
+		const workspace = freshWorkspace();
+		const admin = await TestClient.live(workspace, owner);
+		const viewer = await TestClient.live(workspace, alice);
+
+		await admin.apply({
+			name: "team.create",
+			args: { id: TEAM_ID, key: "ENG", name: "Engineering" },
+		});
+
+		const op = await viewer.op((op) => op.entity === "team");
+		expect(op).toMatchObject({ op: "put", data: { id: TEAM_ID, key: "ENG", name: "Engineering" } });
+	});
+
+	it("only lets admins manage teams", async () => {
+		const { workspace } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+
+		const result = await member.mutate({
+			name: "team.update",
+			args: { id: TEAM_ID, patch: { name: "Platform" } },
+		});
+		expect(result).toMatchObject({ type: "reject", reason: "forbidden" });
+	});
+
+	it("keeps team keys unique", async () => {
+		const { admin } = await withTeam();
+		const result = await admin.mutate({
+			name: "team.create",
+			args: { id: "team-2", key: "ENG", name: "Engine" },
+		});
+		expect(result).toMatchObject({ type: "reject", reason: "conflict" });
+	});
+});
+
+describe("issues", () => {
+	it("numbers issues sequentially per team", async () => {
+		const { admin } = await withTeam();
+		await admin.apply({
+			name: "team.create",
+			args: { id: "team-des", key: "DES", name: "Design" },
+		});
+
+		const first = await createIssue(admin, "issue-1");
+		const second = await createIssue(admin, "issue-2");
+		await admin.apply({
+			name: "issue.create",
+			args: { id: "issue-3", teamId: "team-des", title: "Logo", sortOrder: "a0" },
+		});
+		const design = await issueOf(admin, "issue-3");
+
+		expect([first.number, second.number, design.number]).toEqual([1, 2, 1]);
+		expect(first).toMatchObject({
+			status: "backlog",
+			priority: 0,
+			assigneeId: null,
+			creatorId: owner.id,
+		});
+	});
+
+	it("treats a replayed mutation id as already applied", async () => {
+		const { workspace, admin } = await withTeam();
+		const mutation = {
+			name: "issue.create",
+			args: { id: "issue-1", teamId: TEAM_ID, title: "Once", sortOrder: "a0" },
+		} as const;
+
+		const first = await admin.apply(mutation, "m-1");
+		const replay = await admin.apply(mutation, "m-1");
+
+		expect(replay.version).toBe(first.version);
+		expect((await snapshotOf(workspace)).issues).toHaveLength(1);
+	});
+
+	it("rejects a mutation id reused by a different client", async () => {
+		const { workspace, admin } = await withTeam();
+		await createIssue(admin, "issue-1");
+		const other = await TestClient.live(workspace, alice);
+		await admin.apply({ name: "issue.delete", args: { id: "issue-1" } }, "m-shared");
+
+		const result = await other.mutate(
+			{ name: "issue.delete", args: { id: "issue-1" } },
+			"m-shared",
+		);
+		expect(result).toMatchObject({ type: "reject", reason: "invalid" });
+	});
+
+	it("rejects duplicate issue ids without consuming a number", async () => {
+		const { admin } = await withTeam();
+		await createIssue(admin, "issue-1");
+
+		const duplicate = await admin.mutate({
+			name: "issue.create",
+			args: { id: "issue-1", teamId: TEAM_ID, title: "Again", sortOrder: "a1" },
+		});
+		const next = await createIssue(admin, "issue-2");
+
+		expect(duplicate).toMatchObject({ type: "reject", reason: "invalid" });
+		expect(next.number).toBe(2);
+	});
+
+	it("rejects invalid payloads and keeps the connection", async () => {
+		const { admin } = await withTeam();
+		const result = await admin.mutate({
+			name: "issue.create",
+			args: { id: "issue-1", teamId: TEAM_ID, title: "", sortOrder: "a0" },
+		});
+		expect(result).toMatchObject({ type: "reject", reason: "invalid" });
+		await createIssue(admin, "issue-2");
+	});
+
+	it("only assigns active members", async () => {
+		const { workspace, admin } = await withTeam();
+		await workspace.syncMember(alice);
+		const issue = await createIssue(admin, "issue-1");
+
+		const stranger = await admin.mutate({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { assigneeId: "user-nobody" } },
+		});
+		await admin.apply({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { assigneeId: alice.id } },
+		});
+
+		expect(stranger).toMatchObject({ type: "reject", reason: "invalid" });
+		expect((await issueOf(admin, issue.id)).assigneeId).toBe(alice.id);
+	});
+
+	it("broadcasts deletes and treats deleted issues as gone", async () => {
+		const { workspace, admin } = await withTeam();
+		const viewer = await TestClient.live(workspace, alice);
+		const issue = await createIssue(admin, "issue-1");
+
+		await admin.apply({ name: "issue.delete", args: { id: issue.id } });
+		const update = await admin.mutate({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { title: "Zombie" } },
+		});
+
+		expect(await viewer.op((op) => op.op === "delete")).toMatchObject({
+			entity: "issue",
+			id: issue.id,
+		});
+		expect(update).toMatchObject({ type: "reject", reason: "not_found" });
+		expect((await snapshotOf(workspace)).issues).toEqual([]);
+	});
+});
+
+describe("concurrent edits", () => {
+	async function twoEditors() {
+		const { workspace, admin } = await withTeam();
+		const issue = await createIssue(admin, "issue-1", "Original");
+		const a = await TestClient.live(workspace, alice);
+		const b = await TestClient.live(workspace, bob);
+		return { workspace, a, b, admin, issue };
+	}
+
+	it("merges edits to different fields", async () => {
+		const { a, b, admin, issue } = await twoEditors();
+
+		await a.apply({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { title: "Renamed" } },
+		});
+		await b.apply({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { priority: 1 } },
+		});
+
+		expect(await issueOf(admin, issue.id)).toMatchObject({ title: "Renamed", priority: 1 });
+	});
+
+	it("rejects a stale edit to a field another client changed", async () => {
+		const { a, b, admin, issue } = await twoEditors();
+
+		await a.apply({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { title: "First" } },
+		});
+		const stale = await b.mutate({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { title: "Second" } },
+		});
+
+		expect(stale).toMatchObject({ type: "reject", reason: "conflict" });
+		expect((await issueOf(admin, issue.id)).title).toBe("First");
+	});
+
+	it("applies a client's rapid successive edits to the same field", async () => {
+		const { a, admin, issue } = await twoEditors();
+
+		// Both edits are based on the same version because the first ack has not arrived yet.
+		await a.apply({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { title: "Ship" } },
+		});
+		await a.apply({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { title: "Ship it" } },
+		});
+
+		expect((await issueOf(admin, issue.id)).title).toBe("Ship it");
+	});
+
+	it("applies the non-conflicting part of a partially stale patch", async () => {
+		const { a, b, admin, issue } = await twoEditors();
+
+		await a.apply({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { title: "First" } },
+		});
+		await b.apply({
+			name: "issue.update",
+			args: {
+				id: issue.id,
+				baseVersion: issue.version,
+				patch: { title: "Second", status: "todo" },
+			},
+		});
+
+		expect(await issueOf(admin, issue.id)).toMatchObject({ title: "First", status: "todo" });
+	});
+
+	it("does not write when a patch changes nothing", async () => {
+		const { workspace, a, issue } = await twoEditors();
+		const head = (await snapshotOf(workspace)).version;
+		const result = await a.apply({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { title: "Original" } },
+		});
+		expect(result.version).toBe(head);
+	});
+});
+
+describe("membership", () => {
+	it("disconnects removed members and keeps their profile", async () => {
+		const { workspace } = await withTeam();
+		const client = await TestClient.live(workspace, alice);
+
+		await workspace.removeMember(alice.id);
+
+		expect((await client.closed()).code).toBe(CloseCode.Forbidden);
+		const removed = (await snapshotOf(workspace)).members.find((m) => m.id === alice.id);
+		expect(removed?.removedAt).toEqual(expect.any(Number));
+	});
+
+	it("wipes all data when the workspace is destroyed", async () => {
+		const { workspace } = await withTeam();
+		const client = await TestClient.live(workspace, alice);
+
+		await workspace.destroy();
+
+		expect((await client.closed()).code).toBe(CloseCode.Forbidden);
+		await runInDurableObject(workspace, async (_, state) => {
+			expect(state.storage.sql.databaseSize).toBeLessThan(16_384);
+			expect(await state.storage.getAlarm()).toBeNull();
+		});
+	});
+
+	it("only emits member ops when the profile changes", async () => {
+		const workspace = freshWorkspace();
+		const before = (await workspace.snapshot(owner)).version;
+		const unchanged = (await workspace.snapshot(owner)).version;
+		const renamed = (await workspace.snapshot({ ...owner, name: "Olivia O." })).version;
+		expect([unchanged, renamed]).toEqual([before, before + 1]);
+	});
+});

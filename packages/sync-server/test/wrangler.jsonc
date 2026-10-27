@@ -1,0 +1,14 @@
+// Worker used only by the test suite to host WorkspaceDO in isolation.
+{
+	"$schema": "../node_modules/wrangler/config-schema.json",
+	"name": "tangent-sync-server-test",
+	"main": "./worker.ts",
+	"compatibility_date": "2026-10-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"durable_objects": {
+		"bindings": [{ "name": "WORKSPACE", "class_name": "WorkspaceDO" }]
+	},
+	"exports": {
+		"WorkspaceDO": { "type": "durable-object", "storage": "sqlite" }
+	}
+}
