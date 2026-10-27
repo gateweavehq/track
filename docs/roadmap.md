@@ -13,10 +13,11 @@ when" holds. For the wider Gateweave product family, see [ecosystem.md](ecosyste
   survive reloads and offline periods, and one connection per browser shared by all tabs.
 - **Issue lists and detail.** Team and "My issues" lists grouped by status, an issue page that
   saves as you type, a command palette, and keyboard shortcuts for every common action.
+- **Boards and manual ordering.** A board view next to each list. Issues are reordered and moved
+  between statuses by drag and drop or from the keyboard, with fractional indexes.
 
 ## Next: a usable issue tracker
 
-- A board per team, with drag-and-drop ordering (fractional indexes) in the list and the board.
 - Team management and member invitations.
 - Labels, comments and an activity history, as new entities and mutations.
 
