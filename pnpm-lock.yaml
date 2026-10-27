@@ -353,6 +353,9 @@ importers:
       drizzle-kit:
         specifier: 'catalog:'
         version: 0.31.11
+      jose:
+        specifier: 6.2.13
+        version: 6.2.13
       tailwindcss:
         specifier: 4.3.3
         version: 4.3.3

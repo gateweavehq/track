@@ -118,9 +118,11 @@ that agents sign in to, through Better Auth's MCP plugin:
    client under any name, so the consent page also says where the grant will go, and consent is
    never skipped.
 3. The agent gets an access token, a JWT bound to the `/mcp` URL with the `track` scope, and a
-   refresh token. The gateway (`apps/web/src/server/mcp/index.ts`) verifies the signature against
-   Track's JWKS, the audience and the scope. Session cookies are never accepted there, so a web
-   page cannot make a signed-in browser call it, and no Origin check is needed.
+   refresh token. The gateway (`apps/web/src/server/mcp/index.ts`) verifies the signature, the
+   audience and the scope (`protect.ts`). It reads Track's signing keys in-process rather than
+   from the JWKS URL, because a Worker cannot reliably fetch its own hostname. Session cookies are
+   never accepted there, so a web page cannot make a signed-in browser call it, and no Origin
+   check is needed.
 
 Each tool call resolves the workspace slug to the caller's membership in D1, as the sync gateway
 does, and then reads or mutates through the Durable Object's RPC (see

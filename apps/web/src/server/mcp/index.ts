@@ -1,11 +1,13 @@
-import { requireMcpAuth } from "@better-auth/mcp";
 import type { MutationInput } from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import type { IssueQuery } from "@gateweave/track-sync-server";
 import { createMcpHandler } from "@modelcontextprotocol/server";
+import { createDpopReplayStore } from "better-auth/oauth2";
+import type { JWTPayload } from "jose";
 import { auth, db, mcpResource } from "../auth";
 import { MCP_SCOPE } from "../auth/config";
 import { findMembership, listWorkspaces, workspaceStub } from "../workspaces";
+import { protectResource } from "./protect";
 import { createTrackServer, type TrackAccess, type WorkspaceAccess } from "./tools";
 
 const MCP_PATH = "/mcp";
@@ -33,35 +35,48 @@ function protect(resource: string) {
 	const origin = new URL(resource).origin;
 	const mcpHandler = createMcpHandler(({ authInfo }) => {
 		const userId = authInfo?.extra?.userId;
-		// requireMcpAuth only lets verified tokens through, and they always carry both.
+		// protectResource only lets verified tokens through, and they always carry both.
 		if (typeof userId !== "string" || !authInfo?.clientId) {
 			throw new Error("MCP request without verified credentials");
 		}
 		return createTrackServer(accessFor(userId, authInfo.clientId, origin));
 	});
 
-	return requireMcpAuth(
-		auth,
-		(request, claims) => {
-			const clientId = typeof claims.azp === "string" ? claims.azp : claims.client_id;
-			return mcpHandler.fetch(request, {
-				authInfo: {
-					token: request.headers.get("Authorization")?.replace(/^\S+\s+/, "") ?? "",
-					clientId: typeof clientId === "string" ? clientId : "",
-					scopes: typeof claims.scope === "string" ? claims.scope.split(" ") : [],
-					expiresAt: claims.exp,
-					resource: new URL(resource),
-					extra: { userId: claims.sub },
+	const serve = (request: Request, claims: JWTPayload) => {
+		const clientId = typeof claims.azp === "string" ? claims.azp : claims.client_id;
+		return mcpHandler.fetch(request, {
+			authInfo: {
+				token: request.headers.get("Authorization")?.replace(/^\S+\s+/, "") ?? "",
+				clientId: typeof clientId === "string" ? clientId : "",
+				scopes: typeof claims.scope === "string" ? claims.scope.split(" ") : [],
+				expiresAt: claims.exp,
+				resource: new URL(resource),
+				extra: { userId: claims.sub },
+			},
+		});
+	};
+
+	// Built on the first request, once Better Auth's context has resolved. The handler itself is
+	// kept rather than a promise of it, so no request waits on work another request started.
+	let handler: ((request: Request) => Promise<Response>) | undefined;
+	return async (request: Request) => {
+		if (!handler) {
+			const { baseURL, internalAdapter } = await auth.$context;
+			handler = protectResource(
+				{
+					issuer: baseURL,
+					resource,
+					requiredScopes: [MCP_SCOPE],
+					// offline_access lets clients refresh tokens instead of asking the user again.
+					challengeScopes: [MCP_SCOPE, "offline_access"],
+					jwks: () => auth.api.getJwks(),
+					dpopReplayStore: createDpopReplayStore(internalAdapter),
 				},
-			});
-		},
-		{
-			resource,
-			requiredScopes: [MCP_SCOPE],
-			// offline_access lets clients refresh tokens instead of asking the user again.
-			challengeScopes: [MCP_SCOPE, "offline_access"],
-		},
-	);
+				serve,
+			);
+		}
+		return handler(request);
+	};
 }
 
 function accessFor(userId: string, oauthClientId: string, origin: string): TrackAccess {
