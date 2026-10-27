@@ -5,10 +5,19 @@ import { createAuth } from "./config";
 
 export const db = createDb(env.DB);
 
+const baseURL = env.BETTER_AUTH_URL || undefined;
+
+/**
+ * The MCP endpoint's canonical URL. Agents' tokens are bound to it, so it exists only when the
+ * base URL is pinned rather than inferred from each request.
+ */
+export const mcpResource = baseURL ? new URL("/mcp", baseURL).href : undefined;
+
 export const auth = createAuth({
 	db,
 	secret: env.BETTER_AUTH_SECRET,
-	baseURL: env.BETTER_AUTH_URL || undefined,
+	baseURL,
+	mcpResource,
 	github:
 		env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
 			? { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET }

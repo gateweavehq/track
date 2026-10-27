@@ -10,8 +10,8 @@ Track is the first product of [Gateweave](https://gateweave.com), a family of op
 Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
 
 > **Status: early development.** Sync (server and client), auth, workspaces, invitations, issue
-> lists, boards and the issue page work end to end. Labels and comments are next. Expect breaking
-> changes.
+> lists, boards, the issue page and the MCP server for AI agents work end to end. Labels and
+> comments are next. Expect breaking changes.
 
 ## Highlights
 
@@ -22,6 +22,8 @@ Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
 - **Cloudflare-native.** Workers, Durable Objects with SQLite, and D1. No servers, containers or
   external databases.
 - **One deploy.** UI, API, auth and sync ship together as one Worker.
+- **Works with AI agents.** A built-in MCP server lets Claude, ChatGPT and other agents find, file
+  and update issues as you, once you approve them in the browser.
 
 ## Tech stack
 
@@ -44,6 +46,23 @@ pnpm dev:seed    # in a second terminal: a sample workspace with people, teams a
 The seed prints the sample accounts to sign in with. You can also sign up with any email and
 password and create a workspace from scratch. To enable "Sign in with GitHub", fill in
 `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `apps/web/.dev.vars`.
+
+## Connect an AI agent
+
+Track is an [MCP](https://modelcontextprotocol.io) server. An agent connects to `/mcp`, sends you
+to Track to sign in and approve it, and then works with your permissions: it lists your
+workspaces, searches and reads issues, and creates and updates them. Everyone sees its edits
+live, as they would anyone else's.
+
+With Claude Code and Gateweave Cloud:
+
+```sh
+claude mcp add --transport http gateweave-track https://track.gateweave.com/mcp
+```
+
+Then run `/mcp` in Claude Code to sign in. Other MCP clients take the same URL. The endpoint is
+on wherever `BETTER_AUTH_URL` is set (see [Deploying](#deploying)). Locally, set it to
+`http://localhost:4710` in `apps/web/.dev.vars` and connect to `http://localhost:4710/mcp`.
 
 ## Scripts
 
@@ -89,13 +108,17 @@ skip those jobs.
 Each Worker answers on its `workers.dev` address. To serve Track on your own domain, add a custom
 domain to the Worker in the Cloudflare dashboard (Workers & Pages → the Worker → Settings →
 Domains & Routes), or add `"routes": [{ "pattern": "track.example.com", "custom_domain": true }]`
-to your copy of `wrangler.jsonc`. Auth works on any domain the Worker serves; set
-`BETTER_AUTH_URL` as a secret only if you want to pin one.
+to your copy of `wrangler.jsonc`. Auth works on any domain the Worker serves. To turn on the MCP
+endpoint for AI agents, pin the URL people use, because agents' tokens are bound to it:
+
+```sh
+npx wrangler secret put BETTER_AUTH_URL    # for example https://track.example.com
+```
 
 ## Project structure
 
 ```
-apps/web               The Worker: UI, auth, sync gateway, D1 schema
+apps/web               The Worker: UI, auth, sync and MCP gateways, D1 schema
 packages/protocol      Wire contract shared by client and server
 packages/sync-server   WorkspaceDO: storage, mutations, realtime fan-out
 packages/sync-client   Browser replica: local cache, optimistic edits, one connection per browser

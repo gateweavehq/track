@@ -20,6 +20,9 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   browser forgets the workspace.
 - **Installable app.** A web app manifest and icons, so Track installs as an app on desktop and
   mobile.
+- **MCP server.** AI agents connect to `/mcp`, sign in through OAuth with the person's approval,
+  and list workspaces, search, read, create and update issues through the same mutations people
+  use.
 
 ## Next: a usable issue tracker
 

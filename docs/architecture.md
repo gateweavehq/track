@@ -9,14 +9,18 @@ This document explains how the pieces fit together and why they are built the wa
 flowchart LR
   Browser -- "HTTPS (pages, auth, snapshot)" --> Worker
   Browser -- "WebSocket (live sync)" --> Worker
+  Agent["AI agent"] -- "MCP over HTTPS (OAuth token)" --> Worker
   subgraph Worker["gateweave-track worker (apps/web)"]
     Start["TanStack Start<br/>pages + server functions"]
     Auth["Better Auth<br/>/api/auth/*"]
     Gateway["Sync gateway<br/>/api/sync/:slug/*"]
+    Mcp["MCP gateway<br/>/mcp"]
   end
-  Auth --> D1[("D1<br/>users, sessions,<br/>workspaces, members")]
+  Auth --> D1[("D1<br/>users, sessions,<br/>workspaces, members,<br/>OAuth clients")]
   Gateway -- "checks session + membership" --> D1
   Gateway -- "RPC / WebSocket" --> DO
+  Mcp -- "checks token + membership" --> D1
+  Mcp -- "RPC" --> DO
   Auth -- "membership hooks (RPC)" --> DO
   subgraph DO["WorkspaceDO (one per workspace)"]
     SQLite[("SQLite<br/>teams, issues, members,<br/>oplog")]
@@ -39,7 +43,7 @@ different protocol versions in production. It also gives self-hosters one thing 
 
 | Path                   | Purpose                                                                  |
 | ---------------------- | ------------------------------------------------------------------------ |
-| `apps/web`             | The Worker: UI, auth, the sync gateway, and the D1 schema                |
+| `apps/web`             | The Worker: UI, auth, the sync and MCP gateways, and the D1 schema       |
 | `packages/protocol`    | Wire contract shared by client and server: entities, mutations, messages |
 | `packages/sync-server` | `WorkspaceDO`: storage, mutation logic, realtime fan-out                 |
 | `packages/sync-client` | Browser replica: IndexedDB cache, optimistic mutations, tab coordination |
@@ -52,6 +56,7 @@ different protocol versions in production. It also gives self-hosters one thing 
 | ----------------------------------- | ------------ | ---------------------------------- |
 | Users, sessions, OAuth accounts     | D1           | Better Auth                        |
 | Workspaces, members, invitations    | D1           | Better Auth organization plugin    |
+| OAuth clients, grants, signing keys | D1           | Better Auth MCP plugin             |
 | Teams, issues                       | Workspace DO | `sync-server`                      |
 | Member replica (name, avatar, role) | Workspace DO | Pushed from D1 by membership hooks |
 
@@ -98,6 +103,32 @@ The DO is keyed by workspace id, not slug, so renaming a workspace does not move
 `HEAD /api/sync/:slug/snapshot` runs the same checks without touching the DO. A browser cannot
 see the HTTP status of a refused WebSocket handshake, so the client uses this probe to tell
 "offline" apart from "signed out" or "no longer a member".
+
+### AI agents (MCP)
+
+`/mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server, so AI agents can
+work in Track as the person who connected them. Track is also the OAuth authorization server
+that agents sign in to, through Better Auth's MCP plugin:
+
+1. An agent calls `/mcp` without a token and gets a `401` pointing to the protected resource
+   metadata (`/.well-known/oauth-protected-resource/mcp`), which names Track's authorization
+   server.
+2. The agent registers itself (dynamic client registration) and sends the person to authorize,
+   with PKCE. They sign in if needed and approve it on `/oauth/consent`. Anyone can register a
+   client under any name, so the consent page also says where the grant will go, and consent is
+   never skipped.
+3. The agent gets an access token, a JWT bound to the `/mcp` URL with the `track` scope, and a
+   refresh token. The gateway (`apps/web/src/server/mcp/index.ts`) verifies the signature against
+   Track's JWKS, the audience and the scope. Session cookies are never accepted there, so a web
+   page cannot make a signed-in browser call it, and no Origin check is needed.
+
+Each tool call resolves the workspace slug to the caller's membership in D1, as the sync gateway
+does, and then reads or mutates through the Durable Object's RPC (see
+[Server-side clients](#server-side-clients)). A workspace the caller does not belong to is
+reported as not found. The tools themselves live in `apps/web/src/server/mcp/tools.ts`.
+
+Tokens must name one canonical URL, so the endpoint, and the authorization server, exist only
+when `BETTER_AUTH_URL` pins the base URL. Without it `/mcp` answers `404`.
 
 ## Sync protocol
 
@@ -156,11 +187,12 @@ without waking a hibernated Durable Object.
 ### Server-side clients
 
 Code that acts for a member on the server, such as an AI agent's tool call, does not keep a
-replica. It reads slices of the workspace over RPC (`directory`, `issues`, `issueByKey`) and
+replica. It reads slices of the workspace over RPC (`directory`, `issues`, `issue`, `issueByKey`) and
 writes with `mutate(member, clientId, mutationId, mutation)`. That runs the same path as a socket
 mutation: the same validation, idempotency by mutation id, field-level conflict detection and
 broadcast to every live socket. It returns the equivalent of an `ack` or a `reject`. As with
-sockets, only the gateway calls it, after verifying the member.
+sockets, only a gateway calls it, after verifying the member. Today that is the MCP gateway,
+which gives each OAuth client one stable `clientId` and every call a fresh mutation id.
 
 ### Concurrent edits
 

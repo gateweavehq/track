@@ -6,3 +6,7 @@ BETTER_AUTH_SECRET=
 # Optional: enables "Sign in with GitHub". Callback URL: http://localhost:4710/api/auth/callback/github
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
+
+# Optional: pins the app's URL, which also turns on the MCP endpoint for AI agents
+# (http://localhost:4710/mcp). Leave empty to accept any host, for example from your phone.
+BETTER_AUTH_URL=

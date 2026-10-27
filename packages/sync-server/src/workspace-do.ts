@@ -24,6 +24,7 @@ import { compact, currentVersion, oplogFloor, opsSince, type RetentionPolicy } f
 import { applyMutation, MutationRejected } from "./mutations";
 import {
 	type Directory,
+	findIssueById,
 	findIssueByKey,
 	findIssues,
 	type IssueQuery,
@@ -128,6 +129,10 @@ export class WorkspaceDO extends DurableObject {
 
 	issues(query: IssueQuery): Issue[] {
 		return findIssues(this.#db, issueQuery.parse(query));
+	}
+
+	issue(id: string): Issue | null {
+		return findIssueById(this.#db, shortId.parse(id)) ?? null;
 	}
 
 	issueByKey(teamKey: string, number: number): Issue | null {

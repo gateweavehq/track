@@ -8,6 +8,13 @@
       "when": 1793114650057,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1793137716301,
+      "tag": "0001_mighty_wallflower",
+      "breakpoints": true
     }
   ]
 }

@@ -17,7 +17,7 @@ Read [docs/architecture.md](docs/architecture.md) before changing sync, auth or 
 
 | Path                   | What lives there                                                          |
 | ---------------------- | ------------------------------------------------------------------------- |
-| `apps/web`             | The Worker: TanStack Start UI, Better Auth, sync gateway, D1 schema       |
+| `apps/web`             | The Worker: TanStack Start UI, Better Auth, sync and MCP gateways, D1     |
 | `packages/protocol`    | Wire contract: entities, mutation schemas (zod), messages. No server code |
 | `packages/sync-server` | `WorkspaceDO`: SQLite storage, mutation handlers, oplog, realtime fan-out |
 | `packages/sync-client` | Browser replica: IndexedDB, optimistic mutations, tab leader election     |
@@ -65,10 +65,11 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
 5. **Durable Object handlers stay synchronous.** Mutations run inside
    `ctx.storage.transactionSync` with Drizzle's sync API (`.get()`, `.all()`, `.run()`). Never
    `await` in the middle of a write.
-6. **The Durable Object has no public route.** Only the gateway (`apps/web/src/server/sync.ts`)
-   reaches it, after checking the Origin, the session and D1 membership. Non-members get the same
-   404 as a missing workspace. The verified member travels in `MEMBER_HEADER`, which only the
-   gateway sets.
+6. **The Durable Object has no public route.** Only the gateways reach it, after checking D1
+   membership: `apps/web/src/server/sync.ts` for browsers (Origin and session first) and
+   `apps/web/src/server/mcp/index.ts` for AI agents (OAuth token first, never cookies).
+   Non-members get the same 404 or "not found" as a missing workspace. The verified member
+   travels in `MEMBER_HEADER` or as the `member` argument of `mutate`, which only a gateway sets.
 7. **Server code never reaches the browser bundle.** In server functions, import server modules
    dynamically inside the handler, as `apps/web/src/lib/session.ts` does.
 8. **Migrations are append-only.** Generate them with Drizzle Kit and commit them. Never edit a
