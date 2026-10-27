@@ -1,7 +1,7 @@
-import type { Issue, IssueStatus, Member, Team } from "@gateweave/track-protocol";
+import type { Issue, IssueStatus, Label, Member, Team } from "@gateweave/track-protocol";
 import { and, desc, eq, inArray, isNull, max, type SQL, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
-import { type Db, toIssue, toMember, toTeam } from "./state";
+import { type Db, toIssue, toLabel, toMember, toTeam } from "./state";
 
 // Reads for server-side clients, which ask for a slice of the workspace instead of a replica.
 
@@ -10,6 +10,8 @@ export interface IssueQuery {
 	statuses?: readonly IssueStatus[] | undefined;
 	/** A member's id, or null for unassigned issues. */
 	assigneeId?: string | null | undefined;
+	/** Only issues with this label. */
+	labelId?: string | undefined;
 	/** Matched against titles, ignoring case. */
 	text?: string | undefined;
 	limit: number;
@@ -19,12 +21,20 @@ export const MAX_QUERY_LIMIT = 200;
 
 export interface Directory {
 	teams: Team[];
+	labels: Label[];
 	members: Member[];
 }
 
 export function readDirectory(db: Db): Directory {
 	return {
 		teams: db.select().from(schema.teams).orderBy(schema.teams.key).all().map(toTeam),
+		labels: db
+			.select()
+			.from(schema.labels)
+			.where(isNull(schema.labels.deletedAt))
+			.orderBy(schema.labels.name)
+			.all()
+			.map(toLabel),
 		members: db.select().from(schema.members).orderBy(schema.members.name).all().map(toMember),
 	};
 }
@@ -37,6 +47,11 @@ export function findIssues(db: Db, query: IssueQuery): Issue[] {
 	if (query.assigneeId === null) filters.push(isNull(schema.issues.assigneeId));
 	else if (query.assigneeId !== undefined) {
 		filters.push(eq(schema.issues.assigneeId, query.assigneeId));
+	}
+	if (query.labelId !== undefined) {
+		filters.push(
+			sql`exists (select 1 from json_each(${schema.issues.labelIds}) where value = ${query.labelId})`,
+		);
 	}
 	const text = query.text?.trim();
 	// instr instead of LIKE, so % and _ in the text are not wildcards. lower() folds ASCII only.

@@ -53,7 +53,7 @@ export class MemoryPersistence implements Persistence {
 		const snapshot = this.#snapshot;
 		if (!snapshot) throw new Error("Cannot apply ops before a snapshot is stored");
 		for (const op of ops) {
-			const key = `${op.entity}s` as "teams" | "issues" | "members";
+			const key = `${op.entity}s` as "teams" | "issues" | "labels" | "members";
 			const rows = snapshot[key].filter((row) => row.id !== op.id);
 			if (op.op === "put") rows.push(structuredClone(op.data) as never);
 			snapshot[key] = rows as never;

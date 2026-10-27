@@ -1,4 +1,4 @@
-import type { Issue, Member, Snapshot, Team } from "@gateweave/track-protocol";
+import type { Issue, Label, Member, Snapshot, Team } from "@gateweave/track-protocol";
 import { and, eq, isNull } from "drizzle-orm";
 import type { DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 import * as schema from "./db/schema";
@@ -13,6 +13,8 @@ export const toTeam = ({ issueCounter: _, ...team }: schema.TeamRow): Team => te
 
 export const toIssue = ({ fieldStamps: _, deletedAt: __, ...issue }: schema.IssueRow): Issue =>
 	issue;
+
+export const toLabel = ({ deletedAt: _, ...label }: schema.LabelRow): Label => label;
 
 export const toMember = ({ userId, ...member }: schema.MemberRow): Member => ({
 	id: userId,
@@ -29,6 +31,12 @@ export function readSnapshot(db: Db): Snapshot {
 			.where(isNull(schema.issues.deletedAt))
 			.all()
 			.map(toIssue),
+		labels: db
+			.select()
+			.from(schema.labels)
+			.where(isNull(schema.labels.deletedAt))
+			.all()
+			.map(toLabel),
 		members: db.select().from(schema.members).all().map(toMember),
 	};
 }

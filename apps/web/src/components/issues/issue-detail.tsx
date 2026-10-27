@@ -19,7 +19,9 @@ import { useHotkeys } from "#/lib/hotkeys";
 import { issueKey } from "#/lib/issues";
 import { send, useUpdateIssue } from "#/lib/mutations";
 import { useMembersById } from "#/lib/queries";
+import { cn } from "#/lib/utils";
 import type { IssueField } from "./issue-row";
+import { LabelChips, LabelPicker } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 import { AssigneePicker, PriorityPicker, StatusPicker } from "./pickers";
 
@@ -49,6 +51,7 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 		s: () => setMenu("status"),
 		p: () => setMenu("priority"),
 		a: () => setMenu("assignee"),
+		l: () => setMenu("labels"),
 		Escape: back,
 	});
 
@@ -126,6 +129,17 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 							</PropertyButton>
 						</AssigneePicker>
 					</Property>
+					<Property label="Labels">
+						<LabelPicker issue={issue} {...menuProps("labels")}>
+							<PropertyButton className="h-auto min-h-8 py-1.5">
+								{issue.labelIds.length > 0 ? (
+									<LabelChips labelIds={issue.labelIds} className="flex-wrap" />
+								) : (
+									<span className="text-muted-foreground">Add labels</span>
+								)}
+							</PropertyButton>
+						</LabelPicker>
+					</Property>
 					<dl className="space-y-2 pt-4 text-xs text-muted-foreground">
 						<div className="flex justify-between gap-2 px-2">
 							<dt>Created by</dt>
@@ -170,12 +184,19 @@ function Property({ label, children }: { label: string; children: ReactNode }) {
 	);
 }
 
-function PropertyButton({ children, ...props }: { children: ReactNode }) {
+function PropertyButton({
+	children,
+	className,
+	...props
+}: {
+	children: ReactNode;
+	className?: string;
+}) {
 	return (
 		<Button
 			variant="ghost"
 			size="sm"
-			className="h-8 w-full justify-start gap-2 px-2 font-normal"
+			className={cn("h-8 w-full justify-start gap-2 px-2 font-normal", className)}
 			{...props}
 		>
 			{children}

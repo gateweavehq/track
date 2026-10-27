@@ -1,3 +1,4 @@
+import { type Issue, MAX_LABELS_PER_ISSUE } from "@gateweave/track-protocol";
 import type { Draft, PendingMutation } from "./store";
 
 /**
@@ -26,8 +27,10 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 		case "issue.create": {
 			const args = mutation.args;
 			if (draft.get("issue", args.id) || !draft.get("team", args.teamId)) return;
+			if (args.labelIds.some((labelId) => !draft.get("label", labelId))) return;
 			draft.put("issue", {
 				...args,
+				labelIds: [...new Set(args.labelIds)],
 				// The server assigns the real number; this guess is replaced when the issue arrives.
 				number: nextIssueNumber(draft, args.teamId),
 				creatorId: userId,
@@ -45,7 +48,45 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 		case "issue.delete":
 			draft.delete("issue", mutation.args.id);
 			return;
+		case "issue.addLabel": {
+			const { id, labelId } = mutation.args;
+			const issue = draft.get("issue", id);
+			if (!issue || !draft.get("label", labelId) || issue.labelIds.includes(labelId)) return;
+			if (issue.labelIds.length >= MAX_LABELS_PER_ISSUE) return;
+			draft.put("issue", { ...issue, labelIds: [...issue.labelIds, labelId], updatedAt: now });
+			return;
+		}
+		case "issue.removeLabel": {
+			const { id, labelId } = mutation.args;
+			const issue = draft.get("issue", id);
+			if (!issue?.labelIds.includes(labelId)) return;
+			draft.put("issue", withoutLabel(issue, labelId, now));
+			return;
+		}
+		case "label.create": {
+			const { id, name, color } = mutation.args;
+			if (draft.get("label", id)) return;
+			draft.put("label", { id, name, color, createdAt: now, updatedAt: now });
+			return;
+		}
+		case "label.update": {
+			const label = draft.get("label", mutation.args.id);
+			if (label) draft.put("label", { ...label, ...mutation.args.patch, updatedAt: now });
+			return;
+		}
+		case "label.delete": {
+			const { id } = mutation.args;
+			for (const issue of [...draft.values("issue")]) {
+				if (issue.labelIds.includes(id)) draft.put("issue", withoutLabel(issue, id, now));
+			}
+			draft.delete("label", id);
+			return;
+		}
 	}
+}
+
+function withoutLabel(issue: Issue, labelId: string, now: number): Issue {
+	return { ...issue, labelIds: issue.labelIds.filter((id) => id !== labelId), updatedAt: now };
 }
 
 function nextIssueNumber(draft: Draft, teamId: string): number {

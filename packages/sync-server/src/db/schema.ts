@@ -40,6 +40,7 @@ export const issues = sqliteTable(
 		priority: integer("priority").$type<IssuePriority>().notNull(),
 		assigneeId: text("assignee_id"),
 		creatorId: text("creator_id").notNull(),
+		labelIds: text("label_ids", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
 		sortOrder: text("sort_order").notNull(),
 		version: integer("version").notNull(),
 		fieldStamps: text("field_stamps", { mode: "json" })
@@ -52,6 +53,16 @@ export const issues = sqliteTable(
 	},
 	(table) => [uniqueIndex("issues_team_number_idx").on(table.teamId, table.number)],
 );
+
+/** Deleted labels keep their row, like issues, but are removed from every issue. */
+export const labels = sqliteTable("labels", {
+	id: text("id").primaryKey(),
+	name: text("name").notNull(),
+	color: text("color").notNull(),
+	createdAt: integer("created_at").notNull(),
+	updatedAt: integer("updated_at").notNull(),
+	deletedAt: integer("deleted_at"),
+});
 
 /** Replica of workspace membership. The app worker owns membership and pushes changes here. */
 export const members = sqliteTable("members", {
@@ -93,4 +104,5 @@ export const meta = sqliteTable("meta", {
 
 export type TeamRow = typeof teams.$inferSelect;
 export type IssueRow = typeof issues.$inferSelect;
+export type LabelRow = typeof labels.$inferSelect;
 export type MemberRow = typeof members.$inferSelect;

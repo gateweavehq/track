@@ -1,5 +1,5 @@
 import { runInDurableObject } from "cloudflare:test";
-import { CloseCode, type Issue, PING, PONG } from "@gateweave/track-protocol";
+import { CloseCode, type Issue, MAX_LABELS_PER_ISSUE, PING, PONG } from "@gateweave/track-protocol";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { describe, expect, it } from "vitest";
 import type { MemberProfile } from "../src";
@@ -395,6 +395,154 @@ describe("concurrent edits", () => {
 	});
 });
 
+describe("labels", () => {
+	async function createLabel(client: TestClient, id: string, name: string) {
+		await client.apply({ name: "label.create", args: { id, name, color: "#e5484d" } });
+	}
+
+	it("creates and renames labels, keeping names unique ignoring case", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		await createLabel(member, "label-bug", "Bug");
+		await createLabel(member, "label-docs", "Docs");
+
+		const duplicate = await admin.mutate({
+			name: "label.create",
+			args: { id: "label-2", name: "bug", color: "#0090ff" },
+		});
+		const rename = await admin.mutate({
+			name: "label.update",
+			args: { id: "label-docs", patch: { name: "BUG" } },
+		});
+		await member.apply({
+			name: "label.update",
+			args: { id: "label-bug", patch: { name: "Defect", color: "#46a758" } },
+		});
+
+		expect(duplicate).toMatchObject({ type: "reject", reason: "conflict" });
+		expect(rename).toMatchObject({ type: "reject", reason: "conflict" });
+		expect(
+			await admin.op((op) => op.entity === "label" && op.op === "put" && op.data.name === "Defect"),
+		).toMatchObject({ data: { id: "label-bug", color: "#46a758" } });
+	});
+
+	it("adds and removes labels as sets, so concurrent changes all land", async () => {
+		const { workspace, admin } = await withTeam();
+		const other = await TestClient.live(workspace, alice);
+		await createLabel(admin, "label-bug", "Bug");
+		await createLabel(admin, "label-docs", "Docs");
+		const issue = await createIssue(admin, "issue-1");
+
+		await admin.apply({ name: "issue.addLabel", args: { id: issue.id, labelId: "label-bug" } });
+		await other.apply({ name: "issue.addLabel", args: { id: issue.id, labelId: "label-docs" } });
+		const again = await other.apply({
+			name: "issue.addLabel",
+			args: { id: issue.id, labelId: "label-docs" },
+		});
+		const absent = await admin.apply({
+			name: "issue.removeLabel",
+			args: { id: "issue-1", labelId: "label-missing" },
+		});
+
+		expect((await issueOf(admin, issue.id)).labelIds).toEqual(["label-bug", "label-docs"]);
+		// Repeats change nothing, so they write nothing.
+		expect(absent.version).toBe(again.version);
+
+		await other.apply({ name: "issue.removeLabel", args: { id: issue.id, labelId: "label-bug" } });
+		expect((await issueOf(admin, issue.id)).labelIds).toEqual(["label-docs"]);
+	});
+
+	it("rejects unknown labels and issues", async () => {
+		const { admin } = await withTeam();
+		await createLabel(admin, "label-bug", "Bug");
+		const issue = await createIssue(admin, "issue-1");
+		await admin.apply({ name: "issue.delete", args: { id: issue.id } });
+
+		const unknownLabel = await admin.mutate({
+			name: "issue.create",
+			args: { id: "issue-2", teamId: TEAM_ID, title: "Hm", labelIds: ["nope"], sortOrder: "a1" },
+		});
+		const deletedIssue = await admin.mutate({
+			name: "issue.addLabel",
+			args: { id: issue.id, labelId: "label-bug" },
+		});
+		const created = await createIssue(admin, "issue-3");
+
+		expect(unknownLabel).toMatchObject({ type: "reject", reason: "not_found" });
+		expect(deletedIssue).toMatchObject({ type: "reject", reason: "not_found" });
+		// The rejected create did not use up a number.
+		expect(created.number).toBe(2);
+	});
+
+	it("creates issues with labels, once each", async () => {
+		const { admin } = await withTeam();
+		await createLabel(admin, "label-bug", "Bug");
+
+		await admin.apply({
+			name: "issue.create",
+			args: {
+				id: "issue-1",
+				teamId: TEAM_ID,
+				title: "Labeled",
+				labelIds: ["label-bug", "label-bug"],
+				sortOrder: "a0",
+			},
+		});
+
+		expect((await issueOf(admin, "issue-1")).labelIds).toEqual(["label-bug"]);
+	});
+
+	it("caps the labels on one issue", async () => {
+		const { admin } = await withTeam();
+		const issue = await createIssue(admin, "issue-1");
+		for (let i = 0; i <= MAX_LABELS_PER_ISSUE; i++) await createLabel(admin, `label-${i}`, `L${i}`);
+		for (let i = 0; i < MAX_LABELS_PER_ISSUE; i++) {
+			await admin.apply({ name: "issue.addLabel", args: { id: issue.id, labelId: `label-${i}` } });
+		}
+
+		const over = await admin.mutate({
+			name: "issue.addLabel",
+			args: { id: issue.id, labelId: `label-${MAX_LABELS_PER_ISSUE}` },
+		});
+
+		expect(over).toMatchObject({ type: "reject", reason: "invalid" });
+	});
+
+	it("lets only admins delete a label, which leaves every issue", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		await createLabel(admin, "label-bug", "Bug");
+		await createLabel(admin, "label-docs", "Docs");
+		await admin.apply({
+			name: "issue.create",
+			args: {
+				id: "issue-1",
+				teamId: TEAM_ID,
+				title: "Both",
+				labelIds: ["label-bug", "label-docs"],
+				sortOrder: "a0",
+			},
+		});
+
+		const forbidden = await member.mutate({ name: "label.delete", args: { id: "label-bug" } });
+		await admin.apply({ name: "label.delete", args: { id: "label-bug" } });
+		const reuse = await admin.mutate({
+			name: "issue.addLabel",
+			args: { id: "issue-1", labelId: "label-bug" },
+		});
+
+		expect(forbidden).toMatchObject({ type: "reject", reason: "forbidden" });
+		expect(await member.op((op) => op.entity === "label" && op.op === "delete")).toMatchObject({
+			id: "label-bug",
+		});
+		expect((await issueOf(member, "issue-1")).labelIds).toEqual(["label-docs"]);
+		expect(reuse).toMatchObject({ type: "reject", reason: "not_found" });
+		const snapshot = await snapshotOf(workspace);
+		expect(snapshot.labels.map((label) => label.id)).toEqual(["label-docs"]);
+		expect(snapshot.issues[0]?.labelIds).toEqual(["label-docs"]);
+	});
+});
+
 describe("membership", () => {
 	it("disconnects removed members and keeps their profile", async () => {
 		const { workspace } = await withTeam();
@@ -532,6 +680,24 @@ describe("server-side clients", () => {
 		expect(await ids({ text: "%", limit: 10 })).toEqual(["i-1"]);
 		expect(await ids({ text: "WRITE", limit: 10 })).toEqual(["i-2"]);
 		expect(await ids({ limit: 1 })).toHaveLength(1);
+	});
+
+	it("finds issues by label, and lists labels", async () => {
+		const { workspace, admin } = await withTeam();
+		await admin.apply({
+			name: "label.create",
+			args: { id: "label-bug", name: "Bug", color: "#e5484d" },
+		});
+		await admin.apply({
+			name: "issue.create",
+			args: { id: "i-1", teamId: TEAM_ID, title: "Bug", labelIds: ["label-bug"], sortOrder: "a0" },
+		});
+		await createIssue(admin, "i-2");
+
+		const found = await workspace.issues({ labelId: "label-bug", limit: 10 });
+
+		expect(found.map((issue) => issue.id)).toEqual(["i-1"]);
+		expect((await workspace.directory()).labels).toMatchObject([{ id: "label-bug", name: "Bug" }]);
 	});
 
 	it("looks issues up by id and key, and knows the last sort order", async () => {
