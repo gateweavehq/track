@@ -11,12 +11,14 @@
 		"build": "vite build",
 		"preview": "vite preview",
 		"deploy": "vite build && wrangler deploy",
+		"deploy:staging": "vite build --mode staging && wrangler deploy",
 		"typegen": "wrangler types && tsr generate",
 		"typecheck": "wrangler types && tsr generate && tsc && tsc -p scripts",
 		"test": "vitest run",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate:local": "wrangler d1 migrations apply DB --local",
 		"db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+		"db:migrate:staging": "wrangler d1 migrations apply DB --remote --env staging",
 		"auth:schema": "pnpm dlx auth@1.7.14 generate --config src/server/auth/cli.ts --output src/server/db/auth-schema.ts --yes"
 	},
 	"dependencies": {

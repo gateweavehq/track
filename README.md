@@ -61,13 +61,26 @@ password and create a workspace from scratch. To enable "Sign in with GitHub", f
 
 ## Deploying
 
-From `apps/web`, signed in with `npx wrangler login`:
+`apps/web/wrangler.jsonc` describes two environments, each a separate Worker with its own D1
+database and workspaces: production at the top level (`gateweave-track`) and `staging`
+(`gateweave-track-staging`). From `apps/web`, signed in with `npx wrangler login`:
 
 ```sh
-pnpm run deploy                          # builds, then deploys; D1 and the Durable Object are provisioned
-npx wrangler secret put BETTER_AUTH_SECRET
+pnpm run deploy              # production: builds, then deploys
 pnpm db:migrate:remote
+pnpm deploy:staging          # staging: builds with `--mode staging`, then deploys
+pnpm db:migrate:staging
 ```
+
+The first deploy of an environment provisions its D1 database and Durable Object, so run the
+migrations after it. Then set the session secret once (`openssl rand -base64 32` makes one):
+
+```sh
+npx wrangler secret put BETTER_AUTH_SECRET                  # production
+npx wrangler secret put BETTER_AUTH_SECRET --env staging    # staging
+```
+
+From then on, apply migrations before deploying, so new code never meets an old schema.
 
 ## Project structure
 
