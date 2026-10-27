@@ -18,6 +18,8 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - **Teams, members and invitations.** Settings pages to rename teams and change their keys,
   invitation links, role changes and removal. A removed member loses access at once, and their
   browser forgets the workspace.
+- **Installable app.** A web app manifest and icons, so Track installs as an app on desktop and
+  mobile.
 
 ## Next: a usable issue tracker
 
@@ -31,6 +33,10 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   notifications.
 - Verified email addresses, and `requireEmailVerificationOnInvitation`, so that an invitation link
   on its own is no longer enough to join a workspace.
+- Opening the app with no connection. A loaded workspace already keeps working offline; starting
+  one offline needs a service worker that serves the app shell, and workspace loaders that fall
+  back to what the device already knows when the session and membership checks cannot reach the
+  server.
 - A verified one-click "Deploy to Cloudflare" and a self-hosting guide.
 - A public demo workspace, filled by the seed script (`pnpm dev:seed`) and reset every night.
 - End-to-end tests with Playwright: real IndexedDB, several tabs, going offline and back.
