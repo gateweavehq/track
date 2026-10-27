@@ -3,12 +3,15 @@ import {
 	CloseCode,
 	clientMessage,
 	type HelloMessage,
+	ISSUE_STATUSES,
+	type Issue,
 	MEMBER_ROLES,
 	mutationSchema,
 	type Op,
 	PING,
 	PONG,
 	PROTOCOL_VERSION,
+	type RejectReason,
 	type ServerMessage,
 	type Snapshot,
 } from "@gateweave/track-protocol";
@@ -19,6 +22,15 @@ import migrations from "../drizzle/migrations";
 import * as schema from "./db/schema";
 import { compact, currentVersion, oplogFloor, opsSince, type RetentionPolicy } from "./log";
 import { applyMutation, MutationRejected } from "./mutations";
+import {
+	type Directory,
+	findIssueByKey,
+	findIssues,
+	type IssueQuery,
+	lastSortOrder,
+	MAX_QUERY_LIMIT,
+	readDirectory,
+} from "./queries";
 import {
 	activeMember,
 	type Db,
@@ -45,6 +57,21 @@ const memberProfile = z.object({
 	image: z.string().nullable(),
 	role: z.enum(MEMBER_ROLES),
 });
+
+const shortId = z.string().min(1).max(64);
+
+const issueQuery = z.object({
+	teamId: shortId.optional(),
+	statuses: z.array(z.enum(ISSUE_STATUSES)).optional(),
+	assigneeId: shortId.nullable().optional(),
+	text: z.string().max(200).optional(),
+	limit: z.number().int().min(1).max(MAX_QUERY_LIMIT),
+});
+
+/** The outcome of {@link WorkspaceDO.mutate}, mirroring a socket client's ack or reject. */
+export type MutateResult =
+	| { ok: true; version: number }
+	| { ok: false; reason: RejectReason; message: string };
 
 /** Per-socket state. Stored as an attachment so it survives hibernation. */
 interface SocketState {
@@ -88,6 +115,55 @@ export class WorkspaceDO extends DurableObject {
 			if (socketState(ws).userId === userId) {
 				ws.close(CloseCode.Forbidden, "Removed from workspace");
 			}
+		}
+	}
+
+	// RPC for server-side clients, such as MCP tools acting for a member. They read slices of
+	// the workspace instead of keeping a replica, and write through the same mutations.
+
+	/** Teams and members, for resolving keys and names. */
+	directory(): Directory {
+		return readDirectory(this.#db);
+	}
+
+	issues(query: IssueQuery): Issue[] {
+		return findIssues(this.#db, issueQuery.parse(query));
+	}
+
+	issueByKey(teamKey: string, number: number): Issue | null {
+		return (
+			findIssueByKey(this.#db, z.string().parse(teamKey), z.number().int().parse(number)) ?? null
+		);
+	}
+
+	lastSortOrder(): string | null {
+		return lastSortOrder(this.#db);
+	}
+
+	/**
+	 * Applies a mutation exactly as a socket client's would be: same validation, same
+	 * idempotency by mutation id, same broadcast. Also refreshes the member's profile.
+	 */
+	mutate(member: MemberProfile, clientId: string, mutationId: string, body: unknown): MutateResult {
+		const profile = memberProfile.parse(member);
+		shortId.parse(clientId);
+		shortId.parse(mutationId);
+		this.#write(() => upsertMember(this.#db, profile, Date.now()));
+		const row = activeMember(this.#db, profile.id);
+		if (!row) return { ok: false, reason: "forbidden", message: "Not a workspace member" };
+
+		const mutation = mutationSchema.safeParse(body);
+		if (!mutation.success) {
+			return { ok: false, reason: "invalid", message: z.prettifyError(mutation.error) };
+		}
+		try {
+			const result = this.#write(() =>
+				applyMutation(this.#db, { member: row, clientId }, mutationId, mutation.data, Date.now()),
+			);
+			return { ok: true, version: result.version };
+		} catch (error) {
+			if (!(error instanceof MutationRejected)) throw error;
+			return { ok: false, reason: error.reason, message: error.message };
 		}
 	}
 

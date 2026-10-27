@@ -153,6 +153,15 @@ without waking a hibernated Durable Object.
 - A message that is not valid protocol closes the socket with `4400`. A mutation that is valid
   protocol but has an invalid body is rejected by id, and the connection stays open.
 
+### Server-side clients
+
+Code that acts for a member on the server, such as an AI agent's tool call, does not keep a
+replica. It reads slices of the workspace over RPC (`directory`, `issues`, `issueByKey`) and
+writes with `mutate(member, clientId, mutationId, mutation)`. That runs the same path as a socket
+mutation: the same validation, idempotency by mutation id, field-level conflict detection and
+broadcast to every live socket. It returns the equivalent of an `ack` or a `reject`. As with
+sockets, only the gateway calls it, after verifying the member.
+
 ### Concurrent edits
 
 Issue updates use **field-level optimistic concurrency**. An update carries the `baseVersion` of
