@@ -1,0 +1,179 @@
+import type { Issue } from "@tangent/protocol";
+import type { SyncState } from "@tangent/sync-client";
+import { shallowEqual, useQuery } from "@tangent/sync-client/react";
+import { useNavigate } from "@tanstack/react-router";
+import { ArrowLeftRight, Inbox, Keyboard, type LucideIcon, SquarePen, Users } from "lucide-react";
+import { useState } from "react";
+import { StatusIcon } from "#/components/issues/meta";
+import {
+	Command,
+	CommandEmpty,
+	CommandGroup,
+	CommandInput,
+	CommandItem,
+	CommandList,
+	CommandShortcut,
+} from "#/components/ui/command";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "#/components/ui/dialog";
+import { MOD_LABEL } from "#/lib/hotkeys";
+import { issueKey, matchesQuery } from "#/lib/issues";
+import { useTeams, useTeamsById } from "#/lib/queries";
+import { useWorkspace, useWorkspaceActions } from "./context";
+
+interface PaletteCommand {
+	id: string;
+	label: string;
+	icon: LucideIcon;
+	shortcut?: string;
+	keywords?: string[];
+	run: () => void;
+}
+
+const selectRecentIssues = (state: SyncState) =>
+	[...state.issues.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+
+const MAX_ISSUES = 20;
+
+export function CommandPalette({ onClose }: { onClose: () => void }) {
+	const navigate = useNavigate();
+	const { slug } = useWorkspace();
+	const actions = useWorkspaceActions();
+	const teams = useTeams();
+	const teamsById = useTeamsById();
+	const issues = useQuery(selectRecentIssues, shallowEqual);
+	const [query, setQuery] = useState("");
+
+	const commands: PaletteCommand[] = [
+		{
+			id: "create-issue",
+			label: "Create issue",
+			icon: SquarePen,
+			shortcut: "C",
+			keywords: ["new"],
+			run: () => actions.createIssue(),
+		},
+		{
+			id: "create-team",
+			label: "Create team",
+			icon: Users,
+			keywords: ["new"],
+			run: actions.createTeam,
+		},
+		{
+			id: "my-issues",
+			label: "Go to My issues",
+			icon: Inbox,
+			keywords: ["assigned"],
+			run: () => void navigate({ to: "/$workspace/my-issues", params: { workspace: slug } }),
+		},
+		...teams.map((team) => ({
+			id: `team-${team.id}`,
+			label: `Go to ${team.name}`,
+			icon: Users,
+			keywords: [team.key],
+			run: () =>
+				void navigate({
+					to: "/$workspace/team/$teamKey",
+					params: { workspace: slug, teamKey: team.key },
+				}),
+		})),
+		{
+			id: "switch-workspace",
+			label: "Switch workspace",
+			icon: ArrowLeftRight,
+			run: () => void navigate({ to: "/" }),
+		},
+		{
+			id: "shortcuts",
+			label: "Keyboard shortcuts",
+			icon: Keyboard,
+			shortcut: "?",
+			keywords: ["help", "keys"],
+			run: actions.showShortcuts,
+		},
+	];
+
+	const matchingCommands = commands.filter((command) =>
+		matchesQuery(query, command.label, ...(command.keywords ?? [])),
+	);
+	const keyOf = (issue: Issue) => issueKey(teamsById.get(issue.teamId), issue);
+	const matchingIssues = (
+		query.trim() ? issues.filter((issue) => matchesQuery(query, keyOf(issue), issue.title)) : issues
+	).slice(0, query.trim() ? MAX_ISSUES : 5);
+
+	function run(action: () => void) {
+		onClose();
+		action();
+	}
+
+	return (
+		<Dialog open onOpenChange={(open) => !open && onClose()}>
+			<DialogContent className="top-[15%] max-w-xl translate-y-0 overflow-hidden p-0 [&>button:last-child]:hidden">
+				<DialogTitle className="sr-only">Command palette</DialogTitle>
+				<DialogDescription className="sr-only">
+					Search issues by identifier or title, or run a command.
+				</DialogDescription>
+				{/* Without vim bindings, so Ctrl+K reaches the shortcut that closes the palette. */}
+				<Command shouldFilter={false} loop vimBindings={false}>
+					<CommandInput
+						value={query}
+						onValueChange={setQuery}
+						placeholder="Search issues or type a command…"
+						className="h-12"
+					/>
+					<CommandList className="max-h-96">
+						<CommandEmpty>Nothing matches “{query}”.</CommandEmpty>
+						{matchingIssues.length > 0 && (
+							<CommandGroup heading={query.trim() ? "Issues" : "Recently updated"}>
+								{matchingIssues.map((issue) => {
+									const key = keyOf(issue);
+									return (
+										<CommandItem
+											key={issue.id}
+											value={`issue-${issue.id}`}
+											onSelect={() =>
+												run(
+													() =>
+														void navigate({
+															to: "/$workspace/issue/$issueKey",
+															params: { workspace: slug, issueKey: key },
+														}),
+												)
+											}
+										>
+											<StatusIcon status={issue.status} />
+											<span className="w-16 shrink-0 font-mono text-xs text-muted-foreground">
+												{key}
+											</span>
+											<span className="truncate">{issue.title}</span>
+										</CommandItem>
+									);
+								})}
+							</CommandGroup>
+						)}
+						{matchingCommands.length > 0 && (
+							<CommandGroup heading="Commands">
+								{matchingCommands.map((command) => (
+									<CommandItem
+										key={command.id}
+										value={command.id}
+										onSelect={() => run(command.run)}
+									>
+										<command.icon className="size-4 text-muted-foreground" />
+										{command.label}
+										{command.shortcut && <CommandShortcut>{command.shortcut}</CommandShortcut>}
+									</CommandItem>
+								))}
+							</CommandGroup>
+						)}
+					</CommandList>
+					<div className="flex items-center justify-end gap-3 border-t px-3 py-2 text-xs text-muted-foreground">
+						<span>↑↓ to move</span>
+						<span>Enter to select</span>
+						<span>{MOD_LABEL} K to close</span>
+					</div>
+				</Command>
+			</DialogContent>
+		</Dialog>
+	);
+}

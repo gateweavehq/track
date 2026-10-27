@@ -7,6 +7,7 @@ import { schema } from "./db";
 
 export interface Membership {
 	workspaceId: string;
+	workspaceName: string;
 	profile: MemberProfile;
 }
 
@@ -24,7 +25,9 @@ export async function findMembership(
 	const row = await membershipQuery(db)
 		.where(and(eq(schema.organization.slug, slug), eq(schema.member.userId, userId)))
 		.get();
-	return row ? { workspaceId: row.workspaceId, profile: toProfile(row) } : null;
+	return row
+		? { workspaceId: row.workspaceId, workspaceName: row.workspaceName, profile: toProfile(row) }
+		: null;
 }
 
 /** Pushes one user's current membership (or its absence) to the workspace's Durable Object. */
@@ -47,6 +50,7 @@ function membershipQuery(db: Database) {
 	return db
 		.select({
 			workspaceId: schema.member.organizationId,
+			workspaceName: schema.organization.name,
 			role: schema.member.role,
 			userId: schema.user.id,
 			name: schema.user.name,
