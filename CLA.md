@@ -1,6 +1,6 @@
-# Tangent Individual Contributor License Agreement
+# Gateweave Track Individual Contributor License Agreement
 
-Thank you for your interest in contributing to Tangent (the "Project"), maintained by
+Thank you for your interest in contributing to Gateweave Track (the "Project"), maintained by
 Yiğit Tanrıverdi (the "Maintainer").
 
 The Project is distributed under the GNU Affero General Public License v3.0. The Maintainer also

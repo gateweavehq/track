@@ -1,4 +1,4 @@
-import { deleteIdbReplicas } from "@tangent/sync-client";
+import { deleteIdbReplicas } from "@gateweave/track-sync-client";
 import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Button } from "#/components/ui/button";

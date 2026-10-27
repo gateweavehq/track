@@ -1,4 +1,4 @@
-import type { Issue, Member, Snapshot, Team } from "@tangent/protocol";
+import type { Issue, Member, Snapshot, Team } from "@gateweave/track-protocol";
 import { and, eq, isNull } from "drizzle-orm";
 import type { DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 import * as schema from "./db/schema";

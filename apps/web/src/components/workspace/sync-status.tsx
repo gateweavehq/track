@@ -1,5 +1,5 @@
-import type { SyncStatus } from "@tangent/sync-client";
-import { useSyncStatus } from "@tangent/sync-client/react";
+import type { SyncStatus } from "@gateweave/track-sync-client";
+import { useSyncStatus } from "@gateweave/track-sync-client/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Button } from "#/components/ui/button";
@@ -40,7 +40,7 @@ export function SyncGate({ children }: { children: ReactNode }) {
 	if (connection === "outdated") {
 		return (
 			<Notice
-				title="A new version of Tangent is available"
+				title="A new version of Gateweave Track is available"
 				action={<Button onClick={() => window.location.reload()}>Reload</Button>}
 			>
 				Reload the page to keep working.

@@ -1,5 +1,5 @@
 {
-	"name": "tangent",
+	"name": "gateweave-track",
 	"private": true,
 	"license": "AGPL-3.0-only",
 	"type": "module",
@@ -8,8 +8,8 @@
 		"node": ">=22"
 	},
 	"scripts": {
-		"dev": "pnpm --filter @tangent/web dev",
-		"dev:setup": "pnpm --filter @tangent/web dev:setup",
+		"dev": "pnpm --filter @gateweave/track-web dev",
+		"dev:setup": "pnpm --filter @gateweave/track-web dev:setup",
 		"doctor": "node scripts/doctor.mjs",
 		"build": "pnpm -r build",
 		"typecheck": "pnpm -r typecheck",

@@ -1,5 +1,5 @@
 import { runInDurableObject } from "cloudflare:test";
-import { CloseCode, type Issue, PING, PONG } from "@tangent/protocol";
+import { CloseCode, type Issue, PING, PONG } from "@gateweave/track-protocol";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { describe, expect, it } from "vitest";
 import type { MemberProfile } from "../src";
@@ -83,7 +83,7 @@ describe("connection", () => {
 	it("answers keepalive pings", async () => {
 		const workspace = freshWorkspace();
 		const response = await workspace.fetch("https://workspace/socket", {
-			headers: { Upgrade: "websocket", "x-tangent-member": JSON.stringify(owner) },
+			headers: { Upgrade: "websocket", "x-track-member": JSON.stringify(owner) },
 		});
 		const ws = response.webSocket;
 		if (!ws) throw new Error("no socket");

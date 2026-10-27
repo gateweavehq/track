@@ -1,7 +1,7 @@
 # Roadmap
 
-Where Tangent is going, in order. Dates are deliberately absent; each phase ships when its "done
-when" holds. For the wider Gateweave product family, see [ecosystem.md](ecosystem.md).
+Where Gateweave Track is going, in order. Dates are deliberately absent; each phase ships when its
+"done when" holds. For the wider Gateweave product family, see [ecosystem.md](ecosystem.md).
 
 ## Done
 
@@ -23,7 +23,7 @@ when" holds. For the wider Gateweave product family, see [ecosystem.md](ecosyste
 
 - Labels, comments and an activity history, as new entities and mutations.
 
-**Done when** a small team can run its week in Tangent without falling back to another tool.
+**Done when** a small team can run its week in Track without falling back to another tool.
 
 ## Launch readiness
 

@@ -11,7 +11,7 @@ import {
 	type RejectReason,
 	type ServerMessage,
 	type Snapshot,
-} from "@tangent/protocol";
+} from "@gateweave/track-protocol";
 import { MemoryPersistence, type Persistence, type StoredReplica } from "./persistence";
 import { type PendingMutation, Replica, type SyncState } from "./store";
 import { type ConnectionStatus, standaloneTabs, type TabMessage, type Tabs } from "./tabs";

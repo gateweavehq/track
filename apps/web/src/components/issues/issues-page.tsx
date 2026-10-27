@@ -1,4 +1,4 @@
-import type { Issue } from "@tangent/protocol";
+import type { Issue } from "@gateweave/track-protocol";
 import { Columns3, type LucideIcon, Plus, Rows3, Search } from "lucide-react";
 import { type ReactNode, useDeferredValue, useMemo, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";

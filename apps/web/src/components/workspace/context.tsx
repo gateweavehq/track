@@ -1,4 +1,4 @@
-import type { IssueStatus, MemberRole } from "@tangent/protocol";
+import type { IssueStatus, MemberRole } from "@gateweave/track-protocol";
 import { createContext, type ReactNode, useContext } from "react";
 import { useMembersById } from "#/lib/queries";
 

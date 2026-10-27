@@ -1,4 +1,4 @@
-import type { Team } from "@tangent/protocol";
+import type { Team } from "@gateweave/track-protocol";
 import { Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";

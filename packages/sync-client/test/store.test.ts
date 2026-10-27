@@ -1,4 +1,4 @@
-import type { Issue, Op, Snapshot, Team } from "@tangent/protocol";
+import type { Issue, Op, Snapshot, Team } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import { type PendingMutation, Replica } from "../src/store";
 

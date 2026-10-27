@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
-import type { MemberRole } from "@tangent/protocol";
-import type { MemberProfile } from "@tangent/sync-server";
+import type { MemberRole } from "@gateweave/track-protocol";
+import type { MemberProfile } from "@gateweave/track-sync-server";
 import { and, eq, gt } from "drizzle-orm";
 import type { Database } from "./db";
 import { schema } from "./db";

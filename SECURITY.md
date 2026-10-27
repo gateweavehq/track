@@ -2,13 +2,13 @@
 
 ## Supported versions
 
-Tangent is in early development. Security fixes go into `main` and the latest release only.
+Gateweave Track is in early development. Security fixes go into `main` and the latest release only.
 
 ## Reporting a vulnerability
 
 Please report vulnerabilities privately, never in a public issue or pull request.
 
-- Preferred: [open a private security advisory](https://github.com/gateweavehq/tangent/security/advisories/new)
+- Preferred: [open a private security advisory](https://github.com/gateweavehq/track/security/advisories/new)
   on GitHub.
 - Or email **security@gateweave.com**.
 

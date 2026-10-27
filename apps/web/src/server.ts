@@ -1,7 +1,7 @@
 import handler from "@tanstack/react-start/server-entry";
 import { handleSyncRequest, isSyncRequest } from "./server/sync";
 
-export { WorkspaceDO } from "@tangent/sync-server";
+export { WorkspaceDO } from "@gateweave/track-sync-server";
 
 export default {
 	fetch(request) {

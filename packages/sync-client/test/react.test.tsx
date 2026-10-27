@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { Snapshot } from "@tangent/protocol";
+import type { Snapshot } from "@gateweave/track-protocol";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { SyncClient, type SyncState, type Transport } from "../src";

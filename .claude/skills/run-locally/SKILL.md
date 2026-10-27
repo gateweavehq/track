@@ -1,10 +1,10 @@
 ---
 
 name: run-locally
-description: Start Tangent locally (Workers, D1 and Durable Objects via Vite) and check a change in a real browser - sign up, create a workspace, test realtime sync across tabs, inspect IndexedDB and tab leadership. Use for UI changes and for confirming sync behavior end to end.
+description: Start Gateweave Track locally (Workers, D1 and Durable Objects via Vite) and check a change in a real browser - sign up, create a workspace, test realtime sync across tabs, inspect IndexedDB and tab leadership. Use for UI changes and for confirming sync behavior end to end.
 ---
 
-# Run Tangent locally and check a change
+# Run Gateweave Track locally and check a change
 
 ## Start
 
@@ -14,8 +14,8 @@ pnpm dev:setup    # first time only: .dev.vars + local D1 migrations
 pnpm dev          # http://localhost:3000
 ```
 
-- If port 3000 is taken, check whether a Tangent dev server is already running and reuse it.
-  Otherwise pick another port: `pnpm --filter @tangent/web exec vite dev --port 3001`.
+- If port 3000 is taken, check whether a Track dev server is already running and reuse it.
+  Otherwise pick another port: `pnpm --filter @gateweave/track-web exec vite dev --port 3001`.
 - Don't run two dev servers at once. They would share the local state in
   `apps/web/.wrangler/state`.
 - Server code reloads on save. After installing a dependency, restart the server.

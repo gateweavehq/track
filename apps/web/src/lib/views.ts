@@ -9,7 +9,7 @@ export const issueViewSearch = z.object({
 	view: z.enum(ISSUE_VIEWS).optional().catch(undefined),
 });
 
-const storageKey = (scope: string) => `tangent.view.${scope}`;
+const storageKey = (scope: string) => `track.view.${scope}`;
 
 function readView(scope: string): IssueView | null {
 	try {

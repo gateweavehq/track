@@ -1,7 +1,7 @@
 # Architecture
 
-Tangent is a realtime issue tracker that runs entirely on Cloudflare's developer platform. This
-document explains how the pieces fit together and why they are built the way they are.
+Gateweave Track is a realtime issue tracker that runs entirely on Cloudflare's developer platform.
+This document explains how the pieces fit together and why they are built the way they are.
 
 ## Overview
 
@@ -9,7 +9,7 @@ document explains how the pieces fit together and why they are built the way the
 flowchart LR
   Browser -- "HTTPS (pages, auth, snapshot)" --> Worker
   Browser -- "WebSocket (live sync)" --> Worker
-  subgraph Worker["tangent worker (apps/web)"]
+  subgraph Worker["gateweave-track worker (apps/web)"]
     Start["TanStack Start<br/>pages + server functions"]
     Auth["Better Auth<br/>/api/auth/*"]
     Gateway["Sync gateway<br/>/api/sync/:slug/*"]
@@ -241,7 +241,7 @@ report them in one place.
 
 ### React
 
-`@tangent/sync-client/react` provides `SyncProvider`, `useQuery(selector, isEqual)` and
+`@gateweave/track-sync-client/react` provides `SyncProvider`, `useQuery(selector, isEqual)` and
 `useSyncStatus()`, built on `useSyncExternalStore`. A component re-renders only when its
 selection changes.
 

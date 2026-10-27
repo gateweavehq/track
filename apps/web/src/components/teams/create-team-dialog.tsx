@@ -1,6 +1,6 @@
-import { mutationSchema } from "@tangent/protocol";
-import { uuidv7 } from "@tangent/sync-client";
-import { useSyncClient } from "@tangent/sync-client/react";
+import { mutationSchema } from "@gateweave/track-protocol";
+import { uuidv7 } from "@gateweave/track-sync-client";
+import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Button } from "#/components/ui/button";

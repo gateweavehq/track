@@ -1,4 +1,4 @@
-import type { Team } from "@tangent/protocol";
+import type { Team } from "@gateweave/track-protocol";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { IssuesPage } from "#/components/issues/issues-page";

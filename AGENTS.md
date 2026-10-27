@@ -5,10 +5,10 @@ of truth for how the project is built; `CLAUDE.md` and other tool-specific files
 
 ## The project
 
-Tangent is an open-source, realtime issue tracker that runs entirely on Cloudflare. It is the
-first product of [Gateweave](https://gateweave.com). Each workspace lives in its own Durable
-Object; browsers keep a local replica in IndexedDB and sync over WebSockets. Everything ships as
-one Worker.
+Gateweave Track is an open-source, realtime issue tracker that runs entirely on Cloudflare. It is
+the first product of [Gateweave](https://gateweave.com). Each workspace lives in its own Durable
+Object; browsers keep a local replica in IndexedDB and sync over WebSockets. Everything ships as one
+Worker.
 
 Read [docs/architecture.md](docs/architecture.md) before changing sync, auth or storage, and
 [docs/roadmap.md](docs/roadmap.md) for where the project is going.
@@ -43,7 +43,8 @@ root unless noted.
 | `pnpm verify`    | Everything CI runs: check, typecheck, test, build                            |
 
 Scope a command to one package with `pnpm --filter <name> <script>`, for example
-`pnpm --filter @tangent/sync-client test`. Run `pnpm verify` before you consider a change done.
+`pnpm --filter @gateweave/track-sync-client test`. Run `pnpm verify` before you consider a change
+done.
 
 ## Invariants
 
@@ -82,7 +83,7 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
   framework requires them.
 - Comments explain why, not what. Match the tone and density of the file you are editing.
 - Generated files are not edited by hand: `routeTree.gen.ts`, `worker-configuration.d.ts`,
-  `apps/web/src/server/db/auth-schema.ts` (`pnpm --filter @tangent/web auth:schema`), and
+  `apps/web/src/server/db/auth-schema.ts` (`pnpm --filter @gateweave/track-web auth:schema`), and
   everything under `drizzle/` and `migrations/` except the hand-written `migrations.d.ts`.
 - Dependencies are pinned to exact versions. Shared ones go in the `catalog:` of
   `pnpm-workspace.yaml`. `drizzle-orm` stays on 0.45: the 1.0 migration format does not work

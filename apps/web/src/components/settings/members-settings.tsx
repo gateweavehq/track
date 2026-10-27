@@ -1,4 +1,4 @@
-import type { MemberRole } from "@tangent/protocol";
+import type { MemberRole } from "@gateweave/track-protocol";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { Copy, Ellipsis, Mail } from "lucide-react";
 import { type FormEvent, useState } from "react";

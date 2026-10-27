@@ -1,4 +1,4 @@
-import { useSyncStatus } from "@tangent/sync-client/react";
+import { useSyncStatus } from "@gateweave/track-sync-client/react";
 import { useParams } from "@tanstack/react-router";
 import { type ReactNode, useMemo, useState } from "react";
 import { toast } from "sonner";

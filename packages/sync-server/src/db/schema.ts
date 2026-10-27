@@ -2,7 +2,12 @@
  * Storage for a single workspace. Each workspace is one Durable Object with its own SQLite
  * database, so no table needs a workspace column.
  */
-import { ENTITY_NAMES, ISSUE_STATUSES, type IssuePriority, MEMBER_ROLES } from "@tangent/protocol";
+import {
+	ENTITY_NAMES,
+	ISSUE_STATUSES,
+	type IssuePriority,
+	MEMBER_ROLES,
+} from "@gateweave/track-protocol";
 import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 

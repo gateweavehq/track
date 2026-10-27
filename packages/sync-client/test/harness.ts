@@ -1,4 +1,4 @@
-import type { Issue, MutationInput } from "@tangent/protocol";
+import type { Issue, MutationInput } from "@gateweave/track-protocol";
 import { inject } from "vitest";
 import {
 	httpTransport,

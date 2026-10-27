@@ -2,7 +2,7 @@
 // client can be tested against the real Durable Object over real HTTP and WebSockets.
 {
 	"$schema": "../../node_modules/wrangler/config-schema.json",
-	"name": "tangent-sync-client-test",
+	"name": "track-sync-client-test",
 	"main": "./index.ts",
 	"compatibility_date": "2026-10-01",
 	"compatibility_flags": ["nodejs_compat"],

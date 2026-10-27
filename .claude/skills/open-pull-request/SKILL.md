@@ -1,7 +1,7 @@
 ---
 
 name: open-pull-request
-description: Take a Tangent change from a working tree to a reviewable pull request - branch naming, verification, Conventional Commits, the pull request template, CI and the CLA check. Use when committing work or opening/updating a pull request.
+description: Take a Gateweave Track change from a working tree to a reviewable pull request - branch naming, verification, Conventional Commits, the pull request template, CI and the CLA check. Use when committing work or opening/updating a pull request.
 ---
 
 # Open a pull request

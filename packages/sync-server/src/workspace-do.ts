@@ -11,7 +11,7 @@ import {
 	PROTOCOL_VERSION,
 	type ServerMessage,
 	type Snapshot,
-} from "@tangent/protocol";
+} from "@gateweave/track-protocol";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { z } from "zod";
@@ -32,7 +32,7 @@ import {
  * Header carrying the verified member on socket requests. The Durable Object is only reachable
  * through the app worker's binding, which sets this after checking the session and membership.
  */
-export const MEMBER_HEADER = "x-tangent-member";
+export const MEMBER_HEADER = "x-track-member";
 
 export const RETENTION: RetentionPolicy = { minOps: 10_000, minAgeMs: 30 * 24 * 60 * 60 * 1000 };
 const COMPACTION_INTERVAL_MS = 6 * 60 * 60 * 1000;

@@ -1,4 +1,4 @@
-import { deleteIdbReplica } from "@tangent/sync-client";
+import { deleteIdbReplica } from "@gateweave/track-sync-client";
 
 /** Where this browser stores a user's copy of a workspace. Ids, so a renamed workspace keeps it. */
 export function replicaKey(userId: string, workspaceId: string): string {

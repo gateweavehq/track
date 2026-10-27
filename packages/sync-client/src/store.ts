@@ -1,4 +1,4 @@
-import type { Entities, EntityName, Mutation, Op, Snapshot } from "@tangent/protocol";
+import type { Entities, EntityName, Mutation, Op, Snapshot } from "@gateweave/track-protocol";
 import { applyOptimistic } from "./optimistic";
 
 /** What the UI reads: the server's state with this device's unconfirmed mutations applied. */

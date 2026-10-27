@@ -5,12 +5,12 @@ import {
 	type Op,
 	PROTOCOL_VERSION,
 	type Snapshot,
-} from "@tangent/protocol";
+} from "@gateweave/track-protocol";
 import { type DBSchema, deleteDB, type IDBPDatabase, openDB } from "idb";
 import type { Persistence, StoredReplica } from "./persistence";
 import type { PendingMutation } from "./store";
 
-const DB_PREFIX = "tangent:";
+const DB_PREFIX = "track:";
 
 /**
  * Bump when the stored layout changes. The database version also folds in the protocol version,

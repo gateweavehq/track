@@ -36,7 +36,7 @@ export function createBrowserSyncClient(options: BrowserSyncClientOptions): Sync
 					return new MemoryPersistence();
 				})
 			: new MemoryPersistence(),
-		tabs: shared ? browserTabs(`tangent:${storageKey}`) : undefined,
+		tabs: shared ? browserTabs(`track:${storageKey}`) : undefined,
 		wake: browserWake,
 	});
 }

@@ -1,4 +1,4 @@
-const BASE = "http://tangent.invalid";
+const BASE = "http://track.invalid";
 
 /**
  * A same-origin path to go to after signing in, or null if `value` is not one. Absolute and
