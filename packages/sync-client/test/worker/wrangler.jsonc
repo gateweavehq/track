@@ -1,0 +1,15 @@
+// Test-only worker: hosts WorkspaceDO behind a stand-in for the app's sync gateway, so the
+// client can be tested against the real Durable Object over real HTTP and WebSockets.
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "tangent-sync-client-test",
+	"main": "./index.ts",
+	"compatibility_date": "2026-10-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"durable_objects": {
+		"bindings": [{ "name": "WORKSPACE", "class_name": "WorkspaceDO" }]
+	},
+	"exports": {
+		"WorkspaceDO": { "type": "durable-object", "storage": "sqlite" }
+	}
+}
