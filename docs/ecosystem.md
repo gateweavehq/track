@@ -29,6 +29,7 @@ Every product follows the same principles as Track:
 | ---------- | ----------------------------------------------------- | ------------------ |
 | **Track**  | Issues, projects and planning for product teams       | In development     |
 | **Agents** | AI agents that work inside every product as members   | Next, inside Track |
+| **ID**     | Single sign-on, passkeys and access to internal apps  | Proposed           |
 | **Mail**   | Shared inboxes, and email in and out of every product | Proposed           |
 | **CRM**    | Contacts, companies and deals                         | Proposed           |
 | **ERP**    | Invoicing, inventory and orders, one module at a time | Later              |
@@ -47,6 +48,19 @@ over unchanged.
   verify sessions through a service binding, so a sign-in on one product covers all of them.
 - Self-hosted products keep working on their own with built-in auth, and can point to a shared
   identity Worker when a team runs more than one.
+
+The identity Worker is also a product of its own, **Gateweave ID**, in the space of Pocket ID and
+authentik but with no server to run:
+
+- **An OpenID Connect provider for any app.** Grafana, Gitea, Outline or anything else that
+  supports OIDC signs people in with their Gateweave account. It is the same Better Auth OAuth
+  provider that already signs AI agents in to Track's MCP server.
+- **Passkeys and MFA**, groups, and per-app rules for who may sign in.
+- **Access to internal apps.** Pangolin's job, protecting self-hosted apps without opening ports,
+  is what Cloudflare Tunnel and Cloudflare Access already do. Gateweave ID is the identity
+  provider behind Access and sets both up from one screen, so there is no tunnel server to build
+  or run.
+- SAML, SCIM provisioning and audit export are enterprise features in `ee/`.
 
 ### Data stays per product
 
@@ -111,11 +125,13 @@ same time as the sync engine. Every product gets the same keyboard-first command
 1. **Track:** MVP, then launch. Proves the stack and builds an audience.
 2. **Agents in Track:** issue triage. A differentiator for the launch and the first real user
    of the agent design.
-3. **Mail, starting small:** what Track needs anyway (notifications, email-to-issue), then
+3. **ID:** the identity Worker, extracted from Track's auth (which already includes an OAuth
+   provider for MCP), first as single sign-on across Gateweave products, then for any app.
+4. **Mail, starting small:** what Track needs anyway (notifications, email-to-issue), then
    shared inboxes.
-4. **CRM:** the second full product. Starting it triggers extracting `@gateweave/sync`,
-   `@gateweave/ui` and the identity Worker.
-5. **ERP:** last, one module at a time (invoicing first). It is the largest and most regulated
+5. **CRM:** the second full product. Starting it triggers extracting `@gateweave/sync` and
+   `@gateweave/ui`.
+6. **ERP:** last, one module at a time (invoicing first). It is the largest and most regulated
    area: accounting rules and e-invoicing differ by country. Each module should earn its place
    against integrating with an existing system.
 
