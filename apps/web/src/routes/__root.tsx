@@ -14,8 +14,17 @@ export const Route = createRootRoute({
 			{ name: "viewport", content: "width=device-width, initial-scale=1" },
 			{ title: "Gateweave Track" },
 			{ name: "description", content: "Open-source, realtime issue tracking." },
+			// Matches --background, so an installed app's title bar blends into the page.
+			{ name: "theme-color", content: "#ffffff", media: "(prefers-color-scheme: light)" },
+			{ name: "theme-color", content: "#09090b", media: "(prefers-color-scheme: dark)" },
+			{ name: "apple-mobile-web-app-title", content: "Track" },
 		],
-		links: [{ rel: "stylesheet", href: appCss }],
+		links: [
+			{ rel: "stylesheet", href: appCss },
+			{ rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+			{ rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+			{ rel: "manifest", href: "/manifest.webmanifest" },
+		],
 	}),
 	shellComponent: RootDocument,
 	notFoundComponent: NotFound,
