@@ -1,8 +1,10 @@
 import { TanStackDevtools } from "@tanstack/react-devtools";
-import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import { createRootRoute, HeadContent, Link, Scripts } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import type { ReactNode } from "react";
+import { Button } from "#/components/ui/button";
 import { Toaster } from "#/components/ui/sonner";
+import { Notice } from "#/components/workspace/notice";
 import appCss from "../styles.css?url";
 
 export const Route = createRootRoute({
@@ -16,6 +18,7 @@ export const Route = createRootRoute({
 		links: [{ rel: "stylesheet", href: appCss }],
 	}),
 	shellComponent: RootDocument,
+	notFoundComponent: NotFound,
 });
 
 function RootDocument({ children }: { children: ReactNode }) {
@@ -36,5 +39,22 @@ function RootDocument({ children }: { children: ReactNode }) {
 				<Scripts />
 			</body>
 		</html>
+	);
+}
+
+function NotFound() {
+	return (
+		<main className="grid min-h-svh place-items-center">
+			<Notice
+				title="Page not found"
+				action={
+					<Button asChild variant="outline">
+						<Link to="/">Go to Tangent</Link>
+					</Button>
+				}
+			>
+				Check the address, or start from your workspaces.
+			</Notice>
+		</main>
 	);
 }

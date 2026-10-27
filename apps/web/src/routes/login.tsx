@@ -1,14 +1,25 @@
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { z } from "zod";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { authClient } from "#/lib/auth-client";
+import { safeRedirect } from "#/lib/redirect";
 import { getAuthOptions, getSession } from "#/lib/session";
 
+const loginSearch = z.object({
+	/** Where to go once signed in, such as the invitation that sent the user here. */
+	redirect: z.string().optional().catch(undefined),
+	/** Prefills the email field, for example with the address an invitation was sent to. */
+	email: z.string().optional().catch(undefined),
+	mode: z.enum(["sign-in", "sign-up"]).optional().catch(undefined),
+});
+
 export const Route = createFileRoute("/login")({
-	beforeLoad: async () => {
-		if (await getSession()) throw redirect({ to: "/" });
+	validateSearch: loginSearch,
+	beforeLoad: async ({ search }) => {
+		if (await getSession()) throw redirect({ href: safeRedirect(search.redirect) ?? "/" });
 	},
 	loader: () => getAuthOptions(),
 	component: LoginPage,
@@ -16,8 +27,10 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
 	const options = Route.useLoaderData();
+	const search = Route.useSearch();
+	const next = safeRedirect(search.redirect) ?? "/";
 	const router = useRouter();
-	const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+	const [mode, setMode] = useState<"sign-in" | "sign-up">(search.mode ?? "sign-in");
 	const [error, setError] = useState<string | null>(null);
 	const [pending, setPending] = useState(false);
 
@@ -38,7 +51,7 @@ function LoginPage() {
 			return;
 		}
 		await router.invalidate();
-		await router.navigate({ to: "/" });
+		await router.navigate({ href: next });
 	}
 
 	return (
@@ -56,7 +69,7 @@ function LoginPage() {
 						<Button
 							variant="outline"
 							className="w-full"
-							onClick={() => authClient.signIn.social({ provider: "github", callbackURL: "/" })}
+							onClick={() => authClient.signIn.social({ provider: "github", callbackURL: next })}
 						>
 							Continue with GitHub
 						</Button>
@@ -77,7 +90,14 @@ function LoginPage() {
 					)}
 					<div className="space-y-2">
 						<Label htmlFor="email">Email</Label>
-						<Input id="email" name="email" type="email" autoComplete="email" required />
+						<Input
+							id="email"
+							name="email"
+							type="email"
+							autoComplete="email"
+							defaultValue={search.email}
+							required
+						/>
 					</div>
 					<div className="space-y-2">
 						<Label htmlFor="password">Password</Label>

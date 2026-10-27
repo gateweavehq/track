@@ -7,6 +7,9 @@ export function getRouter() {
 		scrollRestoration: true,
 		defaultPreload: "intent",
 		defaultPreloadStaleTime: 0,
+		// Unknown URLs get the full-page "not found". The default renders it inside the deepest
+		// layout that matched, which would run the workspace shell without its data.
+		notFoundMode: "root",
 	});
 
 	return router;
