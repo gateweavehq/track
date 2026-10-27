@@ -10,7 +10,9 @@ import {
 	Menu,
 	Plus,
 	Search,
+	Settings,
 	SquarePen,
+	UserPlus,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";
@@ -28,7 +30,7 @@ import { authClient } from "#/lib/auth-client";
 import { MOD_LABEL } from "#/lib/hotkeys";
 import { useMembersById, useTeams } from "#/lib/queries";
 import { cn } from "#/lib/utils";
-import { useWorkspace, useWorkspaceActions } from "./context";
+import { isAdmin, useMyRole, useWorkspace, useWorkspaceActions } from "./context";
 import { SyncBadge } from "./sync-status";
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -85,6 +87,7 @@ function Sidebar() {
 	const actions = useWorkspaceActions();
 	const teams = useTeams();
 	const me = useMembersById().get(userId);
+	const admin = isAdmin(useMyRole());
 
 	return (
 		<>
@@ -122,20 +125,31 @@ function Sidebar() {
 					<Inbox className="size-4" />
 					My issues
 				</Link>
+				<Link
+					to="/$workspace/settings"
+					params={{ workspace: slug }}
+					className={navLink}
+					activeProps={{ className: activeNavLink }}
+				>
+					<Settings className="size-4" />
+					Settings
+				</Link>
 			</div>
 
 			<nav aria-label="Teams" className="mt-6 min-h-0 flex-1 overflow-y-auto px-2">
 				<div className="flex h-7 items-center justify-between px-2">
 					<h2 className="text-xs font-medium text-muted-foreground">Teams</h2>
-					<Button
-						variant="ghost"
-						size="icon"
-						className="size-6"
-						aria-label="Create team"
-						onClick={actions.createTeam}
-					>
-						<Plus />
-					</Button>
+					{admin && (
+						<Button
+							variant="ghost"
+							size="icon"
+							className="size-6"
+							aria-label="Create team"
+							onClick={actions.createTeam}
+						>
+							<Plus />
+						</Button>
+					)}
 				</div>
 				<ul className="space-y-0.5">
 					{teams.map((team) => (
@@ -177,7 +191,8 @@ function Sidebar() {
 }
 
 function WorkspaceMenu() {
-	const { name } = useWorkspace();
+	const { name, slug } = useWorkspace();
+	const admin = isAdmin(useMyRole());
 	const client = useSyncClient();
 	const navigate = useNavigate();
 
@@ -208,6 +223,24 @@ function WorkspaceMenu() {
 				<DropdownMenuLabel className="truncate text-xs text-muted-foreground">
 					{name}
 				</DropdownMenuLabel>
+				{admin && (
+					<DropdownMenuItem asChild>
+						<Link
+							to="/$workspace/settings/members"
+							params={{ workspace: slug }}
+							search={{ invite: true }}
+						>
+							<UserPlus />
+							Invite people
+						</Link>
+					</DropdownMenuItem>
+				)}
+				<DropdownMenuItem asChild>
+					<Link to="/$workspace/settings" params={{ workspace: slug }}>
+						<Settings />
+						Settings
+					</Link>
+				</DropdownMenuItem>
 				<DropdownMenuItem asChild>
 					<Link to="/">
 						<ArrowLeftRight />

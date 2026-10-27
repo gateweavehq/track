@@ -1,5 +1,7 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { CreateTeamForm } from "#/components/teams/create-team-dialog";
+import { isAdmin, useMyRole } from "#/components/workspace/context";
+import { Notice } from "#/components/workspace/notice";
 import { useTeams } from "#/lib/queries";
 
 export const Route = createFileRoute("/$workspace/")({
@@ -10,10 +12,19 @@ export const Route = createFileRoute("/$workspace/")({
 function WorkspaceHome() {
 	const { workspace } = Route.useParams();
 	const first = useTeams()[0];
+	const admin = isAdmin(useMyRole());
 
 	if (first) {
 		return (
 			<Navigate to="/$workspace/team/$teamKey" params={{ workspace, teamKey: first.key }} replace />
+		);
+	}
+	if (!admin) {
+		return (
+			<Notice title="No teams yet">
+				Issues live in teams, and only workspace admins can create them. Ask an admin to add one; it
+				shows up here as soon as they do.
+			</Notice>
 		);
 	}
 	return (

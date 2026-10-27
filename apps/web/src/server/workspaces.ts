@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import type { MemberRole } from "@tangent/protocol";
 import type { MemberProfile } from "@tangent/sync-server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt } from "drizzle-orm";
 import type { Database } from "./db";
 import { schema } from "./db";
 
@@ -46,6 +46,48 @@ export async function syncUserEverywhere(db: Database, userId: string) {
 	await Promise.all(rows.map((row) => workspaceStub(row.workspaceId).syncMember(toProfile(row))));
 }
 
+export interface InvitationPreview {
+	workspaceName: string;
+	workspaceSlug: string;
+	inviterName: string;
+	email: string;
+	role: MemberRole;
+	expiresAt: number;
+}
+
+/**
+ * A pending, unexpired invitation, with what its recipient needs to decide before signing in.
+ * The id is the secret here, just as it is in the invitation link.
+ */
+export async function findPendingInvitation(
+	db: Database,
+	invitationId: string,
+): Promise<InvitationPreview | null> {
+	const row = await db
+		.select({
+			workspaceName: schema.organization.name,
+			workspaceSlug: schema.organization.slug,
+			inviterName: schema.user.name,
+			email: schema.invitation.email,
+			role: schema.invitation.role,
+			expiresAt: schema.invitation.expiresAt,
+		})
+		.from(schema.invitation)
+		.innerJoin(schema.organization, eq(schema.invitation.organizationId, schema.organization.id))
+		.innerJoin(schema.user, eq(schema.invitation.inviterId, schema.user.id))
+		.where(
+			and(
+				eq(schema.invitation.id, invitationId),
+				eq(schema.invitation.status, "pending"),
+				gt(schema.invitation.expiresAt, new Date()),
+			),
+		)
+		.get();
+	return row
+		? { ...row, role: toRole(row.role ?? "member"), expiresAt: row.expiresAt.getTime() }
+		: null;
+}
+
 function membershipQuery(db: Database) {
 	return db
 		.select({
@@ -79,7 +121,7 @@ function toProfile(row: {
 }
 
 /** Better Auth stores roles as a comma-separated list; the highest one wins. */
-function toRole(role: string): MemberRole {
+export function toRole(role: string): MemberRole {
 	const roles = role.split(",").map((r) => r.trim());
 	if (roles.includes("owner")) return "owner";
 	if (roles.includes("admin")) return "admin";

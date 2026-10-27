@@ -1,5 +1,6 @@
 import type { IssueStatus, MemberRole } from "@tangent/protocol";
 import { createContext, type ReactNode, useContext } from "react";
+import { useMembersById } from "#/lib/queries";
 
 export interface WorkspaceInfo {
 	id: string;
@@ -25,6 +26,20 @@ export function useWorkspace(): WorkspaceInfo {
 	const workspace = useContext(WorkspaceContext);
 	if (!workspace) throw new Error("useWorkspace must be used inside <WorkspaceProvider>");
 	return workspace;
+}
+
+/**
+ * The signed-in user's role. Sync keeps it current, so a promotion or demotion shows up without
+ * a reload. The server checks every action again; this only decides what to offer.
+ */
+export function useMyRole(): MemberRole {
+	const { userId, role } = useWorkspace();
+	return useMembersById().get(userId)?.role ?? role;
+}
+
+/** Owners and admins manage teams, members and invitations. */
+export function isAdmin(role: MemberRole): boolean {
+	return role !== "member";
 }
 
 /** Values a new issue starts with, taken from where the user opened the dialog. */

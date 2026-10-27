@@ -27,6 +27,25 @@ export function useTeamByKey(key: string): Team | undefined {
 	);
 }
 
+const selectIssueCounts = (state: SyncState) => {
+	const counts = new Map<string, number>();
+	for (const issue of state.issues.values()) {
+		counts.set(issue.teamId, (counts.get(issue.teamId) ?? 0) + 1);
+	}
+	return counts;
+};
+
+function countsEqual(a: ReadonlyMap<string, number>, b: ReadonlyMap<string, number>) {
+	if (a.size !== b.size) return false;
+	for (const [key, count] of a) if (b.get(key) !== count) return false;
+	return true;
+}
+
+/** How many issues each team has, by team id. */
+export function useIssueCountsByTeam(): ReadonlyMap<string, number> {
+	return useQuery(selectIssueCounts, countsEqual);
+}
+
 const selectMembers = (state: SyncState) =>
 	[...state.members.values()]
 		.filter((member) => member.removedAt === null)

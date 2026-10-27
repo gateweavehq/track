@@ -2,7 +2,16 @@ import type { Issue } from "@tangent/protocol";
 import type { SyncState } from "@tangent/sync-client";
 import { shallowEqual, useQuery } from "@tangent/sync-client/react";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowLeftRight, Inbox, Keyboard, type LucideIcon, SquarePen, Users } from "lucide-react";
+import {
+	ArrowLeftRight,
+	Inbox,
+	Keyboard,
+	type LucideIcon,
+	Settings,
+	SquarePen,
+	UserPlus,
+	Users,
+} from "lucide-react";
 import { useState } from "react";
 import { StatusIcon } from "#/components/issues/meta";
 import {
@@ -18,7 +27,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "#/compone
 import { MOD_LABEL } from "#/lib/hotkeys";
 import { issueKey, matchesQuery } from "#/lib/issues";
 import { useTeams, useTeamsById } from "#/lib/queries";
-import { useWorkspace, useWorkspaceActions } from "./context";
+import { isAdmin, useMyRole, useWorkspace, useWorkspaceActions } from "./context";
 
 interface PaletteCommand {
 	id: string;
@@ -42,6 +51,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 	const teamsById = useTeamsById();
 	const issues = useQuery(selectRecentIssues, shallowEqual);
 	const [query, setQuery] = useState("");
+	const admin = isAdmin(useMyRole());
 
 	const commands: PaletteCommand[] = [
 		{
@@ -52,13 +62,29 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 			keywords: ["new"],
 			run: () => actions.createIssue(),
 		},
-		{
-			id: "create-team",
-			label: "Create team",
-			icon: Users,
-			keywords: ["new"],
-			run: actions.createTeam,
-		},
+		...(admin
+			? [
+					{
+						id: "create-team",
+						label: "Create team",
+						icon: Users,
+						keywords: ["new"],
+						run: actions.createTeam,
+					},
+					{
+						id: "invite",
+						label: "Invite people",
+						icon: UserPlus,
+						keywords: ["member", "add", "team"],
+						run: () =>
+							void navigate({
+								to: "/$workspace/settings/members",
+								params: { workspace: slug },
+								search: { invite: true },
+							}),
+					},
+				]
+			: []),
 		{
 			id: "my-issues",
 			label: "Go to My issues",
@@ -77,6 +103,20 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 					params: { workspace: slug, teamKey: team.key },
 				}),
 		})),
+		{
+			id: "members",
+			label: "Go to Members",
+			icon: Users,
+			keywords: ["settings", "people", "roles"],
+			run: () => void navigate({ to: "/$workspace/settings/members", params: { workspace: slug } }),
+		},
+		{
+			id: "teams-settings",
+			label: "Go to Team settings",
+			icon: Settings,
+			keywords: ["settings", "rename", "key"],
+			run: () => void navigate({ to: "/$workspace/settings/teams", params: { workspace: slug } }),
+		},
 		{
 			id: "switch-workspace",
 			label: "Switch workspace",
