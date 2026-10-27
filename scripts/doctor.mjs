@@ -2,7 +2,7 @@
 // Run with `pnpm doctor`, or `node scripts/doctor.mjs` if pnpm itself is the problem.
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { createServer } from "node:net";
+import { connect } from "node:net";
 import { join } from "node:path";
 
 const root = join(import.meta.dirname, "..");
@@ -72,17 +72,24 @@ const migrated =
 if (migrated) pass("Local D1 database exists");
 else fail("Local D1 database has not been created", "Run: pnpm dev:setup");
 
+// Gateweave products use the 47xx range locally (site 4700, Track 4710, Agents 4720), away from
+// the 3000s and 5173 that most other projects default to.
+const PORT = 4710;
+// Connect rather than listen: Vite binds "localhost", which can be ::1 only, so a test bind on
+// 127.0.0.1 would succeed next to a running server.
 const portFree = await new Promise((resolve) => {
-	const server = createServer()
-		.once("error", () => resolve(false))
-		.once("listening", () => server.close(() => resolve(true)))
-		.listen(3000, "127.0.0.1");
+	const socket = connect({ port: PORT, host: "localhost", autoSelectFamily: true })
+		.once("connect", () => {
+			socket.destroy();
+			resolve(false);
+		})
+		.once("error", () => resolve(true));
 });
-if (portFree) pass("Port 3000 is free for pnpm dev");
+if (portFree) pass(`Port ${PORT} is free for pnpm dev`);
 else
 	warn(
-		"Port 3000 is in use",
-		"If it is not a Track dev server, run on another port: pnpm --filter @gateweave/track-web exec vite dev --port 3001",
+		`Port ${PORT} is in use`,
+		`If it is not a Track dev server, run on another port: pnpm --filter @gateweave/track-web exec vite dev --port ${PORT + 1}`,
 	);
 
 if (failures.length > 0) {
