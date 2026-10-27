@@ -131,8 +131,6 @@ same time as the sync engine. Every product gets the same keyboard-first command
 
 ## Decisions for the maintainer
 
-- **CLA scope.** The CLA currently covers "Gateweave Track". Widen it to all Gateweave projects
-  before the first outside contributor signs, so nobody has to sign twice.
 - **Repository layout.** Products as separate repositories with shared packages published from a
   platform repository, or one monorepo. Separate repositories keep each product approachable for
   contributors; a monorepo keeps cross-product changes atomic. Recommendation: separate

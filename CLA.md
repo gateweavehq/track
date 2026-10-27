@@ -1,16 +1,18 @@
-# Gateweave Track Individual Contributor License Agreement
+# Gateweave Individual Contributor License Agreement
 
-Thank you for your interest in contributing to Gateweave Track (the "Project"), maintained by
-Yiğit Tanrıverdi (the "Maintainer").
+Thank you for your interest in contributing to Gateweave, a family of open-source projects
+maintained by Yiğit Tanrıverdi (the "Maintainer"). Every project the Maintainer publishes under
+the Gateweave name, such as Gateweave Track, is a "Project" in this Agreement. You sign it once,
+and it covers Your Contributions to all of them.
 
-The Project is distributed under the GNU Affero General Public License v3.0. The Maintainer also
-offers the Project under other terms, including a hosted service and commercial licenses. This
-Agreement makes sure every contribution can be included in all of these, and it protects you as
-a contributor as well as the Maintainer and the Project's users. It does not change your rights
-to use your own Contributions for any other purpose.
+The Projects are distributed under the GNU Affero General Public License v3.0, unless a Project
+states otherwise. The Maintainer also offers them under other terms, including hosted services
+and commercial licenses. This Agreement makes sure every contribution can be included in all of
+these, and it protects you as a contributor as well as the Maintainer and the Projects' users.
+It does not change your rights to use your own Contributions for any other purpose.
 
 You accept and agree to the following terms and conditions for Your present and future
-Contributions submitted to the Project. Except for the license granted herein to the Maintainer
+Contributions submitted to any Project. Except for the license granted herein to the Maintainer
 and recipients of software distributed by the Maintainer, You reserve all right, title, and
 interest in and to Your Contributions.
 
@@ -26,10 +28,10 @@ outstanding shares, or (iii) beneficial ownership of such entity.
 
 "Contribution" means any original work of authorship, including any modifications or additions
 to an existing work, that is intentionally submitted by You to the Maintainer for inclusion in,
-or documentation of, the Project (the "Work"). For the purposes of this definition, "submitted"
-means any form of electronic, verbal, or written communication sent to the Maintainer or the
-Project, including but not limited to pull requests, issues, and comments in the Project's
-source code repository and issue tracker, but excluding communication that is conspicuously
+or documentation of, a Project (the "Work"). For the purposes of this definition, "submitted"
+means any form of electronic, verbal, or written communication sent to the Maintainer or a
+Project, including but not limited to pull requests, issues, and comments in a Project's source
+code repository and issue tracker, but excluding communication that is conspicuously
 marked or otherwise designated in writing by You as "Not a Contribution."
 
 ## 2. Grant of Copyright License
@@ -63,7 +65,7 @@ that Contribution or Work shall terminate as of the date such litigation is file
 You represent that You are legally entitled to grant the above license. If Your employer(s) has
 rights to intellectual property that You create that includes Your Contributions, You represent
 that You have received permission to make Contributions on behalf of that employer, or that Your
-employer has waived such rights for Your Contributions to the Project.
+employer has waived such rights for Your Contributions to the Projects.
 
 ## 5. Original Work
 
@@ -108,7 +110,7 @@ When you open your first pull request, a bot asks you to sign. Reply on the pull
 > I have read the CLA Document and I hereby sign the CLA
 
 Your GitHub username and the time of signing are recorded in the repository. You only need to
-sign once.
+sign once: the same signature covers every Gateweave project.
 
 ---
 
