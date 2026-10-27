@@ -12,6 +12,7 @@ description: Start Gateweave Track locally (Workers, D1 and Durable Objects via 
 pnpm doctor       # toolchain, setup and port check, with fixes
 pnpm dev:setup    # first time only: .dev.vars + local D1 migrations
 pnpm dev          # http://localhost:3000
+pnpm dev:seed     # sample workspace "acme": 4 people, 3 teams, 34 issues
 ```
 
 - If port 3000 is taken, check whether a Track dev server is already running and reuse it.
@@ -22,11 +23,14 @@ pnpm dev          # http://localhost:3000
 
 ## Walk through the app
 
-1. Open `/login`, choose "Create an account" and sign up with any email and password. Use a
-   unique email per run; local data persists between runs.
-2. Create a workspace. Its page runs on the sync client: the badge in the corner shows the
+1. Sign in at `/login` as one of the accounts `pnpm dev:seed` prints (all share the password
+   `track-demo-password`): `maya@example.com` is the owner, `sam@` an admin, `lena@` and
+   `diego@` members. Pass `--url` if the server is not on port 3000.
+2. Open `/acme`. The workspace runs on the sync client: the badge in the corner shows the
    connection state and the number of unsynced edits.
-3. Create a team, then issues. They should appear instantly and stay after a reload.
+3. Edit, move and create issues. Changes should appear instantly and stay after a reload.
+4. For an empty workspace, sign up with a new email instead. For a large one, seed another
+   workspace with filler: `pnpm dev:seed --slug load --issues 5000`.
 
 ## Check sync behavior
 

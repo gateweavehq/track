@@ -326,6 +326,9 @@ importers:
       '@tanstack/router-cli':
         specifier: 1.167.46
         version: 1.167.46(supports-color@10.2.2)
+      '@types/node':
+        specifier: 26.6.5
+        version: 26.6.5
       '@types/react':
         specifier: 19.3.0
         version: 19.3.0
@@ -341,6 +344,9 @@ importers:
       tailwindcss:
         specifier: 4.3.3
         version: 4.3.3
+      tsx:
+        specifier: 4.23.15
+        version: 4.23.15
       tw-animate-css:
         specifier: 1.4.0
         version: 1.4.0

@@ -32,7 +32,7 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - Verified email addresses, and `requireEmailVerificationOnInvitation`, so that an invitation link
   on its own is no longer enough to join a workspace.
 - A verified one-click "Deploy to Cloudflare" and a self-hosting guide.
-- A public demo workspace.
+- A public demo workspace, filled by the seed script (`pnpm dev:seed`) and reset every night.
 - End-to-end tests with Playwright: real IndexedDB, several tabs, going offline and back.
 - Performance budgets, measured in CI: opening a large workspace from cache, and the time for an
   edit to reach another client.
