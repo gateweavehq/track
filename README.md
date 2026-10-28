@@ -52,8 +52,7 @@ password and create a workspace from scratch. To enable "Sign in with GitHub", f
 Track is an [MCP](https://modelcontextprotocol.io) server. An agent connects to `/mcp`, sends you
 to Track to sign in and approve it, and then works with your permissions: it lists your
 workspaces, searches and reads issues, creates and updates them, and creates teams if you are an
-admin. Everyone sees its edits
-live, as they would anyone else's.
+admin. Everyone sees its edits live, as they would anyone else's.
 
 With Claude Code and Gateweave Cloud:
 
