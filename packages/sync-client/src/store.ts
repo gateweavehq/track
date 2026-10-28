@@ -8,6 +8,8 @@ export interface SyncState {
 	readonly teams: ReadonlyMap<string, Entities["team"]>;
 	readonly issues: ReadonlyMap<string, Entities["issue"]>;
 	readonly labels: ReadonlyMap<string, Entities["label"]>;
+	readonly comments: ReadonlyMap<string, Entities["comment"]>;
+	readonly activities: ReadonlyMap<string, Entities["activity"]>;
 	readonly members: ReadonlyMap<string, Entities["member"]>;
 }
 
@@ -21,7 +23,14 @@ export interface PendingMutation {
 
 type Tables = { readonly [E in EntityName]: ReadonlyMap<string, Entities[E]> };
 
-const EMPTY: Tables = { team: new Map(), issue: new Map(), label: new Map(), member: new Map() };
+const EMPTY: Tables = {
+	team: new Map(),
+	issue: new Map(),
+	label: new Map(),
+	comment: new Map(),
+	activity: new Map(),
+	member: new Map(),
+};
 
 /**
  * Copy-on-write view over a set of tables. A table is copied on its first write, so tables that
@@ -110,6 +119,8 @@ export class Replica {
 			team: new Map(snapshot.teams.map((row) => [row.id, row])),
 			issue: new Map(snapshot.issues.map((row) => [row.id, row])),
 			label: new Map(snapshot.labels.map((row) => [row.id, row])),
+			comment: new Map(snapshot.comments.map((row) => [row.id, row])),
+			activity: new Map(snapshot.activities.map((row) => [row.id, row])),
 			member: new Map(snapshot.members.map((row) => [row.id, row])),
 		};
 		this.#version = snapshot.version;
@@ -162,6 +173,8 @@ export class Replica {
 			teams: [...this.#confirmed.team.values()],
 			issues: [...this.#confirmed.issue.values()],
 			labels: [...this.#confirmed.label.values()],
+			comments: [...this.#confirmed.comment.values()],
+			activities: [...this.#confirmed.activity.values()],
 			members: [...this.#confirmed.member.values()],
 		};
 	}
@@ -184,6 +197,8 @@ function toState(tables: Tables, version: number): SyncState {
 		teams: tables.team,
 		issues: tables.issue,
 		labels: tables.label,
+		comments: tables.comment,
+		activities: tables.activity,
 		members: tables.member,
 	};
 }

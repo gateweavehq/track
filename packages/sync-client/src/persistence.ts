@@ -1,4 +1,4 @@
-import type { Op, Snapshot } from "@gateweave/track-protocol";
+import { type Op, SNAPSHOT_KEYS, type Snapshot } from "@gateweave/track-protocol";
 import type { PendingMutation } from "./store";
 
 export interface StoredReplica {
@@ -53,8 +53,8 @@ export class MemoryPersistence implements Persistence {
 		const snapshot = this.#snapshot;
 		if (!snapshot) throw new Error("Cannot apply ops before a snapshot is stored");
 		for (const op of ops) {
-			const key = `${op.entity}s` as "teams" | "issues" | "labels" | "members";
-			const rows = snapshot[key].filter((row) => row.id !== op.id);
+			const key = SNAPSHOT_KEYS[op.entity];
+			const rows = (snapshot[key] as { id: string }[]).filter((row) => row.id !== op.id);
 			if (op.op === "put") rows.push(structuredClone(op.data) as never);
 			snapshot[key] = rows as never;
 		}

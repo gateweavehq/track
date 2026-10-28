@@ -25,14 +25,11 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - **MCP server.** AI agents connect to `/mcp`, sign in through OAuth with the person's approval,
   and list workspaces, search, read, create and update issues through the same mutations people
   use.
+- **Comments and activity.** A thread on every issue, edited by its author and moderated by
+  admins, next to a history of who changed what, written by the server and merged so quick edits
+  read as one change. Agents read and add comments over MCP.
 
-## Next: a usable issue tracker
-
-- Comments and an activity history, as new entities and mutations.
-
-**Done when** a small team can run its week in Track without falling back to another tool.
-
-## Launch readiness
+## Next: launch readiness
 
 - Email through Cloudflare Email Routing and Email Sending: invitations, password reset,
   notifications.

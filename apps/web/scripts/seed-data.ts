@@ -57,6 +57,8 @@ export interface SampleIssue {
 	assignee: PersonKey | null;
 	by: PersonKey;
 	description?: string;
+	/** A thread, in the order it was written. */
+	comments?: { by: PersonKey; body: string }[];
 }
 
 export const ISSUES: SampleIssue[] = [
@@ -72,6 +74,17 @@ export const ISSUES: SampleIssue[] = [
 			"Signing up as Lena@acme.test works, but signing in with the same address fails with " +
 			"'Invalid email or password'. Lowercase works.\n\nNormalize the address on both paths and " +
 			"add a test for mixed case.",
+		comments: [
+			{
+				by: "sam",
+				body: "Reproduced. Sign-up keeps the address as typed, but sign-in lowercases it first. Fixing both paths.",
+			},
+			{
+				by: "lena",
+				body: "Thanks! Accounts that already have uppercase addresses will need a one-off fix too.",
+			},
+			{ by: "sam", body: "Good catch. The same pull request now migrates them." },
+		],
 	},
 	{
 		team: "ENG",
@@ -103,6 +116,13 @@ export const ISSUES: SampleIssue[] = [
 		description:
 			"A workspace with 20,000 issues takes about four seconds to open without a cache. " +
 			"Profile the snapshot path and stream it if needed.",
+		comments: [
+			{
+				by: "lena",
+				body: "Profiled it: most of the time goes to building the snapshot in one piece. Sending it in pages gets the first screen up in under a second.",
+			},
+			{ by: "sam", body: "Nice. Does the local cache still work with paged snapshots?" },
+		],
 	},
 	{
 		team: "ENG",
@@ -112,6 +132,12 @@ export const ISSUES: SampleIssue[] = [
 		priority: 2,
 		assignee: "lena",
 		by: "lena",
+		comments: [
+			{
+				by: "lena",
+				body: "It only fails when the socket closes before the acknowledgement arrives. The fix is up for review.",
+			},
+		],
 	},
 	{
 		team: "ENG",
@@ -302,6 +328,13 @@ export const ISSUES: SampleIssue[] = [
 		description:
 			"Lead with the architecture: one Durable Object per workspace, a local replica and " +
 			"instant edits. Link the self-hosting guide and the demo workspace.",
+		comments: [
+			{ by: "sam", body: "The draft reads well. I would move the self-hosting link up top." },
+			{
+				by: "diego",
+				body: "I can record a short clip of two tabs editing the same issue for the post.",
+			},
+		],
 	},
 	{
 		team: "GRO",

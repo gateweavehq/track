@@ -1,5 +1,13 @@
-import type { Issue, Label, Member, Snapshot, Team } from "@gateweave/track-protocol";
-import { and, eq, isNull } from "drizzle-orm";
+import type {
+	Activity,
+	Comment,
+	Issue,
+	Label,
+	Member,
+	Snapshot,
+	Team,
+} from "@gateweave/track-protocol";
+import { and, asc, eq, getTableColumns, isNull, sql } from "drizzle-orm";
 import type { DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 import * as schema from "./db/schema";
 import { ChangeSet, currentVersion, type WriteResult } from "./log";
@@ -15,6 +23,10 @@ export const toIssue = ({ fieldStamps: _, deletedAt: __, ...issue }: schema.Issu
 	issue;
 
 export const toLabel = ({ deletedAt: _, ...label }: schema.LabelRow): Label => label;
+
+export const toComment = ({ deletedAt: _, ...comment }: schema.CommentRow): Comment => comment;
+
+export const toActivity = (activity: schema.ActivityRow): Activity => activity;
 
 export const toMember = ({ userId, ...member }: schema.MemberRow): Member => ({
 	id: userId,
@@ -37,6 +49,23 @@ export function readSnapshot(db: Db): Snapshot {
 			.where(isNull(schema.labels.deletedAt))
 			.all()
 			.map(toLabel),
+		comments: db
+			.select(getTableColumns(schema.comments))
+			.from(schema.comments)
+			.innerJoin(schema.issues, eq(schema.issues.id, schema.comments.issueId))
+			.where(and(isNull(schema.comments.deletedAt), isNull(schema.issues.deletedAt)))
+			.orderBy(asc(schema.comments.createdAt), asc(schema.comments.id))
+			.all()
+			.map(toComment),
+		activities: db
+			.select(getTableColumns(schema.activities))
+			.from(schema.activities)
+			.innerJoin(schema.issues, eq(schema.issues.id, schema.activities.issueId))
+			.where(isNull(schema.issues.deletedAt))
+			// Insertion order, which breaks ties between entries written in the same millisecond.
+			.orderBy(sql`${schema.activities}.rowid`)
+			.all()
+			.map(toActivity),
 		members: db.select().from(schema.members).all().map(toMember),
 	};
 }

@@ -23,7 +23,7 @@ flowchart LR
   Mcp -- "RPC" --> DO
   Auth -- "membership hooks (RPC)" --> DO
   subgraph DO["WorkspaceDO (one per workspace)"]
-    SQLite[("SQLite<br/>teams, issues, labels,<br/>members, oplog")]
+    SQLite[("SQLite<br/>teams, issues, labels,<br/>comments, activity,<br/>members, oplog")]
   end
 ```
 
@@ -57,7 +57,8 @@ different protocol versions in production. It also gives self-hosters one thing 
 | Users, sessions, OAuth accounts     | D1           | Better Auth                        |
 | Workspaces, members, invitations    | D1           | Better Auth organization plugin    |
 | OAuth clients, grants, signing keys | D1           | Better Auth MCP plugin             |
-| Teams, issues, labels               | Workspace DO | `sync-server`                      |
+| Teams, issues, labels, comments     | Workspace DO | `sync-server`                      |
+| Issue activity (history)            | Workspace DO | `sync-server`, from issue writes   |
 | Member replica (name, avatar, role) | Workspace DO | Pushed from D1 by membership hooks |
 
 The DO keeps a replica of membership for two reasons: it authorizes writes (for example, only
@@ -127,7 +128,8 @@ that agents sign in to, through Better Auth's MCP plugin:
 Each tool call resolves the workspace slug to the caller's membership in D1, as the sync gateway
 does, and then reads or mutates through the Durable Object's RPC (see
 [Server-side clients](#server-side-clients)). A workspace the caller does not belong to is
-reported as not found. The tools themselves live in `apps/web/src/server/mcp/tools.ts`.
+reported as not found. The tools themselves live in `apps/web/src/server/mcp/tools.ts`. Agents
+read an issue's comments with `get_issue` and write one with `add_comment`, as the person.
 
 Tokens must name one canonical URL, so the endpoint, and the authorization server, exist only
 when `BETTER_AUTH_URL` pins the base URL. Without it `/mcp` answers `404`.
@@ -141,13 +143,15 @@ and reconcile against what the server broadcasts.
 
 Every write appends one or more ops to the workspace's **oplog**. Each op gets the next workspace
 version, so versions are gapless and totally ordered. An op is either a full-row `put` or a
-`delete` for a `team`, `issue` or `member`. A client's entire sync state is the highest version
+`delete` for a `team`, `issue`, `label`, `comment`, `activity` or `member`. A client's entire sync state is the highest version
 it has applied.
 
 ### Connecting
 
-1. `GET /api/sync/:slug/snapshot` returns `{ version, teams, issues, labels, members }`. It is served over
-   HTTP so it can be compressed and fetched in parallel with the socket.
+1. `GET /api/sync/:slug/snapshot` returns
+   `{ version, teams, issues, labels, comments, activities, members }`, leaving out the comments
+   and activity of deleted issues. It is served over HTTP so it can be compressed and fetched in
+   parallel with the socket.
 2. The client opens the socket and sends `hello { protocol, clientId, since: snapshot.version }`.
 3. The server streams any ops after `since` as `delta` messages, then `ready { version }`. From
    then on the socket receives every new op live.
@@ -216,6 +220,29 @@ Labels are kept out of the patch. An issue's `labelIds` change only through `iss
 one that is not, writes nothing. They never conflict, so two people labeling the same issue at the
 same time both get their label. Deleting a label (admins only) removes it from every issue that
 has it, one issue op each, before the label's own delete op.
+
+### Comments and activity
+
+Comments are ordinary synced rows. Any member can comment. Only the author edits a comment, so
+there is a single writer and the last edit wins without any conflict check. The author or an
+admin can delete it.
+
+Activity, an issue's history, is written by the server as a side effect of issue mutations and
+never by clients. It cannot be forged, needs no prediction, and arrives in the same delta as the
+change it describes. Each entry is one person changing one field: status, priority, assignee,
+title, description, or a label added or removed. To keep the history readable:
+
+- Changes by the same person to the same field within five minutes merge into their latest
+  entry, keeping the first `from` and the newest `to`. Putting a field back where it started
+  removes the entry.
+- The creator writing the title and description in the first five minutes, before there is any
+  other history, is part of creating the issue and is not recorded.
+- The creation itself is not stored. The UI shows it from the issue's `creatorId` and
+  `createdAt`, so issues older than activity still start their history correctly.
+
+Deleting an issue sends delete ops for its comments and activity ahead of the issue's own, so
+clients drop them together. Deleting a label records nothing, and entries about it read as "a
+deleted label".
 
 ### Compaction
 

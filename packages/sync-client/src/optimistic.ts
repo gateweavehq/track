@@ -45,9 +45,18 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			if (issue) draft.put("issue", { ...issue, ...mutation.args.patch, updatedAt: now });
 			return;
 		}
-		case "issue.delete":
-			draft.delete("issue", mutation.args.id);
+		case "issue.delete": {
+			const { id } = mutation.args;
+			// The server drops the issue's comments and history with it.
+			for (const comment of [...draft.values("comment")]) {
+				if (comment.issueId === id) draft.delete("comment", comment.id);
+			}
+			for (const activity of [...draft.values("activity")]) {
+				if (activity.issueId === id) draft.delete("activity", activity.id);
+			}
+			draft.delete("issue", id);
 			return;
+		}
 		case "issue.addLabel": {
 			const { id, labelId } = mutation.args;
 			const issue = draft.get("issue", id);
@@ -80,6 +89,26 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 				if (issue.labelIds.includes(id)) draft.put("issue", withoutLabel(issue, id, now));
 			}
 			draft.delete("label", id);
+			return;
+		}
+		case "comment.create": {
+			const { id, issueId, body } = mutation.args;
+			if (draft.get("comment", id) || !draft.get("issue", issueId)) return;
+			draft.put("comment", { id, issueId, body, authorId: userId, createdAt: now, updatedAt: now });
+			return;
+		}
+		case "comment.update": {
+			const comment = draft.get("comment", mutation.args.id);
+			if (!comment || comment.authorId !== userId || comment.body === mutation.args.body) return;
+			draft.put("comment", { ...comment, body: mutation.args.body, updatedAt: now });
+			return;
+		}
+		case "comment.delete": {
+			const comment = draft.get("comment", mutation.args.id);
+			if (!comment) return;
+			const role = draft.get("member", userId)?.role;
+			if (comment.authorId !== userId && (role === undefined || role === "member")) return;
+			draft.delete("comment", comment.id);
 			return;
 		}
 	}

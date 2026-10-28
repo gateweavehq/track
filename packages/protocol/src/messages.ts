@@ -1,9 +1,9 @@
 import { z } from "zod";
-import type { Entities, EntityName, Issue, Label, Member, Team } from "./domain";
+import type { Activity, Comment, Entities, EntityName, Issue, Label, Member, Team } from "./domain";
 import type { MutationInput } from "./mutations";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";
@@ -77,5 +77,18 @@ export interface Snapshot {
 	teams: Team[];
 	issues: Issue[];
 	labels: Label[];
+	/** Comments and activity of live issues only. */
+	comments: Comment[];
+	activities: Activity[];
 	members: Member[];
 }
+
+/** Where each entity's rows live in a snapshot. */
+export const SNAPSHOT_KEYS = {
+	team: "teams",
+	issue: "issues",
+	label: "labels",
+	comment: "comments",
+	activity: "activities",
+	member: "members",
+} as const satisfies { [E in EntityName]: Exclude<keyof Snapshot, "version"> };

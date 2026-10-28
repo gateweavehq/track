@@ -1,4 +1,5 @@
 import type {
+	Comment,
 	Issue,
 	Label,
 	Member,
@@ -40,6 +41,7 @@ class FakeWorkspace implements WorkspaceAccess {
 	readonly me = me;
 	issues_: Issue[] = [];
 	labels: Label[] = [];
+	comments_: Comment[] = [];
 	mutations: Mutation[] = [];
 	nextResult: MutateResult | null = null;
 	#version = 10;
@@ -60,6 +62,9 @@ class FakeWorkspace implements WorkspaceAccess {
 	async issueByKey(teamKey: string, number: number) {
 		if (teamKey !== team.key) return null;
 		return this.issues_.find((issue) => issue.number === number) ?? null;
+	}
+	async comments(issueId: string) {
+		return this.comments_.filter((comment) => comment.issueId === issueId);
 	}
 	async lastSortOrder() {
 		return (
@@ -98,6 +103,9 @@ class FakeWorkspace implements WorkspaceAccess {
 			}
 		} else if (mutation.name === "label.create") {
 			this.labels.push({ ...mutation.args, createdAt: 0, updatedAt: 0 });
+		} else if (mutation.name === "comment.create") {
+			const at = Date.UTC(2026, 9, 28);
+			this.comments_.push({ ...mutation.args, authorId: me.id, createdAt: at, updatedAt: at });
 		}
 		return { ok: true, version };
 	}
@@ -136,6 +144,7 @@ describe("Track MCP tools", () => {
 	it("lists every tool", async () => {
 		const { tools } = await client.listTools();
 		expect(tools.map((tool) => tool.name).sort()).toEqual([
+			"add_comment",
 			"create_issue",
 			"create_label",
 			"get_issue",
@@ -286,6 +295,42 @@ describe("Track MCP tools", () => {
 		expect(found.structuredContent).toMatchObject({ key: "ENG-1", description: "Body" });
 		expect(missing.content).toEqual([{ type: "text", text: "Issue ENG-9 not found." }]);
 		expect(malformed.isError).toBe(true);
+	});
+
+	it("comments on an issue, and reads comments along with it", async () => {
+		await created({ title: "Discuss" });
+		workspace.comments_.push({
+			id: "comment-sam",
+			issueId: workspace.issues_[0]?.id ?? "",
+			authorId: sam.id,
+			body: "First",
+			createdAt: Date.UTC(2026, 9, 27),
+			updatedAt: Date.UTC(2026, 9, 28),
+		});
+
+		const added = await call("add_comment", {
+			workspace: "acme",
+			key: "ENG-1",
+			body: "  Second, from an agent  ",
+		});
+		const read = await call("get_issue", { workspace: "acme", key: "ENG-1" });
+		const missing = await call("add_comment", { workspace: "acme", key: "ENG-9", body: "Hi" });
+
+		expect(added.structuredContent).toEqual({
+			author: "maya@example.com",
+			body: "Second, from an agent",
+			createdAt: "2026-10-28T00:00:00.000Z",
+			edited: false,
+		});
+		expect(read.structuredContent).toMatchObject({
+			key: "ENG-1",
+			comments: [
+				{ author: "sam@example.com", body: "First", edited: true },
+				{ author: "maya@example.com", body: "Second, from an agent", edited: false },
+			],
+		});
+		expect(missing.isError).toBe(true);
+		expect(workspace.mutations.filter((m) => m.name === "comment.create")).toHaveLength(1);
 	});
 
 	it("creates labels, with a color picked from the name unless given", async () => {

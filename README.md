@@ -10,8 +10,8 @@ Track is the first product of [Gateweave](https://gateweave.com), a family of op
 Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
 
 > **Status: early development.** Sync (server and client), auth, workspaces, invitations, issue
-> lists, boards, labels, the issue page and the MCP server for AI agents work end to end.
-> Comments are next. Expect breaking changes.
+> lists, boards, labels, comments and activity history, the issue page and the MCP server for AI
+> agents work end to end. Launch readiness is next. Expect breaking changes.
 
 ## Highlights
 
