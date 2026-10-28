@@ -1,16 +1,25 @@
-import { deleteIdbReplicas } from "@gateweave/track-sync-client";
 import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { authClient } from "#/lib/auth-client";
+import { lastWorkspace, withOfflineFallback } from "#/lib/offline";
+import { forgetEverything } from "#/lib/replica";
 import { getSession } from "#/lib/session";
 import { slugify, slugProblem } from "#/lib/slug";
 
 export const Route = createFileRoute("/")({
 	beforeLoad: async () => {
-		const session = await getSession();
+		const session = await withOfflineFallback(
+			() => getSession(),
+			() => {
+				// An installed app starts here. Without a connection, open the workspace used last.
+				const last = lastWorkspace();
+				if (last) throw redirect({ to: "/$workspace", params: { workspace: last } });
+				return undefined;
+			},
+		);
 		if (!session) throw redirect({ to: "/login" });
 		return { session };
 	},
@@ -35,7 +44,7 @@ function WorkspacesPage() {
 					onClick={async () => {
 						await authClient.signOut();
 						// Workspace replicas are cached per user; leave nothing behind on a shared device.
-						await deleteIdbReplicas().catch(() => {});
+						await forgetEverything();
 						await router.invalidate();
 					}}
 				>

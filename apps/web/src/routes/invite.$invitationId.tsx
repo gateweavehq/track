@@ -1,4 +1,3 @@
-import { deleteIdbReplicas } from "@gateweave/track-sync-client";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
@@ -8,6 +7,7 @@ import { VerifyEmailButton } from "#/components/verify-email";
 import { authClient } from "#/lib/auth-client";
 import { formatRelative } from "#/lib/dates";
 import { previewInvitation } from "#/lib/members";
+import { forgetEverything } from "#/lib/replica";
 import { useDocumentTitle } from "#/lib/title";
 import type { InvitationPreview } from "#/server/workspaces";
 
@@ -74,7 +74,7 @@ function ValidInvitation({
 		setPending(true);
 		await authClient.signOut();
 		// Replicas are cached per user; leave nothing behind for the next account.
-		await deleteIdbReplicas().catch(() => {});
+		await forgetEverything();
 		await router.invalidate();
 		await router.navigate({ to: "/login", search: { redirect: here, email: invitation.email } });
 	}

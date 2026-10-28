@@ -9,22 +9,44 @@ import { AppShell } from "#/components/workspace/app-shell";
 import { WorkspaceProvider } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
 import { SyncGate } from "#/components/workspace/sync-status";
+import {
+	forgetKnownWorkspace,
+	knownWorkspace,
+	rememberWorkspace,
+	withOfflineFallback,
+} from "#/lib/offline";
 import { forgetWorkspace, replicaKey } from "#/lib/replica";
 import { getSession } from "#/lib/session";
 import { getWorkspace } from "#/lib/workspace";
 
 // The workspace app runs entirely on the sync client: data comes from IndexedDB first, edits
 // apply instantly, and changes stream in live. There is nothing useful to render on the server.
+//
+// Without a connection, a workspace this device already holds opens from its copy. Nothing is
+// exposed that is not on the device already, and the server checks the session and membership
+// again as soon as the sync client reconnects.
 export const Route = createFileRoute("/$workspace")({
 	ssr: false,
-	beforeLoad: async ({ location }) => {
-		if (!(await getSession())) {
-			throw redirect({ to: "/login", search: { redirect: location.href } });
-		}
+	beforeLoad: async ({ location, params }) => {
+		const signedIn = await withOfflineFallback(
+			async () => Boolean(await getSession()),
+			() => (knownWorkspace(params.workspace) ? true : undefined),
+		);
+		if (!signedIn) throw redirect({ to: "/login", search: { redirect: location.href } });
 	},
 	loader: async ({ params }) => {
-		const workspace = await getWorkspace({ data: params.workspace });
-		if (!workspace) throw notFound();
+		const workspace = await withOfflineFallback(
+			() => getWorkspace({ data: params.workspace }),
+			() => knownWorkspace(params.workspace),
+		);
+		if (!workspace) {
+			// The server says no: drop what this device kept under that address.
+			const known = knownWorkspace(params.workspace);
+			if (known) await forgetWorkspace(known.userId, known.id).catch(() => {});
+			forgetKnownWorkspace({ slug: params.workspace });
+			throw notFound();
+		}
+		rememberWorkspace(params.workspace, workspace);
 		return workspace;
 	},
 	component: WorkspaceLayout,

@@ -348,6 +348,27 @@ on its own.
 result. The UI does not wait for it. Rejections also reach an `onReject` callback, so the app can
 report them in one place.
 
+### Starting offline
+
+A service worker (`apps/web/service-worker/sw.ts`, built into `/sw.js`) lets the app start with
+no connection. When it installs, it caches the build's files and an app shell: what the server
+renders for `/_shell`. That is a workspace URL, whose route renders only in the browser, so the
+shell is the root layout and the build's scripts, with no data; `_shell` can never be a slug.
+Pages are always fetched from the network first. Only when that fails does the worker serve the
+shell, and the router then loads the route for the actual URL in the browser. The API, `/mcp`
+and `/.well-known` are left alone. Each build gets its own cache, and files named by their
+content are copied over from the previous one instead of downloaded again.
+
+The workspace route asks the server for the session and the membership before it renders. When
+the server cannot be reached, as opposed to refusing, it falls back to what the browser
+remembers: for each workspace opened while signed in, its id, name and the user's role, kept in
+`localStorage` (`apps/web/src/lib/offline.ts`). That reveals nothing the replica does not
+already hold, and the server checks the session and membership again as soon as the sync client
+reconnects. An installed app starts at `/`, which offline opens the workspace used last. Pages
+that need the server, such as member settings, say so. Signing out forgets all of it along with
+the replicas, and a refusal from the server forgets that workspace, so a shared device does not
+open someone else's workspace offline.
+
 ### React
 
 `@gateweave/track-sync-client/react` provides `SyncProvider`, `useQuery(selector, isEqual)` and

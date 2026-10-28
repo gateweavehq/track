@@ -1,10 +1,12 @@
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import { devtools } from "@tanstack/devtools-vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin, transformWithOxc } from "vite";
 
 /**
  * Settings Track runs without (see src/server/env.d.ts). `secrets.required` in wrangler.jsonc
@@ -34,8 +36,44 @@ export default defineConfig(({ command }) => ({
 		tailwindcss(),
 		tanstackStart(),
 		viteReact(),
+		serviceWorker(),
 	],
 }));
+
+/**
+ * Builds service-worker/sw.ts into /sw.js, with the list of files it keeps so that Track can
+ * start offline: the client bundle and the public files.
+ */
+function serviceWorker(): Plugin {
+	return {
+		name: "track:service-worker",
+		apply: "build",
+		applyToEnvironment: (environment) => environment.name === "client",
+		async generateBundle(_options, bundle) {
+			const { publicDir } = this.environment.config;
+			const publicFiles = readdirSync(publicDir, { withFileTypes: true })
+				.filter((entry) => entry.isFile())
+				.map((entry) => entry.name);
+			const bundled = Object.values(bundle)
+				.map((output) => output.fileName)
+				.filter((name) => !name.endsWith(".map") && !name.startsWith("."));
+			const files = [...bundled, ...publicFiles].map((name) => `/${name}`).sort();
+
+			// Bundle files are named by their content; public files are not, so theirs counts too.
+			const hash = createHash("sha256").update(files.join("\n"));
+			for (const name of publicFiles) hash.update(readFileSync(join(publicDir, name)));
+			const build = { version: hash.digest("hex").slice(0, 16), files };
+
+			const source = readFileSync(new URL("service-worker/sw.ts", import.meta.url), "utf8");
+			const { code } = await transformWithOxc(source, "sw.ts");
+			this.emitFile({
+				type: "asset",
+				fileName: "sw.js",
+				source: `const BUILD = ${JSON.stringify(build)};\n${code}`,
+			});
+		},
+	};
+}
 
 /** The names (never the values) of the keys .dev.vars sets to something. */
 function devVarsKeys(): Set<string> {

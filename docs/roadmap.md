@@ -20,6 +20,8 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   browser forgets the workspace.
 - **Installable app.** A web app manifest and icons, so Track installs as an app on desktop and
   mobile.
+- **Starting offline.** A service worker serves the app shell when there is no connection, and
+  the workspace opens from the device's copy. An installed app starts on the workspace used last.
 - **Labels.** Workspace-wide labels with colors, added and removed as conflict-free set
   operations, picked when creating an issue, shown on lists and boards, used to filter them (in
   the URL, so a filtered view can be shared), managed in settings, and available to agents over
@@ -37,10 +39,6 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 
 ## Next: launch readiness
 
-- Opening the app with no connection. A loaded workspace already keeps working offline; starting
-  one offline needs a service worker that serves the app shell, and workspace loaders that fall
-  back to what the device already knows when the session and membership checks cannot reach the
-  server.
 - A verified one-click "Deploy to Cloudflare" and a self-hosting guide.
 - A public demo workspace, filled by the seed script (`pnpm dev:seed`) and reset every night.
 - End-to-end tests with Playwright: real IndexedDB, several tabs, going offline and back.
