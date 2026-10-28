@@ -26,6 +26,16 @@ export interface SentEmail {
 	html: string;
 }
 
+/** A request that reached the stand-in webhook receiver. */
+export interface ReceivedWebhook {
+	url: string;
+	headers: Record<string, string>;
+	body: string;
+}
+
+/** Stands in for webhook receivers: it answers 204 and keeps each request. */
+export const RECEIVER_HOST = "hooks.test";
+
 /** The address Track sends from in tests. */
 export const EMAIL_FROM = { name: "Gateweave Track", email: "track@track.test" };
 
@@ -47,12 +57,17 @@ export default class Outbox extends WorkerEntrypoint {
 
 // Reads a workspace's Durable Object over RPC, as the app's own Worker would, so tests can see
 // what is stored in it (or that it has been emptied). GET /<workspaceId> returns its directory.
-// POST /<workspaceId> applies {member, mutation} as that member, as a gateway would.
+// POST /<workspaceId> applies {member, mutation} as that member, as a gateway would, and
+// POST /<workspaceId>/rpc calls {method, args} on it.
 const INSPECTOR = `
 import { WorkerEntrypoint } from "cloudflare:workers";
 export default class Inspector extends WorkerEntrypoint {
 	async fetch(request) {
-		const id = new URL(request.url).pathname.slice(1);
+		const [id, rpc] = new URL(request.url).pathname.slice(1).split("/");
+		if (rpc === "rpc") {
+			const { method, args } = await request.json();
+			return Response.json(await this.env.WORKSPACE.getByName(id)[method](...args));
+		}
 		if (request.method === "POST") {
 			const { member, mutation } = await request.json();
 			const stub = this.env.WORKSPACE.getByName(id);
@@ -86,6 +101,7 @@ function builtModules(): V4ModuleDefinition[] {
  * Every outbound request fails, the way a deployed Worker's request to its own hostname does.
  * Track needs no outside service for sign-in or MCP, so code that only works because local dev
  * can reach itself fails here instead of in production. Email is on, and lands in `emails()`.
+ * Webhooks may point at `RECEIVER_HOST`, whose requests land in `received`.
  *
  * With `isolates` above 1, more copies of the Worker share the database and Durable Objects but
  * nothing in memory, as isolates in production do. `fetchIn` reaches a given one.
@@ -96,6 +112,7 @@ export async function startTrack(
 ) {
 	const config = JSON.parse(readFileSync(join(serverDir, "wrangler.json"), "utf8")) as BuiltConfig;
 	const outbound: string[] = [];
+	const received: ReceivedWebhook[] = [];
 	const logs: WorkerLog[] = [];
 	const modules = builtModules();
 	const secret = randomBytes(32).toString("base64url");
@@ -132,7 +149,15 @@ export async function startTrack(
 						WORKSPACE: { className: "WorkspaceDO", useSQLite: true, scriptName: names[0] },
 						RATE_LIMITER: { className: "RateLimiter", useSQLite: true, scriptName: names[0] },
 					},
-					outboundService: (request: Request) => {
+					outboundService: async (request: Request) => {
+						if (new URL(request.url).host === RECEIVER_HOST) {
+							received.push({
+								url: request.url,
+								headers: Object.fromEntries(request.headers),
+								body: await request.text(),
+							});
+							return new Response(null, { status: 204 });
+						}
 						outbound.push(request.url);
 						return new Response("Outbound requests are blocked in this test", { status: 502 });
 					},
@@ -203,8 +228,10 @@ export async function startTrack(
 		/** A `fetch` that reaches the Worker directly. Redirects are returned, not followed. */
 		fetch: (input: string | URL | Request, init?: RequestInit) => fetchIn(0, input, init),
 		fetchIn,
-		/** URLs the Worker tried to fetch from outside. */
+		/** URLs the Worker tried to fetch from outside, other than webhooks to the receiver. */
 		outbound,
+		/** Webhook deliveries to `RECEIVER_HOST`, oldest first. */
+		received,
 		/** Everything the Worker has logged so far, oldest first. */
 		logs,
 		/** Every email sent so far, oldest first. Email goes out after the response. */
@@ -239,6 +266,14 @@ export async function startTrack(
 				body: JSON.stringify({ member, mutation }),
 			});
 			return (await response.json()) as { ok: boolean };
+		},
+		/** Calls a method of a workspace's Durable Object, as a gateway would. */
+		async rpc<T>(workspaceId: string, method: string, ...args: unknown[]): Promise<T> {
+			const response = await mf.dispatchFetch(`http://inspector.test/${workspaceId}/rpc`, {
+				method: "POST",
+				body: JSON.stringify({ method, args }),
+			});
+			return (await response.json()) as T;
 		},
 		/** The D1 database, for setting up state the app has no endpoint for. */
 		db,

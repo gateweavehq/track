@@ -1120,15 +1120,17 @@ describe("search", () => {
 		await issue(admin, "i-2", "Gone issue");
 		await admin.apply({ name: "issue.delete", args: { id: "i-2" } });
 
-		// Undo migration 0003 and run the migrations again, as when an existing workspace wakes
-		// up after the deploy that brings search.
+		// Undo migration 0003 and those after it, then run the migrations again, as when an
+		// existing workspace wakes up after the deploy that brings search.
+		const search = migrations.journal.entries.find((entry) => entry.tag === "0003_issue_search");
+		if (!search) throw new Error("No search migration");
 		await runInDurableObject(workspace, async (_, state) => {
 			const db = drizzle(state.storage, { schema });
 			db.run(sql`drop table issue_search`);
 			db.run(sql`drop table issue_search_docs`);
-			db.run(
-				sql`delete from __drizzle_migrations where created_at = (select max(created_at) from __drizzle_migrations)`,
-			);
+			db.run(sql`drop table webhook_deliveries`);
+			db.run(sql`drop table webhooks`);
+			db.run(sql`delete from __drizzle_migrations where created_at >= ${search.when}`);
 			await migrate(db, migrations);
 		});
 

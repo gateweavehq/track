@@ -16,6 +16,11 @@ const baseURL = env.BETTER_AUTH_URL || undefined;
  */
 export const mcpResource = baseURL ? new URL("/mcp", baseURL).href : undefined;
 
+/** The app's origin: the pinned base URL's, or else the request's. */
+export function appOrigin(request: Request): string {
+	return new URL(baseURL ?? request.url).origin;
+}
+
 let instance: ReturnType<typeof buildAuth> | undefined;
 
 /**
@@ -46,6 +51,8 @@ function buildAuth() {
 		onUserUpdated: (userId) => logFailure(syncUserEverywhere(db, userId), "profile sync"),
 		onWorkspaceDeleted: (workspaceId) =>
 			logFailure(workspaceStub(workspaceId).destroy(), "workspace deletion"),
+		onWorkspaceRenamed: (workspaceId, slug) =>
+			logFailure(workspaceStub(workspaceId).relink(slug), "workspace rename"),
 		demo: demoEnabled(),
 		mailer: demoEnabled() ? undefined : mailer,
 		runInBackground: waitUntil,

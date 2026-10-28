@@ -84,6 +84,12 @@ An agent that works on its own, such as one that triages new issues, gets a memb
 instead: an admin creates it under Settings, Agents, and gives its MCP client the key shown there,
 as `Authorization: Bearer <key>`. It needs nothing else to be set up.
 
+### Webhooks
+
+Webhooks need no setup either: each workspace's Durable Object sends them itself, with no Queue
+or other binding. Admins add them under Settings, Webhooks. They must use `https`, except when
+the app itself runs on plain `http`, and cannot point at the app's own host.
+
 ### Sign in with GitHub
 
 Create a [GitHub OAuth app](https://github.com/settings/developers) with the callback URL

@@ -8,6 +8,8 @@ import {
 	ISSUE_STATUSES,
 	type IssuePriority,
 	MEMBER_ROLES,
+	type WebhookDelivery,
+	type WebhookEventType,
 } from "@gateweave/track-protocol";
 import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
@@ -139,9 +141,53 @@ export const meta = sqliteTable("meta", {
 	value: text("value").notNull(),
 });
 
+/** Subscriptions to the workspace's events. Admins manage them; see `webhooks.ts`. */
+export const webhooks = sqliteTable("webhooks", {
+	id: text("id").primaryKey(),
+	url: text("url").notNull(),
+	events: text("events", { mode: "json" }).$type<WebhookEventType[]>().notNull(),
+	teamId: text("team_id"),
+	agentId: text("agent_id"),
+	/** `whsec_` and base64. Kept as is, since signing needs it. */
+	secret: text("secret").notNull(),
+	active: integer("active", { mode: "boolean" }).notNull(),
+	createdAt: integer("created_at").notNull(),
+	updatedAt: integer("updated_at").notNull(),
+});
+
+/**
+ * The webhooks' outbox. A change queues its deliveries in its own transaction, so none is lost,
+ * and the alarm sends them. Finished deliveries are kept a while, for settings to show.
+ */
+export const webhookDeliveries = sqliteTable(
+	"webhook_deliveries",
+	{
+		id: text("id").primaryKey(),
+		webhookId: text("webhook_id")
+			.notNull()
+			.references(() => webhooks.id),
+		event: text("event").$type<WebhookDelivery["event"]>().notNull(),
+		/** The exact body, which the signature covers. */
+		payload: text("payload").notNull(),
+		status: text("status", { enum: ["pending", "delivered", "failed"] }).notNull(),
+		attempts: integer("attempts").notNull().default(0),
+		nextAttemptAt: integer("next_attempt_at"),
+		responseStatus: integer("response_status"),
+		error: text("error"),
+		createdAt: integer("created_at").notNull(),
+		updatedAt: integer("updated_at").notNull(),
+	},
+	(table) => [
+		index("webhook_deliveries_due_idx").on(table.status, table.nextAttemptAt),
+		index("webhook_deliveries_webhook_idx").on(table.webhookId, table.createdAt),
+	],
+);
+
 export type TeamRow = typeof teams.$inferSelect;
 export type IssueRow = typeof issues.$inferSelect;
 export type LabelRow = typeof labels.$inferSelect;
 export type CommentRow = typeof comments.$inferSelect;
 export type ActivityRow = typeof activities.$inferSelect;
 export type MemberRow = typeof members.$inferSelect;
+export type WebhookRow = typeof webhooks.$inferSelect;
+export type WebhookDeliveryRow = typeof webhookDeliveries.$inferSelect;

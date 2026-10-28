@@ -4,24 +4,15 @@ import {
 	MAX_LABELS_PER_ISSUE,
 	type Mutation,
 	type MutationArgs,
-	type RejectReason,
 } from "@gateweave/track-protocol";
 import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import { recordActivity } from "./activity";
 import * as schema from "./db/schema";
 import { ChangeSet, type WriteResult } from "./log";
+import { MutationRejected } from "./rejected";
 import { indexIssue, indexTeamIssues, unindexIssue } from "./search";
 import { activeMember, type Db, toComment, toIssue, toLabel, toTeam } from "./state";
-
-export class MutationRejected extends Error {
-	constructor(
-		readonly reason: RejectReason,
-		message: string,
-	) {
-		super(message);
-		this.name = "MutationRejected";
-	}
-}
+import { queueDeliveries } from "./webhooks";
 
 export interface Actor {
 	member: schema.MemberRow;
@@ -98,7 +89,8 @@ export function applyMutation(
 	db.insert(schema.appliedMutations)
 		.values({ id: mutationId, clientId: actor.clientId, version: result.version, at: now })
 		.run();
-	return result;
+	const queued = queueDeliveries(db, actor.member, changes.events, result.version, now);
+	return { ...result, queued };
 }
 
 function createTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"team.create">) {
@@ -163,6 +155,7 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 	db.insert(schema.issues).values(row).run();
 	indexIssue(db, row.id);
 	changes.put("issue", toIssue(row));
+	changes.events.push({ type: "issue.created", issue: row });
 }
 
 /**
@@ -205,7 +198,10 @@ function updateIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		.where(eq(schema.issues.id, issue.id))
 		.returning()
 		.get();
-	if (row) changes.put("issue", toIssue(row));
+	if (row) {
+		changes.put("issue", toIssue(row));
+		changes.events.push({ type: "issue.updated", issue: row, previous: issue });
+	}
 	if (accepted.title !== undefined || accepted.description !== undefined) {
 		indexIssue(db, issue.id);
 	}
@@ -260,6 +256,7 @@ function deleteIssue(db: Db, changes: ChangeSet, args: MutationArgs<"issue.delet
 		.run();
 	unindexIssue(db, issue.id);
 	changes.delete("issue", issue.id);
+	changes.events.push({ type: "issue.deleted", issue });
 }
 
 /** Labels are sets, so adding one that is already there, or removing one that is not, is a no-op. */
@@ -311,7 +308,10 @@ function writeIssueLabels(db: Db, changes: ChangeSet, issue: schema.IssueRow, la
 		.where(eq(schema.issues.id, issue.id))
 		.returning()
 		.get();
-	if (row) changes.put("issue", toIssue(row));
+	if (row) {
+		changes.put("issue", toIssue(row));
+		changes.events.push({ type: "issue.updated", issue: row, previous: issue });
+	}
 }
 
 function createLabel(db: Db, changes: ChangeSet, args: MutationArgs<"label.create">) {
@@ -397,6 +397,7 @@ function createComment(
 	db.insert(schema.comments).values(row).run();
 	indexIssue(db, row.issueId);
 	changes.put("comment", toComment(row));
+	changes.events.push({ type: "comment.created", comment: row });
 }
 
 /** A comment says what its author said, so nobody else can change it, admins included. */
@@ -420,7 +421,10 @@ function updateComment(
 		.returning()
 		.get();
 	indexIssue(db, comment.issueId);
-	if (row) changes.put("comment", toComment(row));
+	if (row) {
+		changes.put("comment", toComment(row));
+		changes.events.push({ type: "comment.updated", comment: row });
+	}
 }
 
 /** Admins can delete anyone's comment, for moderation. */
@@ -442,6 +446,7 @@ function deleteComment(
 		.run();
 	indexIssue(db, comment.issueId);
 	changes.delete("comment", comment.id);
+	changes.events.push({ type: "comment.deleted", comment });
 }
 
 function requireAdmin(actor: Actor, message: string) {

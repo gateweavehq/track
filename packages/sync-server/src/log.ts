@@ -2,6 +2,7 @@ import type { Entities, EntityName, Op } from "@gateweave/track-protocol";
 import { and, asc, eq, gt, lt, lte, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
 import type { Db } from "./state";
+import type { ChangeEvent } from "./webhooks";
 
 const FLOOR_KEY = "oplog_floor";
 
@@ -9,6 +10,8 @@ export interface WriteResult {
 	/** Workspace version after the write. Unchanged if nothing was written. */
 	version: number;
 	ops: Op[];
+	/** Webhook deliveries the write queued, which the alarm sends. */
+	queued?: number;
 }
 
 /**
@@ -17,6 +20,8 @@ export interface WriteResult {
  */
 export class ChangeSet {
 	readonly ops: Op[] = [];
+	/** What the write did, in the terms webhooks report. Handlers add to it. */
+	readonly events: ChangeEvent[] = [];
 	#next: number;
 
 	constructor(

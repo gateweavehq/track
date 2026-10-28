@@ -101,6 +101,8 @@ browser does:
 - It **observes through the same sync stream.** The client depends only on `Transport` and
   `Persistence`, so an agent can run the sync client inside a Durable Object (Cloudflare Agents
   SDK) with Durable Object storage instead of IndexedDB. It reacts to changes as they happen.
+  An agent that sleeps between tasks instead hears about them from a signed webhook (see
+  [architecture.md](architecture.md#webhooks)), which is built in Track.
 - **People stay in control.** High-impact changes can be proposed instead of applied, and a
   person accepts them.
 - Models are reached through Cloudflare AI Gateway, so any provider works, with caching, rate

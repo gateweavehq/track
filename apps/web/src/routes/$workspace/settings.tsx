@@ -9,6 +9,7 @@ const TABS = [
 	{ to: "/$workspace/settings/agents", label: "Agents" },
 	{ to: "/$workspace/settings/teams", label: "Teams" },
 	{ to: "/$workspace/settings/labels", label: "Labels" },
+	{ to: "/$workspace/settings/webhooks", label: "Webhooks" },
 ] as const;
 
 function SettingsLayout() {
@@ -17,14 +18,14 @@ function SettingsLayout() {
 		<div className="h-full overflow-y-auto">
 			<header className="sticky top-0 z-10 border-b bg-background">
 				<div className="mx-auto flex h-12 max-w-3xl items-center gap-6 px-4 sm:px-6">
-					<h1 className="text-sm font-medium">Settings</h1>
-					<nav aria-label="Settings" className="flex h-full gap-4">
+					<h1 className="shrink-0 text-sm font-medium">Settings</h1>
+					<nav aria-label="Settings" className="flex h-full min-w-0 gap-4 overflow-x-auto">
 						{TABS.map((tab) => (
 							<Link
 								key={tab.to}
 								to={tab.to}
 								params={{ workspace }}
-								className="flex h-full items-center border-b-2 text-sm"
+								className="flex h-full shrink-0 items-center border-b-2 text-sm"
 								activeProps={{ className: "border-foreground text-foreground" }}
 								inactiveProps={{
 									className: "border-transparent text-muted-foreground hover:text-foreground",
