@@ -63,10 +63,11 @@ export async function createFirstTeam(page: Page, slug: string, key = "ENG"): Pr
 }
 
 /** Creates an issue from the sidebar's "New issue" button. */
-export async function createIssue(page: Page, title: string): Promise<void> {
+export async function createIssue(page: Page, title: string, description?: string): Promise<void> {
 	await page.getByRole("button", { name: "New issue" }).first().click();
 	const dialog = page.getByRole("dialog", { name: "New issue" });
 	await dialog.getByLabel("Title").fill(title);
+	if (description) await dialog.getByLabel("Description").fill(description);
 	await dialog.getByRole("button", { name: "Create issue" }).click();
 	await expect(dialog).toBeHidden();
 }
