@@ -4,6 +4,7 @@ import { handleMcpRequest, isMcpRequest } from "./server/mcp";
 import { handleSyncRequest, isSyncRequest } from "./server/sync";
 
 export { WorkspaceDO } from "@gateweave/track-sync-server";
+export { RateLimiter } from "./server/rate-limit";
 
 /** OAuth discovery documents for MCP clients. Better Auth serves them at the root. */
 const OAUTH_DISCOVERY =

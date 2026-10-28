@@ -2,22 +2,23 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { startTrack } from "./track-worker";
 
 // Better Auth turns its limiter on only when NODE_ENV is "production", which a Worker never sets,
-// so the deployed app took unlimited password guesses (TRK-23).
+// so the deployed app took unlimited password guesses (TRK-23). Once on, it counted in each
+// isolate's memory, so every isolate gave an attacker a fresh allowance (TRK-24).
 
 const origin = "https://track.test";
 
 let track: Awaited<ReturnType<typeof startTrack>>;
 
 beforeAll(async () => {
-	track = await startTrack(origin);
+	track = await startTrack(origin, { isolates: 2 });
 });
 
 afterAll(async () => {
 	await track?.dispose();
 });
 
-async function signIn(headers: Record<string, string>) {
-	const response = await track.fetch(`${origin}/api/auth/sign-in/email`, {
+async function signIn(headers: Record<string, string>, isolate = 0) {
+	const response = await track.fetchIn(isolate, `${origin}/api/auth/sign-in/email`, {
 		method: "POST",
 		headers: { "content-type": "application/json", origin, ...headers },
 		body: JSON.stringify({ email: "nobody@example.com", password: "not-the-password" }),
@@ -45,4 +46,13 @@ it("tells clients apart by the address Cloudflare saw, not one they claim", asyn
 		);
 	}
 	expect(statuses).toEqual([401, 401, 401, 429]);
+});
+
+it("counts a client's attempts in every isolate together", async () => {
+	const client = { "cf-connecting-ip": "203.0.113.30" };
+	const statuses = [];
+	for (const isolate of [0, 1, 0, 1]) statuses.push(await signIn(client, isolate));
+	expect(statuses).toEqual([401, 401, 401, 429]);
+	// Had the Durable Object failed, each isolate would have fallen back to its own count.
+	expect(track.logs.filter((log) => log.message.startsWith("rate limit:"))).toEqual([]);
 });

@@ -63,11 +63,17 @@ function builtModules(): V4ModuleDefinition[] {
  * Every outbound request fails, the way a deployed Worker's request to its own hostname does.
  * Track needs no outside service for sign-in or MCP, so code that only works because local dev
  * can reach itself fails here instead of in production. Email is on, and lands in `emails()`.
+ *
+ * With `isolates` above 1, more copies of the Worker share the database and Durable Objects but
+ * nothing in memory, as isolates in production do. `fetchIn` reaches a given one.
  */
-export async function startTrack(origin: string) {
+export async function startTrack(origin: string, { isolates = 1 }: { isolates?: number } = {}) {
 	const config = JSON.parse(readFileSync(join(serverDir, "wrangler.json"), "utf8")) as BuiltConfig;
 	const outbound: string[] = [];
 	const logs: WorkerLog[] = [];
+	const modules = builtModules();
+	const secret = randomBytes(32).toString("base64url");
+	const names = Array.from({ length: isolates }, (_, i) => (i === 0 ? "track" : `track-${i + 1}`));
 	// Miniflare 5 still takes its documented v4 options through this converter.
 	const mf = new Miniflare(
 		convertV4MiniflareOptions({
@@ -77,25 +83,31 @@ export async function startTrack(origin: string) {
 				console.error(`[worker ${log.level}] ${log.message}`);
 			},
 			workers: [
-				{
-					name: "track",
-					modules: builtModules(),
+				...names.map((name, index) => ({
+					name,
+					// Requests go to the first copy unless their host is another copy's route.
+					routes: index === 0 ? [] : [`${name}.test/*`],
+					modules,
 					modulesRoot: serverDir,
 					compatibilityDate: config.compatibility_date,
 					compatibilityFlags: config.compatibility_flags,
 					bindings: {
-						BETTER_AUTH_SECRET: randomBytes(32).toString("base64url"),
+						BETTER_AUTH_SECRET: secret,
 						BETTER_AUTH_URL: origin,
 						EMAIL_FROM: `${EMAIL_FROM.name} <${EMAIL_FROM.email}>`,
 					},
 					serviceBindings: { EMAIL: "outbox" },
 					d1Databases: { DB: "track-test" },
-					durableObjects: { WORKSPACE: { className: "WorkspaceDO", useSQLite: true } },
-					outboundService: (request) => {
+					// Every copy uses the first one's Durable Objects.
+					durableObjects: {
+						WORKSPACE: { className: "WorkspaceDO", useSQLite: true, scriptName: names[0] },
+						RATE_LIMITER: { className: "RateLimiter", useSQLite: true, scriptName: names[0] },
+					},
+					outboundService: (request: Request) => {
 						outbound.push(request.url);
 						return new Response("Outbound requests are blocked in this test", { status: 502 });
 					},
-				},
+				})),
 				{
 					name: "outbox",
 					modules: true,
@@ -119,27 +131,39 @@ export async function startTrack(origin: string) {
 		await db.batch(statements.map((statement) => db.prepare(statement)));
 	}
 
+	/** A `fetch` that reaches one copy of the Worker directly. Redirects are returned. */
+	async function fetchIn(
+		isolate: number,
+		input: string | URL | Request,
+		init?: RequestInit,
+	): Promise<Response> {
+		const name = names[isolate];
+		if (!name) throw new Error(`There are only ${names.length} isolates`);
+		const request = new Request(input, init);
+		const url = new URL(request.url);
+		if (isolate > 0) url.host = `${name}.test`;
+		const response = await mf.dispatchFetch(url, {
+			method: request.method,
+			headers: [...request.headers],
+			body: request.body ? await request.arrayBuffer() : undefined,
+			redirect: "manual",
+		});
+		const headers = new Headers();
+		for (const [name, value] of response.headers) {
+			if (name !== "set-cookie") headers.append(name, value);
+		}
+		for (const cookie of response.headers.getSetCookie()) headers.append("set-cookie", cookie);
+		const empty = response.status === 204 || response.status === 304;
+		return new Response(empty ? null : await response.arrayBuffer(), {
+			status: response.status,
+			headers,
+		});
+	}
+
 	return {
 		/** A `fetch` that reaches the Worker directly. Redirects are returned, not followed. */
-		async fetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
-			const request = new Request(input, init);
-			const response = await mf.dispatchFetch(request.url, {
-				method: request.method,
-				headers: [...request.headers],
-				body: request.body ? await request.arrayBuffer() : undefined,
-				redirect: "manual",
-			});
-			const headers = new Headers();
-			for (const [name, value] of response.headers) {
-				if (name !== "set-cookie") headers.append(name, value);
-			}
-			for (const cookie of response.headers.getSetCookie()) headers.append("set-cookie", cookie);
-			const empty = response.status === 204 || response.status === 304;
-			return new Response(empty ? null : await response.arrayBuffer(), {
-				status: response.status,
-				headers,
-			});
-		},
+		fetch: (input: string | URL | Request, init?: RequestInit) => fetchIn(0, input, init),
+		fetchIn,
 		/** URLs the Worker tried to fetch from outside. */
 		outbound,
 		/** Everything the Worker has logged so far, oldest first. */
