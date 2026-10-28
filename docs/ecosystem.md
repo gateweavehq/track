@@ -90,8 +90,10 @@ So it waits for the second product.
 
 ### Agents are members
 
-An agent is a workspace member with an `agent` role, created and scoped by an admin. It works the
-way a person's browser does:
+An agent is a workspace member with an `agent` role, created and scoped by an admin. In Track
+this is built: an admin creates one under Settings, Agents, and it connects to the MCP server
+with a key (see [architecture.md](architecture.md#agent-members)). It works the way a person's
+browser does:
 
 - It **acts through the same mutations.** Validation, permissions, idempotency, field-level
   merging and the oplog's actor field (an audit trail) apply unchanged, and people see an agent's

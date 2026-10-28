@@ -1,5 +1,6 @@
 import { and, inArray, like, lt } from "drizzle-orm";
 import { db } from "../auth";
+import { deleteOrphanedAgents } from "../auth/agents";
 import { schema } from "../db";
 import { workspaceStub } from "../workspaces";
 import { assertDemo, SANDBOX_LIFETIME_MS, VISITOR_DOMAIN } from "./mode";
@@ -74,6 +75,8 @@ export async function cleanUpDemo(now = Date.now()): Promise<CleanupResult> {
 	if (removable.length > 0) {
 		await db.delete(schema.user).where(inArray(schema.user.id, removable));
 	}
+	// Agents a visitor made belonged to the sandbox alone.
+	await deleteOrphanedAgents(db);
 	result.visitors = removable.length;
 
 	console.log(

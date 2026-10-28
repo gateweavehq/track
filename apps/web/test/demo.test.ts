@@ -174,6 +174,19 @@ describe("on the demo deployment", () => {
 		const freshOrg = await workspaceId(track, fresh.slug);
 		expect((await track.directory(oldOrg)).teams).toHaveLength(Object.keys(TEAMS).length);
 
+		// Agents a visitor made go with their sandbox.
+		const makeAgent = async (cookie: string, organizationId: string) => {
+			const response = await track.fetch(`${origin}/api/auth/agents/create`, {
+				method: "POST",
+				headers: { origin, cookie, "content-type": "application/json" },
+				body: JSON.stringify({ organizationId, name: "Triage" }),
+			});
+			expect(response.status).toBe(200);
+			return ((await response.json()) as { agent: { id: string } }).agent.id;
+		};
+		const oldAgent = await makeAgent(old.cookie, oldOrg);
+		const freshAgent = await makeAgent(fresh.cookie, freshOrg);
+
 		const aged = Date.now() - DAY_MS - 60_000;
 		const oldUser = (await session(track, old.cookie))?.user.id;
 		const laggingUser = (await session(track, lagging.cookie))?.user.id;
@@ -199,6 +212,8 @@ describe("on the demo deployment", () => {
 		).toBe(0);
 		expect(await count(track, `"user" where id in ('${oldUser}','${laggingUser}')`)).toBe(0);
 		expect(await count(track, "\"user\" where id like 'sample-%'")).toBe(4);
+		expect(await count(track, `"user" where id = '${oldAgent}'`)).toBe(0);
+		expect(await count(track, `"user" where id = '${freshAgent}'`)).toBe(1);
 		// The Durable Objects were emptied, not just forgotten.
 		expect((await track.directory(oldOrg)).teams).toEqual([]);
 		expect((await track.directory(laggingOrg)).members).toEqual([]);

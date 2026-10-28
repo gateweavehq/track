@@ -1,4 +1,4 @@
-import type { MemberRole } from "@gateweave/track-protocol";
+import type { MemberRole, PersonRole } from "@gateweave/track-protocol";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { Copy, Ellipsis, Mail } from "lucide-react";
 import { type FormEvent, useState } from "react";
@@ -26,7 +26,7 @@ import {
 import { forgetWorkspace } from "#/lib/replica";
 
 /** The roles the current user may hand out: only owners make owners. */
-function assignableRoles(myRole: MemberRole): MemberRole[] {
+function assignableRoles(myRole: MemberRole): PersonRole[] {
 	return myRole === "owner" ? ["member", "admin", "owner"] : ["member", "admin"];
 }
 
@@ -105,7 +105,7 @@ function InviteSection({
 	const myRole = useMyRole();
 	const router = useRouter();
 	const [email, setEmail] = useState("");
-	const [role, setRole] = useState<MemberRole>("member");
+	const [role, setRole] = useState<PersonRole>("member");
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [created, setCreated] = useState<{ id: string; email: string } | null>(null);
@@ -304,7 +304,7 @@ function MemberRow({ member, lastOwner }: { member: WorkspaceMember; lastOwner: 
 	// Admins manage members and admins; only owners manage owners.
 	const canManage = isAdmin(myRole) && !isMe && (myRole === "owner" || member.role !== "owner");
 
-	async function changeRole(role: MemberRole) {
+	async function changeRole(role: PersonRole) {
 		const result = await authClient.organization.updateMemberRole({
 			memberId: member.memberId,
 			role,
@@ -441,9 +441,9 @@ function RoleSelect({
 	onChange,
 	label,
 }: {
-	value: MemberRole;
-	roles: MemberRole[];
-	onChange: (role: MemberRole) => void;
+	value: PersonRole;
+	roles: PersonRole[];
+	onChange: (role: PersonRole) => void;
 	label: string;
 }) {
 	return (

@@ -47,11 +47,17 @@ export default class Outbox extends WorkerEntrypoint {
 
 // Reads a workspace's Durable Object over RPC, as the app's own Worker would, so tests can see
 // what is stored in it (or that it has been emptied). GET /<workspaceId> returns its directory.
+// POST /<workspaceId> applies {member, mutation} as that member, as a gateway would.
 const INSPECTOR = `
 import { WorkerEntrypoint } from "cloudflare:workers";
 export default class Inspector extends WorkerEntrypoint {
 	async fetch(request) {
 		const id = new URL(request.url).pathname.slice(1);
+		if (request.method === "POST") {
+			const { member, mutation } = await request.json();
+			const stub = this.env.WORKSPACE.getByName(id);
+			return Response.json(await stub.mutate(member, "test", crypto.randomUUID(), mutation));
+		}
 		try {
 			return Response.json(await this.env.WORKSPACE.getByName(id).directory());
 		} catch (error) {
@@ -218,6 +224,21 @@ export async function startTrack(
 		async directory(workspaceId: string): Promise<{ teams: unknown[]; members: unknown[] }> {
 			const response = await mf.dispatchFetch(`http://inspector.test/${workspaceId}`);
 			return (await response.json()) as { teams: unknown[]; members: unknown[] };
+		},
+		/**
+		 * Applies a mutation in a workspace's Durable Object as `member`, the way the gateways do
+		 * after checking membership, for state a test needs before the part it is about.
+		 */
+		async mutate(
+			workspaceId: string,
+			member: { id: string; name: string; email: string; image: string | null; role: string },
+			mutation: { name: string; args: object },
+		): Promise<{ ok: boolean }> {
+			const response = await mf.dispatchFetch(`http://inspector.test/${workspaceId}`, {
+				method: "POST",
+				body: JSON.stringify({ member, mutation }),
+			});
+			return (await response.json()) as { ok: boolean };
 		},
 		/** The D1 database, for setting up state the app has no endpoint for. */
 		db,

@@ -1,5 +1,5 @@
 import type { Member } from "@gateweave/track-protocol";
-import { CircleUserRound } from "lucide-react";
+import { Bot, CircleUserRound } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "#/components/ui/avatar";
 import { cn } from "#/lib/utils";
 
@@ -10,7 +10,10 @@ function initials(name: string): string {
 	return (first + last).toUpperCase();
 }
 
-/** A member's picture or initials. Without a member, shows the "unassigned" placeholder. */
+/**
+ * A member's picture or initials, or a robot for an agent. Without a member, shows the
+ * "unassigned" placeholder.
+ */
 export function MemberAvatar({
 	member,
 	className,
@@ -26,11 +29,15 @@ export function MemberAvatar({
 			/>
 		);
 	}
+	const agent = member.role === "agent";
 	return (
-		<Avatar className={cn("size-5 text-[10px] font-medium", className)} title={member.name}>
+		<Avatar
+			className={cn("size-5 text-[10px] font-medium", className)}
+			title={agent ? `${member.name} (agent)` : member.name}
+		>
 			{member.image && <AvatarImage src={member.image} alt="" draggable={false} />}
 			<AvatarFallback className={cn(member.removedAt !== null && "opacity-60")}>
-				{initials(member.name)}
+				{agent ? <Bot aria-hidden className="size-[65%]" /> : initials(member.name)}
 			</AvatarFallback>
 		</Avatar>
 	);

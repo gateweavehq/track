@@ -1,5 +1,6 @@
 import {
 	type ActivityChange,
+	isAdminRole,
 	MAX_LABELS_PER_ISSUE,
 	type Mutation,
 	type MutationArgs,
@@ -444,7 +445,7 @@ function deleteComment(
 }
 
 function requireAdmin(actor: Actor, message: string) {
-	if (actor.member.role === "member") throw new MutationRejected("forbidden", message);
+	if (!isAdminRole(actor.member.role)) throw new MutationRejected("forbidden", message);
 }
 
 function findTeam(db: Db, id: string) {

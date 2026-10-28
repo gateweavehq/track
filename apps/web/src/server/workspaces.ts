@@ -1,9 +1,10 @@
 import { env } from "cloudflare:workers";
-import type { MemberRole } from "@gateweave/track-protocol";
+import type { MemberRole, PersonRole } from "@gateweave/track-protocol";
 import type { MemberProfile } from "@gateweave/track-sync-server";
 import { and, eq, gt } from "drizzle-orm";
 import type { Database } from "./db";
 import { schema } from "./db";
+import { toPersonRole, toRole } from "./roles";
 
 export interface Membership {
 	workspaceId: string;
@@ -73,7 +74,7 @@ export interface InvitationPreview {
 	workspaceSlug: string;
 	inviterName: string;
 	email: string;
-	role: MemberRole;
+	role: PersonRole;
 	expiresAt: number;
 }
 
@@ -106,7 +107,7 @@ export async function findPendingInvitation(
 		)
 		.get();
 	return row
-		? { ...row, role: toRole(row.role ?? "member"), expiresAt: row.expiresAt.getTime() }
+		? { ...row, role: toPersonRole(row.role ?? "member"), expiresAt: row.expiresAt.getTime() }
 		: null;
 }
 
@@ -140,12 +141,4 @@ function toProfile(row: {
 		image: row.image,
 		role: toRole(row.role),
 	};
-}
-
-/** Better Auth stores roles as a comma-separated list; the highest one wins. */
-export function toRole(role: string): MemberRole {
-	const roles = role.split(",").map((r) => r.trim());
-	if (roles.includes("owner")) return "owner";
-	if (roles.includes("admin")) return "admin";
-	return "member";
 }

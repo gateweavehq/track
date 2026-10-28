@@ -1,7 +1,7 @@
 // Sample content for `pnpm dev:seed` and for the public demo's sandboxes: a small product
 // company with a few people, teams and issues in every state. Names and addresses are fictional;
 // example.com never receives mail. Pure data, no Node or Worker APIs (see sample.ts).
-import type { IssuePriority, IssueStatus, MemberRole } from "@gateweave/track-protocol";
+import type { IssuePriority, IssueStatus, PersonRole } from "@gateweave/track-protocol";
 
 export const WORKSPACE_NAME = "Acme";
 
@@ -10,7 +10,7 @@ export type PersonKey = "maya" | "sam" | "lena" | "diego";
 export interface Person {
 	name: string;
 	email: string;
-	role: MemberRole;
+	role: PersonRole;
 }
 
 export const PEOPLE: Record<PersonKey, Person> = {

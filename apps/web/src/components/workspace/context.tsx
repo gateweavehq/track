@@ -1,4 +1,4 @@
-import type { IssueStatus, MemberRole } from "@gateweave/track-protocol";
+import { type IssueStatus, isAdminRole, type MemberRole } from "@gateweave/track-protocol";
 import { createContext, type ReactNode, useContext } from "react";
 import { useMembersById } from "#/lib/queries";
 
@@ -41,7 +41,7 @@ export function useMyRole(): MemberRole {
 
 /** Owners and admins manage teams, members and invitations. */
 export function isAdmin(role: MemberRole): boolean {
-	return role !== "member";
+	return isAdminRole(role);
 }
 
 /** Values a new issue starts with, taken from where the user opened the dialog. */

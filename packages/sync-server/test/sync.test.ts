@@ -845,6 +845,34 @@ describe("server-side clients", () => {
 		expect((await snapshotOf(workspace)).issues).toHaveLength(1);
 	});
 
+	it("lets an agent member do what a member can, and nothing an admin can", async () => {
+		const { workspace, admin } = await withTeam();
+		const triage: MemberProfile = { ...owner, id: "user-triage", name: "Triage", role: "agent" };
+		await createIssue(admin, "issue-1");
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "comment-1", issueId: "issue-1", body: "Looks like a duplicate" },
+		});
+
+		const filed = await workspace.mutate(triage, AGENT, "m-1", {
+			name: "issue.create",
+			args: { id: "issue-2", teamId: TEAM_ID, title: "Filed by triage", sortOrder: "a1" },
+		});
+		const team = await workspace.mutate(triage, AGENT, "m-2", {
+			name: "team.create",
+			args: { id: "team-2", key: "OPS", name: "Operations" },
+		});
+		const comment = await workspace.mutate(triage, AGENT, "m-3", {
+			name: "comment.delete",
+			args: { id: "comment-1" },
+		});
+
+		expect(filed).toEqual({ ok: true, version: expect.any(Number) });
+		expect(await issueOf(admin, "issue-2")).toMatchObject({ creatorId: triage.id });
+		expect(team).toMatchObject({ ok: false, reason: "forbidden" });
+		expect(comment).toMatchObject({ ok: false, reason: "forbidden" });
+	});
+
 	it("rejects what a socket client could not do", async () => {
 		const { workspace } = await withTeam();
 

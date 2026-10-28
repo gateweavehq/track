@@ -11,6 +11,7 @@ import type { Database } from "../db";
 import { schema } from "../db";
 import type { Mailer } from "../email/mailer";
 import { invitationEmail, passwordResetEmail, verificationEmail } from "../email/templates";
+import { agentMembers } from "./agents";
 
 export interface AuthConfig {
 	db: Database;
@@ -214,6 +215,7 @@ export function createAuth(config: AuthConfig) {
 					},
 				},
 			}),
+			agentMembers({ db: config.db, onMembershipChange: membershipChanged }),
 			...(config.mcpResource
 				? [
 						// Signs access tokens; the MCP endpoint verifies them against its JWKS. Sessions
