@@ -1,4 +1,4 @@
-import type { Issue, Label, Member, Team } from "@gateweave/track-protocol";
+import type { Activity, Comment, Issue, Label, Member, Team } from "@gateweave/track-protocol";
 import type { SyncState } from "@gateweave/track-sync-client";
 import { shallowEqual, useQuery } from "@gateweave/track-sync-client/react";
 import { useCallback } from "react";
@@ -86,6 +86,58 @@ const selectLabelCounts = (state: SyncState) => {
 /** How many issues have each label, by label id. */
 export function useIssueCountsByLabel(): ReadonlyMap<string, number> {
 	return useQuery(selectLabelCounts, countsEqual);
+}
+
+/**
+ * Rows grouped by issue, oldest first. Tables are replaced, never mutated, on every change, so
+ * the grouping is computed once per version of a table, however many issue pages read it.
+ */
+function groupedByIssue<T extends { issueId: string; createdAt: number }>(
+	cache: WeakMap<ReadonlyMap<string, T>, ReadonlyMap<string, T[]>>,
+	table: ReadonlyMap<string, T>,
+): ReadonlyMap<string, T[]> {
+	let groups = cache.get(table);
+	if (!groups) {
+		const grouped = new Map<string, T[]>();
+		for (const row of table.values()) {
+			const rows = grouped.get(row.issueId);
+			if (rows) rows.push(row);
+			else grouped.set(row.issueId, [row]);
+		}
+		// A stable sort, so rows written in the same millisecond keep the server's order.
+		for (const rows of grouped.values()) rows.sort((a, b) => a.createdAt - b.createdAt);
+		groups = grouped;
+		cache.set(table, groups);
+	}
+	return groups;
+}
+
+const NONE: never[] = [];
+const commentGroups = new WeakMap<ReadonlyMap<string, Comment>, ReadonlyMap<string, Comment[]>>();
+const activityGroups = new WeakMap<
+	ReadonlyMap<string, Activity>,
+	ReadonlyMap<string, Activity[]>
+>();
+
+export function useIssueComments(issueId: string): Comment[] {
+	return useQuery(
+		useCallback(
+			(state: SyncState) => groupedByIssue(commentGroups, state.comments).get(issueId) ?? NONE,
+			[issueId],
+		),
+		// Changes to other issues regroup the table but leave this issue's rows as they were.
+		shallowEqual,
+	);
+}
+
+export function useIssueActivity(issueId: string): Activity[] {
+	return useQuery(
+		useCallback(
+			(state: SyncState) => groupedByIssue(activityGroups, state.activities).get(issueId) ?? NONE,
+			[issueId],
+		),
+		shallowEqual,
+	);
 }
 
 const selectTeamsById = (state: SyncState) => state.teams;

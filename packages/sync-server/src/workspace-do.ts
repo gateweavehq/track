@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
 	CloseCode,
+	type Comment,
 	clientMessage,
 	type HelloMessage,
 	ISSUE_STATUSES,
@@ -24,6 +25,7 @@ import { compact, currentVersion, oplogFloor, opsSince, type RetentionPolicy } f
 import { applyMutation, MutationRejected } from "./mutations";
 import {
 	type Directory,
+	findComments,
 	findIssueById,
 	findIssueByKey,
 	findIssues,
@@ -140,6 +142,10 @@ export class WorkspaceDO extends DurableObject {
 		return (
 			findIssueByKey(this.#db, z.string().parse(teamKey), z.number().int().parse(number)) ?? null
 		);
+	}
+
+	comments(issueId: string): Comment[] {
+		return findComments(this.#db, shortId.parse(issueId));
 	}
 
 	lastSortOrder(): string | null {

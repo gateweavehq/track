@@ -14,6 +14,7 @@ const priority = z.literal(ISSUE_PRIORITIES);
 const sortOrder = z.string().min(1).max(128);
 const labelName = z.string().trim().min(1).max(64);
 const labelColor = z.string().regex(/^#[0-9a-f]{6}$/, "A lowercase hex color, like #e5484d");
+const commentBody = z.string().trim().min(1).max(100_000);
 
 const nonEmpty = (patch: object) => Object.keys(patch).length > 0;
 
@@ -85,6 +86,19 @@ export const mutationSchema = z.discriminatedUnion("name", [
 	}),
 	z.object({
 		name: z.literal("label.delete"),
+		args: z.object({ id }),
+	}),
+	z.object({
+		name: z.literal("comment.create"),
+		args: z.object({ id, issueId: id, body: commentBody }),
+	}),
+	// Only the author edits a comment, so there is no one to conflict with: the last edit wins.
+	z.object({
+		name: z.literal("comment.update"),
+		args: z.object({ id, body: commentBody }),
+	}),
+	z.object({
+		name: z.literal("comment.delete"),
 		args: z.object({ id }),
 	}),
 ]);

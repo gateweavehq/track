@@ -278,7 +278,15 @@ describe("offline", () => {
 
 		// Storage that claims a version the server never reached, e.g. after a server-side restore.
 		const persistence = new MemoryPersistence();
-		await persistence.replace({ version: 9_999, teams: [], issues: [], labels: [], members: [] });
+		await persistence.replace({
+			version: 9_999,
+			teams: [],
+			issues: [],
+			labels: [],
+			comments: [],
+			activities: [],
+			members: [],
+		});
 		const network = ws.network("alice");
 		const stale = await ws.live("alice", { persistence, network });
 
@@ -378,7 +386,15 @@ function scriptedTransport(
 	onConnect: () => void = () => {},
 ): Transport {
 	return {
-		snapshot: async () => ({ version: 1, teams: [], issues: [], labels: [], members: [] }),
+		snapshot: async () => ({
+			version: 1,
+			teams: [],
+			issues: [],
+			labels: [],
+			comments: [],
+			activities: [],
+			members: [],
+		}),
 		probe: async () => {},
 		connect(handlers): SyncSocket {
 			onConnect();

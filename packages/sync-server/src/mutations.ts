@@ -1,13 +1,15 @@
 import {
+	type ActivityChange,
 	MAX_LABELS_PER_ISSUE,
 	type Mutation,
 	type MutationArgs,
 	type RejectReason,
 } from "@gateweave/track-protocol";
 import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { recordActivity } from "./activity";
 import * as schema from "./db/schema";
 import { ChangeSet, type WriteResult } from "./log";
-import { activeMember, type Db, toIssue, toLabel, toTeam } from "./state";
+import { activeMember, type Db, toComment, toIssue, toLabel, toTeam } from "./state";
 
 export class MutationRejected extends Error {
 	constructor(
@@ -65,10 +67,10 @@ export function applyMutation(
 			deleteIssue(db, changes, mutation.args);
 			break;
 		case "issue.addLabel":
-			addLabel(db, changes, mutation.args);
+			addLabel(db, changes, actor, mutation.args);
 			break;
 		case "issue.removeLabel":
-			removeLabel(db, changes, mutation.args);
+			removeLabel(db, changes, actor, mutation.args);
 			break;
 		case "label.create":
 			createLabel(db, changes, mutation.args);
@@ -78,6 +80,15 @@ export function applyMutation(
 			break;
 		case "label.delete":
 			deleteLabel(db, changes, actor, mutation.args);
+			break;
+		case "comment.create":
+			createComment(db, changes, actor, mutation.args);
+			break;
+		case "comment.update":
+			updateComment(db, changes, actor, mutation.args);
+			break;
+		case "comment.delete":
+			deleteComment(db, changes, actor, mutation.args);
 			break;
 	}
 
@@ -190,11 +201,50 @@ function updateIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		.returning()
 		.get();
 	if (row) changes.put("issue", toIssue(row));
+	// After the issue's own op, so the issue's version stays the version that wrote it.
+	for (const change of issueChanges(issue, accepted)) {
+		recordActivity(db, changes, issue, actor.member.userId, change);
+	}
 }
 
+/** What a patch changed, as history. Manual ordering is not history. */
+function issueChanges(before: schema.IssueRow, patch: Partial<schema.IssueRow>): ActivityChange[] {
+	const changes: ActivityChange[] = [];
+	if (patch.status !== undefined) {
+		changes.push({ type: "status", from: before.status, to: patch.status });
+	}
+	if (patch.priority !== undefined) {
+		changes.push({ type: "priority", from: before.priority, to: patch.priority });
+	}
+	if (patch.assigneeId !== undefined) {
+		changes.push({ type: "assignee", from: before.assigneeId, to: patch.assigneeId });
+	}
+	if (patch.title !== undefined)
+		changes.push({ type: "title", from: before.title, to: patch.title });
+	if (patch.description !== undefined) changes.push({ type: "description" });
+	return changes;
+}
+
+/**
+ * The issue's comments and history go with it. Their rows stay, like the issue's, but clients are
+ * told to drop them, since a snapshot leaves out everything that belongs to a deleted issue.
+ */
 function deleteIssue(db: Db, changes: ChangeSet, args: MutationArgs<"issue.delete">) {
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
+
+	const comments = db
+		.select({ id: schema.comments.id })
+		.from(schema.comments)
+		.where(and(eq(schema.comments.issueId, issue.id), isNull(schema.comments.deletedAt)))
+		.all();
+	for (const comment of comments) changes.delete("comment", comment.id);
+	const activities = db
+		.select({ id: schema.activities.id })
+		.from(schema.activities)
+		.where(eq(schema.activities.issueId, issue.id))
+		.all();
+	for (const activity of activities) changes.delete("activity", activity.id);
 
 	db.update(schema.issues)
 		.set({ deletedAt: changes.now, version: changes.nextVersion, updatedAt: changes.now })
@@ -204,7 +254,7 @@ function deleteIssue(db: Db, changes: ChangeSet, args: MutationArgs<"issue.delet
 }
 
 /** Labels are sets, so adding one that is already there, or removing one that is not, is a no-op. */
-function addLabel(db: Db, changes: ChangeSet, args: MutationArgs<"issue.addLabel">) {
+function addLabel(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"issue.addLabel">) {
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
 	if (!findLiveLabel(db, args.labelId)) throw new MutationRejected("not_found", "Label not found");
@@ -216,9 +266,19 @@ function addLabel(db: Db, changes: ChangeSet, args: MutationArgs<"issue.addLabel
 		);
 	}
 	writeIssueLabels(db, changes, issue, [...issue.labelIds, args.labelId]);
+	recordActivity(db, changes, issue, actor.member.userId, {
+		type: "label",
+		labelId: args.labelId,
+		added: true,
+	});
 }
 
-function removeLabel(db: Db, changes: ChangeSet, args: MutationArgs<"issue.removeLabel">) {
+function removeLabel(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"issue.removeLabel">,
+) {
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
 	if (!issue.labelIds.includes(args.labelId)) return;
@@ -228,6 +288,11 @@ function removeLabel(db: Db, changes: ChangeSet, args: MutationArgs<"issue.remov
 		issue,
 		issue.labelIds.filter((id) => id !== args.labelId),
 	);
+	recordActivity(db, changes, issue, actor.member.userId, {
+		type: "label",
+		labelId: args.labelId,
+		added: false,
+	});
 }
 
 function writeIssueLabels(db: Db, changes: ChangeSet, issue: schema.IssueRow, labelIds: string[]) {
@@ -302,6 +367,71 @@ function deleteLabel(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 	changes.delete("label", label.id);
 }
 
+function createComment(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"comment.create">,
+) {
+	if (!findLiveIssue(db, args.issueId)) throw new MutationRejected("not_found", "Issue not found");
+	if (db.select().from(schema.comments).where(eq(schema.comments.id, args.id)).get()) {
+		throw new MutationRejected("invalid", "Comment id already exists");
+	}
+
+	const row: schema.CommentRow = {
+		...args,
+		authorId: actor.member.userId,
+		createdAt: changes.now,
+		updatedAt: changes.now,
+		deletedAt: null,
+	};
+	db.insert(schema.comments).values(row).run();
+	changes.put("comment", toComment(row));
+}
+
+/** A comment says what its author said, so nobody else can change it, admins included. */
+function updateComment(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"comment.update">,
+) {
+	const comment = findLiveComment(db, args.id);
+	if (!comment) throw new MutationRejected("not_found", "Comment not found");
+	if (comment.authorId !== actor.member.userId) {
+		throw new MutationRejected("forbidden", "Only the author can edit a comment");
+	}
+	if (comment.body === args.body) return;
+
+	const row = db
+		.update(schema.comments)
+		.set({ body: args.body, updatedAt: changes.now })
+		.where(eq(schema.comments.id, comment.id))
+		.returning()
+		.get();
+	if (row) changes.put("comment", toComment(row));
+}
+
+/** Admins can delete anyone's comment, for moderation. */
+function deleteComment(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"comment.delete">,
+) {
+	const comment = findLiveComment(db, args.id);
+	if (!comment) throw new MutationRejected("not_found", "Comment not found");
+	if (comment.authorId !== actor.member.userId) {
+		requireAdmin(actor, "Only the author or an admin can delete a comment");
+	}
+
+	db.update(schema.comments)
+		.set({ deletedAt: changes.now, updatedAt: changes.now })
+		.where(eq(schema.comments.id, comment.id))
+		.run();
+	changes.delete("comment", comment.id);
+}
+
 function requireAdmin(actor: Actor, message: string) {
 	if (actor.member.role === "member") throw new MutationRejected("forbidden", message);
 }
@@ -313,6 +443,16 @@ function findTeam(db: Db, id: string) {
 function findLiveIssue(db: Db, id: string) {
 	const issue = db.select().from(schema.issues).where(eq(schema.issues.id, id)).get();
 	return issue && issue.deletedAt === null ? issue : undefined;
+}
+
+/** A comment is live while it and its issue are. */
+function findLiveComment(db: Db, id: string) {
+	const comment = db
+		.select()
+		.from(schema.comments)
+		.where(and(eq(schema.comments.id, id), isNull(schema.comments.deletedAt)))
+		.get();
+	return comment && findLiveIssue(db, comment.issueId) ? comment : undefined;
 }
 
 function findLiveLabel(db: Db, id: string) {

@@ -3,6 +3,7 @@
  * database, so no table needs a workspace column.
  */
 import {
+	type ActivityChange,
 	ENTITY_NAMES,
 	ISSUE_STATUSES,
 	type IssuePriority,
@@ -64,6 +65,42 @@ export const labels = sqliteTable("labels", {
 	deletedAt: integer("deleted_at"),
 });
 
+/** Deleted comments keep their row, like issues. A deleted issue's comments go with it. */
+export const comments = sqliteTable(
+	"comments",
+	{
+		id: text("id").primaryKey(),
+		issueId: text("issue_id")
+			.notNull()
+			.references(() => issues.id),
+		authorId: text("author_id").notNull(),
+		body: text("body").notNull(),
+		createdAt: integer("created_at").notNull(),
+		updatedAt: integer("updated_at").notNull(),
+		deletedAt: integer("deleted_at"),
+	},
+	(table) => [index("comments_issue_idx").on(table.issueId)],
+);
+
+/**
+ * Issue history. Entries are written by issue mutations, rewritten when a later change merges
+ * into them, and deleted when a change undoes them. Insertion order (rowid) finds the latest.
+ */
+export const activities = sqliteTable(
+	"activities",
+	{
+		id: text("id").primaryKey(),
+		issueId: text("issue_id")
+			.notNull()
+			.references(() => issues.id),
+		actorId: text("actor_id").notNull(),
+		change: text("change", { mode: "json" }).$type<ActivityChange>().notNull(),
+		createdAt: integer("created_at").notNull(),
+		updatedAt: integer("updated_at").notNull(),
+	},
+	(table) => [index("activities_issue_idx").on(table.issueId)],
+);
+
 /** Replica of workspace membership. The app worker owns membership and pushes changes here. */
 export const members = sqliteTable("members", {
 	userId: text("user_id").primaryKey(),
@@ -105,4 +142,6 @@ export const meta = sqliteTable("meta", {
 export type TeamRow = typeof teams.$inferSelect;
 export type IssueRow = typeof issues.$inferSelect;
 export type LabelRow = typeof labels.$inferSelect;
+export type CommentRow = typeof comments.$inferSelect;
+export type ActivityRow = typeof activities.$inferSelect;
 export type MemberRow = typeof members.$inferSelect;

@@ -97,6 +97,7 @@ function accessFor(userId: string, oauthClientId: string, origin: string): Track
 				issues: (query: IssueQuery) => stub.issues(query),
 				issue: (id) => stub.issue(id),
 				issueByKey: (teamKey, number) => stub.issueByKey(teamKey, number),
+				comments: (issueId) => stub.comments(issueId),
 				lastSortOrder: () => stub.lastSortOrder(),
 				mutate: (mutation: MutationInput) =>
 					stub.mutate(membership.profile, clientId, uuidv7(), mutation),

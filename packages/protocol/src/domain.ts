@@ -62,6 +62,43 @@ export interface Label {
 
 export const MAX_LABELS_PER_ISSUE = 20;
 
+/** A comment on an issue. Only its author can edit it. */
+export interface Comment {
+	id: string;
+	issueId: string;
+	authorId: string;
+	body: string;
+	createdAt: number;
+	/** Later than `createdAt` once the comment has been edited. */
+	updatedAt: number;
+}
+
+/**
+ * What an activity entry records. Members and labels are referenced by id. Creation is not an
+ * entry: an issue's `creatorId` and `createdAt` already say it.
+ */
+export type ActivityChange =
+	| { type: "title"; from: string; to: string }
+	| { type: "description" }
+	| { type: "status"; from: IssueStatus; to: IssueStatus }
+	| { type: "priority"; from: IssuePriority; to: IssuePriority }
+	| { type: "assignee"; from: string | null; to: string | null }
+	| { type: "label"; labelId: string; added: boolean };
+
+/**
+ * An entry in an issue's history. The server writes these as a side effect of issue mutations;
+ * clients never write them. Quick successive changes to one field by one person are merged into
+ * a single entry, so `updatedAt` moves while `createdAt` keeps the entry's place in the history.
+ */
+export interface Activity {
+	id: string;
+	issueId: string;
+	actorId: string;
+	change: ActivityChange;
+	createdAt: number;
+	updatedAt: number;
+}
+
 export interface Member {
 	/** The user's id. */
 	id: string;
@@ -77,6 +114,8 @@ export interface Entities {
 	team: Team;
 	issue: Issue;
 	label: Label;
+	comment: Comment;
+	activity: Activity;
 	member: Member;
 }
 export type EntityName = keyof Entities;
@@ -84,5 +123,7 @@ export const ENTITY_NAMES = [
 	"team",
 	"issue",
 	"label",
+	"comment",
+	"activity",
 	"member",
 ] as const satisfies readonly EntityName[];

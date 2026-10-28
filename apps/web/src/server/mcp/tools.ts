@@ -1,4 +1,5 @@
 import {
+	type Comment,
 	ISSUE_STATUSES,
 	type Issue,
 	type IssuePriority,
@@ -41,6 +42,8 @@ export interface WorkspaceAccess {
 	issues(query: IssueQuery): Promise<Issue[]>;
 	issue(id: string): Promise<Issue | null>;
 	issueByKey(teamKey: string, number: number): Promise<Issue | null>;
+	/** A live issue's comments, oldest first. */
+	comments(issueId: string): Promise<Comment[]>;
 	lastSortOrder(): Promise<string | null>;
 	/** Applies a mutation as the user, through the same validation as the app's. */
 	mutate(mutation: MutationInput): Promise<MutateResult>;
@@ -82,8 +85,15 @@ const issueDetail = issueSummary.extend({
 	creator: z.string().nullable().describe("The creator's email."),
 	createdAt: z.string(),
 });
+const commentOutput = z.object({
+	author: z.string().nullable().describe("The author's email."),
+	body: z.string().describe("Markdown."),
+	createdAt: z.string(),
+	edited: z.boolean(),
+});
 type IssueSummary = z.infer<typeof issueSummary>;
 type IssueDetail = z.infer<typeof issueDetail>;
+type CommentOutput = z.infer<typeof commentOutput>;
 
 /** A failure the agent can act on. Reported as a tool error, not thrown to the client. */
 class ToolError extends Error {}
@@ -182,16 +192,21 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"get_issue",
 		{
 			title: "Get issue",
-			description: "Reads one issue, including its description.",
+			description: "Reads one issue, including its description and comments, oldest first.",
 			inputSchema: z.object({ workspace: workspaceInput, key: keyInput }),
-			outputSchema: issueDetail,
+			outputSchema: issueDetail.extend({ comments: z.array(commentOutput) }),
 			annotations: { readOnlyHint: true, openWorldHint: false },
 		},
 		({ workspace: slug, key }) =>
 			run(async () => {
 				const workspace = await open(access, slug);
 				const directory = await workspace.directory();
-				return detail(access, workspace, directory, await findIssue(workspace, key));
+				const issue = await findIssue(workspace, key);
+				const comments = await workspace.comments(issue.id);
+				return {
+					...detail(access, workspace, directory, issue),
+					comments: comments.map((comment) => commentView(directory, comment)),
+				};
 			}),
 	);
 
@@ -308,6 +323,35 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					});
 				}
 				return detail(access, workspace, directory, await reread(workspace, issue.id));
+			}),
+	);
+
+	server.registerTool(
+		"add_comment",
+		{
+			title: "Add comment",
+			description: "Comments on an issue as you. Everyone in the workspace sees it at once.",
+			inputSchema: z.object({
+				workspace: workspaceInput,
+				key: keyInput,
+				body: z.string().trim().min(1).max(100_000).describe("Markdown."),
+			}),
+			outputSchema: commentOutput,
+			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				const issue = await findIssue(workspace, input.key);
+				const id = uuidv7();
+				await apply(workspace, {
+					name: "comment.create",
+					args: { id, issueId: issue.id, body: input.body },
+				});
+				const comment = (await workspace.comments(issue.id)).find((comment) => comment.id === id);
+				// Only a concurrent delete of the issue gets here.
+				if (!comment) throw new ToolError("The issue was deleted.");
+				return commentView(await workspace.directory(), comment);
 			}),
 	);
 
@@ -459,6 +503,15 @@ function detail(
 		description: issue.description,
 		creator: emailOf(directory, issue.creatorId),
 		createdAt: new Date(issue.createdAt).toISOString(),
+	};
+}
+
+function commentView(directory: Directory, comment: Comment): CommentOutput {
+	return {
+		author: emailOf(directory, comment.authorId),
+		body: comment.body,
+		createdAt: new Date(comment.createdAt).toISOString(),
+		edited: comment.updatedAt > comment.createdAt,
 	};
 }
 

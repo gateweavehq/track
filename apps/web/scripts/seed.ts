@@ -140,8 +140,19 @@ async function main() {
 		await Promise.all(
 			mutations.slice(ISSUES.length).map(({ by, input }) => clients[by].mutate(input)),
 		);
+		// A comment at a time, so each thread reads in the order it is listed.
+		let comments = 0;
+		for (const { issueId, thread } of sample) {
+			for (const comment of thread) {
+				await clients[comment.by].mutate({
+					name: "comment.create",
+					args: { id: uuidv7(), issueId, body: comment.body },
+				});
+				comments++;
+			}
+		}
 		console.log(
-			`Created ${name} with ${Object.keys(TEAMS).length} teams, ${Object.keys(LABELS).length} labels and ${issues.length} issues.`,
+			`Created ${name} with ${Object.keys(TEAMS).length} teams, ${Object.keys(LABELS).length} labels, ${issues.length} issues and ${comments} comments.`,
 		);
 	} finally {
 		await Promise.all(people.map((key) => clients[key].close()));
@@ -155,7 +166,12 @@ function issueMutations(
 	teamIds: Record<TeamKey, string>,
 	labelIds: Record<LabelKey, string>,
 	sessions: Record<PersonKey, Session>,
-): { by: PersonKey; input: MutationInput }[] {
+): {
+	by: PersonKey;
+	input: MutationInput;
+	issueId: string;
+	thread: NonNullable<SampleIssue["comments"]>;
+}[] {
 	const keys = new Map<TeamKey, string[]>();
 	for (const team of Object.keys(TEAMS) as TeamKey[]) {
 		const count = issues.filter((issue) => issue.team === team).length;
@@ -164,12 +180,15 @@ function issueMutations(
 	return issues.map((issue) => {
 		const sortOrder = keys.get(issue.team)?.shift();
 		if (!sortOrder) throw new Error("Ran out of sort keys");
+		const id = uuidv7();
 		return {
 			by: issue.by,
+			issueId: id,
+			thread: issue.comments ?? [],
 			input: {
 				name: "issue.create",
 				args: {
-					id: uuidv7(),
+					id,
 					teamId: teamIds[issue.team],
 					title: issue.title,
 					description: issue.description ?? null,

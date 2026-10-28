@@ -1,7 +1,7 @@
-import type { Issue, IssueStatus, Label, Member, Team } from "@gateweave/track-protocol";
-import { and, desc, eq, inArray, isNull, max, type SQL, sql } from "drizzle-orm";
+import type { Comment, Issue, IssueStatus, Label, Member, Team } from "@gateweave/track-protocol";
+import { and, asc, desc, eq, inArray, isNull, max, type SQL, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
-import { type Db, toIssue, toLabel, toMember, toTeam } from "./state";
+import { type Db, toComment, toIssue, toLabel, toMember, toTeam } from "./state";
 
 // Reads for server-side clients, which ask for a slice of the workspace instead of a replica.
 
@@ -91,6 +91,18 @@ export function findIssueByKey(db: Db, teamKey: string, number: number): Issue |
 		)
 		.get();
 	return row && toIssue(row.issue);
+}
+
+/** A live issue's comments, oldest first. Empty for a deleted or unknown issue. */
+export function findComments(db: Db, issueId: string): Comment[] {
+	if (!findIssueById(db, issueId)) return [];
+	return db
+		.select()
+		.from(schema.comments)
+		.where(and(eq(schema.comments.issueId, issueId), isNull(schema.comments.deletedAt)))
+		.orderBy(asc(schema.comments.createdAt), asc(schema.comments.id))
+		.all()
+		.map(toComment);
 }
 
 /** The largest sort order in use, so a new issue can go after every other one. */

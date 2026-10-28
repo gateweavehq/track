@@ -1,5 +1,12 @@
 import { runInDurableObject } from "cloudflare:test";
-import { CloseCode, type Issue, MAX_LABELS_PER_ISSUE, PING, PONG } from "@gateweave/track-protocol";
+import {
+	CloseCode,
+	type Issue,
+	MAX_LABELS_PER_ISSUE,
+	type MutationInput,
+	PING,
+	PONG,
+} from "@gateweave/track-protocol";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { describe, expect, it } from "vitest";
 import type { MemberProfile } from "../src";
@@ -18,6 +25,8 @@ const alice: MemberProfile = { ...owner, id: "user-alice", name: "Alice", role: 
 const bob: MemberProfile = { ...owner, id: "user-bob", name: "Bob", role: "member" };
 
 const TEAM_ID = "team-eng";
+
+type IssuePatch = Extract<MutationInput, { name: "issue.update" }>["args"]["patch"];
 
 async function withTeam() {
 	const workspace = freshWorkspace();
@@ -540,6 +549,232 @@ describe("labels", () => {
 		const snapshot = await snapshotOf(workspace);
 		expect(snapshot.labels.map((label) => label.id)).toEqual(["label-docs"]);
 		expect(snapshot.issues[0]?.labelIds).toEqual(["label-docs"]);
+	});
+});
+
+describe("comments", () => {
+	async function comment(client: TestClient, id: string, issueId: string, body = "Looks good") {
+		return client.apply({ name: "comment.create", args: { id, issueId, body } });
+	}
+
+	it("lets any member comment, and only the author edit", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		const issue = await createIssue(admin, "issue-1");
+
+		await comment(member, "comment-1", issue.id, "  First!  ");
+		const byAdmin = await admin.mutate({
+			name: "comment.update",
+			args: { id: "comment-1", body: "Rewritten" },
+		});
+		const edited = await member.apply({
+			name: "comment.update",
+			args: { id: "comment-1", body: "First, edited" },
+		});
+		const same = await member.apply({
+			name: "comment.update",
+			args: { id: "comment-1", body: "First, edited" },
+		});
+
+		expect(
+			await admin.op((op) => op.entity === "comment" && op.op === "put" && op.id === "comment-1"),
+		).toMatchObject({ data: { issueId: issue.id, authorId: alice.id, body: "First!" } });
+		expect(byAdmin).toMatchObject({ type: "reject", reason: "forbidden" });
+		expect(
+			await admin.op(
+				(op) => op.entity === "comment" && op.op === "put" && op.data.body === "First, edited",
+			),
+		).toMatchObject({ id: "comment-1" });
+		// An edit that changes nothing writes nothing.
+		expect(same.version).toBe(edited.version);
+		expect((await snapshotOf(workspace)).comments).toMatchObject([
+			{ id: "comment-1", body: "First, edited", authorId: alice.id },
+		]);
+	});
+
+	it("lets the author or an admin delete a comment", async () => {
+		const { workspace, admin } = await withTeam();
+		const author = await TestClient.live(workspace, alice);
+		const other = await TestClient.live(workspace, bob);
+		const issue = await createIssue(admin, "issue-1");
+		await comment(author, "comment-1", issue.id);
+		await comment(author, "comment-2", issue.id);
+
+		const byOther = await other.mutate({ name: "comment.delete", args: { id: "comment-1" } });
+		await author.apply({ name: "comment.delete", args: { id: "comment-1" } });
+		await admin.apply({ name: "comment.delete", args: { id: "comment-2" } });
+		const editDeleted = await author.mutate({
+			name: "comment.update",
+			args: { id: "comment-1", body: "Back" },
+		});
+
+		expect(byOther).toMatchObject({ type: "reject", reason: "forbidden" });
+		expect(
+			await other.op(
+				(op) => op.entity === "comment" && op.op === "delete" && op.id === "comment-2",
+			),
+		).toBeTruthy();
+		expect(editDeleted).toMatchObject({ type: "reject", reason: "not_found" });
+		expect((await snapshotOf(workspace)).comments).toEqual([]);
+	});
+
+	it("rejects empty comments, reused ids and comments on missing issues", async () => {
+		const { admin } = await withTeam();
+		const issue = await createIssue(admin, "issue-1");
+		await comment(admin, "comment-1", issue.id);
+
+		const empty = await admin.mutate({
+			name: "comment.create",
+			args: { id: "comment-2", issueId: issue.id, body: "   " },
+		});
+		const reused = await admin.mutate({
+			name: "comment.create",
+			args: { id: "comment-1", issueId: issue.id, body: "Again" },
+		});
+		const missing = await admin.mutate({
+			name: "comment.create",
+			args: { id: "comment-3", issueId: "issue-missing", body: "Hello?" },
+		});
+
+		expect(empty).toMatchObject({ type: "reject", reason: "invalid" });
+		expect(reused).toMatchObject({ type: "reject", reason: "invalid" });
+		expect(missing).toMatchObject({ type: "reject", reason: "not_found" });
+	});
+
+	it("drops an issue's comments and history along with the issue", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		const issue = await createIssue(admin, "issue-1");
+		await comment(member, "comment-1", issue.id);
+		await member.apply({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { status: "todo" } },
+		});
+		const activity = await admin.op((op) => op.entity === "activity" && op.op === "put");
+
+		await admin.apply({ name: "issue.delete", args: { id: issue.id } });
+		const late = await member.mutate({
+			name: "comment.create",
+			args: { id: "comment-2", issueId: issue.id, body: "Too late" },
+		});
+		const editOrphan = await member.mutate({
+			name: "comment.update",
+			args: { id: "comment-1", body: "Still here?" },
+		});
+
+		expect(await member.op((op) => op.entity === "comment" && op.op === "delete")).toMatchObject({
+			id: "comment-1",
+		});
+		expect(await member.op((op) => op.entity === "activity" && op.op === "delete")).toMatchObject({
+			id: activity.id,
+		});
+		expect(late).toMatchObject({ type: "reject", reason: "not_found" });
+		expect(editOrphan).toMatchObject({ type: "reject", reason: "not_found" });
+		const snapshot = await snapshotOf(workspace);
+		expect(snapshot.comments).toEqual([]);
+		expect(snapshot.activities).toEqual([]);
+	});
+});
+
+describe("activity", () => {
+	async function update(client: TestClient, id: string, patch: IssuePatch) {
+		const { version } = await issueOf(client, id);
+		const ack = await client.apply({
+			name: "issue.update",
+			args: { id, baseVersion: version, patch },
+		});
+		return ack;
+	}
+
+	async function historyOf(workspace: Workspace, issueId: string) {
+		const { activities } = await snapshotOf(workspace);
+		return activities
+			.filter((activity) => activity.issueId === issueId)
+			.map(({ actorId, change }) => ({ actorId, change }));
+	}
+
+	it("records who changed which field", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		const issue = await createIssue(admin, "issue-1");
+		await issueOf(member, issue.id);
+
+		await update(member, issue.id, { status: "in_progress", assigneeId: alice.id, priority: 2 });
+		await update(member, issue.id, { title: "Ship sync faster", sortOrder: "a5" });
+
+		expect(await historyOf(workspace, issue.id)).toEqual([
+			{ actorId: alice.id, change: { type: "status", from: "backlog", to: "in_progress" } },
+			{ actorId: alice.id, change: { type: "priority", from: 0, to: 2 } },
+			{ actorId: alice.id, change: { type: "assignee", from: null, to: alice.id } },
+			{ actorId: alice.id, change: { type: "title", from: "Ship sync", to: "Ship sync faster" } },
+		]);
+	});
+
+	it("merges quick changes to one field, and forgets a change that is put back", async () => {
+		const { workspace, admin } = await withTeam();
+		const issue = await createIssue(admin, "issue-1");
+
+		await update(admin, issue.id, { status: "todo" });
+		await update(admin, issue.id, { status: "in_progress" });
+		expect(await historyOf(workspace, issue.id)).toEqual([
+			{ actorId: owner.id, change: { type: "status", from: "backlog", to: "in_progress" } },
+		]);
+
+		await update(admin, issue.id, { status: "backlog" });
+		expect(await historyOf(workspace, issue.id)).toEqual([]);
+		expect(await admin.op((op) => op.entity === "activity" && op.op === "delete")).toBeTruthy();
+	});
+
+	it("keeps changes by different people apart", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		const issue = await createIssue(admin, "issue-1");
+
+		const ack = await update(admin, issue.id, { status: "todo" });
+		await member.op((op) => op.version === ack.version);
+		await update(member, issue.id, { status: "in_progress" });
+
+		expect(await historyOf(workspace, issue.id)).toEqual([
+			{ actorId: owner.id, change: { type: "status", from: "backlog", to: "todo" } },
+			{ actorId: alice.id, change: { type: "status", from: "todo", to: "in_progress" } },
+		]);
+	});
+
+	it("records labels added and removed, and a quick toggle leaves nothing", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		await admin.apply({
+			name: "label.create",
+			args: { id: "label-bug", name: "Bug", color: "#e5484d" },
+		});
+		const issue = await createIssue(admin, "issue-1");
+
+		await admin.apply({ name: "issue.addLabel", args: { id: issue.id, labelId: "label-bug" } });
+		await admin.apply({ name: "issue.removeLabel", args: { id: issue.id, labelId: "label-bug" } });
+		expect(await historyOf(workspace, issue.id)).toEqual([]);
+
+		await member.apply({ name: "issue.addLabel", args: { id: issue.id, labelId: "label-bug" } });
+		expect(await historyOf(workspace, issue.id)).toEqual([
+			{ actorId: alice.id, change: { type: "label", labelId: "label-bug", added: true } },
+		]);
+	});
+
+	it("leaves out the creator writing an issue, and merges description edits", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		const issue = await createIssue(admin, "issue-1");
+
+		await update(admin, issue.id, { title: "Ship sync, properly" });
+		await update(admin, issue.id, { description: "Steps…" });
+		expect(await historyOf(workspace, issue.id)).toEqual([]);
+
+		const ack = await update(admin, issue.id, { description: "Steps, more" });
+		await member.op((op) => op.version === ack.version);
+		await update(member, issue.id, { description: "Steps, from Alice" });
+		await update(member, issue.id, { description: "Steps, from Alice, again" });
+		expect(await historyOf(workspace, issue.id)).toEqual([
+			{ actorId: alice.id, change: { type: "description" } },
+		]);
 	});
 });
 

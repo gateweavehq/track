@@ -25,6 +25,8 @@ interface ReplicaSchema extends DBSchema {
 	team: { key: string; value: Entities["team"] };
 	issue: { key: string; value: Entities["issue"] };
 	label: { key: string; value: Entities["label"] };
+	comment: { key: string; value: Entities["comment"] };
+	activity: { key: string; value: Entities["activity"] };
 	member: { key: string; value: Entities["member"] };
 	pending: { key: number; value: PendingMutation & { seq?: number }; indexes: { id: string } };
 }
@@ -92,18 +94,24 @@ class IdbPersistence implements Persistence {
 			clientId = crypto.randomUUID();
 			await meta.put(clientId, "clientId");
 		}
-		const [version, teams, issues, labels, members, pending] = await Promise.all([
-			meta.get("version") as Promise<number | undefined>,
-			tx.objectStore("team").getAll(),
-			tx.objectStore("issue").getAll(),
-			tx.objectStore("label").getAll(),
-			tx.objectStore("member").getAll(),
-			tx.objectStore("pending").getAll(),
-		]);
+		const [version, teams, issues, labels, comments, activities, members, pending] =
+			await Promise.all([
+				meta.get("version") as Promise<number | undefined>,
+				tx.objectStore("team").getAll(),
+				tx.objectStore("issue").getAll(),
+				tx.objectStore("label").getAll(),
+				tx.objectStore("comment").getAll(),
+				tx.objectStore("activity").getAll(),
+				tx.objectStore("member").getAll(),
+				tx.objectStore("pending").getAll(),
+			]);
 		await tx.done;
 		return {
 			clientId,
-			snapshot: version === undefined ? null : { version, teams, issues, labels, members },
+			snapshot:
+				version === undefined
+					? null
+					: { version, teams, issues, labels, comments, activities, members },
 			pending: pending.map(({ seq: _, ...mutation }) => mutation),
 		};
 	}
@@ -114,6 +122,8 @@ class IdbPersistence implements Persistence {
 			team: snapshot.teams,
 			issue: snapshot.issues,
 			label: snapshot.labels,
+			comment: snapshot.comments,
+			activity: snapshot.activities,
 			member: snapshot.members,
 		};
 		await Promise.all([

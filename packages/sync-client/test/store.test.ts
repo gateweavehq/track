@@ -24,6 +24,8 @@ const snapshot: Snapshot = {
 	teams: [team],
 	issues: [issue],
 	labels: [],
+	comments: [],
+	activities: [],
 	members: [],
 };
 
@@ -209,6 +211,102 @@ describe("Replica", () => {
 		);
 		expect(r.getState().issues.has("i2")).toBe(false);
 		expect(r.getState().issues.get("i1")?.labelIds).toEqual([]);
+	});
+
+	it("predicts comments, and replays them safely over the server's result", () => {
+		const r = replica();
+		r.addPending(
+			pending("m1", { name: "comment.create", args: { id: "c1", issueId: "i1", body: "Hi" } }),
+			pending("m2", { name: "comment.create", args: { id: "c2", issueId: "gone", body: "Hm" } }),
+		);
+		expect(r.getState().comments.get("c1")).toMatchObject({ authorId: "alice", body: "Hi" });
+		expect(r.getState().comments.has("c2")).toBe(false);
+
+		const comment = { id: "c1", issueId: "i1", authorId: "alice", body: "Hi", createdAt: 3 };
+		r.applyOps([
+			{ version: 3, entity: "comment", id: "c1", op: "put", data: { ...comment, updatedAt: 3 } },
+		]);
+		r.addPending(pending("m3", { name: "comment.update", args: { id: "c1", body: "Hi there" } }));
+		expect(r.getState().comments.get("c1")).toMatchObject({ body: "Hi there", createdAt: 3 });
+
+		r.removePending("m1");
+		r.removePending("m2");
+		r.addPending(pending("m4", { name: "comment.delete", args: { id: "c1" } }));
+		expect(r.getState().comments.has("c1")).toBe(false);
+	});
+
+	it("leaves other people's comments to the server unless the user is an admin", () => {
+		const r = replica();
+		const comment = {
+			id: "c1",
+			issueId: "i1",
+			authorId: "bob",
+			body: "Mine",
+			createdAt: 3,
+			updatedAt: 3,
+		};
+		const alice = {
+			id: "alice",
+			name: "Alice",
+			email: "alice@example.com",
+			image: null,
+			role: "member" as const,
+			removedAt: null,
+		};
+		r.applyOps([
+			{ version: 3, entity: "comment", id: "c1", op: "put", data: comment },
+			{ version: 4, entity: "member", id: "alice", op: "put", data: alice },
+		]);
+
+		r.addPending(
+			pending("m1", { name: "comment.update", args: { id: "c1", body: "Not yours" } }),
+			pending("m2", { name: "comment.delete", args: { id: "c1" } }),
+		);
+		expect(r.getState().comments.get("c1")?.body).toBe("Mine");
+
+		r.applyOps([
+			{ version: 5, entity: "member", id: "alice", op: "put", data: { ...alice, role: "admin" } },
+		]);
+		expect(r.getState().comments.has("c1")).toBe(false);
+	});
+
+	it("predicts that an issue's comments and history go with it", () => {
+		const r = replica();
+		r.applyOps([
+			{
+				version: 3,
+				entity: "comment",
+				id: "c1",
+				op: "put",
+				data: {
+					id: "c1",
+					issueId: "i1",
+					authorId: "alice",
+					body: "Hi",
+					createdAt: 3,
+					updatedAt: 3,
+				},
+			},
+			{
+				version: 4,
+				entity: "activity",
+				id: "a1",
+				op: "put",
+				data: {
+					id: "a1",
+					issueId: "i1",
+					actorId: "alice",
+					change: { type: "status", from: "backlog", to: "todo" },
+					createdAt: 4,
+					updatedAt: 4,
+				},
+			},
+		]);
+
+		r.addPending(pending("m1", { name: "issue.delete", args: { id: "i1" } }));
+
+		expect(r.getState().comments.size).toBe(0);
+		expect(r.getState().activities.size).toBe(0);
 	});
 
 	it("only replaces state with newer snapshots when asked to", () => {
