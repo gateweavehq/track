@@ -6,12 +6,16 @@ Track keeps every workspace in its own Durable Object, so edits reach everyone i
 app stays fast at any size, and the whole thing deploys as a single Worker you can run on your
 own Cloudflare account.
 
+**[Try the demo](https://track-demo.gateweave.com)**: one click opens a private workspace full of
+sample issues, deleted a day later. Or [deploy your own](#deploying) in a few minutes.
+
 Track is the first product of [Gateweave](https://gateweave.com), a family of open-source,
 Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
 
 > **Status: early development.** Sync (server and client), auth, workspaces, invitations, issue
-> lists, boards, labels, comments and activity history, the issue page and the MCP server for AI
-> agents work end to end. Launch readiness is next. Expect breaking changes.
+> lists, boards, labels, comments and activity history, the issue page, email, starting offline
+> and the MCP server for AI agents work end to end. Expect breaking changes until 1.0; see
+> [CHANGELOG.md](CHANGELOG.md).
 
 ## Highlights
 

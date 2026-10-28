@@ -131,7 +131,8 @@ isolate counts on its own rather than refuse or allow everyone.
 
 ### The public demo
 
-Gateweave runs a public demo as its own deployment: the `demo` environment in `wrangler.jsonc`
+Gateweave runs a public demo at https://track-demo.gateweave.com, as its own deployment: the
+`demo` environment in `wrangler.jsonc`
 (`pnpm --filter @gateweave/track-web deploy:demo`, with `db:migrate:demo` for its database). It
 is a separate Worker with its own D1 database and Durable Objects, and it shares nothing with
 production. Self-hosters do not need it, and the code stays inert on any deployment where the
