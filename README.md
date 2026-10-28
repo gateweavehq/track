@@ -28,7 +28,8 @@ Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
   external databases.
 - **One deploy.** UI, API, auth and sync ship together as one Worker.
 - **Works with AI agents.** A built-in MCP server lets Claude, ChatGPT and other agents find, file
-  and update issues as you, once you approve them in the browser.
+  and update issues as you, once you approve them in the browser. Agents that work on their own
+  join as members of their own, with a key.
 
 ## Tech stack
 
@@ -69,6 +70,15 @@ Then run `/mcp` in Claude Code to sign in. Other MCP clients take the same URL. 
 on wherever `BETTER_AUTH_URL` is set (see [self-hosting](docs/self-hosting.md#ai-agents-mcp)).
 Locally, set it to `http://localhost:4710` in `.dev.vars` and connect to
 `http://localhost:4710/mcp`.
+
+An agent that works on its own, such as a triage bot, should not act as you. An admin creates
+an agent member for it under Settings, Agents: it joins the workspace under its own name, can do
+what members do, and connects with a key instead of signing in:
+
+```sh
+claude mcp add --transport http track https://track.gateweave.com/mcp \
+  --header "Authorization: Bearer gwt_..."
+```
 
 ## Scripts
 

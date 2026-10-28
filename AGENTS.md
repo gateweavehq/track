@@ -81,7 +81,8 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    `await` in the middle of a write.
 6. **The Durable Object has no public route.** Only the gateways reach it, after checking D1
    membership: `apps/web/src/server/sync.ts` for browsers (Origin and session first) and
-   `apps/web/src/server/mcp/index.ts` for AI agents (OAuth token first, never cookies).
+   `apps/web/src/server/mcp/index.ts` for AI agents (an OAuth token or an agent member's key
+   first, never cookies).
    Non-members get the same 404 or "not found" as a missing workspace. The verified member
    travels in `MEMBER_HEADER` or as the `member` argument of `mutate`, which only a gateway sets.
 7. **Server code never reaches the browser bundle.** In server functions, import server modules
@@ -89,6 +90,9 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
 8. **Migrations are append-only.** Generate them with Drizzle Kit and commit them. Never edit a
    migration that has been merged. Follow `.claude/skills/schema-change/SKILL.md`.
 9. **Secrets stay local.** Never commit `.dev.vars` or print its contents.
+10. **Admin rights are granted, never assumed.** `agent` is a role as well as `member`, so what
+    only owners and admins may do is decided with `isAdminRole` from `packages/protocol`, never
+    by comparing a role with `member`.
 
 ## Code style
 

@@ -1,4 +1,4 @@
-import type { MemberRole } from "@gateweave/track-protocol";
+import { isAdminRole, type MemberRole, type PersonRole } from "@gateweave/track-protocol";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
@@ -34,27 +34,29 @@ export interface WorkspaceMember {
 	name: string;
 	email: string;
 	image: string | null;
-	role: MemberRole;
+	role: PersonRole;
 	joinedAt: number;
 }
 
 export interface PendingInvitation {
 	id: string;
 	email: string;
-	role: MemberRole;
+	role: PersonRole;
 	expiresAt: number;
 }
 
 /**
- * The members of the workspace with this slug, from D1, which owns membership. Pending
- * invitations come along only for those who can invite. Null if the caller is not a member.
+ * The people in the workspace with this slug, from D1, which owns membership. Agents are listed
+ * with their keys, for admins, by `getWorkspaceAgents`. Pending invitations come along only for
+ * those who can invite. Null if the caller is not a member.
  */
 export const getWorkspaceMembers = createServerFn({ method: "GET" })
 	.validator(z.string().min(1))
 	.handler(async ({ data: slug }) => {
 		const { getAuth, db, emailEnabled } = await import("#/server/auth");
 		const auth = getAuth();
-		const { findMembership, toRole } = await import("#/server/workspaces");
+		const { findMembership } = await import("#/server/workspaces");
+		const { toPersonRole, toRole } = await import("#/server/roles");
 		const headers = getRequestHeaders();
 		const session = await auth.api.getSession({ headers });
 		const membership = session && (await findMembership(db, slug, session.user.id));
@@ -65,7 +67,7 @@ export const getWorkspaceMembers = createServerFn({ method: "GET" })
 			query: { organizationId, limit: 1000 },
 			headers,
 		});
-		const canInvite = membership.profile.role !== "member";
+		const canInvite = isAdminRole(membership.profile.role);
 		const invitations = canInvite
 			? await auth.api.listInvitations({ query: { organizationId }, headers })
 			: [];
@@ -76,6 +78,7 @@ export const getWorkspaceMembers = createServerFn({ method: "GET" })
 			// Matches when the server emails an invitation (see sendInvitationEmail).
 			inviteByEmail: canInvite && emailEnabled && session.user.emailVerified,
 			members: members
+				.filter((member) => toRole(member.role) !== "agent")
 				.map(
 					(member): WorkspaceMember => ({
 						memberId: member.id,
@@ -83,7 +86,7 @@ export const getWorkspaceMembers = createServerFn({ method: "GET" })
 						name: member.user.name,
 						email: member.user.email,
 						image: member.user.image ?? null,
-						role: toRole(member.role),
+						role: toPersonRole(member.role),
 						joinedAt: new Date(member.createdAt).getTime(),
 					}),
 				)
@@ -94,7 +97,7 @@ export const getWorkspaceMembers = createServerFn({ method: "GET" })
 					(invitation): PendingInvitation => ({
 						id: invitation.id,
 						email: invitation.email,
-						role: toRole(invitation.role ?? "member"),
+						role: toPersonRole(invitation.role ?? "member"),
 						expiresAt: new Date(invitation.expiresAt).getTime(),
 					}),
 				)
@@ -112,4 +115,5 @@ export const ROLE_LABELS: Record<MemberRole, string> = {
 	owner: "Owner",
 	admin: "Admin",
 	member: "Member",
+	agent: "Agent",
 };

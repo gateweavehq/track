@@ -17,8 +17,19 @@ export type IssueStatus = (typeof ISSUE_STATUSES)[number];
 export const ISSUE_PRIORITIES = [0, 1, 2, 3, 4] as const;
 export type IssuePriority = (typeof ISSUE_PRIORITIES)[number];
 
-export const MEMBER_ROLES = ["owner", "admin", "member"] as const;
+/**
+ * `agent` is a member an admin created for an AI agent. It works through the same mutations as a
+ * member and never signs in: it reaches the workspace with a key, over MCP.
+ */
+export const MEMBER_ROLES = ["owner", "admin", "member", "agent"] as const;
 export type MemberRole = (typeof MEMBER_ROLES)[number];
+/** The roles a person can be invited with or given. */
+export type PersonRole = Exclude<MemberRole, "agent">;
+
+/** Owners and admins manage teams, labels, members and agents. */
+export function isAdminRole(role: MemberRole): boolean {
+	return role === "owner" || role === "admin";
+}
 
 export interface Team {
 	id: string;

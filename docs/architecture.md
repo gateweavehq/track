@@ -9,14 +9,14 @@ This document explains how the pieces fit together and why they are built the wa
 flowchart LR
   Browser -- "HTTPS (pages, auth, snapshot)" --> Worker
   Browser -- "WebSocket (live sync)" --> Worker
-  Agent["AI agent"] -- "MCP over HTTPS (OAuth token)" --> Worker
+  Agent["AI agent"] -- "MCP over HTTPS (OAuth token or agent key)" --> Worker
   subgraph Worker["gateweave-track worker (apps/web)"]
     Start["TanStack Start<br/>pages + server functions"]
     Auth["Better Auth<br/>/api/auth/*"]
     Gateway["Sync gateway<br/>/api/sync/:slug/*"]
     Mcp["MCP gateway<br/>/mcp"]
   end
-  Auth --> D1[("D1<br/>users, sessions,<br/>workspaces, members,<br/>OAuth clients")]
+  Auth --> D1[("D1<br/>users, sessions,<br/>workspaces, members,<br/>OAuth clients, agent keys")]
   Gateway -- "checks session + membership" --> D1
   Gateway -- "RPC / WebSocket" --> DO
   Mcp -- "checks token + membership" --> D1
@@ -57,6 +57,7 @@ different protocol versions in production. It also gives self-hosters one thing 
 | Users, sessions, OAuth accounts     | D1           | Better Auth                        |
 | Workspaces, members, invitations    | D1           | Better Auth organization plugin    |
 | OAuth clients, grants, signing keys | D1           | Better Auth MCP plugin             |
+| Agent members' keys (hashed)        | D1           | Track's agent members plugin       |
 | Teams, issues, labels, comments     | Workspace DO | `sync-server`                      |
 | Issue activity (history)            | Workspace DO | `sync-server`, from issue writes   |
 | Member replica (name, avatar, role) | Workspace DO | Pushed from D1 by membership hooks |
@@ -71,6 +72,11 @@ member connects their current profile is upserted.
 Roles are Better Auth's defaults: `owner`, `admin` and `member`. Admins invite people, change
 roles, remove members and manage teams. Only owners can make or manage owners, and a workspace
 always keeps at least one.
+
+The fourth role, `agent`, is for [agent members](#agent-members). Better Auth does not define it,
+so it refuses to invite anyone as an agent or to give the role to anyone; only the agent members
+plugin does. Code that decides what a role may do asks `isAdminRole` (in `packages/protocol`)
+rather than comparing with `member`, so an agent can never be taken for an admin.
 
 An invitation is for one email address and lasts seven days. Its link is `/invite/:id`. When email
 is on and the admin has verified their own address, Track emails the link (see
@@ -217,6 +223,32 @@ agent sets up a fresh workspace's teams with `create_team`, which only admins ma
 Tokens must name one canonical URL, so the endpoint, and the authorization server, exist only
 when `BETTER_AUTH_URL` pins the base URL. Without it `/mcp` answers `404`.
 
+### Agent members
+
+An agent member is a member an admin creates for an AI agent that works on its own, such as one
+that triages new issues, rather than for a person. It is a Better Auth user with the `agent`
+role in one workspace, made by the agent members plugin (`apps/web/src/server/auth/agents.ts`),
+which also lists, renames and deletes agents and makes and revokes their keys, for admins only.
+Settings has an Agents page for it.
+
+- **It never signs in.** It has no password or account, and its address is `<id>@agents.invalid`,
+  a domain that can never resolve. The plugin refuses that domain wherever Better Auth takes an
+  address (sign-up, sign-in, password reset, verification, email change and invitations), and
+  refuses changing an agent's role or removing it through the members endpoints: deleting it from
+  its own settings also revokes its keys.
+- **It works through MCP with a key.** A key is `gwt_` and 43 random characters (256 bits). D1
+  keeps its SHA-256 hash and its first 12 characters, to tell keys apart in settings, and the time
+  it was last used, written at most every five minutes. An agent can have five keys, so one can be
+  replaced without a gap. The MCP gateway takes a `Bearer` key before trying OAuth, finds the
+  agent while it is still an agent member of the workspace the key was made for, and lets it
+  reach that workspace only, even should it come to belong to another.
+- **It acts as itself.** Its tool calls go through `mutate` with its own profile, so the same
+  validation applies, the oplog and activity name it, and people see its changes live. It can do
+  what members do and nothing only admins can. The app shows it with a robot for an avatar.
+- **It goes with its workspace.** Deleting an agent deletes its user, membership and keys; the
+  workspace keeps its profile, marked removed, for what it did. Deleting a workspace deletes its
+  agents too, as does the demo's cleanup.
+
 ## Sync protocol
 
 Defined in `packages/protocol`. The server is authoritative. Clients apply changes optimistically
@@ -281,7 +313,8 @@ writes with `mutate(member, clientId, mutationId, mutation)`. That runs the same
 mutation: the same validation, idempotency by mutation id, field-level conflict detection and
 broadcast to every live socket. It returns the equivalent of an `ack` or a `reject`. As with
 sockets, only a gateway calls it, after verifying the member. Today that is the MCP gateway,
-which gives each OAuth client one stable `clientId` and every call a fresh mutation id.
+which gives each OAuth client, and each agent member, one stable `clientId` and every call a fresh
+mutation id.
 
 ### Concurrent edits
 

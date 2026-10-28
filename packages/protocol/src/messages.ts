@@ -3,7 +3,7 @@ import type { Activity, Comment, Entities, EntityName, Issue, Label, Member, Tea
 import type { MutationInput } from "./mutations";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";

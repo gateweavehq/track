@@ -1,4 +1,4 @@
-import { type Issue, MAX_LABELS_PER_ISSUE } from "@gateweave/track-protocol";
+import { type Issue, isAdminRole, MAX_LABELS_PER_ISSUE } from "@gateweave/track-protocol";
 import type { Draft, PendingMutation } from "./store";
 
 /**
@@ -107,7 +107,7 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			const comment = draft.get("comment", mutation.args.id);
 			if (!comment) return;
 			const role = draft.get("member", userId)?.role;
-			if (comment.authorId !== userId && (role === undefined || role === "member")) return;
+			if (comment.authorId !== userId && (role === undefined || !isAdminRole(role))) return;
 			draft.delete("comment", comment.id);
 			return;
 		}

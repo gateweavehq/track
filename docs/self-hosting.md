@@ -80,6 +80,10 @@ Agents connect to `/mcp` and sign in through OAuth. Their tokens are bound to on
 endpoint is only on once `BETTER_AUTH_URL` names it, for example `https://track.example.com`.
 Agents then connect to `https://track.example.com/mcp`.
 
+An agent that works on its own, such as one that triages new issues, gets a member of its own
+instead: an admin creates it under Settings, Agents, and gives its MCP client the key shown there,
+as `Authorization: Bearer <key>`. It needs nothing else to be set up.
+
 ### Sign in with GitHub
 
 Create a [GitHub OAuth app](https://github.com/settings/developers) with the callback URL
