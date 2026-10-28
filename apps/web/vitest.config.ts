@@ -1,10 +1,24 @@
 import { defineConfig } from "vitest/config";
 
-// Unit tests for the app's pure logic. They run in Node without the Workers runtime, so this
-// config deliberately leaves out the Cloudflare and TanStack Start plugins from vite.config.ts.
 export default defineConfig({
-	resolve: { tsconfigPaths: true },
 	test: {
-		include: ["src/**/*.test.ts"],
+		projects: [
+			{
+				// The app's pure logic, in Node. The Cloudflare and TanStack Start plugins from
+				// vite.config.ts are deliberately left out.
+				resolve: { tsconfigPaths: true },
+				test: { name: "unit", include: ["src/**/*.test.ts"] },
+			},
+			{
+				// The built Worker in workerd (see test/track-worker.ts). Building takes a while.
+				test: {
+					name: "worker",
+					include: ["test/**/*.test.ts"],
+					globalSetup: ["./test/global-setup.ts"],
+					testTimeout: 30_000,
+					hookTimeout: 60_000,
+				},
+			},
+		],
 	},
 });

@@ -103,6 +103,9 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
 - `packages/sync-client` tests run in Node against the same Durable Object, hosted by Wrangler's
   local runtime behind a stand-in gateway (`test/worker`). Network, IndexedDB and tabs are real
   or close to it; see `test/harness.ts`.
+- `apps/web` has unit tests in `src/` and Worker tests in `test/`. The Worker tests build the app
+  and run it in workerd through Miniflare, with every outbound request failing as a deployed
+  Worker's request to its own hostname does; see `test/track-worker.ts`.
 - Every bug fix gets a test that fails without the fix. Never weaken or skip a test to make a
   change pass.
 
