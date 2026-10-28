@@ -8,6 +8,29 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.2.0] - 2026-10-28
+
+### Added
+
+- Full-text search. The command palette (Ctrl+K) finds issues by words in their key, title,
+  description or comments, offline and as you type, and shows where a description or comment
+  matched. Typing an issue's key, such as `ENG-12`, puts that issue first. ([#42])
+- Each workspace's database keeps a full-text index of its issues, which MCP's `search_issues`
+  uses. A self-hosted copy builds the index for each workspace the first time it opens after the
+  update, so there is nothing to run. ([#43])
+
+### Changed
+
+- `search_issues` matches the start of words in any field and returns the best matches first,
+  where it used to match any part of the title. "auth" still finds "authentication", but
+  "thentication" no longer does. ([#43])
+
+### Fixed
+
+- On the public demo, a returning visitor goes straight back to their workspace. ([#41])
+- The demo counts new workspaces per network, so one IPv6 address can't get around the limit,
+  and allows more of them. ([#39])
+
 ## [0.1.0] - 2026-10-28
 
 The first release. It brings together everything from the alphas below: realtime sync with a
@@ -169,6 +192,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.2.0]: https://github.com/gateweavehq/track/releases/tag/v0.2.0
 [0.1.0]: https://github.com/gateweavehq/track/releases/tag/v0.1.0
 [0.1.0-alpha.13]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.13
 [0.1.0-alpha.12]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.12
@@ -203,3 +227,7 @@ The first pre-release.
 [#35]: https://github.com/gateweavehq/track/pull/35
 [#36]: https://github.com/gateweavehq/track/pull/36
 [#37]: https://github.com/gateweavehq/track/pull/37
+[#39]: https://github.com/gateweavehq/track/pull/39
+[#41]: https://github.com/gateweavehq/track/pull/41
+[#42]: https://github.com/gateweavehq/track/pull/42
+[#43]: https://github.com/gateweavehq/track/pull/43

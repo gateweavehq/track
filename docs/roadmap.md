@@ -48,6 +48,8 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - **v0.1.0.** The first release, with a [changelog](../CHANGELOG.md) covering every version.
 - **Performance budgets.** CI times a reload of a 2,000-issue workspace from the local copy and
   an edit reaching a second browser, and fails when a median goes over its budget.
+- **Full-text search.** The command palette searches keys, titles, descriptions and comments in
+  the local copy; each workspace's database keeps an FTS5 index for MCP. Shipped in v0.2.0.
 
 ## Next: launch
 
@@ -58,7 +60,6 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 
 ## After launch
 
-- Full-text search inside each workspace's database.
 - Notifications and an inbox.
 - Projects and cycles.
 - GitHub integration: link pull requests and close issues from commits.
