@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import { devtools } from "@tanstack/devtools-vite";
@@ -25,6 +26,8 @@ export default defineConfig(({ command }) => ({
 	plugins: [
 		devtools(),
 		cloudflare({
+			// At the repository root, for the "Deploy to Cloudflare" button (see wrangler.jsonc).
+			configPath: "../../wrangler.jsonc",
 			viteEnvironment: { name: "ssr" },
 			config: (config) => {
 				if (command !== "serve") return;
@@ -37,8 +40,41 @@ export default defineConfig(({ command }) => ({
 		tanstackStart(),
 		viteReact(),
 		serviceWorker(),
+		rootDeployConfig(),
 	],
 }));
+
+/**
+ * Wrangler finds the build output through .wrangler/deploy/config.json, which the Cloudflare
+ * plugin writes next to this file. Workers Builds runs the commands people do not write, like
+ * `npx wrangler preview` for a branch, from the repository root, so that needs a copy too.
+ */
+function rootDeployConfig(): Plugin {
+	return {
+		name: "track:root-deploy-config",
+		apply: "build",
+		applyToEnvironment: (environment) => environment.name === "ssr",
+		writeBundle: {
+			order: "post",
+			sequential: true,
+			handler() {
+				const from = join(this.environment.config.root, ".wrangler", "deploy");
+				const to = fileURLToPath(new URL("../../.wrangler/deploy", import.meta.url));
+				const rebase = (path: string) => relative(to, resolve(from, path));
+				const config = JSON.parse(readFileSync(join(from, "config.json"), "utf8"));
+				config.configPath = rebase(config.configPath);
+				if (config.prerenderWorkerConfigPath) {
+					config.prerenderWorkerConfigPath = rebase(config.prerenderWorkerConfigPath);
+				}
+				config.auxiliaryWorkers = config.auxiliaryWorkers.map((worker: { configPath: string }) => ({
+					configPath: rebase(worker.configPath),
+				}));
+				mkdirSync(to, { recursive: true });
+				writeFileSync(join(to, "config.json"), JSON.stringify(config));
+			},
+		},
+	};
+}
 
 /**
  * Builds service-worker/sw.ts into /sw.js, with the list of files it keeps so that Track can
@@ -78,7 +114,7 @@ function serviceWorker(): Plugin {
 /** The names (never the values) of the keys .dev.vars sets to something. */
 function devVarsKeys(): Set<string> {
 	try {
-		const text = readFileSync(new URL(".dev.vars", import.meta.url), "utf8");
+		const text = readFileSync(new URL("../../.dev.vars", import.meta.url), "utf8");
 		return new Set(
 			[...text.matchAll(/^\s*([A-Z0-9_]+)\s*=\s*\S/gm)].map((match) => match[1] ?? ""),
 		);

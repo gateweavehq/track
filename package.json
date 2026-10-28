@@ -13,6 +13,8 @@
 		"dev:seed": "pnpm --filter @gateweave/track-web dev:seed",
 		"doctor": "node scripts/doctor.mjs",
 		"build": "pnpm -r build",
+		"deploy": "pnpm --filter @gateweave/track-web run deploy",
+		"wrangler": "pnpm --filter @gateweave/track-web exec wrangler --cwd ../..",
 		"typecheck": "pnpm -r typecheck",
 		"test": "pnpm -r test",
 		"check": "biome check",
@@ -22,5 +24,15 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.6.3",
 		"typescript": "catalog:"
+	},
+	"cloudflare": {
+		"bindings": {
+			"DB": {
+				"description": "Holds accounts, sessions and the list of workspaces. Choose **Create new** unless you are moving an existing Track."
+			},
+			"BETTER_AUTH_SECRET": {
+				"description": "Signs sessions. Use a long random string, for example from `openssl rand -base64 32`, and keep it secret."
+			}
+		}
 	}
 }

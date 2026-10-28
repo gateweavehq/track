@@ -1,14 +1,16 @@
+// Track deploys from the repository root, where the "Deploy to Cloudflare" button looks for this
+// file; the app itself lives in apps/web, which runs Wrangler and Vite against it.
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
+	"$schema": "apps/web/node_modules/wrangler/config-schema.json",
 	"name": "gateweave-track",
-	"main": "src/server.ts",
+	"main": "apps/web/src/server.ts",
 	"compatibility_date": "2026-10-01",
 	"compatibility_flags": ["nodejs_compat"],
 	"observability": { "enabled": true },
 	"upload_source_maps": true,
 	// Workspace directory and auth. The database is provisioned on first deploy.
 	"d1_databases": [
-		{ "binding": "DB", "database_name": "gateweave-track", "migrations_dir": "migrations" }
+		{ "binding": "DB", "database_name": "gateweave-track", "migrations_dir": "apps/web/migrations" }
 	],
 	// One Durable Object per workspace holds its issues and serves realtime sync.
 	"durable_objects": {
@@ -32,7 +34,7 @@
 				{
 					"binding": "DB",
 					"database_name": "gateweave-track-staging",
-					"migrations_dir": "migrations"
+					"migrations_dir": "apps/web/migrations"
 				}
 			],
 			"durable_objects": {

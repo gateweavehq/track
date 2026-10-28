@@ -14,6 +14,6 @@
 <!-- Delete what does not apply. -->
 
 - [ ] Bumps `PROTOCOL_VERSION` (clients reload and re-sync)
-- [ ] Adds a D1 migration (`pnpm --filter @gateweave/track-web db:migrate:remote` on deploy)
+- [ ] Adds a D1 migration (`pnpm run deploy` applies it before the new code goes live)
 - [ ] Adds a Durable Object migration (runs on its own when each workspace wakes)
-- [ ] Adds an environment variable or secret (documented in `.dev.vars.example`)
+- [ ] Adds an environment variable or secret (in `.dev.vars.example` and `docs/self-hosting.md`)

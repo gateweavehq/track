@@ -52,9 +52,9 @@ The D1 schema is generated from the Better Auth configuration
    ```sh
    pnpm --filter @gateweave/track-web db:migrate:local
    ```
-4. Production migrations are applied with `pnpm --filter @gateweave/track-web db:migrate:remote`. Note in
-   the pull request that a deploy needs it, and whether old code can run against the new schema
-   during the rollout.
+4. Deploys apply D1 migrations before the new code goes live (`apps/web/scripts/deploy.mjs`), for
+   Gateweave Cloud and self-hosters alike. Old code still runs against the new schema until the
+   deploy finishes, so say in the pull request whether it can.
 
 ## Verify
 

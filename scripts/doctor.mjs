@@ -59,11 +59,16 @@ console.log("\nProject");
 if (existsSync(join(root, "node_modules", ".pnpm"))) pass("Dependencies installed");
 else fail("Dependencies are not installed", "Run: pnpm install");
 
-const devVars = join(web, ".dev.vars");
+const devVars = join(root, ".dev.vars");
 const hasSecret =
 	existsSync(devVars) && /^BETTER_AUTH_SECRET=\S+/m.test(readFileSync(devVars, "utf8"));
-if (hasSecret) pass("apps/web/.dev.vars has BETTER_AUTH_SECRET");
-else fail("apps/web/.dev.vars is missing or has no BETTER_AUTH_SECRET", "Run: pnpm dev:setup");
+if (hasSecret) pass(".dev.vars has BETTER_AUTH_SECRET");
+else if (existsSync(join(web, ".dev.vars"))) {
+	fail(
+		".dev.vars is still in apps/web; it now lives at the repository root",
+		"Run: pnpm dev:setup",
+	);
+} else fail(".dev.vars is missing or has no BETTER_AUTH_SECRET", "Run: pnpm dev:setup");
 
 const d1 = join(web, ".wrangler", "state", "v3", "d1");
 const migrated =

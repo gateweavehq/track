@@ -39,14 +39,14 @@ Requirements: Node.js 24 (22+ works) and pnpm 12.
 ```sh
 pnpm install
 pnpm doctor      # checks your toolchain and setup, and explains how to fix anything missing
-pnpm dev:setup   # creates apps/web/.dev.vars with a random secret, migrates the local database
+pnpm dev:setup   # creates .dev.vars with a random secret, migrates the local database
 pnpm dev         # http://localhost:4710
 pnpm dev:seed    # in a second terminal: a sample workspace with people, teams and issues
 ```
 
 The seed prints the sample accounts to sign in with. You can also sign up with any email and
-password and create a workspace from scratch. To enable "Sign in with GitHub", fill in
-`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `apps/web/.dev.vars`.
+password and create a workspace from scratch. To enable "Sign in with GitHub", uncomment and
+fill in `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.dev.vars`.
 
 ## Connect an AI agent
 
@@ -62,8 +62,9 @@ claude mcp add --transport http gateweave-track https://track.gateweave.com/mcp
 ```
 
 Then run `/mcp` in Claude Code to sign in. Other MCP clients take the same URL. The endpoint is
-on wherever `BETTER_AUTH_URL` is set (see [Deploying](#deploying)). Locally, set it to
-`http://localhost:4710` in `apps/web/.dev.vars` and connect to `http://localhost:4710/mcp`.
+on wherever `BETTER_AUTH_URL` is set (see [self-hosting](docs/self-hosting.md#ai-agents-mcp)).
+Locally, set it to `http://localhost:4710` in `.dev.vars` and connect to
+`http://localhost:4710/mcp`.
 
 ## Scripts
 
@@ -81,55 +82,23 @@ on wherever `BETTER_AUTH_URL` is set (see [Deploying](#deploying)). Locally, set
 
 ## Deploying
 
-`apps/web/wrangler.jsonc` describes two environments, each a separate Worker with its own D1
-database and workspaces: production at the top level (`gateweave-track`) and `staging`
-(`gateweave-track-staging`). From `apps/web`, signed in with `npx wrangler login`:
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/gateweavehq/track)
+
+The button copies Track to your GitHub or GitLab account, creates the database, and deploys it
+to your Cloudflare account; every push to your copy deploys again. From the command line:
 
 ```sh
-pnpm run deploy              # production: builds, then deploys
-pnpm db:migrate:remote
-pnpm deploy:staging          # staging: builds with `--mode staging`, then deploys
-pnpm db:migrate:staging
+pnpm wrangler login
+pnpm run deploy    # builds, applies D1 migrations, deploys
 ```
 
-The first deploy of an environment provisions its D1 database and Durable Object, so run the
-migrations after it. Then set the session secret once (`openssl rand -base64 32` makes one):
-
-```sh
-npx wrangler secret put BETTER_AUTH_SECRET                  # production
-npx wrangler secret put BETTER_AUTH_SECRET --env staging    # staging
-```
-
-From then on, apply migrations before deploying, so new code never meets an old schema.
+A free Cloudflare account is enough. [docs/self-hosting.md](docs/self-hosting.md) covers both
+ways, your own domain, AI agents, GitHub sign-in, email and updating.
 
 Gateweave Cloud deploys itself from GitHub Actions (`.github/workflows/deploy.yml`): every green
-build of `main` goes to staging, and publishing a release deploys that tag to production. Forks
-skip those jobs.
-
-Each Worker answers on its `workers.dev` address. To serve Track on your own domain, add a custom
-domain to the Worker in the Cloudflare dashboard (Workers & Pages → the Worker → Settings →
-Domains & Routes), or add `"routes": [{ "pattern": "track.example.com", "custom_domain": true }]`
-to your copy of `wrangler.jsonc`. Auth works on any domain the Worker serves. To turn on the MCP
-endpoint for AI agents, pin the URL people use, because agents' tokens are bound to it:
-
-```sh
-npx wrangler secret put BETTER_AUTH_URL    # for example https://track.example.com
-```
-
-Email is optional. Without it, admins send invitation links themselves and nobody can reset a
-password. To turn it on:
-
-1. Onboard a domain to [Cloudflare Email Sending](https://developers.cloudflare.com/email-service/).
-   Sending to any address requires the Workers Paid plan.
-2. Name the sender:
-
-```sh
-npx wrangler email sending enable example.com
-npx wrangler secret put EMAIL_FROM    # for example: Gateweave Track <track@example.com>
-```
-
-Track then emails password-reset links, verification links and invitations, using the `EMAIL`
-binding in `wrangler.jsonc`. With email on, joining a workspace requires a verified address.
+build of `main` goes to staging (`pnpm deploy:staging`, the `staging` environment in
+`wrangler.jsonc`), and publishing a release deploys that tag to production. Forks skip those
+jobs.
 
 ## Project structure
 
@@ -138,8 +107,9 @@ apps/web               The Worker: UI, auth, sync and MCP gateways, D1 schema
 packages/protocol      Wire contract shared by client and server
 packages/sync-server   WorkspaceDO: storage, mutations, realtime fan-out
 packages/sync-client   Browser replica: local cache, optimistic edits, one connection per browser
-docs/                  Architecture, roadmap and ecosystem notes
+docs/                  Architecture, roadmap, self-hosting and ecosystem notes
 scripts/               Repository tooling
+wrangler.jsonc         The Worker's Cloudflare configuration, at the root for the Deploy button
 ```
 
 Read [docs/architecture.md](docs/architecture.md) for how sync, auth and storage fit together, and
