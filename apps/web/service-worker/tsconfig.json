@@ -1,0 +1,8 @@
+{
+	"extends": "../../../tsconfig.base.json",
+	"compilerOptions": {
+		// A worker, not a page: no DOM, and `self` is the worker's global scope.
+		"lib": ["ES2024", "WebWorker"]
+	},
+	"include": ["sw.ts"]
+}

@@ -1,4 +1,3 @@
-import { deleteIdbReplicas } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
@@ -29,6 +28,7 @@ import { Kbd } from "#/components/ui/kbd";
 import { authClient } from "#/lib/auth-client";
 import { MOD_LABEL } from "#/lib/hotkeys";
 import { useMembersById, useTeams } from "#/lib/queries";
+import { forgetEverything } from "#/lib/replica";
 import { cn } from "#/lib/utils";
 import { isAdmin, useMyRole, useWorkspace, useWorkspaceActions } from "./context";
 import { SyncBadge } from "./sync-status";
@@ -201,7 +201,7 @@ function WorkspaceMenu() {
 		await client.close();
 		await authClient.signOut();
 		// Workspace replicas are cached per user; leave nothing behind on a shared device.
-		await deleteIdbReplicas().catch(() => {});
+		await forgetEverything();
 		await navigate({ to: "/login" });
 	}
 

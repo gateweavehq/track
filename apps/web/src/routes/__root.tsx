@@ -1,10 +1,11 @@
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import { createRootRoute, HeadContent, Link, Scripts } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { Button } from "#/components/ui/button";
 import { Toaster } from "#/components/ui/sonner";
 import { Notice } from "#/components/workspace/notice";
+import { registerServiceWorker } from "#/lib/service-worker";
 import appCss from "../styles.css?url";
 
 export const Route = createRootRoute({
@@ -31,6 +32,8 @@ export const Route = createRootRoute({
 });
 
 function RootDocument({ children }: { children: ReactNode }) {
+	useEffect(registerServiceWorker, []);
+
 	return (
 		<html lang="en">
 			<head>

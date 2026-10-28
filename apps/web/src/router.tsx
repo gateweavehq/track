@@ -1,4 +1,5 @@
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
+import { RouteError } from "./components/route-error";
 import { routeTree } from "./routeTree.gen";
 
 export function getRouter() {
@@ -10,6 +11,7 @@ export function getRouter() {
 		// Unknown URLs get the full-page "not found". The default renders it inside the deepest
 		// layout that matched, which would run the workspace shell without its data.
 		notFoundMode: "root",
+		defaultErrorComponent: RouteError,
 	});
 
 	return router;

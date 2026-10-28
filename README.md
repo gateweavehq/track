@@ -16,8 +16,9 @@ Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
 ## Highlights
 
 - **Realtime by default.** Changes stream over WebSockets to every open client.
-- **Instant and offline-ready.** The app opens from a local IndexedDB copy and shows edits
-  before the server confirms them. Edits made offline are kept and sent on reconnect.
+- **Local-first and offline-ready.** The app opens from a local IndexedDB copy, even with no
+  connection, and shows edits before the server confirms them. Edits made offline are kept and
+  sent on reconnect.
   Concurrent edits merge per field instead of overwriting each other.
 - **Cloudflare-native.** Workers, Durable Objects with SQLite, and D1. No servers, containers or
   external databases.

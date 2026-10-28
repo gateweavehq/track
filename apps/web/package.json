@@ -13,7 +13,7 @@
 		"deploy": "vite build && wrangler deploy",
 		"deploy:staging": "vite build --mode staging && wrangler deploy",
 		"typegen": "wrangler types && tsr generate",
-		"typecheck": "wrangler types && tsr generate && tsc && tsc -p scripts && tsc -p test",
+		"typecheck": "wrangler types && tsr generate && tsc && tsc -p scripts && tsc -p test && tsc -p service-worker",
 		"test": "vitest run",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate:local": "wrangler d1 migrations apply DB --local",
