@@ -6,6 +6,7 @@ import {
 	type HelloMessage,
 	ISSUE_STATUSES,
 	type Issue,
+	isAdminRole,
 	MEMBER_ROLES,
 	mutationSchema,
 	type Op,
@@ -15,14 +16,18 @@ import {
 	type RejectReason,
 	type ServerMessage,
 	type Snapshot,
+	type Webhook,
+	type WebhookInput,
+	type WebhookPatch,
 } from "@gateweave/track-protocol";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { z } from "zod";
 import migrations from "../drizzle/migrations";
 import * as schema from "./db/schema";
 import { compact, currentVersion, oplogFloor, opsSince, type RetentionPolicy } from "./log";
-import { applyMutation, MutationRejected } from "./mutations";
+import { applyMutation } from "./mutations";
 import {
 	type Directory,
 	findComments,
@@ -34,6 +39,7 @@ import {
 	MAX_QUERY_LIMIT,
 	readDirectory,
 } from "./queries";
+import { MutationRejected } from "./rejected";
 import {
 	activeMember,
 	type Db,
@@ -42,6 +48,22 @@ import {
 	removeMember,
 	upsertMember,
 } from "./state";
+import {
+	createWebhook,
+	deleteWebhook,
+	deliverDue,
+	listWebhooks,
+	nextDeliveryAt,
+	pruneDeliveries,
+	queueTest,
+	renameLink,
+	rotateSecret,
+	saveLink,
+	type Transact,
+	updateWebhook,
+	type WebhookList,
+	type WorkspaceLink,
+} from "./webhooks";
 
 /**
  * Header carrying the verified member on socket requests. The Durable Object is only reachable
@@ -51,6 +73,8 @@ export const MEMBER_HEADER = "x-track-member";
 
 export const RETENTION: RetentionPolicy = { minOps: 10_000, minAgeMs: 30 * 24 * 60 * 60 * 1000 };
 const COMPACTION_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/** When compaction is next due. The alarm also sends webhooks, so it runs more often than that. */
+const COMPACTION_DUE_KEY = "compaction_due";
 const OPS_PAGE_SIZE = 500;
 
 const memberProfile = z.object({
@@ -75,6 +99,11 @@ const issueQuery = z.object({
 /** The outcome of {@link WorkspaceDO.mutate}, mirroring a socket client's ack or reject. */
 export type MutateResult =
 	| { ok: true; version: number }
+	| { ok: false; reason: RejectReason; message: string };
+
+/** The outcome of managing webhooks, which only admins may do. */
+export type WebhookResult<T> =
+	| { ok: true; value: T }
 	| { ok: false; reason: RejectReason; message: string };
 
 /** Per-socket state. Stored as an attachment so it survives hibernation. */
@@ -179,6 +208,65 @@ export class WorkspaceDO extends DurableObject {
 		}
 	}
 
+	// RPC for webhook settings. The gateway passes the verified member, as for `mutate`, and the
+	// workspace's current link, since only the gateway knows the slug and the app's origin.
+
+	/** The workspace's webhooks and their latest deliveries. */
+	webhooks(member: MemberProfile): WebhookResult<WebhookList> {
+		return this.#manage(member, () => listWebhooks(this.#db));
+	}
+
+	/** Adds a webhook. Its secret is in the result, and never again. */
+	createWebhook(
+		member: MemberProfile,
+		link: WorkspaceLink,
+		input: WebhookInput,
+	): WebhookResult<{ webhook: Webhook; secret: string }> {
+		return this.#manage(member, () => {
+			saveLink(this.#db, link);
+			return createWebhook(this.#db, link, input, Date.now());
+		});
+	}
+
+	updateWebhook(
+		member: MemberProfile,
+		link: WorkspaceLink,
+		id: string,
+		patch: WebhookPatch,
+	): WebhookResult<Webhook> {
+		return this.#manage(member, () => {
+			saveLink(this.#db, link);
+			return updateWebhook(this.#db, link, shortId.parse(id), patch, Date.now());
+		});
+	}
+
+	deleteWebhook(member: MemberProfile, id: string): WebhookResult<null> {
+		return this.#manage(member, () => {
+			deleteWebhook(this.#db, shortId.parse(id));
+			return null;
+		});
+	}
+
+	rotateWebhookSecret(member: MemberProfile, id: string): WebhookResult<string> {
+		return this.#manage(member, () => rotateSecret(this.#db, shortId.parse(id), Date.now()));
+	}
+
+	/** Sends the webhook a `webhook.test` event. */
+	testWebhook(member: MemberProfile, link: WorkspaceLink, id: string): WebhookResult<null> {
+		const result = this.#manage(member, () => {
+			saveLink(this.#db, link);
+			queueTest(this.#db, shortId.parse(id), Date.now());
+			return null;
+		});
+		if (result.ok) this.#deliverSoon();
+		return result;
+	}
+
+	/** Follows a change of the workspace's slug, so webhook payloads link to the right place. */
+	relink(slug: string): void {
+		this.ctx.storage.transactionSync(() => renameLink(this.#db, z.string().min(1).parse(slug)));
+	}
+
 	/** Permanently deletes the workspace's data. Called after the workspace itself is deleted. */
 	async destroy(): Promise<void> {
 		for (const ws of this.ctx.getWebSockets()) ws.close(CloseCode.Forbidden, "Workspace deleted");
@@ -232,9 +320,27 @@ export class WorkspaceDO extends DurableObject {
 		}
 	}
 
+	/** Compacts the log when that is due, and sends the webhook deliveries that are. */
 	override async alarm(): Promise<void> {
-		this.ctx.storage.transactionSync(() => compact(this.#db, Date.now(), RETENTION));
-		await this.ctx.storage.setAlarm(Date.now() + COMPACTION_INTERVAL_MS);
+		const now = Date.now();
+		if (now >= this.#compactionDue()) {
+			this.ctx.storage.transactionSync(() => {
+				compact(this.#db, now, RETENTION);
+				pruneDeliveries(this.#db, now);
+				const value = String(now + COMPACTION_INTERVAL_MS);
+				this.#db
+					.insert(schema.meta)
+					.values({ key: COMPACTION_DUE_KEY, value })
+					.onConflictDoUpdate({ target: schema.meta.key, set: { value } })
+					.run();
+			});
+		}
+		const transact: Transact = (fn) => this.ctx.storage.transactionSync(fn);
+		const more = await deliverDue(this.#db, transact);
+		const next = more
+			? Date.now()
+			: Math.min(this.#compactionDue(), nextDeliveryAt(this.#db) ?? Number.POSITIVE_INFINITY);
+		await this.ctx.storage.setAlarm(next);
 	}
 
 	// Message handlers. Each runs synchronously, so no other event can interleave with it.
@@ -296,9 +402,47 @@ export class WorkspaceDO extends DurableObject {
 		}
 	}
 
+	/** Runs an admin's webhook change in a transaction. Anyone else is refused. */
+	#manage<T>(member: MemberProfile, fn: () => T): WebhookResult<T> {
+		const profile = memberProfile.parse(member);
+		this.#write(() => upsertMember(this.#db, profile, Date.now()));
+		const row = activeMember(this.#db, profile.id);
+		if (!row || !isAdminRole(row.role)) {
+			return {
+				ok: false,
+				reason: "forbidden",
+				message: "Only workspace admins can manage webhooks",
+			};
+		}
+		try {
+			return { ok: true, value: this.ctx.storage.transactionSync(fn) };
+		} catch (error) {
+			if (!(error instanceof MutationRejected)) throw error;
+			return { ok: false, reason: error.reason, message: error.message };
+		}
+	}
+
+	/** Has the alarm send queued deliveries now, rather than at its next scheduled run. */
+	#deliverSoon(): void {
+		this.ctx.storage.setAlarm(Date.now()).catch((error) => {
+			console.error("webhooks: could not schedule delivery", error);
+		});
+	}
+
+	/** Workspaces made before this key existed scheduled compaction without it: due now. */
+	#compactionDue(): number {
+		const row = this.#db
+			.select()
+			.from(schema.meta)
+			.where(eq(schema.meta.key, COMPACTION_DUE_KEY))
+			.get();
+		return row ? Number(row.value) : 0;
+	}
+
 	/** Runs a write in a transaction, then broadcasts its ops to every live socket. */
-	#write<T extends { ops: Op[] }>(fn: () => T): T {
+	#write<T extends { ops: Op[]; queued?: number }>(fn: () => T): T {
 		const result = this.ctx.storage.transactionSync(fn);
+		if (result.queued) this.#deliverSoon();
 		if (result.ops.length > 0) {
 			const payload = JSON.stringify({ type: "delta", ops: result.ops } satisfies ServerMessage);
 			for (const ws of this.ctx.getWebSockets()) {

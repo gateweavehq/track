@@ -1,0 +1,523 @@
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import type {
+	MutationInput,
+	WebhookDelivery,
+	WebhookInput,
+	WebhookPayload,
+} from "@gateweave/track-protocol";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/durable-sqlite";
+import { Webhook as Verifier } from "standardwebhooks";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { MemberProfile, WebhookResult, WorkspaceLink } from "../src";
+import * as schema from "../src/db/schema";
+import { RETRY_DELAYS_MS } from "../src/webhooks";
+import { freshWorkspace, type Workspace } from "./client";
+
+const owner: MemberProfile = {
+	id: "user-owner",
+	name: "Olivia Owner",
+	email: "olivia@example.com",
+	image: null,
+	role: "owner",
+};
+const alice: MemberProfile = { ...owner, id: "user-alice", name: "Alice", role: "member" };
+const triage: MemberProfile = {
+	...owner,
+	id: "agent-triage",
+	name: "Triage",
+	email: "triage@agents.invalid",
+	role: "agent",
+};
+
+const link: WorkspaceLink = { id: "ws-acme", slug: "acme", origin: "https://track.test" };
+const HOOK_URL = "https://hooks.test/track";
+
+interface Received {
+	url: string;
+	headers: Record<string, string>;
+	body: string;
+}
+
+afterEach(() => {
+	vi.restoreAllMocks();
+});
+
+/** Stands in for every receiver. Deliveries come from the Durable Object, in this isolate. */
+function receiver(status: (count: number) => number = () => 204): Received[] {
+	const received: Received[] = [];
+	vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+		const request = new Request(input, init);
+		received.push({
+			url: request.url,
+			headers: Object.fromEntries(request.headers),
+			body: await request.text(),
+		});
+		return new Response(null, { status: status(received.length) });
+	});
+	return received;
+}
+
+function ok<T>(result: WebhookResult<T>): T {
+	if (!result.ok) throw new Error(`${result.reason}: ${result.message}`);
+	return result.value;
+}
+
+async function workspaceWithTeams() {
+	const workspace = freshWorkspace();
+	await mutate(workspace, owner, {
+		name: "team.create",
+		args: { id: "team-eng", key: "ENG", name: "Engineering" },
+	});
+	await mutate(workspace, owner, {
+		name: "team.create",
+		args: { id: "team-ops", key: "OPS", name: "Operations" },
+	});
+	return workspace;
+}
+
+async function mutate(
+	workspace: Workspace,
+	member: MemberProfile,
+	mutation: MutationInput,
+	id = crypto.randomUUID(),
+) {
+	const result = await workspace.mutate(member, `client-${member.id}`, id, mutation);
+	if (!result.ok) throw new Error(`${result.reason}: ${result.message}`);
+	return result.version;
+}
+
+async function createHook(workspace: Workspace, input: Partial<WebhookInput> = {}) {
+	return ok(
+		await workspace.createWebhook(owner, link, {
+			url: HOOK_URL,
+			events: ["issue.created", "issue.updated", "comment.created"],
+			teamId: null,
+			agentId: null,
+			...input,
+		}),
+	);
+}
+
+function createIssue(workspace: Workspace, member: MemberProfile, id: string, teamId = "team-eng") {
+	return mutate(workspace, member, {
+		name: "issue.create",
+		args: { id, teamId, title: `Issue ${id}`, sortOrder: "a0" },
+	});
+}
+
+async function deliveries(workspace: Workspace): Promise<WebhookDelivery[]> {
+	return ok(await workspace.webhooks(owner)).deliveries;
+}
+
+/** Runs the alarm until nothing is due now, the way it runs itself after each change. */
+async function deliver(workspace: Workspace) {
+	for (let round = 0; round < 10; round++) {
+		await runDurableObjectAlarm(workspace);
+		const due = (await deliveries(workspace)).some(
+			(delivery) =>
+				delivery.status === "pending" &&
+				delivery.nextAttemptAt !== null &&
+				delivery.nextAttemptAt <= Date.now(),
+		);
+		if (!due) return;
+	}
+	throw new Error("Deliveries kept coming due");
+}
+
+/** Makes every waiting retry due, rather than waiting for its backoff. */
+async function skipBackoff(workspace: Workspace) {
+	await runInDurableObject(workspace, (_, state) => {
+		drizzle(state.storage, { schema })
+			.update(schema.webhookDeliveries)
+			.set({ nextAttemptAt: 0 })
+			.where(eq(schema.webhookDeliveries.status, "pending"))
+			.run();
+	});
+}
+
+function payloadOf(request: Received | undefined): WebhookPayload {
+	if (!request) throw new Error("Nothing was delivered");
+	return JSON.parse(request.body) as WebhookPayload;
+}
+
+describe("delivery", () => {
+	it("signs each event so a Standard Webhooks receiver verifies it", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		const { secret } = await createHook(workspace);
+
+		const version = await createIssue(workspace, owner, "issue-1");
+		await deliver(workspace);
+
+		expect(received).toHaveLength(1);
+		const [request] = received;
+		expect(request?.url).toBe(HOOK_URL);
+		expect(request?.headers["content-type"]).toBe("application/json");
+		const verified = new Verifier(secret).verify(request?.body ?? "", request?.headers ?? {});
+		expect(verified).toEqual(payloadOf(request));
+		expect(payloadOf(request)).toMatchObject({
+			type: "issue.created",
+			data: {
+				workspace: { id: link.id, slug: link.slug },
+				version,
+				actor: { id: owner.id, name: owner.name, type: "person" },
+				issue: {
+					id: "issue-1",
+					key: "ENG-1",
+					title: "Issue issue-1",
+					url: "https://track.test/acme/issue/ENG-1",
+				},
+			},
+		});
+		const [delivery] = await deliveries(workspace);
+		expect(delivery).toMatchObject({
+			id: request?.headers["webhook-id"],
+			event: "issue.created",
+			status: "delivered",
+			attempts: 1,
+			responseStatus: 204,
+		});
+	});
+
+	it("fails verification with another secret", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		const hook = await createHook(workspace);
+		const rotated = ok(await workspace.rotateWebhookSecret(owner, hook.webhook.id));
+
+		await createIssue(workspace, owner, "issue-1");
+		await deliver(workspace);
+
+		const [request] = received;
+		expect(() =>
+			new Verifier(hook.secret).verify(request?.body ?? "", request?.headers ?? {}),
+		).toThrow();
+		expect(new Verifier(rotated).verify(request?.body ?? "", request?.headers ?? {})).toBeTruthy();
+	});
+
+	it("says what an update changed, and leaves out reordering", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await createIssue(workspace, owner, "issue-1");
+		await createHook(workspace, { events: ["issue.updated"] });
+
+		await mutate(workspace, owner, {
+			name: "issue.update",
+			args: { id: "issue-1", baseVersion: 0, patch: { status: "in_progress", sortOrder: "b0" } },
+		});
+		await mutate(workspace, owner, {
+			name: "issue.update",
+			args: { id: "issue-1", baseVersion: 0, patch: { sortOrder: "c0" } },
+		});
+		await mutate(workspace, owner, {
+			name: "label.create",
+			args: { id: "label-bug", name: "Bug", color: "#ff0000" },
+		});
+		await mutate(workspace, owner, {
+			name: "issue.addLabel",
+			args: { id: "issue-1", labelId: "label-bug" },
+		});
+		await deliver(workspace);
+
+		expect(received.map((request) => payloadOf(request).data)).toMatchObject([
+			{ issue: { status: "in_progress" }, updatedFrom: { status: "backlog" } },
+			{ issue: { labelIds: ["label-bug"] }, updatedFrom: { labelIds: [] } },
+		]);
+		const [first] = received;
+		const data = payloadOf(first).data;
+		expect("updatedFrom" in data && Object.keys(data.updatedFrom)).toEqual(["status"]);
+	});
+
+	it("sends comments with their issue", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await createIssue(workspace, owner, "issue-1");
+		await createHook(workspace, { events: ["comment.created", "comment.deleted"] });
+
+		await mutate(workspace, alice, {
+			name: "comment.create",
+			args: { id: "comment-1", issueId: "issue-1", body: "On it" },
+		});
+		await mutate(workspace, alice, { name: "comment.delete", args: { id: "comment-1" } });
+		await deliver(workspace);
+
+		expect(received.map(payloadOf)).toMatchObject([
+			{
+				type: "comment.created",
+				data: {
+					actor: { id: alice.id },
+					comment: { id: "comment-1", body: "On it" },
+					issue: { key: "ENG-1" },
+				},
+			},
+			{ type: "comment.deleted", data: { comment: { id: "comment-1" } } },
+		]);
+	});
+
+	it("retries a failed delivery with backoff, then gives up", async () => {
+		const received = receiver(() => 503);
+		const workspace = await workspaceWithTeams();
+		await createHook(workspace);
+		await createIssue(workspace, owner, "issue-1");
+
+		await deliver(workspace);
+		const [failed] = await deliveries(workspace);
+		expect(failed).toMatchObject({ status: "pending", attempts: 1, responseStatus: 503 });
+		expect((failed?.nextAttemptAt ?? 0) - (failed?.updatedAt ?? 0)).toBe(RETRY_DELAYS_MS[0]);
+
+		for (const _ of RETRY_DELAYS_MS) {
+			await skipBackoff(workspace);
+			await deliver(workspace);
+		}
+		expect(received).toHaveLength(RETRY_DELAYS_MS.length + 1);
+		// Each retry carries the same id, so a receiver can tell a retry from a new event.
+		expect(new Set(received.map((request) => request.headers["webhook-id"])).size).toBe(1);
+		expect(await deliveries(workspace)).toMatchObject([
+			{
+				status: "failed",
+				attempts: RETRY_DELAYS_MS.length + 1,
+				nextAttemptAt: null,
+				error: "The receiver answered 503",
+			},
+		]);
+	});
+
+	it("delivers on a retry once the receiver is back", async () => {
+		receiver((count) => (count === 1 ? 500 : 200));
+		const workspace = await workspaceWithTeams();
+		await createHook(workspace);
+		await createIssue(workspace, owner, "issue-1");
+
+		await deliver(workspace);
+		await skipBackoff(workspace);
+		await deliver(workspace);
+
+		expect(await deliveries(workspace)).toMatchObject([
+			{ status: "delivered", attempts: 2, responseStatus: 200, error: null },
+		]);
+	});
+
+	it("counts an unreachable receiver as a failure", async () => {
+		vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Network connection lost"));
+		const workspace = await workspaceWithTeams();
+		await createHook(workspace);
+		await createIssue(workspace, owner, "issue-1");
+
+		await deliver(workspace);
+
+		expect(await deliveries(workspace)).toMatchObject([
+			{
+				status: "pending",
+				attempts: 1,
+				responseStatus: null,
+				error: "Could not reach the receiver: Network connection lost",
+			},
+		]);
+	});
+
+	it("queues nothing for a rejected or repeated mutation", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await createHook(workspace);
+
+		await createIssue(workspace, owner, "issue-1");
+		const repeated = await workspace.mutate(owner, `client-${owner.id}`, "same-id", {
+			name: "issue.create",
+			args: { id: "issue-2", teamId: "team-eng", title: "Once", sortOrder: "a1" },
+		});
+		await workspace.mutate(owner, `client-${owner.id}`, "same-id", {
+			name: "issue.create",
+			args: { id: "issue-2", teamId: "team-eng", title: "Once", sortOrder: "a1" },
+		});
+		const rejected = await workspace.mutate(owner, `client-${owner.id}`, "other-id", {
+			name: "issue.create",
+			args: { id: "issue-3", teamId: "team-missing", title: "Nowhere", sortOrder: "a2" },
+		});
+		await deliver(workspace);
+
+		expect(repeated.ok).toBe(true);
+		expect(rejected.ok).toBe(false);
+		expect(received.map((request) => payloadOf(request).data)).toMatchObject([
+			{ issue: { id: "issue-1" } },
+			{ issue: { id: "issue-2" } },
+		]);
+	});
+});
+
+describe("filters", () => {
+	it("does not send an agent's own changes to its webhook", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await workspace.syncMember(triage);
+		const forTriage = await createHook(workspace, { agentId: triage.id });
+		const forEveryone = await createHook(workspace, { url: "https://other.test/track" });
+
+		await createIssue(workspace, triage, "by-agent");
+		await createIssue(workspace, alice, "by-person");
+		await deliver(workspace);
+
+		const sent = (await deliveries(workspace)).map((delivery) => delivery.webhookId);
+		expect(sent.filter((id) => id === forTriage.webhook.id)).toHaveLength(1);
+		expect(sent.filter((id) => id === forEveryone.webhook.id)).toHaveLength(2);
+		const toTriage = received.filter((request) => request.url === HOOK_URL).map(payloadOf);
+		expect(toTriage).toMatchObject([{ data: { actor: { id: alice.id, type: "person" } } }]);
+		const fromAgent = received.filter((request) => request.url !== HOOK_URL).map(payloadOf);
+		expect(fromAgent).toContainEqual(
+			expect.objectContaining({
+				data: expect.objectContaining({ actor: { id: triage.id, name: "Triage", type: "agent" } }),
+			}),
+		);
+	});
+
+	it("sends only the events and team a webhook asks for", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await createHook(workspace, { events: ["comment.created"], teamId: "team-eng" });
+
+		await createIssue(workspace, owner, "eng-1", "team-eng");
+		await createIssue(workspace, owner, "ops-1", "team-ops");
+		for (const issueId of ["eng-1", "ops-1"]) {
+			await mutate(workspace, owner, {
+				name: "comment.create",
+				args: { id: `comment-${issueId}`, issueId, body: "Hello" },
+			});
+		}
+		await deliver(workspace);
+
+		expect(received.map(payloadOf)).toMatchObject([
+			{ type: "comment.created", data: { issue: { id: "eng-1" } } },
+		]);
+	});
+
+	it("queues nothing while paused, and drops what was waiting", async () => {
+		const received = receiver(() => 500);
+		const workspace = await workspaceWithTeams();
+		const { webhook } = await createHook(workspace);
+		await createIssue(workspace, owner, "issue-1");
+		await deliver(workspace);
+
+		const paused = ok(await workspace.updateWebhook(owner, link, webhook.id, { active: false }));
+		await createIssue(workspace, owner, "issue-2");
+		await skipBackoff(workspace);
+		await deliver(workspace);
+
+		expect(paused.active).toBe(false);
+		expect(received).toHaveLength(1);
+		expect(await deliveries(workspace)).toMatchObject([
+			{ status: "failed", error: "Webhook paused" },
+		]);
+	});
+});
+
+describe("management", () => {
+	it("is for admins only", async () => {
+		const workspace = await workspaceWithTeams();
+		const { webhook } = await createHook(workspace);
+
+		const attempts = [
+			await workspace.webhooks(alice),
+			await workspace.createWebhook(alice, link, {
+				url: HOOK_URL,
+				events: ["issue.created"],
+				teamId: null,
+				agentId: null,
+			}),
+			await workspace.updateWebhook(alice, link, webhook.id, { active: false }),
+			await workspace.rotateWebhookSecret(alice, webhook.id),
+			await workspace.testWebhook(alice, link, webhook.id),
+			await workspace.deleteWebhook(alice, webhook.id),
+			await workspace.webhooks(triage),
+		];
+		for (const result of attempts) expect(result).toMatchObject({ ok: false, reason: "forbidden" });
+		expect(ok(await workspace.webhooks(owner)).webhooks).toHaveLength(1);
+	});
+
+	it("never shows the secret again", async () => {
+		const workspace = await workspaceWithTeams();
+		const { webhook, secret } = await createHook(workspace);
+
+		expect(secret).toMatch(/^whsec_[A-Za-z0-9+/]{32}$/);
+		expect(webhook.secretStart).toBe(secret.slice(0, 10));
+		expect(JSON.stringify(await workspace.webhooks(owner))).not.toContain(secret);
+	});
+
+	it("refuses URLs and targets it cannot send to", async () => {
+		const workspace = await workspaceWithTeams();
+		const input: WebhookInput = {
+			url: HOOK_URL,
+			events: ["issue.created"],
+			teamId: null,
+			agentId: null,
+		};
+		const refused = async (patch: Partial<WebhookInput>, message: string | RegExp) =>
+			expect(await workspace.createWebhook(owner, link, { ...input, ...patch })).toMatchObject({
+				ok: false,
+				message: expect.stringMatching(message),
+			});
+
+		await refused({ url: "http://hooks.test/track" }, "Use an https URL");
+		await refused({ url: "https://track.test/api/hook" }, "cannot point at Track itself");
+		await refused({ url: "https://user:pass@hooks.test/" }, "user name and password");
+		await refused({ url: "ftp://hooks.test/" }, "http or https URL");
+		await refused({ events: [] }, "at least one event");
+		await refused({ teamId: "team-missing" }, "Team not found");
+		await refused({ agentId: alice.id }, "Agent not found");
+
+		// Local development runs on plain http, and so may its receivers.
+		const local = { ...link, origin: "http://localhost:4710" };
+		expect(
+			await workspace.createWebhook(owner, local, { ...input, url: "http://localhost:9000/hook" }),
+		).toMatchObject({ ok: true });
+	});
+
+	it("allows a limited number of webhooks", async () => {
+		const workspace = await workspaceWithTeams();
+		for (let i = 0; i < 10; i++) await createHook(workspace);
+		expect(
+			await workspace.createWebhook(owner, link, {
+				url: HOOK_URL,
+				events: ["issue.created"],
+				teamId: null,
+				agentId: null,
+			}),
+		).toMatchObject({ ok: false, message: expect.stringContaining("at most 10") });
+	});
+
+	it("sends a test event on request, and deletes with its deliveries", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		const { webhook, secret } = await createHook(workspace, { events: ["issue.deleted"] });
+
+		ok(await workspace.testWebhook(owner, link, webhook.id));
+		await deliver(workspace);
+
+		const [request] = received;
+		expect(new Verifier(secret).verify(request?.body ?? "", request?.headers ?? {})).toMatchObject({
+			type: "webhook.test",
+			data: { workspace: { slug: "acme" }, webhookId: webhook.id },
+		});
+
+		ok(await workspace.deleteWebhook(owner, webhook.id));
+		expect(ok(await workspace.webhooks(owner))).toEqual({ webhooks: [], deliveries: [] });
+		expect(await workspace.deleteWebhook(owner, webhook.id)).toMatchObject({
+			ok: false,
+			reason: "not_found",
+		});
+	});
+
+	it("links issues under the workspace's current slug", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await createHook(workspace);
+
+		await workspace.relink("acme-inc");
+		await createIssue(workspace, owner, "issue-1");
+		await deliver(workspace);
+
+		expect(payloadOf(received[0]).data).toMatchObject({
+			workspace: { slug: "acme-inc" },
+			issue: { url: "https://track.test/acme-inc/issue/ENG-1" },
+		});
+	});
+});
