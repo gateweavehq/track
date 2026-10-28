@@ -56,6 +56,9 @@
 		// shares nothing with production. Self-hosters do not need it (see docs/self-hosting.md).
 		"demo": {
 			"name": "gateweave-track-demo",
+			// Only Gateweave deploys this environment, so its address can live here. With a route,
+			// workers.dev stays off and the demo has one address.
+			"routes": [{ "pattern": "track-demo.gateweave.com", "custom_domain": true }],
 			"vars": { "TRACK_DEMO": "1" },
 			"triggers": { "crons": ["*/10 * * * *"] },
 			"d1_databases": [
