@@ -29,6 +29,8 @@ export default defineConfig(({ command }) => ({
 			// At the repository root, for the "Deploy to Cloudflare" button (see wrangler.jsonc).
 			configPath: "../../wrangler.jsonc",
 			viteEnvironment: { name: "ssr" },
+			// The end-to-end tests keep their data apart from `pnpm dev` (see e2e/server.mjs).
+			persistState: process.env.TRACK_STATE_DIR ? { path: process.env.TRACK_STATE_DIR } : true,
 			config: (config) => {
 				if (command !== "serve") return;
 				const set = devVarsKeys();

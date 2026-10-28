@@ -28,3 +28,30 @@ jobs:
         run: pnpm test
       - name: Build
         run: pnpm build
+
+  # Browser tests against the production build. Separate from `check` because they are slower
+  # and need Chromium.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm --filter @gateweave/track-web exec playwright install --with-deps chromium
+      - name: Build and run the browser tests
+        run: pnpm test:e2e
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7

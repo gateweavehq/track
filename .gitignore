@@ -4,6 +4,8 @@ coverage
 .output
 .wrangler
 .tanstack
+playwright-report
+test-results
 *.tsbuildinfo
 worker-configuration.d.ts
 
