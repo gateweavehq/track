@@ -166,6 +166,17 @@ describe("ranking", () => {
 		]);
 	});
 
+	it("puts the issue whose key was typed in full first", () => {
+		const rows = [
+			issue({ id: "exact", number: 12, title: "x", updatedAt: 1 }),
+			issue({ id: "longer", number: 120, title: "y", updatedAt: 9 }),
+			issue({ id: "titled", number: 3, title: "12 tips", updatedAt: 9 }),
+		];
+		expect(ids(rows, "ENG-12")[0]).toBe("exact");
+		expect(ids(rows, "12")[0]).toBe("exact");
+		expect(ids(rows, "eng")[0]).not.toBe("exact");
+	});
+
 	it("breaks ties by recency", () => {
 		const rows = [
 			issue({ id: "old", title: "bug", updatedAt: 1 }),

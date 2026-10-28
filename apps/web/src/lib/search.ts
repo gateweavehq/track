@@ -99,7 +99,7 @@ export function search(tables: SearchTables, query: string, limit = 20): SearchR
 	const queryTokens = tokenize(query);
 	if (queryTokens.length === 0) return [];
 	const grouped = commentsByIssue(tables.comments);
-	const matches: { issue: Issue; score: number; fields: Field[] }[] = [];
+	const matches: { issue: Issue; score: number; fields: Field[]; exact: boolean }[] = [];
 
 	for (const issue of tables.issues.values()) {
 		const keyTokens = [normalize(tables.teams.get(issue.teamId)?.key ?? "?"), String(issue.number)];
@@ -112,10 +112,21 @@ export function search(tables: SearchTables, query: string, limit = 20): SearchR
 			score += FIELD_WEIGHTS[field];
 			fields.push(field);
 		}
-		if (fields.length === queryTokens.length) matches.push({ issue, score, fields });
+		if (fields.length === queryTokens.length) {
+			// "ENG-12" is a jump to that issue, so it goes above ENG-120 to ENG-129.
+			const exact =
+				queryTokens.length <= 2 &&
+				queryTokens.every((token, at) => token === keyTokens.at(at - queryTokens.length));
+			matches.push({ issue, score, fields, exact });
+		}
 	}
 
-	matches.sort((a, b) => b.score - a.score || b.issue.updatedAt - a.issue.updatedAt);
+	matches.sort(
+		(a, b) =>
+			Number(b.exact) - Number(a.exact) ||
+			b.score - a.score ||
+			b.issue.updatedAt - a.issue.updatedAt,
+	);
 	return matches.slice(0, limit).map(({ issue, score, fields }) => {
 		const result: SearchResult = { issue, score };
 		const at = fields.findIndex((field) => field === "description" || field === "comments");
