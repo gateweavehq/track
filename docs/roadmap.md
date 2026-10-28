@@ -36,23 +36,26 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   invitations sent by email from admins who verified their address. Where email is on, joining a
   workspace requires a verified address, so an invitation link on its own is no longer enough.
   Self-hosters can run without it.
+- **Self-hosting.** A "Deploy to Cloudflare" button, tested from a fresh copy through Workers
+  Builds to a working app, and `pnpm run deploy` for the command line. Both apply D1 migrations
+  before the new code goes live. [self-hosting.md](self-hosting.md) covers domains, agents,
+  GitHub sign-in, email and updating.
+- **End-to-end tests.** Playwright drives Chromium against the production build: sign-up,
+  realtime across tabs and people, and working offline, in CI on every pull request.
+- **Public repository.** The `main` ruleset is enforced and private vulnerability reporting is on.
 
 ## Next: launch readiness
 
-- A verified one-click "Deploy to Cloudflare" and a self-hosting guide.
 - A public demo workspace, filled by the seed script (`pnpm dev:seed`) and reset every night.
-- End-to-end tests with Playwright: real IndexedDB, several tabs, going offline and back.
 - Performance budgets, measured in CI: opening a large workspace from cache, and the time for an
   edit to reach another client.
 
-**Done when** someone who has never seen the project can deploy it to their own Cloudflare
-account in minutes and invite their team.
+**Done when** someone who has never seen the project can try it in a minute, then deploy it to
+their own Cloudflare account and invite their team.
 
 ## Launch
 
-- Make the repository public, with a release and a changelog. Then check that the `main` ruleset
-  is enforced (on GitHub's free organization plan, rulesets apply only to public repositories)
-  and turn on private vulnerability reporting.
+- A first release with a changelog.
 - Show HN, plus a technical write-up of the sync engine: how a Durable Object per workspace, an
   oplog and a local replica make a fast, offline-capable app on serverless infrastructure.
 
