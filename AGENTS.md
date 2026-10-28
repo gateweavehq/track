@@ -21,27 +21,34 @@ Read [docs/architecture.md](docs/architecture.md) before changing sync, auth or 
 | `packages/protocol`    | Wire contract: entities, mutation schemas (zod), messages. No server code |
 | `packages/sync-server` | `WorkspaceDO`: SQLite storage, mutation handlers, oplog, realtime fan-out |
 | `packages/sync-client` | Browser replica: IndexedDB, optimistic mutations, tab leader election     |
-| `docs/`                | Architecture, roadmap and ecosystem notes                                 |
+| `docs/`                | Architecture, roadmap, self-hosting and ecosystem notes                   |
 | `scripts/`             | Repository tooling (`doctor`)                                             |
 | `.claude/skills/`      | Step-by-step playbooks for recurring tasks (plain Markdown, any agent)    |
+| `wrangler.jsonc`       | The Worker's config, at the root because the Deploy button reads it there |
+
+Wrangler commands that use the build output (`deploy`, `versions upload`, `preview`) must run
+from the repository root, where the build leaves its pointer next to `wrangler.jsonc`. Use
+`pnpm wrangler …`, which does that.
 
 ## Commands
 
 Requirements: Node.js 24 (see `.node-version`; 22+ works) and pnpm 12. Run from the repository
 root unless noted.
 
-| Command          | Purpose                                                                      |
-| ---------------- | ---------------------------------------------------------------------------- |
-| `pnpm install`   | Install dependencies                                                         |
-| `pnpm doctor`    | Check the local toolchain and setup, with fixes for anything missing         |
-| `pnpm dev:setup` | One-time: create `apps/web/.dev.vars` and migrate the local D1 database      |
-| `pnpm dev`       | Run the app on http://localhost:4710 (Workers, D1 and Durable Objects local) |
-| `pnpm dev:seed`  | Fill the running app with sample people, teams and issues (`--help`)         |
-| `pnpm check`     | Biome lint and format check (`pnpm format` fixes most findings)              |
-| `pnpm typecheck` | Type-check every package (regenerates Wrangler and route types first)        |
-| `pnpm test`      | Run every test suite                                                         |
-| `pnpm build`     | Production build                                                             |
-| `pnpm verify`    | Everything CI runs: check, typecheck, test, build                            |
+| Command           | Purpose                                                                      |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `pnpm install`    | Install dependencies                                                         |
+| `pnpm doctor`     | Check the local toolchain and setup, with fixes for anything missing         |
+| `pnpm dev:setup`  | One-time: create `.dev.vars` and migrate the local D1 database               |
+| `pnpm dev`        | Run the app on http://localhost:4710 (Workers, D1 and Durable Objects local) |
+| `pnpm dev:seed`   | Fill the running app with sample people, teams and issues (`--help`)         |
+| `pnpm check`      | Biome lint and format check (`pnpm format` fixes most findings)              |
+| `pnpm typecheck`  | Type-check every package (regenerates Wrangler and route types first)        |
+| `pnpm test`       | Run every test suite                                                         |
+| `pnpm build`      | Production build                                                             |
+| `pnpm verify`     | Everything CI runs: check, typecheck, test, build                            |
+| `pnpm run deploy` | Build, apply D1 migrations, deploy (see `docs/self-hosting.md`)              |
+| `pnpm wrangler`   | The pinned Wrangler, run from the repository root                            |
 
 Scope a command to one package with `pnpm --filter <name> <script>`, for example
 `pnpm --filter @gateweave/track-sync-client test`. Run `pnpm verify` before you consider a change

@@ -60,8 +60,7 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Apply D1 migrations
-        run: pnpm --filter @gateweave/track-web db:migrate:remote
+      # Builds, applies D1 migrations, then deploys (apps/web/scripts/deploy.mjs), as self-hosters do.
       # `run` is needed: `pnpm deploy` is a built-in command.
       - name: Deploy
         run: pnpm --filter @gateweave/track-web run deploy
