@@ -55,3 +55,22 @@ jobs:
             apps/web/playwright-report
             apps/web/test-results
           retention-days: 7
+
+  # Performance budgets: a cached open of a 2,000-issue workspace and the time for an edit to
+  # reach another browser. Its own job, so a slow run is easy to tell from a broken test, and so
+  # nothing else shares the runner while it times things. The numbers go to the job summary.
+  perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm --filter @gateweave/track-web exec playwright install --with-deps chromium
+      - name: Build and measure
+        run: pnpm test:perf
