@@ -1,5 +1,6 @@
 import { env, waitUntil } from "cloudflare:workers";
 import { createDb } from "../db";
+import { demoEnabled } from "../demo/mode";
 import { mailer } from "../email";
 import { authRateLimits } from "../rate-limit";
 import { syncMembership, syncUserEverywhere, workspaceStub } from "../workspaces";
@@ -45,7 +46,8 @@ function buildAuth() {
 		onUserUpdated: (userId) => logFailure(syncUserEverywhere(db, userId), "profile sync"),
 		onWorkspaceDeleted: (workspaceId) =>
 			logFailure(workspaceStub(workspaceId).destroy(), "workspace deletion"),
-		mailer,
+		demo: demoEnabled(),
+		mailer: demoEnabled() ? undefined : mailer,
 		runInBackground: waitUntil,
 		rateLimitStorage: authRateLimits,
 	});
@@ -53,7 +55,7 @@ function buildAuth() {
 
 export const githubEnabled = Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
 
-export const emailEnabled = Boolean(mailer);
+export const emailEnabled = Boolean(mailer) && !demoEnabled();
 
 async function logFailure(work: Promise<unknown>, what: string) {
 	try {

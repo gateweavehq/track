@@ -8,6 +8,8 @@ export interface WorkspaceInfo {
 	name: string;
 	userId: string;
 	role: MemberRole;
+	/** True on the public demo, which shows a banner. */
+	demo?: boolean;
 }
 
 const WorkspaceContext = createContext<WorkspaceInfo | null>(null);

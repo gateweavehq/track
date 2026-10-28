@@ -129,6 +129,37 @@ Limits use the generic cell rate algorithm: a burst of `max`, then one every `wi
 seconds, with one timestamp of state per rule. If a `RateLimiter` cannot be reached, the
 isolate counts on its own rather than refuse or allow everyone.
 
+### The public demo
+
+Gateweave runs a public demo as its own deployment: the `demo` environment in `wrangler.jsonc`
+(`pnpm --filter @gateweave/track-web deploy:demo`, with `db:migrate:demo` for its database). It
+is a separate Worker with its own D1 database and Durable Objects, and it shares nothing with
+production. Self-hosters do not need it, and the code stays inert on any deployment where the
+`TRACK_DEMO` variable is not `"1"`: the server function, the cleanup and the sign-in changes all
+check it first. To try it locally, add `TRACK_DEMO=1` to `.dev.vars` and restart `pnpm dev`.
+
+A shared demo account would be vandalized within minutes, so each visitor gets a sandbox:
+
+- The login page offers one button. Pressing it calls the `startDemo` server function
+  (`src/server/demo/start.ts`), which limits each client address to 5 sandboxes an hour and 20 a
+  day, creates a visitor account with Better Auth's server API (a random address under
+  `visitors.example.com`, a password nobody sees), and signs the visitor in.
+- It then creates a workspace named "Acme" through the server API, so the organization hooks
+  sync membership as usual. The visitor owns it. Four sample people (Maya, Sam, Lena, Diego) are
+  members; they are users with no credentials, shared by every sandbox. The sample teams, labels,
+  issues and comments are written through the Durable Object's `mutate` RPC, each as the right
+  person, from the same steps `pnpm dev:seed` uses (`src/server/demo/sample.ts`).
+- In the demo, HTTP requests to sign up, sign in, reset or change a password or email, and
+  delete an account are refused. Only the server creates accounts. Server-side `auth.api` calls
+  carry no `Request`, which is how the hook tells them apart. Email is off.
+- A Cron Trigger runs every 10 minutes (`src/server/demo/cleanup.ts`). It deletes visitors more
+  than a day old: for each of their workspaces it calls `destroy()` on the Durable Object, then
+  deletes the organization row, then the user (sessions, accounts and memberships cascade). The
+  sample people are never selected. Visitors are found by their address, so a failed run leaves
+  what it did not delete for the next one.
+
+Seeding a sandbox makes about 70 Durable Object calls in one request, so the demo needs a Workers
+Paid plan (1,000 subrequests per request).
 ## Request flow and security
 
 The Durable Object has **no public route**. Only the Worker can reach it, through its binding.

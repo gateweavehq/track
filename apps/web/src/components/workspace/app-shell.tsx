@@ -31,10 +31,11 @@ import { useMembersById, useTeams } from "#/lib/queries";
 import { forgetEverything } from "#/lib/replica";
 import { cn } from "#/lib/utils";
 import { isAdmin, useMyRole, useWorkspace, useWorkspaceActions } from "./context";
+import { DemoBanner } from "./demo-banner";
 import { SyncBadge } from "./sync-status";
 
 export function AppShell({ children }: { children: ReactNode }) {
-	const { name } = useWorkspace();
+	const { name, demo } = useWorkspace();
 	const [menuOpen, setMenuOpen] = useState(false);
 	const pathname = useRouterState({ select: (state) => state.location.pathname });
 
@@ -43,36 +44,39 @@ export function AppShell({ children }: { children: ReactNode }) {
 	useEffect(() => setMenuOpen(false), [pathname]);
 
 	return (
-		<div className="flex h-dvh overflow-hidden">
-			{menuOpen && (
-				<button
-					type="button"
-					aria-label="Close menu"
-					className="fixed inset-0 z-30 bg-black/40 md:hidden"
-					onClick={() => setMenuOpen(false)}
-				/>
-			)}
-			<aside
-				className={cn(
-					"fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r bg-background transition-transform md:static md:w-60 md:translate-x-0",
-					menuOpen ? "translate-x-0" : "-translate-x-full",
+		<div className="flex h-dvh flex-col overflow-hidden">
+			{demo && <DemoBanner />}
+			<div className="flex min-h-0 flex-1">
+				{menuOpen && (
+					<button
+						type="button"
+						aria-label="Close menu"
+						className="fixed inset-0 z-30 bg-black/40 md:hidden"
+						onClick={() => setMenuOpen(false)}
+					/>
 				)}
-			>
-				<Sidebar />
-			</aside>
-			<div className="flex min-w-0 flex-1 flex-col">
-				<div className="flex h-12 shrink-0 items-center gap-2 border-b px-2 md:hidden">
-					<Button
-						variant="ghost"
-						size="icon"
-						aria-label="Open menu"
-						onClick={() => setMenuOpen(true)}
-					>
-						<Menu />
-					</Button>
-					<span className="truncate text-sm font-medium">{name}</span>
+				<aside
+					className={cn(
+						"fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r bg-background transition-transform md:static md:w-60 md:translate-x-0",
+						menuOpen ? "translate-x-0" : "-translate-x-full",
+					)}
+				>
+					<Sidebar />
+				</aside>
+				<div className="flex min-w-0 flex-1 flex-col">
+					<div className="flex h-12 shrink-0 items-center gap-2 border-b px-2 md:hidden">
+						<Button
+							variant="ghost"
+							size="icon"
+							aria-label="Open menu"
+							onClick={() => setMenuOpen(true)}
+						>
+							<Menu />
+						</Button>
+						<span className="truncate text-sm font-medium">{name}</span>
+					</div>
+					<main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
 				</div>
-				<main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
 			</div>
 		</div>
 	);

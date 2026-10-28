@@ -22,6 +22,17 @@ export const EMAILS_PER_RECIPIENT: Rule[] = [
 	{ window: 24 * 60 * 60, max: 10 },
 ];
 
+/** Demo sandboxes one client address can open: 5 at once, refilling over an hour, within 20 a day. */
+export const DEMO_STARTS_PER_ADDRESS: Rule[] = [
+	{ window: 60 * 60, max: 5 },
+	{ window: 24 * 60 * 60, max: 20 },
+];
+
+/** Counts one demo sandbox against a client address. */
+export function limitDemoStarts(address: string): Promise<Decision> {
+	return consumeDurably(`demo:${address}`, DEMO_STARTS_PER_ADDRESS);
+}
+
 const local = new LocalLimiter();
 
 /**

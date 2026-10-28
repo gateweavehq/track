@@ -52,6 +52,11 @@ root unless noted.
 | `pnpm run deploy` | Build, apply D1 migrations, deploy (see `docs/self-hosting.md`)              |
 | `pnpm wrangler`   | The pinned Wrangler, run from the repository root                            |
 
+Gateweave's public demo is the `demo` environment in `wrangler.jsonc`: `pnpm --filter
+@gateweave/track-web deploy:demo` and `db:migrate:demo` mirror the staging scripts. Its code
+(`apps/web/src/server/demo/`) must stay inert unless `TRACK_DEMO` is `"1"`; see
+`docs/architecture.md`. The sample data for `pnpm dev:seed` and the demo lives there too.
+
 Scope a command to one package with `pnpm --filter <name> <script>`, for example
 `pnpm --filter @gateweave/track-sync-client test`. Run `pnpm verify` before you consider a change
 done.

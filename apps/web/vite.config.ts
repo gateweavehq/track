@@ -19,6 +19,7 @@ const OPTIONAL_SECRETS = [
 	"GITHUB_CLIENT_ID",
 	"GITHUB_CLIENT_SECRET",
 	"EMAIL_FROM",
+	"TRACK_DEMO",
 ];
 
 export default defineConfig(({ command }) => ({

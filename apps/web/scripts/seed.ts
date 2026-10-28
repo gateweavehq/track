@@ -3,7 +3,7 @@
 // the data obeys every server rule and the run doubles as a smoke test. Local development only:
 // every account it creates shares one published password.
 import { parseArgs } from "node:util";
-import type { MutationInput, Snapshot } from "@gateweave/track-protocol";
+import type { Snapshot } from "@gateweave/track-protocol";
 import {
 	HttpError,
 	SyncClient,
@@ -11,20 +11,7 @@ import {
 	type Transport,
 	uuidv7,
 } from "@gateweave/track-sync-client";
-import { generateNKeysBetween } from "fractional-indexing";
-import {
-	generatedIssues,
-	ISSUES,
-	LABELS,
-	type LabelKey,
-	PASSWORD,
-	PEOPLE,
-	type PersonKey,
-	type SampleIssue,
-	TEAMS,
-	type TeamKey,
-	WORKSPACE_NAME,
-} from "./seed-data";
+import { PASSWORD, PEOPLE, type PersonKey, sampleSteps, WORKSPACE_NAME } from "./seed-data";
 
 const { values: args } = parseArgs({
 	options: {
@@ -111,98 +98,32 @@ async function main() {
 	}
 
 	try {
-		// Teams first: issues reference them, and only admins may create them.
-		const teamIds = {} as Record<TeamKey, string>;
+		const steps = sampleSteps({
+			userIds: Object.fromEntries(people.map((key) => [key, sessions[key].userId])) as Record<
+				PersonKey,
+				string
+			>,
+			newId: uuidv7,
+			extraIssues: extra,
+		});
+		// In order, so teams exist before their issues and the sample issues are numbered as
+		// listed. Generated filler only needs to arrive, so it goes in parallel.
+		const ordered = steps.filter((step) => !step.parallel);
+		for (const { person, mutation } of ordered) await clients[person].mutate(mutation);
 		await Promise.all(
-			(Object.entries(TEAMS) as [TeamKey, string][]).map(([key, name]) => {
-				teamIds[key] = uuidv7();
-				return clients.maya.mutate({
-					name: "team.create",
-					args: { id: teamIds[key], key, name },
-				});
-			}),
+			steps
+				.filter((step) => step.parallel)
+				.map(({ person, mutation }) => clients[person].mutate(mutation)),
 		);
-
-		const labelIds = {} as Record<LabelKey, string>;
-		await Promise.all(
-			(Object.entries(LABELS) as [LabelKey, (typeof LABELS)[LabelKey]][]).map(([key, label]) => {
-				labelIds[key] = uuidv7();
-				return clients.maya.mutate({ name: "label.create", args: { id: labelIds[key], ...label } });
-			}),
-		);
-
-		const issues = [...ISSUES, ...generatedIssues(extra)];
-		const mutations = issueMutations(issues, teamIds, labelIds, sessions);
-		// One at a time, so the sample issues get numbers in the order they are listed. Generated
-		// filler only needs to arrive, so it goes in parallel.
-		const sample = mutations.slice(0, ISSUES.length);
-		for (const { by, input } of sample) await clients[by].mutate(input);
-		await Promise.all(
-			mutations.slice(ISSUES.length).map(({ by, input }) => clients[by].mutate(input)),
-		);
-		// A comment at a time, so each thread reads in the order it is listed.
-		let comments = 0;
-		for (const { issueId, thread } of sample) {
-			for (const comment of thread) {
-				await clients[comment.by].mutate({
-					name: "comment.create",
-					args: { id: uuidv7(), issueId, body: comment.body },
-				});
-				comments++;
-			}
-		}
+		const count = (name: string) => steps.filter((step) => step.mutation.name === name).length;
 		console.log(
-			`Created ${name} with ${Object.keys(TEAMS).length} teams, ${Object.keys(LABELS).length} labels, ${issues.length} issues and ${comments} comments.`,
+			`Created ${name} with ${count("team.create")} teams, ${count("label.create")} labels, ${count("issue.create")} issues and ${count("comment.create")} comments.`,
 		);
 	} finally {
 		await Promise.all(people.map((key) => clients[key].close()));
 	}
 	printAccounts();
 }
-
-/** Orders each team's issues as listed, with fractional sort keys like the app's own. */
-function issueMutations(
-	issues: SampleIssue[],
-	teamIds: Record<TeamKey, string>,
-	labelIds: Record<LabelKey, string>,
-	sessions: Record<PersonKey, Session>,
-): {
-	by: PersonKey;
-	input: MutationInput;
-	issueId: string;
-	thread: NonNullable<SampleIssue["comments"]>;
-}[] {
-	const keys = new Map<TeamKey, string[]>();
-	for (const team of Object.keys(TEAMS) as TeamKey[]) {
-		const count = issues.filter((issue) => issue.team === team).length;
-		keys.set(team, generateNKeysBetween(null, null, count));
-	}
-	return issues.map((issue) => {
-		const sortOrder = keys.get(issue.team)?.shift();
-		if (!sortOrder) throw new Error("Ran out of sort keys");
-		const id = uuidv7();
-		return {
-			by: issue.by,
-			issueId: id,
-			thread: issue.comments ?? [],
-			input: {
-				name: "issue.create",
-				args: {
-					id,
-					teamId: teamIds[issue.team],
-					title: issue.title,
-					description: issue.description ?? null,
-					status: issue.status,
-					priority: issue.priority,
-					assigneeId: issue.assignee && sessions[issue.assignee].userId,
-					labelIds: (issue.labels ?? []).map((key) => labelIds[key]),
-					sortOrder,
-				},
-			},
-		};
-	});
-}
-
 /** Signs up, or signs in when the account is left over from an earlier run. */
 async function signIn(key: PersonKey): Promise<Session> {
 	const { name, email } = PEOPLE[key];
