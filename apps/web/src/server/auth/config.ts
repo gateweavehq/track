@@ -28,6 +28,11 @@ export interface AuthConfig {
 	onWorkspaceDeleted?: (workspaceId: string) => Promise<void>;
 	/** Called after a user's profile changes. */
 	onUserUpdated?: (userId: string) => Promise<void>;
+	/**
+	 * The public demo: accounts are created only by the server, so these paths refuse requests
+	 * that arrive over HTTP (see DEMO_BLOCKED_PATHS). Server-side `auth.api` calls are unaffected.
+	 */
+	demo?: boolean | undefined;
 	/** Sends email. Without it, password reset is off and invitations are links to share. */
 	mailer?: Mailer | undefined;
 	/** Keeps work such as sending email going after the response, like `ctx.waitUntil`. */
@@ -102,6 +107,11 @@ export function createAuth(config: AuthConfig) {
 		},
 		hooks: {
 			before: createAuthMiddleware(async (ctx) => {
+				// `ctx.request` is set by the router for HTTP requests and absent for direct
+				// `auth.api` calls (better-call router.mjs; better-auth api/to-auth-endpoints.mjs).
+				if (config.demo && ctx.request && DEMO_BLOCKED_PATHS.has(ctx.path)) {
+					throw new APIError("FORBIDDEN", { message: "Not available in the demo" });
+				}
 				if (ctx.path !== "/organization/list-invitations") return;
 				// Better Auth lets every member list invitations. Where accounts cannot verify their
 				// email (a server without email), an invitation's id is enough to accept it with a
@@ -239,6 +249,19 @@ export const VERIFICATION_LIFETIME_SECONDS = 24 * 60 * 60;
 export const INVITATION_EMAILS_PER_DAY = 100;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * What the demo refuses over HTTP: everything that makes, signs in to or takes over an account.
+ * The server creates visitors itself, and visitors never have a password to use.
+ */
+export const DEMO_BLOCKED_PATHS: ReadonlySet<string> = new Set([
+	"/sign-up/email",
+	"/sign-in/email",
+	"/request-password-reset",
+	"/change-email",
+	"/change-password",
+	"/delete-user",
+]);
 
 /** Lets an agent act as the user in Track: read and change what the user can. */
 export const MCP_SCOPE = "track";

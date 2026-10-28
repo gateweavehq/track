@@ -11,5 +11,7 @@ declare namespace Cloudflare {
 		 * onboarded to Cloudflare Email Sending. Email is off when unset.
 		 */
 		EMAIL_FROM?: string;
+		/** "1" on the public demo deployment only (the `demo` environment in wrangler.jsonc). */
+		TRACK_DEMO?: string;
 	}
 }

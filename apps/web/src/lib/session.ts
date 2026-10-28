@@ -8,5 +8,6 @@ export const getSession = createServerFn({ method: "GET" }).handler(async () => 
 
 export const getAuthOptions = createServerFn({ method: "GET" }).handler(async () => {
 	const { emailEnabled, githubEnabled } = await import("#/server/auth");
-	return { github: githubEnabled, email: emailEnabled };
+	const { demoEnabled } = await import("#/server/demo/mode");
+	return { github: githubEnabled, email: emailEnabled, demo: demoEnabled() };
 });

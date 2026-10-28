@@ -2,10 +2,12 @@ import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-rout
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
+import { AuthPage } from "#/components/auth-page";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { authClient, inAuthorizationFlow } from "#/lib/auth-client";
+import { startDemo } from "#/lib/demo";
 import { safeRedirect } from "#/lib/redirect";
 import { getAuthOptions, getSession } from "#/lib/session";
 
@@ -31,6 +33,51 @@ export const Route = createFileRoute("/login")({
 });
 
 function LoginPage() {
+	const options = Route.useLoaderData();
+	return options.demo ? <DemoLogin /> : <SignInForm />;
+}
+
+/** The public demo has no accounts to sign in to: each visitor gets a private sandbox. */
+function DemoLogin() {
+	const router = useRouter();
+	const [error, setError] = useState<string | null>(null);
+	const [pending, setPending] = useState(false);
+
+	async function open() {
+		setPending(true);
+		setError(null);
+		try {
+			const { slug } = await startDemo();
+			await router.invalidate();
+			await router.navigate({ to: "/$workspace", params: { workspace: slug } });
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not open a demo workspace");
+			setPending(false);
+		}
+	}
+
+	return (
+		<AuthPage
+			title="Try Gateweave Track"
+			description="Open-source, realtime issue tracking on Cloudflare."
+		>
+			<p className="text-sm text-muted-foreground">
+				You get a private sample workspace with teams, issues and comments. Nobody else can see it,
+				and it is deleted a day after you open it. Open it in a second tab to see changes sync live.
+			</p>
+			{error && (
+				<p role="alert" className="text-sm text-destructive">
+					{error}
+				</p>
+			)}
+			<Button className="w-full" disabled={pending} onClick={open}>
+				{pending ? "Opening your workspace\u2026" : "Open a demo workspace"}
+			</Button>
+		</AuthPage>
+	);
+}
+
+function SignInForm() {
 	const options = Route.useLoaderData();
 	const search = Route.useSearch();
 	const next = safeRedirect(search.redirect) ?? "/";

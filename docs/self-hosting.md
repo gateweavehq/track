@@ -99,6 +99,12 @@ password. To turn it on:
 Track then sends password resets, address verification and invitations. With email on, joining
 a workspace requires a verified address.
 
+## The public demo
+
+Gateweave's own demo (a private sandbox per visitor, deleted after a day) is a separate
+deployment, the `demo` environment in `wrangler.jsonc`. You do not need it: it is off unless the
+`TRACK_DEMO` variable is `"1"`, which only that environment sets. See
+[the architecture notes](architecture.md#the-public-demo).
 ## Updating
 
 **Command line:** `git pull`, `pnpm install`, `pnpm run deploy`.

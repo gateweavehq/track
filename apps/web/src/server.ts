@@ -1,5 +1,6 @@
 import handler from "@tanstack/react-start/server-entry";
 import { getAuth } from "./server/auth";
+import { demoEnabled } from "./server/demo/mode";
 import { handleMcpRequest, isMcpRequest } from "./server/mcp";
 import { handleSyncRequest, isSyncRequest } from "./server/sync";
 
@@ -18,5 +19,11 @@ export default {
 		if (isMcpRequest(url)) return handleMcpRequest(request);
 		if (OAUTH_DISCOVERY.test(url.pathname)) return getAuth().handler(request);
 		return handler.fetch(request);
+	},
+	// The demo deployment has a Cron Trigger; nothing else schedules this.
+	async scheduled() {
+		if (!demoEnabled()) return;
+		const { cleanUpDemo } = await import("./server/demo/cleanup");
+		await cleanUpDemo();
 	},
 } satisfies ExportedHandler<Cloudflare.Env>;

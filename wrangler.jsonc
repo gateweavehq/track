@@ -50,6 +50,29 @@
 			},
 			"send_email": [{ "name": "EMAIL" }],
 			"secrets": { "required": ["BETTER_AUTH_SECRET"] }
+		},
+		// Gateweave's public demo. Every visitor gets a private sandbox workspace, deleted after a
+		// day by the Cron Trigger. A separate Worker with its own database and Durable Objects; it
+		// shares nothing with production. Self-hosters do not need it (see docs/self-hosting.md).
+		"demo": {
+			"name": "gateweave-track-demo",
+			"vars": { "TRACK_DEMO": "1" },
+			"triggers": { "crons": ["*/30 * * * *"] },
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "gateweave-track-demo",
+					"migrations_dir": "apps/web/migrations"
+				}
+			],
+			"durable_objects": {
+				"bindings": [
+					{ "name": "WORKSPACE", "class_name": "WorkspaceDO" },
+					{ "name": "RATE_LIMITER", "class_name": "RateLimiter" }
+				]
+			},
+			// No send_email binding: the demo sends no email.
+			"secrets": { "required": ["BETTER_AUTH_SECRET"] }
 		}
 	}
 }

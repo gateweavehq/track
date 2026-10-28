@@ -9,6 +9,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
 		const { getAuth, db } = await import("#/server/auth");
 		const auth = getAuth();
 		const { findMembership } = await import("#/server/workspaces");
+		const { demoEnabled } = await import("#/server/demo/mode");
 		const session = await auth.api.getSession({ headers: getRequestHeaders() });
 		if (!session) return null;
 		const membership = await findMembership(db, slug, session.user.id);
@@ -18,5 +19,6 @@ export const getWorkspace = createServerFn({ method: "GET" })
 			name: membership.workspaceName,
 			userId: session.user.id,
 			role: membership.profile.role,
+			...(demoEnabled() && { demo: true }),
 		};
 	});

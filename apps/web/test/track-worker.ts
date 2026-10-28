@@ -45,6 +45,23 @@ export default class Outbox extends WorkerEntrypoint {
 }
 `;
 
+// Reads a workspace's Durable Object over RPC, as the app's own Worker would, so tests can see
+// what is stored in it (or that it has been emptied). GET /<workspaceId> returns its directory.
+const INSPECTOR = `
+import { WorkerEntrypoint } from "cloudflare:workers";
+export default class Inspector extends WorkerEntrypoint {
+	async fetch(request) {
+		const id = new URL(request.url).pathname.slice(1);
+		try {
+			return Response.json(await this.env.WORKSPACE.getByName(id).directory());
+		} catch (error) {
+			// A destroyed workspace has lost its tables.
+			return Response.json({ teams: [], labels: [], members: [], error: String(error) });
+		}
+	}
+}
+`;
+
 /** Every module of the built Worker. Its migrations are imported as text. */
 function builtModules(): V4ModuleDefinition[] {
 	const modules: V4ModuleDefinition[] = [];
@@ -67,7 +84,10 @@ function builtModules(): V4ModuleDefinition[] {
  * With `isolates` above 1, more copies of the Worker share the database and Durable Objects but
  * nothing in memory, as isolates in production do. `fetchIn` reaches a given one.
  */
-export async function startTrack(origin: string, { isolates = 1 }: { isolates?: number } = {}) {
+export async function startTrack(
+	origin: string,
+	{ isolates = 1, demo = false }: { isolates?: number; demo?: boolean } = {},
+) {
 	const config = JSON.parse(readFileSync(join(serverDir, "wrangler.json"), "utf8")) as BuiltConfig;
 	const outbound: string[] = [];
 	const logs: WorkerLog[] = [];
@@ -94,9 +114,12 @@ export async function startTrack(origin: string, { isolates = 1 }: { isolates?: 
 					bindings: {
 						BETTER_AUTH_SECRET: secret,
 						BETTER_AUTH_URL: origin,
-						EMAIL_FROM: `${EMAIL_FROM.name} <${EMAIL_FROM.email}>`,
+						// The demo deployment has no email binding and no sender.
+						...(demo
+							? { TRACK_DEMO: "1" }
+							: { EMAIL_FROM: `${EMAIL_FROM.name} <${EMAIL_FROM.email}>` }),
 					},
-					serviceBindings: { EMAIL: "outbox" },
+					...(!demo && { serviceBindings: { EMAIL: "outbox" } }),
 					d1Databases: { DB: "track-test" },
 					// Every copy uses the first one's Durable Objects.
 					durableObjects: {
@@ -108,6 +131,16 @@ export async function startTrack(origin: string, { isolates = 1 }: { isolates?: 
 						return new Response("Outbound requests are blocked in this test", { status: 502 });
 					},
 				})),
+				{
+					name: "inspector",
+					modules: true,
+					script: INSPECTOR,
+					routes: ["inspector.test/*"],
+					compatibilityDate: config.compatibility_date,
+					durableObjects: {
+						WORKSPACE: { className: "WorkspaceDO", useSQLite: true, scriptName: names[0] },
+					},
+				},
 				{
 					name: "outbox",
 					modules: true,
@@ -172,6 +205,19 @@ export async function startTrack(origin: string, { isolates = 1 }: { isolates?: 
 		async emails(): Promise<SentEmail[]> {
 			const response = await mf.dispatchFetch("http://outbox.test/");
 			return (await response.json()) as SentEmail[];
+		},
+		/** Runs the Worker's Cron Trigger once, as Cloudflare would. */
+		async runScheduled() {
+			// Miniflare's Fetcher type leaves out the scheduled() workerd adds to every Worker stub.
+			const worker = (await mf.getWorker(names[0])) as unknown as {
+				scheduled(event: { cron: string; scheduledTime: Date }): Promise<unknown>;
+			};
+			await worker.scheduled({ cron: "*/30 * * * *", scheduledTime: new Date() });
+		},
+		/** A workspace's teams and members as its Durable Object holds them now. */
+		async directory(workspaceId: string): Promise<{ teams: unknown[]; members: unknown[] }> {
+			const response = await mf.dispatchFetch(`http://inspector.test/${workspaceId}`);
+			return (await response.json()) as { teams: unknown[]; members: unknown[] };
 		},
 		/** The D1 database, for setting up state the app has no endpoint for. */
 		db,
