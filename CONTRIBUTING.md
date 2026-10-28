@@ -36,7 +36,8 @@ pnpm verify      # Biome check, typecheck, tests and a production build: what CI
 example `pnpm --filter @gateweave/track-sync-client test`.
 
 Fill in the pull request template: it asks how you tested the change and whether it needs a
-protocol bump or a migration.
+protocol bump or a migration. You don't need to edit `CHANGELOG.md`; it is written when a
+version is released.
 
 ## Guidelines
 

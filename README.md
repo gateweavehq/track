@@ -112,8 +112,9 @@ scripts/               Repository tooling
 wrangler.jsonc         The Worker's Cloudflare configuration, at the root for the Deploy button
 ```
 
-Read [docs/architecture.md](docs/architecture.md) for how sync, auth and storage fit together, and
-[docs/roadmap.md](docs/roadmap.md) for what comes next.
+Read [docs/architecture.md](docs/architecture.md) for how sync, auth and storage fit together,
+[docs/roadmap.md](docs/roadmap.md) for what comes next, and [CHANGELOG.md](CHANGELOG.md) for what
+each release changed.
 
 ## Contributing
 

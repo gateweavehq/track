@@ -145,6 +145,9 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
   body.
 - Fill in the pull request template. A CLA bot asks first-time contributors to sign once.
 - Follow `.claude/skills/open-pull-request/SKILL.md` for the full flow.
+- Pull requests leave `CHANGELOG.md` alone, so parallel branches do not conflict there. A
+  maintainer adds each version's entry when releasing: merge it to `main`, then publish a GitHub
+  release of that commit with the same notes. Publishing deploys Gateweave Cloud's production.
 
 ## Playbooks
 
