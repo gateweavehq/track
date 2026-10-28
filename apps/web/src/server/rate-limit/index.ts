@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { normalizeIP } from "@better-auth/core/utils/ip";
 import type { BetterAuthRateLimitOptions } from "better-auth";
 import { DEFAULT_AUTH_LIMIT } from "../auth/config";
 import type { Mailer } from "../email/mailer";
@@ -22,15 +23,25 @@ export const EMAILS_PER_RECIPIENT: Rule[] = [
 	{ window: 24 * 60 * 60, max: 10 },
 ];
 
-/** Demo sandboxes one client address can open: 5 at once, refilling over an hour, within 20 a day. */
+/**
+ * Demo sandboxes one client network can open: 20 at once, refilling over an hour, within 100 a
+ * day. Generous on purpose: carrier-grade NAT and offices put many visitors behind one IPv4
+ * address, and a sandbox costs little.
+ */
 export const DEMO_STARTS_PER_ADDRESS: Rule[] = [
-	{ window: 60 * 60, max: 5 },
-	{ window: 24 * 60 * 60, max: 20 },
+	{ window: 60 * 60, max: 20 },
+	{ window: 24 * 60 * 60, max: 100 },
 ];
 
-/** Counts one demo sandbox against a client address. */
+/**
+ * Counts one demo sandbox against a client address. IPv6 addresses count per /64, the way
+ * Better Auth keys its own limits, because one visitor can pick any address in their /64.
+ */
 export function limitDemoStarts(address: string): Promise<Decision> {
-	return consumeDurably(`demo:${address}`, DEMO_STARTS_PER_ADDRESS);
+	return consumeDurably(
+		`demo:${normalizeIP(address, { ipv6Subnet: 64 })}`,
+		DEMO_STARTS_PER_ADDRESS,
+	);
 }
 
 const local = new LocalLimiter();

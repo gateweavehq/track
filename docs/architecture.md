@@ -142,8 +142,9 @@ check it first. To try it locally, add `TRACK_DEMO=1` to `.dev.vars` and restart
 A shared demo account would be vandalized within minutes, so each visitor gets a sandbox:
 
 - The login page offers one button. Pressing it calls the `startDemo` server function
-  (`src/server/demo/start.ts`), which limits each client address to 5 sandboxes an hour and 20 a
-  day, creates a visitor account with Better Auth's server API (a random address under
+  (`src/server/demo/start.ts`), which limits each client network to 20 sandboxes an hour and 100
+  a day (an IPv4 address, or an IPv6 /64 as Better Auth counts it; generous because of
+  carrier-grade NAT), creates a visitor account with Better Auth's server API (a random address under
   `visitors.example.com`, a password nobody sees), and signs the visitor in.
 - It then creates a workspace named "Acme" through the server API, so the organization hooks
   sync membership as usual. The visitor owns it. Four sample people (Maya, Sam, Lena, Diego) are
