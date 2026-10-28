@@ -12,6 +12,8 @@ export default function setup() {
 		[join(dirname(vitePackage), bin.vite), "build", "--logLevel", "warn"],
 		{
 			cwd: resolve(import.meta.dirname, ".."),
+			// Vitest sets NODE_ENV to "test", which would make this a development build.
+			env: { ...process.env, NODE_ENV: "production" },
 			stdio: "inherit",
 		},
 	);
