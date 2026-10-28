@@ -108,16 +108,18 @@ export async function findAgentByKey(db: Database, key: string): Promise<AgentBy
 
 /**
  * Deletes agents that no longer belong to a workspace. An agent belongs to one workspace only, so
- * once that workspace is gone, nothing else can use it.
+ * once that workspace is gone, nothing else can use it. Anyone with a way to sign in is a person,
+ * whatever their address, and is never touched.
  */
 export async function deleteOrphanedAgents(db: Database): Promise<void> {
-	const { member, user } = schema;
+	const { account, member, user } = schema;
 	await db
 		.delete(user)
 		.where(
 			and(
 				like(user.email, `%@${AGENT_EMAIL_DOMAIN}`),
 				notExists(db.select({ id: member.id }).from(member).where(eq(member.userId, user.id))),
+				notExists(db.select({ id: account.id }).from(account).where(eq(account.userId, user.id))),
 			),
 		)
 		.run();
