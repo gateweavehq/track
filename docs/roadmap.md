@@ -43,19 +43,14 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - **End-to-end tests.** Playwright drives Chromium against the production build: sign-up,
   realtime across tabs and people, and working offline, in CI on every pull request.
 - **Public repository.** The `main` ruleset is enforced and private vulnerability reporting is on.
+- **Public demo.** [track-demo.gateweave.com](https://track-demo.gateweave.com) gives each
+  visitor a private workspace of sample data in one click, deleted a day later.
+- **Performance budgets.** CI times a reload of a 2,000-issue workspace from the local copy and
+  an edit reaching a second browser, and fails when a median goes over its budget.
 
-## Next: launch readiness
+## Next: launch
 
-- A public demo workspace, filled by the seed script (`pnpm dev:seed`) and reset every night.
-- Performance budgets, measured in CI: opening a large workspace from cache, and the time for an
-  edit to reach another client.
-
-**Done when** someone who has never seen the project can try it in a minute, then deploy it to
-their own Cloudflare account and invite their team.
-
-## Launch
-
-- A first release with a changelog.
+- A first release, v0.1.0, with its [changelog](../CHANGELOG.md) entry.
 - Show HN, plus a technical write-up of the sync engine: how a Durable Object per workspace, an
   oplog and a local replica make a fast, offline-capable app on serverless infrastructure.
 
