@@ -12,7 +12,8 @@ export interface ConsentRequest {
 export const getConsentRequest = createServerFn({ method: "GET" })
 	.validator(z.string().min(1).max(256))
 	.handler(async ({ data: clientId }): Promise<ConsentRequest | null> => {
-		const { auth } = await import("#/server/auth");
+		const { getAuth } = await import("#/server/auth");
+		const auth = getAuth();
 		const headers = getRequestHeaders();
 		const session = await auth.api.getSession({ headers });
 		if (!session) return { clientName: "", viewer: null };

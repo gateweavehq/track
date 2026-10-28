@@ -6,7 +6,8 @@ import { z } from "zod";
 export const getWorkspace = createServerFn({ method: "GET" })
 	.validator(z.string().min(1))
 	.handler(async ({ data: slug }) => {
-		const { auth, db } = await import("#/server/auth");
+		const { getAuth, db } = await import("#/server/auth");
+		const auth = getAuth();
 		const { findMembership } = await import("#/server/workspaces");
 		const session = await auth.api.getSession({ headers: getRequestHeaders() });
 		if (!session) return null;

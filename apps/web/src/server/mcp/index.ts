@@ -4,7 +4,7 @@ import type { IssueQuery } from "@gateweave/track-sync-server";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { createDpopReplayStore } from "better-auth/oauth2";
 import type { JWTPayload } from "jose";
-import { auth, db, mcpResource } from "../auth";
+import { db, getAuth, mcpResource } from "../auth";
 import { MCP_SCOPE } from "../auth/config";
 import { findMembership, listWorkspaces, workspaceStub } from "../workspaces";
 import { protectResource } from "./protect";
@@ -61,7 +61,7 @@ function protect(resource: string) {
 	let handler: ((request: Request) => Promise<Response>) | undefined;
 	return async (request: Request) => {
 		if (!handler) {
-			const { baseURL, internalAdapter } = await auth.$context;
+			const { baseURL, internalAdapter } = await getAuth().$context;
 			handler = protectResource(
 				{
 					issuer: baseURL,
@@ -69,7 +69,7 @@ function protect(resource: string) {
 					requiredScopes: [MCP_SCOPE],
 					// offline_access lets clients refresh tokens instead of asking the user again.
 					challengeScopes: [MCP_SCOPE, "offline_access"],
-					jwks: () => auth.api.getJwks(),
+					jwks: () => getAuth().api.getJwks(),
 					dpopReplayStore: createDpopReplayStore(internalAdapter),
 				},
 				serve,

@@ -11,6 +11,12 @@ interface BuiltConfig {
 	compatibility_flags?: string[];
 }
 
+/** One line the Worker wrote to its console. */
+export interface WorkerLog {
+	level: string;
+	message: string;
+}
+
 /** What Track handed to its email binding. */
 export interface SentEmail {
 	from: string | { name: string; email: string };
@@ -61,9 +67,15 @@ function builtModules(): V4ModuleDefinition[] {
 export async function startTrack(origin: string) {
 	const config = JSON.parse(readFileSync(join(serverDir, "wrangler.json"), "utf8")) as BuiltConfig;
 	const outbound: string[] = [];
+	const logs: WorkerLog[] = [];
 	// Miniflare 5 still takes its documented v4 options through this converter.
 	const mf = new Miniflare(
 		convertV4MiniflareOptions({
+			// Keep what the Worker logs for `logs`, and still show it as Miniflare would.
+			handleStructuredLogs: (log) => {
+				logs.push(log);
+				console.error(`[worker ${log.level}] ${log.message}`);
+			},
 			workers: [
 				{
 					name: "track",
@@ -130,6 +142,8 @@ export async function startTrack(origin: string) {
 		},
 		/** URLs the Worker tried to fetch from outside. */
 		outbound,
+		/** Everything the Worker has logged so far, oldest first. */
+		logs,
 		/** Every email sent so far, oldest first. Email goes out after the response. */
 		async emails(): Promise<SentEmail[]> {
 			const response = await mf.dispatchFetch("http://outbox.test/");
