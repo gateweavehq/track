@@ -12,6 +12,7 @@ import {
 	DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
 import { Input } from "#/components/ui/input";
+import { VerifyEmailButton } from "#/components/verify-email";
 import { ConfirmDialog } from "#/components/workspace/confirm-dialog";
 import { isAdmin, useMyRole, useWorkspace } from "#/components/workspace/context";
 import { authClient } from "#/lib/auth-client";
@@ -42,21 +43,33 @@ export function MembersSettings({
 	members,
 	invitations,
 	inviteByEmail,
+	emailEnabled,
 	focusInvite,
 }: {
 	members: WorkspaceMember[];
 	invitations: PendingInvitation[];
 	/** Whether the server emails invitations from this user, or they share links themselves. */
 	inviteByEmail: boolean;
+	/** Whether the server sends email at all. */
+	emailEnabled: boolean;
 	/** Puts the cursor in the invite form, for links like "Invite people". */
 	focusInvite: boolean;
 }) {
 	const role = useMyRole();
+	const { userId } = useWorkspace();
 	const owners = members.filter((member) => member.role === "owner").length;
+	const myEmail = members.find((member) => member.userId === userId)?.email;
+	// Invitations wait for the inviter's own address to be verified before they are emailed.
+	const verifyFirst = emailEnabled && !inviteByEmail && myEmail ? myEmail : null;
 	return (
 		<div className="space-y-12">
 			{isAdmin(role) && (
-				<InviteSection invitations={invitations} byEmail={inviteByEmail} focus={focusInvite} />
+				<InviteSection
+					invitations={invitations}
+					byEmail={inviteByEmail}
+					verifyEmail={verifyFirst}
+					focus={focusInvite}
+				/>
 			)}
 			<section aria-labelledby="members-heading" className="space-y-4">
 				<h2 id="members-heading" className="text-base font-semibold">
@@ -79,10 +92,13 @@ export function MembersSettings({
 function InviteSection({
 	invitations,
 	byEmail,
+	verifyEmail,
 	focus,
 }: {
 	invitations: PendingInvitation[];
 	byEmail: boolean;
+	/** The inviter's address, when verifying it would let Track email their invitations. */
+	verifyEmail: string | null;
 	focus: boolean;
 }) {
 	const { id: organizationId } = useWorkspace();
@@ -128,6 +144,14 @@ function InviteSection({
 						: "Create a link for someone's email address and send it to them. It works for that address only, for 7 days."}
 				</p>
 			</div>
+			{verifyEmail && (
+				<div className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-sm sm:flex-row sm:items-center">
+					<p className="flex-1">
+						Verify your email address, and Track will email your invitations for you.
+					</p>
+					<VerifyEmailButton email={verifyEmail} variant="outline" size="sm" />
+				</div>
+			)}
 			<form onSubmit={onSubmit} className="flex flex-col gap-2 sm:flex-row">
 				<Input
 					type="email"

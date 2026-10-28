@@ -127,8 +127,8 @@ npx wrangler email sending enable example.com
 npx wrangler secret put EMAIL_FROM    # for example: Gateweave Track <track@example.com>
 ```
 
-Track then emails password-reset links and invitations, using the `EMAIL` binding in
-`wrangler.jsonc`.
+Track then emails password-reset links, verification links and invitations, using the `EMAIL`
+binding in `wrangler.jsonc`. With email on, joining a workspace requires a verified address.
 
 ## Project structure
 

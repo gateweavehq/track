@@ -10,13 +10,20 @@ import { z } from "zod";
 export const previewInvitation = createServerFn({ method: "GET" })
 	.validator(z.string().min(1).max(128))
 	.handler(async ({ data: invitationId }) => {
-		const { auth, db } = await import("#/server/auth");
+		const { auth, db, emailEnabled } = await import("#/server/auth");
 		const { findPendingInvitation } = await import("#/server/workspaces");
 		const [invitation, session] = await Promise.all([
 			findPendingInvitation(db, invitationId),
 			auth.api.getSession({ headers: getRequestHeaders() }),
 		]);
-		return { invitation, viewer: session ? { email: session.user.email } : null };
+		return {
+			invitation,
+			viewer: session
+				? { email: session.user.email, emailVerified: session.user.emailVerified }
+				: null,
+			// Where the server can email, accepting requires a verified address (see auth config).
+			verificationRequired: emailEnabled,
+		};
 	});
 
 export interface WorkspaceMember {
@@ -63,6 +70,7 @@ export const getWorkspaceMembers = createServerFn({ method: "GET" })
 		const now = Date.now();
 
 		return {
+			emailEnabled,
 			// Matches when the server emails an invitation (see sendInvitationEmail).
 			inviteByEmail: canInvite && emailEnabled && session.user.emailVerified,
 			members: members

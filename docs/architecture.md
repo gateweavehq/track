@@ -77,14 +77,20 @@ is on and the admin has verified their own address, Track emails the link (see
 [Email](#email)). Otherwise, the admin copies the link and sends it themselves. Accepting requires
 being signed in with the invited address; Better Auth checks that.
 
-Email addresses are not verified yet, so anyone can sign up with any address, and the invitation
-id is what actually protects a workspace: whoever holds the link can join. So only admins see
-invitation ids. Better Auth hands them to any member through two endpoints, which would let a
-member pick up an admin invitation: `list-invitations` is limited to admins by a `before` hook in
-`apps/web/src/server/auth/config.ts`, and `get-full-organization`, which the app does not use, is
-disabled. The public invite page only describes pending invitations that have not expired.
-Verified email addresses, with `requireEmailVerificationOnInvitation`, are on the launch
-checklist.
+Anyone can sign up with any address, so being signed in with the invited address proves
+nothing by itself. Where email is on, accepting also requires a verified address
+(`requireEmailVerificationOnInvitation`). An invitation then admits only whoever controls that
+inbox, and its id is no longer a secret worth stealing. The invite page offers to email a
+verification link that returns there. Sign-up sends one too, with the same return address.
+
+A server without email cannot verify anyone, so there the invitation id is what protects a
+workspace: whoever holds the link can join. Only admins see invitation ids. Better Auth hands
+them to any member through two endpoints, which would let a member pick up an admin invitation:
+- `list-invitations` is limited to admins by a `before` hook in
+  `apps/web/src/server/auth/config.ts`.
+- `get-full-organization`, which the app does not use, is disabled.
+
+The public invite page only describes pending invitations that have not expired.
 
 ### Email
 
@@ -98,6 +104,7 @@ HTML-escaped and squeezed onto one short line.
 | -------------- | ------------------------------------------------------------------------------------------------------ | --------------------- |
 | Password reset | Someone asks on `/forgot-password`. The link works once, for an hour, and resetting ends every session | No password reset     |
 | Invitation     | An admin with a verified address invites someone or presses Resend                                     | Admins share the link |
+| Verification   | Someone signs up, or asks on an invitation or the members page. The link works for 24 hours            | Nobody is verified    |
 
 Better Auth sends email after the response, through `waitUntil`. Reset requests therefore take
 the same time whether or not the account exists. Invitations put text chosen by a stranger,
