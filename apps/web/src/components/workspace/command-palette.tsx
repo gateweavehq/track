@@ -12,7 +12,7 @@ import {
 	UserPlus,
 	Users,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { StatusIcon } from "#/components/issues/meta";
 import {
 	Command,
@@ -27,6 +27,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "#/compone
 import { MOD_LABEL } from "#/lib/hotkeys";
 import { issueKey, matchesQuery } from "#/lib/issues";
 import { useTeams, useTeamsById } from "#/lib/queries";
+import { search } from "#/lib/search";
 import { isAdmin, useMyRole, useWorkspace, useWorkspaceActions } from "./context";
 
 interface PaletteCommand {
@@ -41,7 +42,9 @@ interface PaletteCommand {
 const selectRecentIssues = (state: SyncState) =>
 	[...state.issues.values()].sort((a, b) => b.updatedAt - a.updatedAt);
 
-const MAX_ISSUES = 20;
+const MAX_RECENT = 5;
+
+const selectState = (state: SyncState) => state;
 
 export function CommandPalette({ onClose }: { onClose: () => void }) {
 	const navigate = useNavigate();
@@ -50,6 +53,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 	const teams = useTeams();
 	const teamsById = useTeamsById();
 	const issues = useQuery(selectRecentIssues, shallowEqual);
+	const state = useQuery(selectState);
 	const [query, setQuery] = useState("");
 	const admin = isAdmin(useMyRole());
 
@@ -137,9 +141,11 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 		matchesQuery(query, command.label, ...(command.keywords ?? [])),
 	);
 	const keyOf = (issue: Issue) => issueKey(teamsById.get(issue.teamId), issue);
-	const matchingIssues = (
-		query.trim() ? issues.filter((issue) => matchesQuery(query, keyOf(issue), issue.title)) : issues
-	).slice(0, query.trim() ? MAX_ISSUES : 5);
+	const searching = query.trim() !== "";
+	const found = useMemo(() => (searching ? search(state, query) : []), [state, query, searching]);
+	const matchingIssues: { issue: Issue; snippet?: string }[] = searching
+		? found
+		: issues.slice(0, MAX_RECENT).map((issue) => ({ issue }));
 
 	function run(action: () => void) {
 		onClose();
@@ -151,7 +157,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 			<DialogContent className="top-[15%] max-w-xl translate-y-0 overflow-hidden p-0 [&>button:last-child]:hidden">
 				<DialogTitle className="sr-only">Command palette</DialogTitle>
 				<DialogDescription className="sr-only">
-					Search issues by identifier or title, or run a command.
+					Search issues by identifier, title, description or comments, or run a command.
 				</DialogDescription>
 				{/* Without vim bindings, so Ctrl+K reaches the shortcut that closes the palette. */}
 				<Command shouldFilter={false} loop vimBindings={false}>
@@ -164,8 +170,8 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 					<CommandList className="max-h-96">
 						<CommandEmpty>Nothing matches “{query}”.</CommandEmpty>
 						{matchingIssues.length > 0 && (
-							<CommandGroup heading={query.trim() ? "Issues" : "Recently updated"}>
-								{matchingIssues.map((issue) => {
+							<CommandGroup heading={searching ? "Issues" : "Recently updated"}>
+								{matchingIssues.map(({ issue, snippet }) => {
 									const key = keyOf(issue);
 									return (
 										<CommandItem
@@ -185,7 +191,14 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 											<span className="w-16 shrink-0 font-mono text-xs text-muted-foreground">
 												{key}
 											</span>
-											<span className="truncate">{issue.title}</span>
+											<span className="min-w-0 flex-1">
+												<span className="block truncate">{issue.title}</span>
+												{snippet && (
+													<span className="block truncate text-xs text-muted-foreground">
+														{snippet}
+													</span>
+												)}
+											</span>
 										</CommandItem>
 									);
 								})}

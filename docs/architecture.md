@@ -346,6 +346,12 @@ quotes each word as an FTS5 prefix query, so query syntax has no effect, and ran
 bm25: the key and title count most, then the description, then comments. MCP's `search_issues`
 uses it.
 
+The command palette searches the local replica instead (`apps/web/src/lib/search.ts`), so it
+works offline and answers as you type. It applies the same rules over the issues, teams and
+comments in memory, caching each row's words for as long as the row object lives, and ranks by
+fixed field weights in place of bm25. A query that spells out an issue's key, such as `ENG-12`,
+puts that issue first.
+
 ### Compaction
 
 An alarm compacts the oplog every six hours. Ops are dropped only when they are both older than
