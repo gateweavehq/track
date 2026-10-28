@@ -27,6 +27,8 @@ export interface AuthConfig {
 	onMembershipChange?: (workspaceId: string, userId: string) => Promise<void>;
 	/** Called after a workspace is deleted. */
 	onWorkspaceDeleted?: (workspaceId: string) => Promise<void>;
+	/** Called after a workspace's slug changes, since webhook payloads link with it. */
+	onWorkspaceRenamed?: (workspaceId: string, slug: string) => Promise<void>;
 	/** Called after a user's profile changes. */
 	onUserUpdated?: (userId: string) => Promise<void>;
 	/**
@@ -199,6 +201,11 @@ export function createAuth(config: AuthConfig) {
 					},
 					beforeUpdateOrganization: async ({ organization }) => {
 						if (organization.slug) assertSlug(organization.slug);
+					},
+					afterUpdateOrganization: async ({ organization }) => {
+						if (organization?.slug) {
+							await config.onWorkspaceRenamed?.(organization.id, organization.slug);
+						}
 					},
 					afterCreateOrganization: ({ organization, member }) =>
 						membershipChanged(organization.id, member.userId),

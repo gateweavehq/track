@@ -25,6 +25,7 @@ import { Route as WorkspaceSettingsAgentsRouteImport } from './routes/$workspace
 import { Route as WorkspaceSettingsLabelsRouteImport } from './routes/$workspace/settings.labels'
 import { Route as WorkspaceSettingsMembersRouteImport } from './routes/$workspace/settings.members'
 import { Route as WorkspaceSettingsTeamsRouteImport } from './routes/$workspace/settings.teams'
+import { Route as WorkspaceSettingsWebhooksRouteImport } from './routes/$workspace/settings.webhooks'
 import { Route as WorkspaceTeamTeamKeyRouteImport } from './routes/$workspace/team.$teamKey'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -109,6 +110,12 @@ const WorkspaceSettingsTeamsRoute = WorkspaceSettingsTeamsRouteImport.update({
   path: '/teams',
   getParentRoute: () => WorkspaceSettingsRoute,
 } as any)
+const WorkspaceSettingsWebhooksRoute =
+  WorkspaceSettingsWebhooksRouteImport.update({
+    id: '/webhooks',
+    path: '/webhooks',
+    getParentRoute: () => WorkspaceSettingsRoute,
+  } as any)
 const WorkspaceTeamTeamKeyRoute = WorkspaceTeamTeamKeyRouteImport.update({
   id: '/team/$teamKey',
   path: '/team/$teamKey',
@@ -136,6 +143,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
+  '/$workspace/settings/webhooks': typeof WorkspaceSettingsWebhooksRoute
   '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$workspace/settings/': typeof WorkspaceSettingsIndexRoute
@@ -154,6 +162,7 @@ export interface FileRoutesByTo {
   '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
+  '/$workspace/settings/webhooks': typeof WorkspaceSettingsWebhooksRoute
   '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$workspace/settings': typeof WorkspaceSettingsIndexRoute
@@ -175,6 +184,7 @@ export interface FileRoutesById {
   '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
+  '/$workspace/settings/webhooks': typeof WorkspaceSettingsWebhooksRoute
   '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$workspace/settings/': typeof WorkspaceSettingsIndexRoute
@@ -197,6 +207,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
     | '/$workspace/settings/teams'
+    | '/$workspace/settings/webhooks'
     | '/$workspace/team/$teamKey'
     | '/api/auth/$'
     | '/$workspace/settings/'
@@ -215,6 +226,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
     | '/$workspace/settings/teams'
+    | '/$workspace/settings/webhooks'
     | '/$workspace/team/$teamKey'
     | '/api/auth/$'
     | '/$workspace/settings'
@@ -235,6 +247,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
     | '/$workspace/settings/teams'
+    | '/$workspace/settings/webhooks'
     | '/$workspace/team/$teamKey'
     | '/api/auth/$'
     | '/$workspace/settings/'
@@ -365,6 +378,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceSettingsTeamsRouteImport
       parentRoute: typeof WorkspaceSettingsRoute
     }
+    '/$workspace/settings/webhooks': {
+      id: '/$workspace/settings/webhooks'
+      path: '/webhooks'
+      fullPath: '/$workspace/settings/webhooks'
+      preLoaderRoute: typeof WorkspaceSettingsWebhooksRouteImport
+      parentRoute: typeof WorkspaceSettingsRoute
+    }
     '/$workspace/team/$teamKey': {
       id: '/$workspace/team/$teamKey'
       path: '/team/$teamKey'
@@ -387,6 +407,7 @@ interface WorkspaceSettingsRouteChildren {
   WorkspaceSettingsLabelsRoute: typeof WorkspaceSettingsLabelsRoute
   WorkspaceSettingsMembersRoute: typeof WorkspaceSettingsMembersRoute
   WorkspaceSettingsTeamsRoute: typeof WorkspaceSettingsTeamsRoute
+  WorkspaceSettingsWebhooksRoute: typeof WorkspaceSettingsWebhooksRoute
   WorkspaceSettingsIndexRoute: typeof WorkspaceSettingsIndexRoute
 }
 
@@ -395,6 +416,7 @@ const WorkspaceSettingsRouteChildren: WorkspaceSettingsRouteChildren = {
   WorkspaceSettingsLabelsRoute: WorkspaceSettingsLabelsRoute,
   WorkspaceSettingsMembersRoute: WorkspaceSettingsMembersRoute,
   WorkspaceSettingsTeamsRoute: WorkspaceSettingsTeamsRoute,
+  WorkspaceSettingsWebhooksRoute: WorkspaceSettingsWebhooksRoute,
   WorkspaceSettingsIndexRoute: WorkspaceSettingsIndexRoute,
 }
 
