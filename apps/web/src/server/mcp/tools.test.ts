@@ -155,6 +155,20 @@ describe("Track MCP tools", () => {
 		]);
 	});
 
+	it("lets results grow without breaking clients that cached the output schemas", async () => {
+		const { tools } = await client.listTools();
+		const closed: string[] = [];
+		function walk(schema: unknown, path: string) {
+			if (typeof schema !== "object" || schema === null) return;
+			for (const [key, value] of Object.entries(schema)) {
+				if (key === "additionalProperties" && value === false) closed.push(path);
+				walk(value, `${path}.${key}`);
+			}
+		}
+		for (const tool of tools) walk(tool.outputSchema, tool.name);
+		expect(closed).toEqual([]);
+	});
+
 	it("lists workspaces, teams and members", async () => {
 		expect((await call("list_workspaces")).structuredContent).toEqual({
 			workspaces: [{ slug: "acme", name: "Acme", role: "owner" }],
