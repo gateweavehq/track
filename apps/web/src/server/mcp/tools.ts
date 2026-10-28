@@ -7,6 +7,7 @@ import {
 	MEMBER_ROLES,
 	type Member,
 	type MutationInput,
+	mutationSchema,
 } from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import type {
@@ -20,6 +21,7 @@ import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
 import { issueKey, parseIssueKey } from "#/lib/issues";
 import { defaultLabelColor, findLabelByName } from "#/lib/labels";
+import { suggestKey } from "#/lib/teams";
 
 // Track's MCP tools. They only reach Track through TrackAccess, which offers what the signed-in
 // user can see and do, and nothing more. Free of `cloudflare:workers` imports so the tools can be
@@ -387,6 +389,52 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					args: { id: uuidv7(), name: input.name, color },
 				});
 				return { name: input.name, color };
+			}),
+	);
+
+	server.registerTool(
+		"create_team",
+		{
+			title: "Create team",
+			description:
+				"Creates a team, which groups issues and gives them their key prefix. Only workspace admins can create teams. Use it to set up a new workspace before creating issues.",
+			inputSchema: z.object({
+				workspace: workspaceInput,
+				name: z.string().trim().min(1).max(64),
+				key: z
+					.string()
+					.trim()
+					.min(1)
+					.max(7)
+					.optional()
+					.describe(
+						"Uppercase letters or digits, starting with a letter, like ENG. Derived from the name if you leave it out.",
+					),
+			}),
+			outputSchema: z.looseObject({ key: z.string(), name: z.string() }),
+			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				const key = (input.key ?? suggestKey(input.name)).toUpperCase();
+				const mutation = {
+					name: "team.create" as const,
+					args: { id: uuidv7(), key, name: input.name },
+				};
+				// The same checks the app makes before sending, so the agent gets the reason.
+				const parsed = mutationSchema.safeParse(mutation);
+				if (!parsed.success) {
+					throw new ToolError(parsed.error.issues[0]?.message ?? "Check the name and key.");
+				}
+				const result = await workspace.mutate(mutation);
+				// A conflict here can only be a taken key, so it gets its own message rather than apply()'s.
+				if (!result.ok) {
+					throw new ToolError(
+						result.reason === "conflict" ? `Team key ${key} is already in use.` : result.message,
+					);
+				}
+				return { key, name: input.name };
 			}),
 	);
 
