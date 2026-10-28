@@ -18,6 +18,7 @@
 		"typecheck": "pnpm -r typecheck",
 		"test": "pnpm -r test",
 		"test:e2e": "pnpm --filter @gateweave/track-web test:e2e",
+		"test:perf": "pnpm --filter @gateweave/track-web test:perf",
 		"check": "biome check",
 		"format": "biome check --write",
 		"verify": "pnpm check && pnpm typecheck && pnpm test && pnpm build"

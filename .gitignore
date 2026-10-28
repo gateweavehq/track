@@ -22,3 +22,4 @@ worker-configuration.d.ts
 .claude/worktrees/
 
 .DS_Store
+test-results-perf

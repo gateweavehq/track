@@ -1,11 +1,12 @@
 import type { Issue, IssueStatus } from "@gateweave/track-protocol";
 import { ChevronRight, Plus } from "lucide-react";
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { type IssueDefaults, useWorkspaceActions } from "#/components/workspace/context";
 import { useHotkeys } from "#/lib/hotkeys";
 import { groupByStatus, type StatusGroup } from "#/lib/issues";
 import { useMembersById, useTeamsById } from "#/lib/queries";
+import { markIssueListShown } from "#/lib/timing";
 import { cn } from "#/lib/utils";
 import { useIssueDropZone, useIssueMoves } from "./dnd";
 import { type IssueField, IssueRow } from "./issue-row";
@@ -36,6 +37,11 @@ export function IssueList({
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [menu, setMenu] = useState<{ issueId: string; field: IssueField } | null>(null);
 	const rows = useRef(new Map<string, HTMLAnchorElement>());
+
+	const shown = groups.length > 0;
+	useEffect(() => {
+		if (shown) markIssueListShown(issues.length);
+	}, [shown, issues.length]);
 
 	const visible = groups.flatMap((group) => (collapsed.has(group.status) ? [] : group.issues));
 

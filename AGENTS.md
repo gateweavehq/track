@@ -46,6 +46,7 @@ root unless noted.
 | `pnpm typecheck`  | Type-check every package (regenerates Wrangler and route types first)        |
 | `pnpm test`       | Run every test suite                                                         |
 | `pnpm test:e2e`   | Build, then run the browser tests (Playwright, Chromium) on port 4711        |
+| `pnpm test:perf`  | Build, then time a cached open and edit propagation against the budgets      |
 | `pnpm build`      | Production build                                                             |
 | `pnpm verify`     | Everything CI runs: check, typecheck, test, build                            |
 | `pnpm run deploy` | Build, apply D1 migrations, deploy (see `docs/self-hosting.md`)              |
@@ -121,6 +122,7 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
   `pnpm --filter @gateweave/track-web exec playwright install chromium`. They are not part of
   `pnpm verify`; CI runs them as the `e2e` job. Every test signs up its own user and workspace.
   Go offline with `network.goOffline()` (`e2e/network.ts`), which also closes open sockets.
+- `apps/web/perf` holds the performance budgets: Playwright (its own config, same server and port 4711) fills a workspace with 2,000 issues, then times a reload from the local copy (the app's `track:issue-list-shown` mark) and an edit reaching a second browser, five runs each. `pnpm test:perf` fails when a median goes over its budget in `perf/budgets.ts` and writes the numbers to the job summary. CI runs it as the `perf` job; it is not part of `pnpm verify`. Never loosen a budget to pass; find what got slower.
 - Every bug fix gets a test that fails without the fix. Never weaken or skip a test to make a
   change pass.
 
