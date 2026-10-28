@@ -15,8 +15,9 @@ worker-configuration.d.ts
 !.dev.vars.example
 .env
 .env.*
-# Only selects the Wrangler environment for `vite build --mode staging`; holds no secrets.
+# Only select the Wrangler environment for `vite build --mode <env>`; they hold no secrets.
 !apps/web/.env.staging
+!apps/web/.env.demo
 
 # Git worktrees that coding agents work in
 .claude/worktrees/
