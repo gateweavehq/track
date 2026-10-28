@@ -10,3 +10,7 @@ GITHUB_CLIENT_SECRET=
 # Optional: pins the app's URL, which also turns on the MCP endpoint for AI agents
 # (http://localhost:4710/mcp). Leave empty to accept any host, for example from your phone.
 BETTER_AUTH_URL=
+
+# Optional: turns on email (invitations, password reset), such as "Gateweave Track <track@example.com>".
+# In local dev nothing is sent: each email is printed in the terminal and saved to a file.
+EMAIL_FROM=

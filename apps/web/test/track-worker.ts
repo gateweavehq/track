@@ -11,6 +11,34 @@ interface BuiltConfig {
 	compatibility_flags?: string[];
 }
 
+/** What Track handed to its email binding. */
+export interface SentEmail {
+	from: string | { name: string; email: string };
+	to: string;
+	subject: string;
+	text: string;
+	html: string;
+}
+
+/** The address Track sends from in tests. */
+export const EMAIL_FROM = { name: "Gateweave Track", email: "track@track.test" };
+
+// Stands in for Cloudflare Email Service behind the EMAIL binding: `send` keeps each message,
+// and a fetch lists them.
+const OUTBOX = `
+import { WorkerEntrypoint } from "cloudflare:workers";
+const sent = [];
+export default class Outbox extends WorkerEntrypoint {
+	async send(message) {
+		sent.push(message);
+		return { messageId: crypto.randomUUID() };
+	}
+	async fetch() {
+		return Response.json(sent);
+	}
+}
+`;
+
 /** Every module of the built Worker. Its migrations are imported as text. */
 function builtModules(): V4ModuleDefinition[] {
 	const modules: V4ModuleDefinition[] = [];
@@ -28,7 +56,7 @@ function builtModules(): V4ModuleDefinition[] {
  *
  * Every outbound request fails, the way a deployed Worker's request to its own hostname does.
  * Track needs no outside service for sign-in or MCP, so code that only works because local dev
- * can reach itself fails here instead of in production.
+ * can reach itself fails here instead of in production. Email is on, and lands in `emails()`.
  */
 export async function startTrack(origin: string) {
 	const config = JSON.parse(readFileSync(join(serverDir, "wrangler.json"), "utf8")) as BuiltConfig;
@@ -36,20 +64,34 @@ export async function startTrack(origin: string) {
 	// Miniflare 5 still takes its documented v4 options through this converter.
 	const mf = new Miniflare(
 		convertV4MiniflareOptions({
-			modules: builtModules(),
-			modulesRoot: serverDir,
-			compatibilityDate: config.compatibility_date,
-			compatibilityFlags: config.compatibility_flags,
-			bindings: {
-				BETTER_AUTH_SECRET: randomBytes(32).toString("base64url"),
-				BETTER_AUTH_URL: origin,
-			},
-			d1Databases: { DB: "track-test" },
-			durableObjects: { WORKSPACE: { className: "WorkspaceDO", useSQLite: true } },
-			outboundService: (request) => {
-				outbound.push(request.url);
-				return new Response("Outbound requests are blocked in this test", { status: 502 });
-			},
+			workers: [
+				{
+					name: "track",
+					modules: builtModules(),
+					modulesRoot: serverDir,
+					compatibilityDate: config.compatibility_date,
+					compatibilityFlags: config.compatibility_flags,
+					bindings: {
+						BETTER_AUTH_SECRET: randomBytes(32).toString("base64url"),
+						BETTER_AUTH_URL: origin,
+						EMAIL_FROM: `${EMAIL_FROM.name} <${EMAIL_FROM.email}>`,
+					},
+					serviceBindings: { EMAIL: "outbox" },
+					d1Databases: { DB: "track-test" },
+					durableObjects: { WORKSPACE: { className: "WorkspaceDO", useSQLite: true } },
+					outboundService: (request) => {
+						outbound.push(request.url);
+						return new Response("Outbound requests are blocked in this test", { status: 502 });
+					},
+				},
+				{
+					name: "outbox",
+					modules: true,
+					script: OUTBOX,
+					routes: ["outbox.test/*"],
+					compatibilityDate: config.compatibility_date,
+				},
+			],
 		}),
 	);
 
@@ -88,6 +130,13 @@ export async function startTrack(origin: string) {
 		},
 		/** URLs the Worker tried to fetch from outside. */
 		outbound,
+		/** Every email sent so far, oldest first. Email goes out after the response. */
+		async emails(): Promise<SentEmail[]> {
+			const response = await mf.dispatchFetch("http://outbox.test/");
+			return (await response.json()) as SentEmail[];
+		},
+		/** The D1 database, for setting up state the app has no endpoint for. */
+		db,
 		dispose: () => mf.dispose(),
 	};
 }

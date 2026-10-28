@@ -11,7 +11,12 @@ import { defineConfig } from "vite";
  * stops a deploy that lacks BETTER_AUTH_SECRET, but in local dev it also drops every other key
  * from .dev.vars. So in dev, these are added to the list when .dev.vars sets them.
  */
-const OPTIONAL_SECRETS = ["BETTER_AUTH_URL", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"];
+const OPTIONAL_SECRETS = [
+	"BETTER_AUTH_URL",
+	"GITHUB_CLIENT_ID",
+	"GITHUB_CLIENT_SECRET",
+	"EMAIL_FROM",
+];
 
 export default defineConfig(({ command }) => ({
 	resolve: { tsconfigPaths: true },

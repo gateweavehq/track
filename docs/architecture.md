@@ -72,9 +72,10 @@ Roles are Better Auth's defaults: `owner`, `admin` and `member`. Admins invite p
 roles, remove members and manage teams. Only owners can make or manage owners, and a workspace
 always keeps at least one.
 
-An invitation is for one email address and lasts seven days. Until email sending lands, an admin
-creates a link (`/invite/:id`) and sends it themselves. Accepting requires being signed in with
-the invited address; Better Auth checks that.
+An invitation is for one email address and lasts seven days. Its link is `/invite/:id`. When email
+is on and the admin has verified their own address, Track emails the link (see
+[Email](#email)). Otherwise, the admin copies the link and sends it themselves. Accepting requires
+being signed in with the invited address; Better Auth checks that.
 
 Email addresses are not verified yet, so anyone can sign up with any address, and the invitation
 id is what actually protects a workspace: whoever holds the link can join. So only admins see
@@ -84,6 +85,25 @@ member pick up an admin invitation: `list-invitations` is limited to admins by a
 disabled. The public invite page only describes pending invitations that have not expired.
 Verified email addresses, with `requireEmailVerificationOnInvitation`, are on the launch
 checklist.
+
+### Email
+
+Email goes out through Cloudflare Email Service, from the `EMAIL` binding. It is optional. Track
+sends nothing until `EMAIL_FROM` names a sender on a domain onboarded to Email Sending, and
+self-hosters can run without email. `apps/web/src/server/email/` holds the sender and the
+templates. Each message has both a plain-text and an HTML body. Every name in it is
+HTML-escaped and squeezed onto one short line.
+
+| Email          | Sent when                                                                                              | Off without email     |
+| -------------- | ------------------------------------------------------------------------------------------------------ | --------------------- |
+| Password reset | Someone asks on `/forgot-password`. The link works once, for an hour, and resetting ends every session | No password reset     |
+| Invitation     | An admin with a verified address invites someone or presses Resend                                     | Admins share the link |
+
+Better Auth sends email after the response, through `waitUntil`. Reset requests therefore take
+the same time whether or not the account exists. Invitations put text chosen by a stranger,
+such as their name and their workspace name, in front of any address, sent from our domain. So
+only inviters who verified their own address trigger an email. Each person can send at most 100
+invitation emails a day, and invite-member requests are rate limited to 20 a minute.
 
 ## Request flow and security
 

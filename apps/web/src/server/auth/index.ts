@@ -1,5 +1,6 @@
-import { env } from "cloudflare:workers";
+import { env, waitUntil } from "cloudflare:workers";
 import { createDb } from "../db";
+import { mailer } from "../email";
 import { syncMembership, syncUserEverywhere, workspaceStub } from "../workspaces";
 import { createAuth } from "./config";
 
@@ -29,9 +30,13 @@ export const auth = createAuth({
 	onUserUpdated: (userId) => logFailure(syncUserEverywhere(db, userId), "profile sync"),
 	onWorkspaceDeleted: (workspaceId) =>
 		logFailure(workspaceStub(workspaceId).destroy(), "workspace deletion"),
+	mailer,
+	runInBackground: waitUntil,
 });
 
 export const githubEnabled = Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
+
+export const emailEnabled = Boolean(mailer);
 
 async function logFailure(work: Promise<unknown>, what: string) {
 	try {
