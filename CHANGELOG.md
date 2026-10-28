@@ -8,6 +8,25 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.1.0] - 2026-10-28
+
+The first release. It brings together everything from the alphas below: realtime sync with a
+copy of each workspace on the device, offline use, issues with boards, labels, comments and
+history, invitations and roles, email, an MCP server for AI agents, and self-hosting with one
+deploy. Try it at [track-demo.gateweave.com](https://track-demo.gateweave.com).
+
+Changes since 0.1.0-alpha.13:
+
+### Added
+
+- This changelog. Each release's GitHub notes match its entry here. ([#35])
+- The README links the public demo. ([#37])
+
+### Fixed
+
+- `pnpm deploy:demo` built the top-level Worker instead of the demo's, because
+  `apps/web/.env.demo` was ignored by Git. A test now checks every environment build. ([#36])
+
 ## [0.1.0-alpha.13] - 2026-10-28
 
 ### Added
@@ -150,6 +169,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.1.0]: https://github.com/gateweavehq/track/releases/tag/v0.1.0
 [0.1.0-alpha.13]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.13
 [0.1.0-alpha.12]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.12
 [0.1.0-alpha.11]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.11
@@ -180,3 +200,6 @@ The first pre-release.
 [#32]: https://github.com/gateweavehq/track/pull/32
 [#33]: https://github.com/gateweavehq/track/pull/33
 [#34]: https://github.com/gateweavehq/track/pull/34
+[#35]: https://github.com/gateweavehq/track/pull/35
+[#36]: https://github.com/gateweavehq/track/pull/36
+[#37]: https://github.com/gateweavehq/track/pull/37
