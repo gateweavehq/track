@@ -100,7 +100,8 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
 - Comments explain why, not what. Match the tone and density of the file you are editing.
 - Generated files are not edited by hand: `routeTree.gen.ts`, `worker-configuration.d.ts`,
   `apps/web/src/server/db/auth-schema.ts` (`pnpm --filter @gateweave/track-web auth:schema`), and
-  everything under `drizzle/` and `migrations/` except the hand-written `migrations.d.ts`.
+  everything under `drizzle/` and `migrations/` except the hand-written `migrations.d.ts` and
+  custom migrations (`drizzle-kit generate --custom`, such as `0003_issue_search.sql`).
 - Dependencies are pinned to exact versions. Shared ones go in the `catalog:` of
   `pnpm-workspace.yaml`. `drizzle-orm` stays on 0.45: the 1.0 migration format does not work
   with Wrangler's D1 migrations.

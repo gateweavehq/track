@@ -9,6 +9,7 @@ import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import { recordActivity } from "./activity";
 import * as schema from "./db/schema";
 import { ChangeSet, type WriteResult } from "./log";
+import { indexIssue, indexTeamIssues, unindexIssue } from "./search";
 import { activeMember, type Db, toComment, toIssue, toLabel, toTeam } from "./state";
 
 export class MutationRejected extends Error {
@@ -127,6 +128,8 @@ function updateTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 		.returning()
 		.get();
 	if (row) changes.put("team", toTeam(row));
+	// The team's issue keys changed with it.
+	if (row && row.key !== team.key) indexTeamIssues(db, team.id);
 }
 
 function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"issue.create">) {
@@ -157,6 +160,7 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		deletedAt: null,
 	};
 	db.insert(schema.issues).values(row).run();
+	indexIssue(db, row.id);
 	changes.put("issue", toIssue(row));
 }
 
@@ -201,6 +205,9 @@ function updateIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		.returning()
 		.get();
 	if (row) changes.put("issue", toIssue(row));
+	if (accepted.title !== undefined || accepted.description !== undefined) {
+		indexIssue(db, issue.id);
+	}
 	// After the issue's own op, so the issue's version stays the version that wrote it.
 	for (const change of issueChanges(issue, accepted)) {
 		recordActivity(db, changes, issue, actor.member.userId, change);
@@ -250,6 +257,7 @@ function deleteIssue(db: Db, changes: ChangeSet, args: MutationArgs<"issue.delet
 		.set({ deletedAt: changes.now, version: changes.nextVersion, updatedAt: changes.now })
 		.where(eq(schema.issues.id, issue.id))
 		.run();
+	unindexIssue(db, issue.id);
 	changes.delete("issue", issue.id);
 }
 
@@ -386,6 +394,7 @@ function createComment(
 		deletedAt: null,
 	};
 	db.insert(schema.comments).values(row).run();
+	indexIssue(db, row.issueId);
 	changes.put("comment", toComment(row));
 }
 
@@ -409,6 +418,7 @@ function updateComment(
 		.where(eq(schema.comments.id, comment.id))
 		.returning()
 		.get();
+	indexIssue(db, comment.issueId);
 	if (row) changes.put("comment", toComment(row));
 }
 
@@ -429,6 +439,7 @@ function deleteComment(
 		.set({ deletedAt: changes.now, updatedAt: changes.now })
 		.where(eq(schema.comments.id, comment.id))
 		.run();
+	indexIssue(db, comment.issueId);
 	changes.delete("comment", comment.id);
 }
 

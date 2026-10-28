@@ -33,7 +33,14 @@ one that moves the schema forward.
    each workspace wakes up after a deploy. They must be fast and must never fail on existing data.
 5. If the change is visible to clients (a new entity field), update `packages/protocol` too and
    bump `PROTOCOL_VERSION` (see the `add-mutation` skill).
-6. Run `pnpm --filter @gateweave/track-sync-server test`.
+6. For what Drizzle cannot express, such as an FTS5 table, write the SQL yourself in a custom
+   migration: `pnpm --filter @gateweave/track-sync-server db:generate --custom --name <name>`
+   makes the empty file and its journal entry. Keep such tables out of `schema.ts`, so Drizzle
+   Kit never tries to manage them, and declare them next to the code that queries them (see
+   `src/search.ts`). Separate statements with `--> statement-breakpoint`, fill in existing
+   data in the same migration, and add a test that undoes it and runs it again over a
+   workspace with data.
+7. Run `pnpm --filter @gateweave/track-sync-server test`.
 
 ## D1 (Better Auth)
 

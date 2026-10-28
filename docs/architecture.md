@@ -327,6 +327,25 @@ Deleting an issue sends delete ops for its comments and activity ahead of the is
 clients drop them together. Deleting a label records nothing, and entries about it read as "a
 deleted label".
 
+### Search
+
+Each workspace's database has a full-text index of its live issues: an FTS5 table
+(`packages/sync-server/src/search.ts`, migration `0003`) with one row per issue, holding its key,
+title, description and the bodies of its comments. A write that changes any of them rebuilds that
+issue's row from the source tables in the same transaction, so the index cannot drift from the
+data; renaming a team's key rebuilds its issues' rows. Rows are addressed through
+`issue_search_docs`, whose `INTEGER PRIMARY KEY` stays stable where a text-keyed table's implicit
+rowid would not. The migration indexes what a workspace already holds when it first wakes after
+the deploy.
+
+Matching follows one set of rules, so that server-side clients and the browser find the same
+issues. Text is folded to lowercase without diacritics (NFKD, combining marks removed) and split
+into runs of letters and digits. An issue matches when every word of the query starts a word in
+one of its fields, so "auth" finds "authentication" and "resume" finds "Résumé". The server
+quotes each word as an FTS5 prefix query, so query syntax has no effect, and ranks matches with
+bm25: the key and title count most, then the description, then comments. MCP's `search_issues`
+uses it.
+
 ### Compaction
 
 An alarm compacts the oplog every six hours. Ops are dropped only when they are both older than

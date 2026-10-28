@@ -161,14 +161,20 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Search issues",
 			description:
-				"Finds issues in a workspace, most recently updated first. Every filter is optional.",
+				"Finds issues in a workspace. Every filter is optional. With text, the best matches come first; otherwise the most recently updated.",
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				team: z.string().optional().describe("A team key, such as ENG."),
 				status: z.array(statusInput).optional().describe("Any of these statuses."),
 				assignee: assigneeInput.optional(),
 				label: z.string().min(1).optional().describe("A label name."),
-				text: z.string().max(200).optional().describe("Words in the title."),
+				text: z
+					.string()
+					.max(200)
+					.optional()
+					.describe(
+						'Words to find in the issue\'s key, title, description or comments. Each word matches the start of a word, ignoring case and accents: "auth" finds "authentication".',
+					),
 				limit: z.number().int().min(1).max(200).default(50),
 			}),
 			outputSchema: z.looseObject({ issues: z.array(issueSummary) }),
