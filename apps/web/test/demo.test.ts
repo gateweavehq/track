@@ -141,20 +141,21 @@ describe("on the demo deployment", () => {
 		).toEqual({ n: 0 });
 	});
 
-	it("limits how many sandboxes one address can open", async () => {
-		const client = "198.51.100.77";
+	it("limits how many sandboxes one network can open", async () => {
+		// Every attempt comes from a different address in the same IPv6 /64, which one visitor
+		// can choose freely, so they all count together.
 		const failures = [];
-		for (let attempt = 0; attempt < 6; attempt++) {
-			failures.push((await openDemo(track, client)).failed);
+		for (let attempt = 1; attempt <= 21; attempt++) {
+			failures.push((await openDemo(track, `2001:db8:77:1::${attempt.toString(16)}`)).failed);
 		}
-		expect(failures).toEqual([false, false, false, false, false, true]);
+		expect(failures.indexOf(true)).toBe(20);
 
-		const over = await openDemo(track, client);
+		const over = await openDemo(track, "2001:db8:77:1:ffff::1");
 		expect(over.text).toContain("opened a lot of demo workspaces");
 		expect(over.cookie).toBe("");
-		// Another address is unaffected.
-		expect((await openDemo(track, "198.51.100.78")).failed).toBe(false);
-	});
+		// The next /64 is someone else.
+		expect((await openDemo(track, "2001:db8:77:2::1")).failed).toBe(false);
+	}, 60_000);
 
 	it("deletes sandboxes and visitors a day old, and nothing else", async () => {
 		const old = await startVisitor(track, "192.0.2.10");
