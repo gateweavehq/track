@@ -70,7 +70,10 @@ const assigneeInput = z
 	.min(1)
 	.describe('"me", "none", or a member\'s email or id, from get_workspace.');
 
-const issueSummary = z.object({
+// Outputs are loose objects. Clients keep a tool's output schema from when they connected and
+// validate results against it, so with a strict schema every field added later would fail their
+// calls until they reconnect.
+const issueSummary = z.looseObject({
 	key: z.string(),
 	title: z.string(),
 	status: statusInput,
@@ -85,7 +88,7 @@ const issueDetail = issueSummary.extend({
 	creator: z.string().nullable().describe("The creator's email."),
 	createdAt: z.string(),
 });
-const commentOutput = z.object({
+const commentOutput = z.looseObject({
 	author: z.string().nullable().describe("The author's email."),
 	body: z.string().describe("Markdown."),
 	createdAt: z.string(),
@@ -107,9 +110,9 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "List workspaces",
 			description: "Lists the Track workspaces you belong to. Start here to find a slug.",
-			outputSchema: z.object({
+			outputSchema: z.looseObject({
 				workspaces: z.array(
-					z.object({ slug: z.string(), name: z.string(), role: z.enum(MEMBER_ROLES) }),
+					z.looseObject({ slug: z.string(), name: z.string(), role: z.enum(MEMBER_ROLES) }),
 				),
 			}),
 			annotations: { readOnlyHint: true, openWorldHint: false },
@@ -124,11 +127,11 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			description:
 				"Lists a workspace's teams (whose keys prefix issue keys), its labels, and its members (who can be assignees).",
 			inputSchema: z.object({ workspace: workspaceInput }),
-			outputSchema: z.object({
-				teams: z.array(z.object({ key: z.string(), name: z.string() })),
-				labels: z.array(z.object({ name: z.string(), color: z.string() })),
+			outputSchema: z.looseObject({
+				teams: z.array(z.looseObject({ key: z.string(), name: z.string() })),
+				labels: z.array(z.looseObject({ name: z.string(), color: z.string() })),
 				members: z.array(
-					z.object({
+					z.looseObject({
 						id: z.string(),
 						name: z.string(),
 						email: z.string(),
@@ -166,7 +169,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				text: z.string().max(200).optional().describe("Words in the title."),
 				limit: z.number().int().min(1).max(200).default(50),
 			}),
-			outputSchema: z.object({ issues: z.array(issueSummary) }),
+			outputSchema: z.looseObject({ issues: z.array(issueSummary) }),
 			annotations: { readOnlyHint: true, openWorldHint: false },
 		},
 		(input) =>
@@ -370,7 +373,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					.optional()
 					.describe("A lowercase hex color, like #e5484d. One is picked if you leave it out."),
 			}),
-			outputSchema: z.object({ name: z.string(), color: z.string() }),
+			outputSchema: z.looseObject({ name: z.string(), color: z.string() }),
 			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
 		},
 		(input) =>
