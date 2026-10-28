@@ -4,5 +4,11 @@
 		"lib": ["ES2024", "DOM", "DOM.Iterable"],
 		"types": ["node"]
 	},
-	"include": ["*.ts", "../e2e/*.ts", "../scripts/seed-data.ts", "../playwright.perf.config.ts"]
+	"include": [
+		"*.ts",
+		"../e2e/*.ts",
+		"../scripts/seed-data.ts",
+		"../src/lib/timing.ts",
+		"../playwright.perf.config.ts"
+	]
 }

@@ -5,11 +5,10 @@ import { type Browser, expect, type Page, test } from "@playwright/test";
 import { newBrowserContext } from "../e2e/fixtures";
 import { syncBadge, waitForHydration } from "../e2e/helpers";
 import { PASSWORD, PEOPLE } from "../scripts/seed-data";
+// The one app module the tests import: it has no imports of its own.
+import { MARK_ISSUE_LIST_SHOWN } from "../src/lib/timing";
 import { BUDGETS, ISSUES, RUNS } from "./budgets";
 
-// The issue list records this mark when it is on screen (src/lib/timing.ts). It is kept in sync
-// by hand: the app's code must not be imported into a Node test.
-const MARK_ISSUE_LIST_SHOWN = "track:issue-list-shown";
 const SLUG = "load";
 const PORT = 4711;
 
