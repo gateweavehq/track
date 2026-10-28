@@ -1,4 +1,4 @@
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { z } from "zod";
 import { Button } from "#/components/ui/button";
@@ -107,7 +107,18 @@ function LoginPage() {
 						/>
 					</div>
 					<div className="space-y-2">
-						<Label htmlFor="password">Password</Label>
+						<div className="flex items-baseline justify-between">
+							<Label htmlFor="password">Password</Label>
+							{mode === "sign-in" && options.email && (
+								<Link
+									to="/forgot-password"
+									search={{ email: search.email }}
+									className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+								>
+									Forgot password?
+								</Link>
+							)}
+						</div>
 						<Input
 							id="password"
 							name="password"

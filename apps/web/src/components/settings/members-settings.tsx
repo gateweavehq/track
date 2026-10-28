@@ -41,10 +41,13 @@ async function copyLink(invitationId: string) {
 export function MembersSettings({
 	members,
 	invitations,
+	inviteByEmail,
 	focusInvite,
 }: {
 	members: WorkspaceMember[];
 	invitations: PendingInvitation[];
+	/** Whether the server emails invitations from this user, or they share links themselves. */
+	inviteByEmail: boolean;
 	/** Puts the cursor in the invite form, for links like "Invite people". */
 	focusInvite: boolean;
 }) {
@@ -52,7 +55,9 @@ export function MembersSettings({
 	const owners = members.filter((member) => member.role === "owner").length;
 	return (
 		<div className="space-y-12">
-			{isAdmin(role) && <InviteSection invitations={invitations} focus={focusInvite} />}
+			{isAdmin(role) && (
+				<InviteSection invitations={invitations} byEmail={inviteByEmail} focus={focusInvite} />
+			)}
 			<section aria-labelledby="members-heading" className="space-y-4">
 				<h2 id="members-heading" className="text-base font-semibold">
 					Members <span className="font-normal text-muted-foreground">{members.length}</span>
@@ -73,9 +78,11 @@ export function MembersSettings({
 
 function InviteSection({
 	invitations,
+	byEmail,
 	focus,
 }: {
 	invitations: PendingInvitation[];
+	byEmail: boolean;
 	focus: boolean;
 }) {
 	const { id: organizationId } = useWorkspace();
@@ -92,7 +99,7 @@ function InviteSection({
 		setPending(true);
 		setError(null);
 		// `resend` returns the pending invitation for this address, with a fresh expiry, instead
-		// of failing, so asking for a link twice gives the same link.
+		// of failing, so asking for a link twice gives the same link (and emails it again).
 		const result = await authClient.organization.inviteMember({
 			email: email.trim(),
 			role,
@@ -116,8 +123,9 @@ function InviteSection({
 					Invite people
 				</h2>
 				<p className="text-sm text-muted-foreground">
-					Create a link for someone's email address and send it to them. It works for that address
-					only, for 7 days.
+					{byEmail
+						? "We email them a link to join. It works for their address only, for 7 days."
+						: "Create a link for someone's email address and send it to them. It works for that address only, for 7 days."}
 				</p>
 			</div>
 			<form onSubmit={onSubmit} className="flex flex-col gap-2 sm:flex-row">
@@ -138,7 +146,7 @@ function InviteSection({
 					label="Role for the invited person"
 				/>
 				<Button type="submit" disabled={pending || !email.trim()}>
-					Create invite link
+					{byEmail ? "Send invite" : "Create invite link"}
 				</Button>
 			</form>
 			{error && (
@@ -149,7 +157,16 @@ function InviteSection({
 			{created && (
 				<div className="space-y-2 rounded-lg border bg-muted/40 p-3" aria-live="polite">
 					<p className="text-sm">
-						Send this link to <span className="font-medium">{created.email}</span>:
+						{byEmail ? (
+							<>
+								Invitation emailed to <span className="font-medium">{created.email}</span>. You can
+								also send them the link yourself:
+							</>
+						) : (
+							<>
+								Send this link to <span className="font-medium">{created.email}</span>:
+							</>
+						)}
 					</p>
 					<div className="flex gap-2">
 						<Input
@@ -171,7 +188,7 @@ function InviteSection({
 					<h3 className="text-sm font-medium text-muted-foreground">Pending invitations</h3>
 					<ul className="divide-y rounded-lg border">
 						{invitations.map((invitation) => (
-							<InvitationRow key={invitation.id} invitation={invitation} />
+							<InvitationRow key={invitation.id} invitation={invitation} byEmail={byEmail} />
 						))}
 					</ul>
 				</div>
@@ -180,9 +197,31 @@ function InviteSection({
 	);
 }
 
-function InvitationRow({ invitation }: { invitation: PendingInvitation }) {
+function InvitationRow({
+	invitation,
+	byEmail,
+}: {
+	invitation: PendingInvitation;
+	byEmail: boolean;
+}) {
+	const { id: organizationId } = useWorkspace();
 	const router = useRouter();
 	const [revoking, setRevoking] = useState(false);
+
+	async function resend() {
+		const result = await authClient.organization.inviteMember({
+			email: invitation.email,
+			role: invitation.role,
+			organizationId,
+			resend: true,
+		});
+		if (result.error) {
+			toast.error("Could not resend the invitation", { description: result.error.message });
+			return;
+		}
+		toast.success(`Invitation emailed to ${invitation.email} again`);
+		await router.invalidate();
+	}
 
 	async function revoke() {
 		const result = await authClient.organization.cancelInvitation({
@@ -205,6 +244,11 @@ function InvitationRow({ invitation }: { invitation: PendingInvitation }) {
 				Expires {formatRelative(invitation.expiresAt)}
 			</span>
 			<div className="flex gap-1">
+				{byEmail && (
+					<Button variant="ghost" size="sm" onClick={resend}>
+						Resend
+					</Button>
+				)}
 				<Button variant="ghost" size="sm" onClick={() => copyLink(invitation.id)}>
 					Copy link
 				</Button>

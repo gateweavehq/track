@@ -30,6 +30,7 @@ function MembersPage() {
 		<MembersSettings
 			members={data.members}
 			invitations={data.invitations}
+			inviteByEmail={data.inviteByEmail}
 			focusInvite={invite === true}
 		/>
 	);

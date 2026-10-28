@@ -44,7 +44,7 @@ export interface PendingInvitation {
 export const getWorkspaceMembers = createServerFn({ method: "GET" })
 	.validator(z.string().min(1))
 	.handler(async ({ data: slug }) => {
-		const { auth, db } = await import("#/server/auth");
+		const { auth, db, emailEnabled } = await import("#/server/auth");
 		const { findMembership, toRole } = await import("#/server/workspaces");
 		const headers = getRequestHeaders();
 		const session = await auth.api.getSession({ headers });
@@ -63,6 +63,8 @@ export const getWorkspaceMembers = createServerFn({ method: "GET" })
 		const now = Date.now();
 
 		return {
+			// Matches when the server emails an invitation (see sendInvitationEmail).
+			inviteByEmail: canInvite && emailEnabled && session.user.emailVerified,
 			members: members
 				.map(
 					(member): WorkspaceMember => ({

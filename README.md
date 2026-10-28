@@ -115,6 +115,21 @@ endpoint for AI agents, pin the URL people use, because agents' tokens are bound
 npx wrangler secret put BETTER_AUTH_URL    # for example https://track.example.com
 ```
 
+Email is optional. Without it, admins send invitation links themselves and nobody can reset a
+password. To turn it on:
+
+1. Onboard a domain to [Cloudflare Email Sending](https://developers.cloudflare.com/email-service/).
+   Sending to any address requires the Workers Paid plan.
+2. Name the sender:
+
+```sh
+npx wrangler email sending enable example.com
+npx wrangler secret put EMAIL_FROM    # for example: Gateweave Track <track@example.com>
+```
+
+Track then emails password-reset links and invitations, using the `EMAIL` binding in
+`wrangler.jsonc`.
+
 ## Project structure
 
 ```
