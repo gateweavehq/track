@@ -1,5 +1,5 @@
 import handler from "@tanstack/react-start/server-entry";
-import { auth } from "./server/auth";
+import { getAuth } from "./server/auth";
 import { handleMcpRequest, isMcpRequest } from "./server/mcp";
 import { handleSyncRequest, isSyncRequest } from "./server/sync";
 
@@ -15,7 +15,7 @@ export default {
 		// Sync is handled before TanStack Start so WebSocket upgrade responses pass through untouched.
 		if (isSyncRequest(url)) return handleSyncRequest(request);
 		if (isMcpRequest(url)) return handleMcpRequest(request);
-		if (OAUTH_DISCOVERY.test(url.pathname)) return auth.handler(request);
+		if (OAUTH_DISCOVERY.test(url.pathname)) return getAuth().handler(request);
 		return handler.fetch(request);
 	},
 } satisfies ExportedHandler<Cloudflare.Env>;

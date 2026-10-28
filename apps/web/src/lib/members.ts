@@ -10,7 +10,8 @@ import { z } from "zod";
 export const previewInvitation = createServerFn({ method: "GET" })
 	.validator(z.string().min(1).max(128))
 	.handler(async ({ data: invitationId }) => {
-		const { auth, db, emailEnabled } = await import("#/server/auth");
+		const { getAuth, db, emailEnabled } = await import("#/server/auth");
+		const auth = getAuth();
 		const { findPendingInvitation } = await import("#/server/workspaces");
 		const [invitation, session] = await Promise.all([
 			findPendingInvitation(db, invitationId),
@@ -51,7 +52,8 @@ export interface PendingInvitation {
 export const getWorkspaceMembers = createServerFn({ method: "GET" })
 	.validator(z.string().min(1))
 	.handler(async ({ data: slug }) => {
-		const { auth, db, emailEnabled } = await import("#/server/auth");
+		const { getAuth, db, emailEnabled } = await import("#/server/auth");
+		const auth = getAuth();
 		const { findMembership, toRole } = await import("#/server/workspaces");
 		const headers = getRequestHeaders();
 		const session = await auth.api.getSession({ headers });

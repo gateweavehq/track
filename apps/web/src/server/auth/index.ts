@@ -14,25 +14,41 @@ const baseURL = env.BETTER_AUTH_URL || undefined;
  */
 export const mcpResource = baseURL ? new URL("/mcp", baseURL).href : undefined;
 
-export const auth = createAuth({
-	db,
-	secret: env.BETTER_AUTH_SECRET,
-	baseURL,
-	mcpResource,
-	github:
-		env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
-			? { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET }
-			: undefined,
-	// Membership lives in D1; each workspace's Durable Object keeps a replica for authorization
-	// and for showing members to clients. A failed push heals the next time that user connects.
-	onMembershipChange: (workspaceId, userId) =>
-		logFailure(syncMembership(db, workspaceId, userId), "membership sync"),
-	onUserUpdated: (userId) => logFailure(syncUserEverywhere(db, userId), "profile sync"),
-	onWorkspaceDeleted: (workspaceId) =>
-		logFailure(workspaceStub(workspaceId).destroy(), "workspace deletion"),
-	mailer,
-	runInBackground: waitUntil,
-});
+let instance: ReturnType<typeof buildAuth> | undefined;
+
+/**
+ * The isolate's one Better Auth instance, built on first use. Better Auth starts resolving its
+ * context as soon as it is created, and the oauth-provider plugin queries D1 while doing so
+ * (it seeds `oauth_resource`). workerd forbids I/O in global scope, so building at module load
+ * logs an error on every cold start. Never construct this per request: the rate limiter keeps
+ * its counters in memory on the instance.
+ */
+export function getAuth() {
+	instance ??= buildAuth();
+	return instance;
+}
+
+function buildAuth() {
+	return createAuth({
+		db,
+		secret: env.BETTER_AUTH_SECRET,
+		baseURL,
+		mcpResource,
+		github:
+			env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
+				? { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET }
+				: undefined,
+		// Membership lives in D1; each workspace's Durable Object keeps a replica for authorization
+		// and for showing members to clients. A failed push heals the next time that user connects.
+		onMembershipChange: (workspaceId, userId) =>
+			logFailure(syncMembership(db, workspaceId, userId), "membership sync"),
+		onUserUpdated: (userId) => logFailure(syncUserEverywhere(db, userId), "profile sync"),
+		onWorkspaceDeleted: (workspaceId) =>
+			logFailure(workspaceStub(workspaceId).destroy(), "workspace deletion"),
+		mailer,
+		runInBackground: waitUntil,
+	});
+}
 
 export const githubEnabled = Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
 

@@ -1,5 +1,5 @@
 import { MEMBER_HEADER } from "@gateweave/track-sync-server";
-import { auth, db } from "./auth";
+import { db, getAuth } from "./auth";
 import { findMembership, workspaceStub } from "./workspaces";
 
 const SYNC_ROUTE = /^\/api\/sync\/([^/]+)\/(snapshot|socket)$/;
@@ -32,7 +32,7 @@ export async function handleSyncRequest(request: Request): Promise<Response> {
 	const origin = request.headers.get("Origin");
 	if ((isSocket || origin) && origin !== url.origin) return error(403, "Cross-origin request");
 
-	const session = await auth.api.getSession({ headers: request.headers });
+	const session = await getAuth().api.getSession({ headers: request.headers });
 	if (!session) return error(401, "Not signed in");
 
 	const membership = await findMembership(db, decodeURIComponent(slug), session.user.id);
