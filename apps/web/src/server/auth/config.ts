@@ -42,6 +42,17 @@ export function createAuth(config: AuthConfig) {
 		baseURL: config.baseURL,
 		database: drizzleAdapter(config.db, { provider: "sqlite", schema }),
 		telemetry: { enabled: false },
+		// Better Auth only turns its limiter on by itself when NODE_ENV is "production", which a
+		// Worker never sets. Its defaults allow 3 sign-ins per 10 seconds per client. It stays on
+		// in local dev too, so what works there works deployed.
+		rateLimit: { enabled: true },
+		advanced: {
+			ipAddress: {
+				// Cloudflare sets this to the address it saw. Clients can add to X-Forwarded-For,
+				// and Better Auth puts every request whose address it cannot trust in one bucket.
+				ipAddressHeaders: ["cf-connecting-ip"],
+			},
+		},
 		emailAndPassword: { enabled: true },
 		socialProviders: config.github ? { github: config.github } : {},
 		disabledPaths: [

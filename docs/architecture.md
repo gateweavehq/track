@@ -105,6 +105,11 @@ The DO is keyed by workspace id, not slug, so renaming a workspace does not move
 see the HTTP status of a refused WebSocket handshake, so the client uses this probe to tell
 "offline" apart from "signed out" or "no longer a member".
 
+Better Auth limits how often each client calls `/api/auth/*`. For example, it allows 3 sign-in
+attempts per 10 seconds and 3 password-reset requests per minute. It identifies the client by
+`CF-Connecting-IP`. Cloudflare sets that header and clients cannot. Counts are kept in memory,
+per isolate, so the limit slows guessing but is not a hard cap.
+
 ### AI agents (MCP)
 
 `/mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server, so AI agents can

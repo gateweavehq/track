@@ -240,17 +240,23 @@ async function api<T = unknown>(
 	return (await response.json()) as T;
 }
 
-function request(method: string, path: string, cookie?: string, body?: object) {
-	return fetch(new URL(`/api/auth${path}`, base), {
-		method,
-		headers: {
-			// Better Auth rejects state-changing requests without a trusted Origin.
-			Origin: base.origin,
-			...(body && { "Content-Type": "application/json" }),
-			...(cookie && { Cookie: cookie }),
-		},
-		body: body && JSON.stringify(body),
-	});
+async function request(method: string, path: string, cookie?: string, body?: object) {
+	for (;;) {
+		const response = await fetch(new URL(`/api/auth${path}`, base), {
+			method,
+			headers: {
+				// Better Auth rejects state-changing requests without a trusted Origin.
+				Origin: base.origin,
+				...(body && { "Content-Type": "application/json" }),
+				...(cookie && { Cookie: cookie }),
+			},
+			body: body && JSON.stringify(body),
+		});
+		// Sign-ups are rate limited per client, a few every 10 seconds, and this signs up several.
+		if (response.status !== 429) return response;
+		const seconds = Number(response.headers.get("x-retry-after")) || 1;
+		await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+	}
 }
 
 /**
