@@ -161,7 +161,8 @@ Each tool call resolves the workspace slug to the caller's membership in D1, as 
 does, and then reads or mutates through the Durable Object's RPC (see
 [Server-side clients](#server-side-clients)). A workspace the caller does not belong to is
 reported as not found. The tools themselves live in `apps/web/src/server/mcp/tools.ts`. Agents
-read an issue's comments with `get_issue` and write one with `add_comment`, as the person.
+read an issue's comments with `get_issue` and write one with `add_comment`, as the person. An
+agent sets up a fresh workspace's teams with `create_team`, which only admins may use.
 
 Tokens must name one canonical URL, so the endpoint, and the authorization server, exist only
 when `BETTER_AUTH_URL` pins the base URL. Without it `/mcp` answers `404`.

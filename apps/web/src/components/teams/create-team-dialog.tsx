@@ -15,14 +15,7 @@ import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { useWorkspace } from "#/components/workspace/context";
 import { useTeams } from "#/lib/queries";
-
-/** A team key suggestion from its name: "Platform Engineering" becomes "PE", "Design" "DES". */
-function suggestKey(name: string): string {
-	const words = name.toUpperCase().match(/[A-Z0-9]+/g) ?? [];
-	const key =
-		words.length > 1 ? words.map((word) => word[0]).join("") : (words[0] ?? "").slice(0, 3);
-	return key.replace(/^[0-9]+/, "").slice(0, 7);
-}
+import { suggestKey } from "#/lib/teams";
 
 export function CreateTeamForm({ onCreated }: { onCreated?: () => void }) {
 	const client = useSyncClient();

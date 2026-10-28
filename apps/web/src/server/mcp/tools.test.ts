@@ -38,7 +38,8 @@ const team: Team = { id: "team-eng", key: "ENG", name: "Engineering", createdAt:
  */
 class FakeWorkspace implements WorkspaceAccess {
 	readonly slug = "acme";
-	readonly me = me;
+	me: MemberProfile = me;
+	teams: Team[] = [team];
 	issues_: Issue[] = [];
 	labels: Label[] = [];
 	comments_: Comment[] = [];
@@ -47,7 +48,7 @@ class FakeWorkspace implements WorkspaceAccess {
 	#version = 10;
 
 	async directory() {
-		return { teams: [team], labels: this.labels, members: [{ ...me, removedAt: null }, sam] };
+		return { teams: this.teams, labels: this.labels, members: [{ ...me, removedAt: null }, sam] };
 	}
 	async issues(query: IssueQuery) {
 		return this.issues_
@@ -78,6 +79,23 @@ class FakeWorkspace implements WorkspaceAccess {
 		const mutation = mutationSchema.parse(input);
 		this.mutations.push(mutation);
 		if (this.nextResult) return this.nextResult;
+		// The rules the server applies to teams, so refusals come back as it would send them.
+		if (mutation.name === "team.create") {
+			if (this.me.role === "member") {
+				return {
+					ok: false,
+					reason: "forbidden",
+					message: "Only workspace admins can manage teams",
+				};
+			}
+			if (this.teams.some((other) => other.key === mutation.args.key)) {
+				return {
+					ok: false,
+					reason: "conflict",
+					message: `Team key ${mutation.args.key} is already in use`,
+				};
+			}
+		}
 		const version = ++this.#version;
 		if (mutation.name === "issue.create") {
 			const { id, teamId, title, description, status, priority, assigneeId, labelIds, sortOrder } =
@@ -103,6 +121,8 @@ class FakeWorkspace implements WorkspaceAccess {
 			}
 		} else if (mutation.name === "label.create") {
 			this.labels.push({ ...mutation.args, createdAt: 0, updatedAt: 0 });
+		} else if (mutation.name === "team.create") {
+			this.teams.push({ ...mutation.args, createdAt: 0, updatedAt: 0 });
 		} else if (mutation.name === "comment.create") {
 			const at = Date.UTC(2026, 9, 28);
 			this.comments_.push({ ...mutation.args, authorId: me.id, createdAt: at, updatedAt: at });
@@ -147,6 +167,7 @@ describe("Track MCP tools", () => {
 			"add_comment",
 			"create_issue",
 			"create_label",
+			"create_team",
 			"get_issue",
 			"get_workspace",
 			"list_workspaces",
@@ -356,6 +377,52 @@ describe("Track MCP tools", () => {
 		expect(given.structuredContent).toEqual({ name: "Docs", color: "#0090ff" });
 		expect(duplicate.isError).toBe(true);
 		expect(workspace.mutations.filter((m) => m.name === "label.create")).toHaveLength(2);
+	});
+
+	it("creates teams for an admin, deriving the key from the name unless given", async () => {
+		const derived = await call("create_team", { workspace: "acme", name: "Platform Engineering" });
+		const given = await call("create_team", { workspace: "acme", name: "Design", key: "des" });
+
+		expect(derived.structuredContent).toEqual({ key: "PE", name: "Platform Engineering" });
+		expect(given.structuredContent).toEqual({ key: "DES", name: "Design" });
+		expect((await call("get_workspace", { workspace: "acme" })).structuredContent).toMatchObject({
+			teams: [
+				{ key: "ENG", name: "Engineering" },
+				{ key: "PE", name: "Platform Engineering" },
+				{ key: "DES", name: "Design" },
+			],
+		});
+		const issue = await call("create_issue", { workspace: "acme", team: "pe", title: "First" });
+		expect(issue.structuredContent).toMatchObject({ key: "PE-1" });
+	});
+
+	it("passes a plain member's refusal on as a tool error, without a team", async () => {
+		workspace.me = { ...me, role: "member" };
+		const result = await call("create_team", { workspace: "acme", name: "Ops" });
+
+		expect(result.isError).toBe(true);
+		expect(result.content).toEqual([
+			{ type: "text", text: "Only workspace admins can manage teams" },
+		]);
+		expect((await call("get_workspace", { workspace: "acme" })).structuredContent).toMatchObject({
+			teams: [{ key: "ENG" }],
+		});
+	});
+
+	it("refuses a taken or malformed team key, and a name with no key to derive", async () => {
+		const taken = await call("create_team", { workspace: "acme", name: "Again", key: "eng" });
+		const malformed = await call("create_team", { workspace: "acme", name: "Ops", key: "1OPS" });
+		const underivable = await call("create_team", { workspace: "acme", name: "!!!" });
+
+		expect(taken.isError).toBe(true);
+		expect(taken.content).toEqual([{ type: "text", text: "Team key ENG is already in use." }]);
+		expect(malformed.isError).toBe(true);
+		expect(malformed.content).toEqual([
+			{ type: "text", text: "1-7 uppercase letters or digits, starting with a letter" },
+		]);
+		expect(underivable.isError).toBe(true);
+		// Only the taken key reached the server; the malformed ones were refused before any write.
+		expect(workspace.mutations.map((m) => m.name)).toEqual(["team.create"]);
 	});
 
 	it("labels issues by name, and finds them by label", async () => {
