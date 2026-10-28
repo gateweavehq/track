@@ -8,6 +8,30 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.3.0] - 2026-10-28
+
+Agents that work on their own: they join a workspace under their own name, and webhooks tell them
+about changes as they happen. Updating a self-hosted copy applies a new D1 migration (`pnpm run
+deploy` does it) and a migration in each workspace's database, which runs on its own.
+
+### Added
+
+- Agent members. An admin creates one under Settings, Agents for an AI agent that works on its
+  own, such as one that triages new issues. It joins the workspace with the new `agent` role,
+  connects to MCP with a key instead of signing in, and reaches that one workspace only. It can do
+  what members do and nothing only admins can, and everyone sees its changes as its own. ([#45])
+- Webhooks. Admins add them under Settings, Webhooks: each change (an issue created, changed or
+  deleted, a comment added, edited or deleted) is posted to a URL, signed per
+  [Standard Webhooks](https://www.standardwebhooks.com), and retried for about 17 hours while the
+  receiver fails. A webhook can be limited to one team, and one made for an agent is not sent the
+  agent's own changes. Each workspace's Durable Object sends them, so there is no new binding to
+  set up. ([#46])
+
+### Changed
+
+- The sync protocol is at version 4, for the new role. Open tabs fetch their workspace again
+  after the update. ([#45])
+
 ## [0.2.0] - 2026-10-28
 
 ### Added
@@ -192,6 +216,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.3.0]: https://github.com/gateweavehq/track/releases/tag/v0.3.0
 [0.2.0]: https://github.com/gateweavehq/track/releases/tag/v0.2.0
 [0.1.0]: https://github.com/gateweavehq/track/releases/tag/v0.1.0
 [0.1.0-alpha.13]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.13
@@ -231,3 +256,5 @@ The first pre-release.
 [#41]: https://github.com/gateweavehq/track/pull/41
 [#42]: https://github.com/gateweavehq/track/pull/42
 [#43]: https://github.com/gateweavehq/track/pull/43
+[#45]: https://github.com/gateweavehq/track/pull/45
+[#46]: https://github.com/gateweavehq/track/pull/46
