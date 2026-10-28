@@ -45,14 +45,16 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - **Public repository.** The `main` ruleset is enforced and private vulnerability reporting is on.
 - **Public demo.** [track-demo.gateweave.com](https://track-demo.gateweave.com) gives each
   visitor a private workspace of sample data in one click, deleted a day later.
+- **v0.1.0.** The first release, with a [changelog](../CHANGELOG.md) covering every version.
 - **Performance budgets.** CI times a reload of a 2,000-issue workspace from the local copy and
   an edit reaching a second browser, and fails when a median goes over its budget.
 
 ## Next: launch
 
-- A first release, v0.1.0, with its [changelog](../CHANGELOG.md) entry.
-- Show HN, plus a technical write-up of the sync engine: how a Durable Object per workspace, an
-  oplog and a local replica make a fast, offline-capable app on serverless infrastructure.
+- Show HN. The technical write-up it links to is published:
+  [How Track syncs](https://gateweave.com/blog/how-track-syncs), on how a Durable Object per
+  workspace, an oplog and a local replica make a fast, offline-capable app on serverless
+  infrastructure.
 
 ## After launch
 
