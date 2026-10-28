@@ -1,6 +1,7 @@
 import type { Comment, Issue, IssueStatus, Label, Member, Team } from "@gateweave/track-protocol";
 import { and, asc, desc, eq, inArray, isNull, max, type SQL, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
+import { issueSearch, issueSearchDocs, matchExpression, matches, RANK } from "./search";
 import { type Db, toComment, toIssue, toLabel, toMember, toTeam } from "./state";
 
 // Reads for server-side clients, which ask for a slice of the workspace instead of a replica.
@@ -12,7 +13,10 @@ export interface IssueQuery {
 	assigneeId?: string | null | undefined;
 	/** Only issues with this label. */
 	labelId?: string | undefined;
-	/** Matched against titles, ignoring case. */
+	/**
+	 * Words to find in the key, title, description or comments; each must start a word there,
+	 * ignoring case and diacritics. Matches come best first. See `search.ts`.
+	 */
 	text?: string | undefined;
 	limit: number;
 }
@@ -39,7 +43,7 @@ export function readDirectory(db: Db): Directory {
 	};
 }
 
-/** Live issues matching every given filter, most recently updated first. */
+/** Live issues matching every given filter: best text match first, then most recently updated. */
 export function findIssues(db: Db, query: IssueQuery): Issue[] {
 	const filters: SQL[] = [isNull(schema.issues.deletedAt)];
 	if (query.teamId !== undefined) filters.push(eq(schema.issues.teamId, query.teamId));
@@ -53,18 +57,33 @@ export function findIssues(db: Db, query: IssueQuery): Issue[] {
 			sql`exists (select 1 from json_each(${schema.issues.labelIds}) where value = ${query.labelId})`,
 		);
 	}
-	const text = query.text?.trim();
-	// instr instead of LIKE, so % and _ in the text are not wildcards. lower() folds ASCII only.
-	if (text) filters.push(sql`instr(lower(${schema.issues.title}), lower(${text})) > 0`);
+	const limit = Math.min(Math.max(Math.trunc(query.limit), 1), MAX_QUERY_LIMIT);
 
+	const text = query.text?.trim();
+	if (!text) {
+		return db
+			.select()
+			.from(schema.issues)
+			.where(and(...filters))
+			.orderBy(desc(schema.issues.updatedAt), schema.issues.id)
+			.limit(limit)
+			.all()
+			.map(toIssue);
+	}
+
+	// Text without a single word, such as "?!", has nothing to match.
+	const expression = matchExpression(text);
+	if (!expression) return [];
 	return db
-		.select()
-		.from(schema.issues)
-		.where(and(...filters))
-		.orderBy(desc(schema.issues.updatedAt), schema.issues.id)
-		.limit(Math.min(Math.max(Math.trunc(query.limit), 1), MAX_QUERY_LIMIT))
+		.select({ issue: schema.issues })
+		.from(issueSearch)
+		.innerJoin(issueSearchDocs, eq(issueSearchDocs.id, issueSearch.rowid))
+		.innerJoin(schema.issues, eq(schema.issues.id, issueSearchDocs.issueId))
+		.where(and(matches(expression), ...filters))
+		.orderBy(RANK, desc(schema.issues.updatedAt), schema.issues.id)
+		.limit(limit)
 		.all()
-		.map(toIssue);
+		.map(({ issue }) => toIssue(issue));
 }
 
 export function findIssueById(db: Db, id: string): Issue | undefined {

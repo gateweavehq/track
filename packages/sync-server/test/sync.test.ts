@@ -7,8 +7,11 @@ import {
 	PING,
 	PONG,
 } from "@gateweave/track-protocol";
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/durable-sqlite";
+import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { describe, expect, it } from "vitest";
+import migrations from "../drizzle/migrations";
 import type { MemberProfile } from "../src";
 import * as schema from "../src/db/schema";
 import { compact } from "../src/log";
@@ -910,9 +913,9 @@ describe("server-side clients", () => {
 		expect(await ids({ teamId: TEAM_ID, statuses: ["todo"], limit: 10 })).toEqual(["i-2"]);
 		expect(await ids({ assigneeId: owner.id, limit: 10 })).toEqual(["i-2"]);
 		expect(await ids({ assigneeId: null, limit: 10 })).toEqual(["i-1"]);
-		// Wildcard characters in the text match themselves.
+		// Text is matched by its words (see "search" below), so a query with none finds nothing.
 		expect(await ids({ text: "100%", limit: 10 })).toEqual(["i-1"]);
-		expect(await ids({ text: "%", limit: 10 })).toEqual(["i-1"]);
+		expect(await ids({ text: "%", limit: 10 })).toEqual([]);
 		expect(await ids({ text: "WRITE", limit: 10 })).toEqual(["i-2"]);
 		expect(await ids({ limit: 1 })).toHaveLength(1);
 	});
@@ -961,5 +964,147 @@ describe("server-side clients", () => {
 		expect(directory.members.map((member) => member.id).sort()).toEqual(
 			[alice.id, owner.id].sort(),
 		);
+	});
+});
+
+describe("search", () => {
+	async function issue(
+		client: TestClient,
+		id: string,
+		title: string,
+		description: string | null = null,
+	) {
+		await client.apply({
+			name: "issue.create",
+			args: { id, teamId: TEAM_ID, title, description, sortOrder: "a0" },
+		});
+	}
+
+	/** Ids in the order the search ranks them. */
+	const found = async (workspace: Workspace, text: string) =>
+		(await workspace.issues({ text, limit: 50 })).map((issue) => issue.id);
+
+	it("finds issues by words in their key, title, description and comments", async () => {
+		const { workspace, admin } = await withTeam();
+		await issue(admin, "i-1", "Authentication fails on Safari");
+		await issue(admin, "i-2", "Dark mode", "Contrast is too low on the authentication page");
+		await issue(admin, "i-3", "Exports are slow");
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "c-1", issueId: "i-3", body: "Seen with large workspaces" },
+		});
+
+		expect(await found(workspace, "authentication")).toEqual(["i-1", "i-2"]);
+		// Each word only has to start a word.
+		expect(await found(workspace, "auth")).toEqual(["i-1", "i-2"]);
+		expect(await found(workspace, "thent")).toEqual([]);
+		expect(await found(workspace, "workspace")).toEqual(["i-3"]);
+		// Every word has to match.
+		expect(await found(workspace, "auth safari")).toEqual(["i-1"]);
+		expect(await found(workspace, "auth exports")).toEqual([]);
+		// The key, as people write it.
+		expect(await found(workspace, "ENG-3")).toEqual(["i-3"]);
+		expect(await found(workspace, "eng 2")).toEqual(["i-2"]);
+	});
+
+	it("ignores case and diacritics", async () => {
+		const { workspace, admin } = await withTeam();
+		await issue(admin, "i-1", "Résumé upload breaks");
+		await issue(admin, "i-2", "İstanbul office printer");
+
+		expect(await found(workspace, "resume")).toEqual(["i-1"]);
+		expect(await found(workspace, "RÉSUMÉ")).toEqual(["i-1"]);
+		expect(await found(workspace, "istanbul")).toEqual(["i-2"]);
+		expect(await found(workspace, "İSTANBUL")).toEqual(["i-2"]);
+	});
+
+	it("ranks title matches above description, and description above comments", async () => {
+		const { workspace, admin } = await withTeam();
+		await issue(admin, "in-comment", "Invoices");
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "c-1", issueId: "in-comment", body: "Related to billing" },
+		});
+		await issue(admin, "in-description", "Invoices again", "A billing question");
+		await issue(admin, "in-title", "Billing page");
+
+		expect(await found(workspace, "billing")).toEqual(["in-title", "in-description", "in-comment"]);
+	});
+
+	it("treats query syntax as plain words", async () => {
+		const { workspace, admin } = await withTeam();
+		await issue(admin, "i-1", "Fix the login form");
+
+		for (const text of [
+			'"',
+			"*",
+			"title:fix",
+			"fix OR nothing",
+			"NEAR(fix login)",
+			"-fix",
+			"^fix",
+		]) {
+			await expect(workspace.issues({ text, limit: 10 }), text).resolves.toBeDefined();
+		}
+		expect(await found(workspace, "title:fix")).toEqual([]);
+		expect(await found(workspace, "^fix")).toEqual(["i-1"]);
+		expect(await found(workspace, "?!")).toEqual([]);
+	});
+
+	it("keeps up with edits, comments, deletes and team keys", async () => {
+		const { workspace, admin } = await withTeam();
+		await issue(admin, "i-1", "Original wording");
+		const update = async (patch: IssuePatch) => {
+			const { version } = await issueOf(admin, "i-1");
+			await admin.apply({ name: "issue.update", args: { id: "i-1", baseVersion: version, patch } });
+		};
+
+		await update({ title: "Better wording", description: "Now with details" });
+		expect(await found(workspace, "original")).toEqual([]);
+		expect(await found(workspace, "better details")).toEqual(["i-1"]);
+
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "c-1", issueId: "i-1", body: "First thought" },
+		});
+		expect(await found(workspace, "thought")).toEqual(["i-1"]);
+		await admin.apply({ name: "comment.update", args: { id: "c-1", body: "Second idea" } });
+		expect(await found(workspace, "thought")).toEqual([]);
+		expect(await found(workspace, "idea")).toEqual(["i-1"]);
+		await admin.apply({ name: "comment.delete", args: { id: "c-1" } });
+		expect(await found(workspace, "idea")).toEqual([]);
+
+		await admin.apply({ name: "team.update", args: { id: TEAM_ID, patch: { key: "CORE" } } });
+		expect(await found(workspace, "core-1")).toEqual(["i-1"]);
+		expect(await found(workspace, "eng")).toEqual([]);
+
+		await admin.apply({ name: "issue.delete", args: { id: "i-1" } });
+		expect(await found(workspace, "better")).toEqual([]);
+	});
+
+	it("indexes what a workspace held before search existed", async () => {
+		const { workspace, admin } = await withTeam();
+		await issue(admin, "i-1", "Kept issue", "With a description");
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "c-1", issueId: "i-1", body: "A comment from before" },
+		});
+		await issue(admin, "i-2", "Gone issue");
+		await admin.apply({ name: "issue.delete", args: { id: "i-2" } });
+
+		// Undo migration 0003 and run the migrations again, as when an existing workspace wakes
+		// up after the deploy that brings search.
+		await runInDurableObject(workspace, async (_, state) => {
+			const db = drizzle(state.storage, { schema });
+			db.run(sql`drop table issue_search`);
+			db.run(sql`drop table issue_search_docs`);
+			db.run(
+				sql`delete from __drizzle_migrations where created_at = (select max(created_at) from __drizzle_migrations)`,
+			);
+			await migrate(db, migrations);
+		});
+
+		expect(await found(workspace, "kept description before eng-1")).toEqual(["i-1"]);
+		expect(await found(workspace, "gone")).toEqual([]);
 	});
 });
