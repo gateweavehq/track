@@ -4,10 +4,15 @@ import { z } from "zod";
 export const ISSUE_VIEWS = ["list", "board"] as const;
 export type IssueView = (typeof ISSUE_VIEWS)[number];
 
-/** Search params for a page of issues. A missing or unknown view falls back to the default. */
-export const issueViewSearch = z.object({
+/**
+ * Search params for a page of issues: its view, and the labels it is filtered by (issues with any
+ * of them). Malformed values are dropped rather than failing the page, since links get mangled.
+ */
+export const issuePageSearch = z.object({
 	view: z.enum(ISSUE_VIEWS).optional().catch(undefined),
+	labels: z.array(z.string().min(1).max(64)).max(50).optional().catch(undefined),
 });
+export type IssuePageSearch = z.infer<typeof issuePageSearch>;
 
 const storageKey = (scope: string) => `track.view.${scope}`;
 

@@ -21,7 +21,9 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - **Installable app.** A web app manifest and icons, so Track installs as an app on desktop and
   mobile.
 - **Labels.** Workspace-wide labels with colors, added and removed as conflict-free set
-  operations, shown on lists and boards, managed in settings, and available to agents over MCP.
+  operations, picked when creating an issue, shown on lists and boards, used to filter them (in
+  the URL, so a filtered view can be shared), managed in settings, and available to agents over
+  MCP.
 - **MCP server.** AI agents connect to `/mcp`, sign in through OAuth with the person's approval,
   and list workspaces, search, read, create and update issues through the same mutations people
   use.

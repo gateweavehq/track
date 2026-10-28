@@ -47,6 +47,7 @@ export interface IssueDefaults {
 	teamId?: string;
 	status?: IssueStatus;
 	assigneeId?: string | null;
+	labelIds?: string[];
 }
 
 /** Workspace-wide actions, available to pages, the sidebar and keyboard shortcuts. */

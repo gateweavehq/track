@@ -1,5 +1,5 @@
 import type { Issue } from "@gateweave/track-protocol";
-import { Columns3, type LucideIcon, Plus, Rows3, Search } from "lucide-react";
+import { Columns3, type LucideIcon, Plus, Rows3, Search, Tag, X } from "lucide-react";
 import { type ReactNode, useDeferredValue, useMemo, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { type IssueDefaults, useWorkspaceActions } from "#/components/workspace/context";
@@ -12,6 +12,7 @@ import type { IssueView } from "#/lib/views";
 import { useDragAutoScroll } from "./dnd";
 import { IssueBoard } from "./issue-board";
 import { IssueList } from "./issue-list";
+import { LabelChips, LabelMenu } from "./labels";
 
 /**
  * A page of issues: a header with a filter, the view switch and a create button, then the issues
@@ -25,6 +26,8 @@ export function IssuesPage({
 	empty,
 	view,
 	onViewChange,
+	labelFilter,
+	onLabelFilterChange,
 }: {
 	title: string;
 	badge?: ReactNode;
@@ -33,6 +36,9 @@ export function IssuesPage({
 	empty: ReactNode;
 	view: IssueView;
 	onViewChange: (view: IssueView) => void;
+	/** Show only issues with any of these labels. Ids that do not resolve are ignored. */
+	labelFilter: readonly string[] | undefined;
+	onLabelFilterChange: (labelIds: string[]) => void;
 }) {
 	const actions = useWorkspaceActions();
 	const teams = useTeamsById();
@@ -50,24 +56,53 @@ export function IssuesPage({
 		"mod+b": () => onViewChange(view === "list" ? "board" : "list"),
 	});
 
-	const filtered = useMemo(() => {
-		if (!deferredQuery.trim()) return issues;
-		return issues.filter((issue) =>
-			matchesQuery(
-				deferredQuery,
-				issueKey(teams.get(issue.teamId), issue),
-				issue.title,
-				(issue.assigneeId && members.get(issue.assigneeId)?.name) || "",
-				...issue.labelIds.map((id) => labels.get(id)?.name ?? ""),
-			),
-		);
-	}, [issues, deferredQuery, teams, members, labels]);
-
-	const emptyState = query.trim() ? (
-		<Notice title="No matching issues">Nothing here matches “{query.trim()}”.</Notice>
-	) : (
-		empty
+	// A shared link can name labels deleted since, or labels of another workspace.
+	const activeLabels = useMemo(
+		() => [...new Set(labelFilter)].filter((id) => labels.has(id)),
+		[labelFilter, labels],
 	);
+
+	const filtered = useMemo(() => {
+		const wanted = new Set(activeLabels);
+		const text = deferredQuery.trim();
+		if (!text && wanted.size === 0) return issues;
+		return issues.filter(
+			(issue) =>
+				(wanted.size === 0 || issue.labelIds.some((id) => wanted.has(id))) &&
+				(!text ||
+					matchesQuery(
+						text,
+						issueKey(teams.get(issue.teamId), issue),
+						issue.title,
+						(issue.assigneeId && members.get(issue.assigneeId)?.name) || "",
+					)),
+		);
+	}, [issues, deferredQuery, activeLabels, teams, members]);
+
+	const text = query.trim();
+	const emptyState =
+		text || activeLabels.length > 0 ? (
+			<Notice
+				title="No matching issues"
+				action={
+					<Button
+						variant="outline"
+						onClick={() => {
+							setQuery("");
+							onLabelFilterChange([]);
+						}}
+					>
+						Clear filters
+					</Button>
+				}
+			>
+				{text
+					? `Nothing here matches “${text}”${activeLabels.length > 0 ? " with these labels" : ""}.`
+					: "Nothing here has these labels."}
+			</Notice>
+		) : (
+			empty
+		);
 
 	return (
 		<div ref={pageRef} className="flex h-full flex-col overflow-y-auto">
@@ -90,9 +125,10 @@ export function IssuesPage({
 							}}
 							placeholder="Filter issues"
 							aria-label="Filter issues"
-							className="h-8 w-32 rounded-md border bg-transparent pr-2 pl-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring sm:w-56"
+							className="h-8 w-32 rounded-md border bg-transparent pr-2 pl-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring lg:w-56"
 						/>
 					</div>
+					<LabelFilter value={activeLabels} onChange={onLabelFilterChange} />
 					<ViewSwitch view={view} onChange={onViewChange} />
 					<Button size="sm" onClick={() => actions.createIssue(defaults)}>
 						<Plus />
@@ -106,6 +142,51 @@ export function IssuesPage({
 				</div>
 			) : (
 				<IssueList issues={filtered} defaults={defaults} empty={emptyState} />
+			)}
+		</div>
+	);
+}
+
+function LabelFilter({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) {
+	const labels = useLabelsById();
+	const names = value.map((id) => labels.get(id)?.name).join(", ");
+	return (
+		<div className="flex items-center">
+			<LabelMenu
+				selected={value}
+				placeholder="Filter by label…"
+				onToggle={(id) =>
+					onChange(value.includes(id) ? value.filter((other) => other !== id) : [...value, id])
+				}
+			>
+				<Button
+					variant="outline"
+					size="sm"
+					className={cn("h-8 gap-1.5 px-2", value.length > 0 && "rounded-r-none border-r-0")}
+					aria-label={value.length > 0 ? `Labels: ${names}` : "Filter by label"}
+					title={value.length > 0 ? `Issues with any of: ${names}` : "Filter by label"}
+				>
+					<Tag className="size-3.5" />
+					{value.length > 0 ? (
+						<>
+							<span className="tabular-nums lg:hidden">{value.length}</span>
+							<LabelChips labelIds={value} max={2} className="hidden lg:flex" />
+						</>
+					) : (
+						<span className="hidden lg:inline">Labels</span>
+					)}
+				</Button>
+			</LabelMenu>
+			{value.length > 0 && (
+				<Button
+					variant="outline"
+					size="icon"
+					className="size-8 rounded-l-none"
+					aria-label="Clear the label filter"
+					onClick={() => onChange([])}
+				>
+					<X />
+				</Button>
 			)}
 		</div>
 	);
