@@ -223,3 +223,28 @@ describe("email verification", () => {
 		expect(track.outbound).toEqual([]);
 	});
 });
+
+describe("limits", () => {
+	it("caps the emails one address gets, however many clients ask for them", async () => {
+		// Signing up sends the first one, to verify the address.
+		await signUp("203.0.113.40", "Kai Novak", "kai@example.com", "a-long-test-password");
+		// Each reset comes from another client, so no per-client limit gets in the way.
+		for (let n = 1; n <= 5; n++) {
+			const response = await authApi("/request-password-reset", {
+				client: `203.0.113.${40 + n}`,
+				body: { email: "kai@example.com", redirectTo: "/reset-password" },
+			});
+			expect(response.status).toBe(200);
+		}
+
+		// Five go out at once (EMAILS_PER_RECIPIENT); the sixth is dropped.
+		for (let attempt = 0; attempt < 100; attempt++) {
+			const dropped = track.logs.some((log) => log.message.startsWith("email: not sent"));
+			if (dropped && (await emailsTo("kai@example.com")).length === 5) break;
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
+		expect(await emailsTo("kai@example.com")).toHaveLength(5);
+		expect(track.logs.filter((log) => log.message.startsWith("email: not sent"))).toHaveLength(1);
+		expect(track.logs.filter((log) => log.message.startsWith("rate limit:"))).toEqual([]);
+	});
+});

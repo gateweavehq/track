@@ -1,4 +1,5 @@
 import { mcp } from "@better-auth/mcp";
+import type { BetterAuthRateLimitOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { betterAuth } from "better-auth/minimal";
@@ -31,6 +32,8 @@ export interface AuthConfig {
 	mailer?: Mailer | undefined;
 	/** Keeps work such as sending email going after the response, like `ctx.waitUntil`. */
 	runInBackground?: ((work: Promise<unknown>) => void) | undefined;
+	/** Where rate limits are counted. This isolate's memory without it. */
+	rateLimitStorage?: BetterAuthRateLimitOptions["customStorage"];
 }
 
 /**
@@ -50,12 +53,14 @@ export function createAuth(config: AuthConfig) {
 		database: drizzleAdapter(config.db, { provider: "sqlite", schema }),
 		telemetry: { enabled: false },
 		// Better Auth only turns its limiter on by itself when NODE_ENV is "production", which a
-		// Worker never sets. Its defaults allow 3 sign-ins per 10 seconds per client. It stays on
-		// in local dev too, so what works there works deployed.
+		// Worker never sets. Its built-in rules allow 3 sign-ins per 10 seconds per client. It
+		// stays on in local dev too, so what works there works deployed.
 		rateLimit: {
 			enabled: true,
+			...DEFAULT_AUTH_LIMIT,
 			// Each invitation can send an email, so admins get fewer than the default 100 per 10s.
 			customRules: { "/organization/invite-member": { window: 60, max: 20 } },
+			...(config.rateLimitStorage && { customStorage: config.rateLimitStorage }),
 		},
 		advanced: {
 			ipAddress: {
@@ -221,6 +226,9 @@ export function createAuth(config: AuthConfig) {
 }
 
 export type Auth = ReturnType<typeof createAuth>;
+
+/** What a client may send to an auth path that has no rule of its own: Better Auth's default. */
+export const DEFAULT_AUTH_LIMIT = { window: 10, max: 100 };
 
 export const INVITATION_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 

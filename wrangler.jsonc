@@ -12,12 +12,17 @@
 	"d1_databases": [
 		{ "binding": "DB", "database_name": "gateweave-track", "migrations_dir": "apps/web/migrations" }
 	],
-	// One Durable Object per workspace holds its issues and serves realtime sync.
+	// One Durable Object per workspace holds its issues and serves realtime sync. Rate limits on
+	// sign-in, password reset and email are counted in one per client address or recipient.
 	"durable_objects": {
-		"bindings": [{ "name": "WORKSPACE", "class_name": "WorkspaceDO" }]
+		"bindings": [
+			{ "name": "WORKSPACE", "class_name": "WorkspaceDO" },
+			{ "name": "RATE_LIMITER", "class_name": "RateLimiter" }
+		]
 	},
 	"exports": {
-		"WorkspaceDO": { "type": "durable-object", "storage": "sqlite" }
+		"WorkspaceDO": { "type": "durable-object", "storage": "sqlite" },
+		"RateLimiter": { "type": "durable-object", "storage": "sqlite" }
 	},
 	// Email through Cloudflare Email Service. Nothing is sent until EMAIL_FROM names a sender on a
 	// domain onboarded to Email Sending; without it, Track runs with email off.
@@ -38,7 +43,10 @@
 				}
 			],
 			"durable_objects": {
-				"bindings": [{ "name": "WORKSPACE", "class_name": "WorkspaceDO" }]
+				"bindings": [
+					{ "name": "WORKSPACE", "class_name": "WorkspaceDO" },
+					{ "name": "RATE_LIMITER", "class_name": "RateLimiter" }
+				]
 			},
 			"send_email": [{ "name": "EMAIL" }],
 			"secrets": { "required": ["BETTER_AUTH_SECRET"] }

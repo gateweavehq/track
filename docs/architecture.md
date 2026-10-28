@@ -110,7 +110,24 @@ Better Auth sends email after the response, through `waitUntil`. Reset requests 
 the same time whether or not the account exists. Invitations put text chosen by a stranger,
 such as their name and their workspace name, in front of any address, sent from our domain. So
 only inviters who verified their own address trigger an email. Each person can send at most 100
-invitation emails a day, and invite-member requests are rate limited to 20 a minute.
+invitation emails a day, and invite-member requests are rate limited to 20 a minute. Whatever
+the kind, one address gets at most 5 emails at once and 10 a day; past that, email to it is
+dropped without telling the requester.
+
+### Rate limits
+
+Better Auth limits each client address per path: 3 sign-in attempts per 10 seconds, 3 password
+reset requests a minute, and so on (`apps/web/src/server/rate-limit/`). Paths with a rule of
+their own are counted in a `RateLimiter` Durable Object, one per client address and path, so a
+limit holds across every isolate and location. Each such rule also gets an hourly allowance of
+20 times its burst, so a client that paces itself is held to 60 sign-in attempts an hour.
+Everything else, mostly session checks, keeps Better Auth's default of 100 per 10 seconds in
+the isolate's memory, so it never waits on a Durable Object. The email cap uses the same
+Durable Object, keyed by recipient. Keys are hashed before they become Durable Object names.
+
+Limits use the generic cell rate algorithm: a burst of `max`, then one every `window / max`
+seconds, with one timestamp of state per rule. If a `RateLimiter` cannot be reached, the
+isolate counts on its own rather than refuse or allow everyone.
 
 ## Request flow and security
 

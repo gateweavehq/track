@@ -1,6 +1,7 @@
 import { env, waitUntil } from "cloudflare:workers";
 import { createDb } from "../db";
 import { mailer } from "../email";
+import { authRateLimits } from "../rate-limit";
 import { syncMembership, syncUserEverywhere, workspaceStub } from "../workspaces";
 import { createAuth } from "./config";
 
@@ -20,8 +21,7 @@ let instance: ReturnType<typeof buildAuth> | undefined;
  * The isolate's one Better Auth instance, built on first use. Better Auth starts resolving its
  * context as soon as it is created, and the oauth-provider plugin queries D1 while doing so
  * (it seeds `oauth_resource`). workerd forbids I/O in global scope, so building at module load
- * logs an error on every cold start. Never construct this per request: the rate limiter keeps
- * its counters in memory on the instance.
+ * logs an error on every cold start.
  */
 export function getAuth() {
 	instance ??= buildAuth();
@@ -47,6 +47,7 @@ function buildAuth() {
 			logFailure(workspaceStub(workspaceId).destroy(), "workspace deletion"),
 		mailer,
 		runInBackground: waitUntil,
+		rateLimitStorage: authRateLimits,
 	});
 }
 
