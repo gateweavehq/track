@@ -65,4 +65,4 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - GitHub integration: link pull requests and close issues from commits.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations
   people use (see [ecosystem.md](ecosystem.md#agents-are-members)). Agent members, which it
-  works as, are built; webhooks that tell it about new issues come next.
+  works as, and webhooks that tell it about new issues are built.

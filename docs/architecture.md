@@ -60,6 +60,7 @@ different protocol versions in production. It also gives self-hosters one thing 
 | Agent members' keys (hashed)        | D1           | Track's agent members plugin       |
 | Teams, issues, labels, comments     | Workspace DO | `sync-server`                      |
 | Issue activity (history)            | Workspace DO | `sync-server`, from issue writes   |
+| Webhooks, their secrets, deliveries | Workspace DO | `sync-server`, managed by admins   |
 | Member replica (name, avatar, role) | Workspace DO | Pushed from D1 by membership hooks |
 
 The DO keeps a replica of membership for two reasons: it authorizes writes (for example, only
@@ -385,12 +386,51 @@ comments in memory, caching each row's words for as long as the row object lives
 fixed field weights in place of bm25. A query that spells out an issue's key, such as `ENG-12`,
 puts that issue first.
 
+### Webhooks
+
+A webhook posts each change to a URL, such as an agent's trigger, so that a service hears about
+new issues without holding a socket open. Admins manage them on Settings › Webhooks: a URL, the
+events it wants (`issue.created`, `issue.updated`, `issue.deleted`, `comment.created`,
+`comment.updated`, `comment.deleted`), an optional team, and optionally the agent member it sets
+off. The payload types and input schemas are in `packages/protocol/src/webhooks.ts`; the rest is
+`packages/sync-server/src/webhooks.ts`.
+
+- **The workspace's Durable Object delivers them, from an outbox.** Mutation handlers add what
+  they did to the change set (an issue created, an issue's fields before and after, a comment),
+  and `applyMutation` turns those into one delivery row per matching webhook, in the same
+  transaction as the change. A delivery is therefore never lost and never sent for a write that
+  rolled back, and a retried mutation id queues nothing again. The write then sets the alarm,
+  which sends what is due outside any transaction: ten at a time, ten seconds each, claiming
+  rows first so that a restart mid-send retries them. Self-hosting needs no Queue or other
+  binding, and secrets never leave the object.
+- **Signed per [Standard Webhooks](https://www.standardwebhooks.com).** Each request carries
+  `webhook-id` (the delivery's id, the same on every retry), `webhook-timestamp` and
+  `webhook-signature` (`v1,` and an HMAC-SHA256 of `id.timestamp.body`, keyed by the `whsec_`
+  secret), so any Standard Webhooks library verifies it. The secret is shown once, when the
+  webhook is made or its secret replaced.
+- **Bodies are `{ type, timestamp, data }`.** `data` has the workspace's id and slug, the
+  workspace version after the change, the actor (a person or an agent), and the issue with its
+  key and URL. `issue.updated` adds `updatedFrom`, the changed fields' earlier values; an update
+  that only reorders the list is not sent. Comment events add the comment.
+- **Retries.** A delivery that gets no 2xx answer (a redirect counts as a failure) is retried
+  after 5 seconds, 5 minutes, 30 minutes, 2, 5 and 10 hours, then marked failed. Settings show
+  each webhook's latest deliveries, and finished ones are kept for seven days.
+- **No loops, and no self-calls.** A webhook made for an agent is not sent that agent's own
+  changes. URLs must be `https` (plain `http` only where the app itself runs on it, which is
+  local development) and cannot point at the app's own host, which a Worker cannot fetch.
+  Pausing a webhook drops what it had not delivered. A workspace has at most ten.
+- **Links follow the slug.** Only the gateway knows the slug and the app's origin, so it passes
+  them with every webhook change, and the organization plugin's update hook passes a new slug.
+  Management is admin-only twice over: the gateway checks membership in D1, and the object
+  refuses a verified member who is not an admin. The public demo sends no webhooks.
+
 ### Compaction
 
-An alarm compacts the oplog every six hours. Ops are dropped only when they are both older than
+The alarm compacts the oplog every six hours. Ops are dropped only when they are both older than
 30 days **and** more than 10,000 versions behind the head. The highest dropped version becomes
 the floor, and clients behind it get `reset`. Recorded mutation ids are pruned on the same
-schedule.
+schedule, as are finished webhook deliveries. The same alarm sends webhooks, so it also runs
+whenever a delivery is due; when compaction is next due is kept in the `meta` table.
 
 ## Client sync engine
 
