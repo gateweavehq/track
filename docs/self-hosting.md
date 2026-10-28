@@ -121,5 +121,5 @@ git push
 The button writes your database's ID into `wrangler.jsonc`. Keep your version of those lines if
 a pull ever conflicts there.
 
-Track is in early development. Read the release notes before updating, as some releases change
-how things work.
+Track is in early development. Read [CHANGELOG.md](../CHANGELOG.md) before updating, as some
+releases change how things work.
