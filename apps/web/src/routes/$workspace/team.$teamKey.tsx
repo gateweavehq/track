@@ -7,10 +7,10 @@ import { useWorkspaceActions } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
 import { useTeamByKey, useTeamIssues } from "#/lib/queries";
 import { useDocumentTitle } from "#/lib/title";
-import { type IssueView, issueViewSearch, useIssueView } from "#/lib/views";
+import { type IssuePageSearch, type IssueView, issuePageSearch, useIssueView } from "#/lib/views";
 
 export const Route = createFileRoute("/$workspace/team/$teamKey")({
-	validateSearch: issueViewSearch,
+	validateSearch: issuePageSearch,
 	component: TeamPage,
 });
 
@@ -42,12 +42,15 @@ function TeamPage() {
 function TeamIssues({ team }: { team: Team }) {
 	const actions = useWorkspaceActions();
 	const issues = useTeamIssues(team.id);
+	const search = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
-	const setUrlView = useCallback(
-		(view: IssueView) => void navigate({ search: { view }, replace: true }),
+	const setSearch = useCallback(
+		(patch: IssuePageSearch) =>
+			void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true }),
 		[navigate],
 	);
-	const [view, setView] = useIssueView(`team.${team.id}`, Route.useSearch().view, setUrlView);
+	const setUrlView = useCallback((view: IssueView) => setSearch({ view }), [setSearch]);
+	const [view, setView] = useIssueView(`team.${team.id}`, search.view, setUrlView);
 
 	return (
 		<IssuesPage
@@ -61,6 +64,10 @@ function TeamIssues({ team }: { team: Team }) {
 			defaults={{ teamId: team.id }}
 			view={view}
 			onViewChange={setView}
+			labelFilter={search.labels}
+			onLabelFilterChange={(labels) =>
+				setSearch({ labels: labels.length > 0 ? labels : undefined })
+			}
 			empty={
 				<Notice
 					title="No issues yet"

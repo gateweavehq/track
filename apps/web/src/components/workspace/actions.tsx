@@ -1,5 +1,5 @@
 import { useSyncStatus } from "@gateweave/track-sync-client/react";
-import { useParams } from "@tanstack/react-router";
+import { useParams, useSearch } from "@tanstack/react-router";
 import { type ReactNode, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { CreateIssueDialog } from "#/components/issues/create-issue-dialog";
@@ -7,6 +7,7 @@ import { CreateTeamDialog } from "#/components/teams/create-team-dialog";
 import { useHotkeys } from "#/lib/hotkeys";
 import { parseIssueKey } from "#/lib/issues";
 import { useTeamByKey, useTeams } from "#/lib/queries";
+import { issuePageSearch } from "#/lib/views";
 import { CommandPalette } from "./command-palette";
 import {
 	type IssueDefaults,
@@ -33,6 +34,9 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 	const params = useParams({ strict: false });
 	const routeTeamKey = params.teamKey ?? parseIssueKey(params.issueKey ?? "")?.teamKey ?? "";
 	const routeTeamId = useTeamByKey(routeTeamKey)?.id;
+	// And they start with the labels the page is filtered by, so they show up on it. Parsed only
+	// when used, so the raw value keeps its identity between renders.
+	const routeLabels = useSearch({ strict: false }).labels;
 
 	const actions = useMemo<WorkspaceActions>(
 		() => ({
@@ -40,7 +44,11 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 				if (hasTeams) {
 					setDialog({
 						kind: "issue",
-						defaults: { ...defaults, teamId: defaults.teamId ?? routeTeamId },
+						defaults: {
+							...defaults,
+							teamId: defaults.teamId ?? routeTeamId,
+							labelIds: defaults.labelIds ?? issuePageSearch.shape.labels.parse(routeLabels),
+						},
 					});
 				} else if (admin) {
 					// Issues need a team, so the first one comes first.
@@ -54,7 +62,7 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 			openCommandPalette: () => setDialog({ kind: "palette" }),
 			showShortcuts: () => setDialog({ kind: "shortcuts" }),
 		}),
-		[hasTeams, routeTeamId, admin],
+		[hasTeams, routeTeamId, routeLabels, admin],
 	);
 
 	const { loaded } = useSyncStatus();

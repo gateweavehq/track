@@ -1,8 +1,12 @@
-import type { IssuePriority, IssueStatus } from "@gateweave/track-protocol";
+import {
+	type IssuePriority,
+	type IssueStatus,
+	MAX_LABELS_PER_ISSUE,
+} from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Tag } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useState } from "react";
 import { toast } from "sonner";
 import { MemberAvatar } from "#/components/members/member-avatar";
@@ -14,6 +18,7 @@ import { MOD_LABEL } from "#/lib/hotkeys";
 import { issueKey, sortOrderAfter } from "#/lib/issues";
 import { send } from "#/lib/mutations";
 import { useMembersById, useTeams } from "#/lib/queries";
+import { LabelChips, LabelMenu } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 import { AssigneePicker, PriorityPicker, StatusPicker, TeamPicker } from "./pickers";
 
@@ -35,6 +40,11 @@ export function CreateIssueDialog({
 	const [status, setStatus] = useState<IssueStatus>(defaults.status ?? "backlog");
 	const [priority, setPriority] = useState<IssuePriority>(0);
 	const [assigneeId, setAssigneeId] = useState<string | null>(defaults.assigneeId ?? null);
+	const [labelIds, setLabelIds] = useState(() => {
+		// Defaults can come from a URL, so they may name labels that do not exist.
+		const known = client.getState().labels;
+		return [...new Set(defaults.labelIds)].filter((id) => known.has(id));
+	});
 	const team = teams.find((t) => t.id === teamId) ?? teams[0];
 
 	function submit() {
@@ -50,6 +60,8 @@ export function CreateIssueDialog({
 				status,
 				priority,
 				assigneeId,
+				// A label picked here may have been deleted elsewhere since.
+				labelIds: labelIds.filter((id) => client.getState().labels.has(id)),
 				sortOrder: sortOrderAfter(client.getState().issues.values()),
 			},
 		});
@@ -143,6 +155,30 @@ export function CreateIssueDialog({
 								{assigneeId ? (members.get(assigneeId)?.name ?? "Unknown") : "Assignee"}
 							</Button>
 						</AssigneePicker>
+						<LabelMenu
+							selected={labelIds}
+							creatable
+							onToggle={(id) =>
+								setLabelIds((ids) =>
+									ids.includes(id)
+										? ids.filter((other) => other !== id)
+										: ids.length < MAX_LABELS_PER_ISSUE
+											? [...ids, id]
+											: ids,
+								)
+							}
+						>
+							<Button type="button" variant="outline" size="sm" className="h-7 max-w-full px-2">
+								{labelIds.length > 0 ? (
+									<LabelChips labelIds={labelIds} max={3} />
+								) : (
+									<>
+										<Tag />
+										Labels
+									</>
+								)}
+							</Button>
+						</LabelMenu>
 					</div>
 					<div className="flex items-center justify-end gap-3 border-t px-4 py-3">
 						<span className="hidden items-center gap-1 text-xs text-muted-foreground sm:flex">

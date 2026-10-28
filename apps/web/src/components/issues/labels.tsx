@@ -76,22 +76,49 @@ export function LabelChips({
 	);
 }
 
-/**
- * Adds and removes an issue's labels, and creates a label from what was typed when none has that
- * name. It stays open between picks, since issues often get more than one.
- */
+/** Adds and removes an issue's labels, one set operation per pick. */
 export function LabelPicker({
 	issue,
-	children,
-	open: controlledOpen,
-	onOpenChange,
-}: {
-	issue: Issue;
+	...props
+}: { issue: Issue } & Omit<LabelMenuProps, "selected" | "onToggle">) {
+	const client = useSyncClient();
+	return (
+		<LabelMenu
+			{...props}
+			selected={issue.labelIds}
+			creatable
+			onToggle={(labelId) =>
+				send(client, {
+					name: issue.labelIds.includes(labelId) ? "issue.removeLabel" : "issue.addLabel",
+					args: { id: issue.id, labelId },
+				})
+			}
+		/>
+	);
+}
+
+interface LabelMenuProps {
+	selected: readonly string[];
+	onToggle: (labelId: string) => void;
+	/** Offer to create a label from what was typed when none has that name, and pick it. */
+	creatable?: boolean;
+	placeholder?: string;
 	/** The trigger. Must be a single element that accepts a ref, such as a button. */
 	children: ReactNode;
 	open?: boolean;
 	onOpenChange?: (open: boolean) => void;
-}) {
+}
+
+/** Picks labels from a searchable list. It stays open between picks, since one is rarely enough. */
+export function LabelMenu({
+	selected: selectedIds,
+	onToggle,
+	creatable = false,
+	placeholder = "Add labels…",
+	children,
+	open: controlledOpen,
+	onOpenChange,
+}: LabelMenuProps) {
 	const client = useSyncClient();
 	const labels = useLabels();
 	const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
@@ -99,15 +126,9 @@ export function LabelPicker({
 	const open = controlledOpen ?? uncontrolledOpen;
 	const setOpen = onOpenChange ?? setUncontrolledOpen;
 	const name = search.trim();
-	const canCreate = name.length > 0 && name.length <= 64 && !findLabelByName(labels, name);
-	const selected = new Set(issue.labelIds);
-
-	function toggle(label: Label) {
-		send(client, {
-			name: selected.has(label.id) ? "issue.removeLabel" : "issue.addLabel",
-			args: { id: issue.id, labelId: label.id },
-		});
-	}
+	const canCreate =
+		creatable && name.length > 0 && name.length <= 64 && !findLabelByName(labels, name);
+	const selected = new Set(selectedIds);
 
 	function create() {
 		const id = uuidv7();
@@ -115,7 +136,7 @@ export function LabelPicker({
 			name: "label.create",
 			args: { id, name, color: defaultLabelColor(name) },
 		});
-		if (created) send(client, { name: "issue.addLabel", args: { id: issue.id, labelId: id } });
+		if (created) onToggle(id);
 		setSearch("");
 	}
 
@@ -130,12 +151,16 @@ export function LabelPicker({
 			<PopoverTrigger asChild>{children}</PopoverTrigger>
 			<PopoverContent className="w-60 p-0">
 				<Command loop vimBindings={false}>
-					<CommandInput placeholder="Add labels…" value={search} onValueChange={setSearch} />
+					<CommandInput placeholder={placeholder} value={search} onValueChange={setSearch} />
 					<CommandList>
 						{/* The create item is always mounted, so cmdk would show this next to it. */}
 						{!canCreate && (
 							<CommandEmpty>
-								{labels.length === 0 ? "Type to create a label" : "No matches"}
+								{labels.length > 0
+									? "No matches"
+									: creatable
+										? "Type to create a label"
+										: "No labels yet"}
 							</CommandEmpty>
 						)}
 						<CommandGroup>
@@ -144,7 +169,7 @@ export function LabelPicker({
 									key={label.id}
 									value={label.id}
 									keywords={[label.name]}
-									onSelect={() => toggle(label)}
+									onSelect={() => onToggle(label.id)}
 								>
 									<LabelDot color={label.color} />
 									<span className="truncate">{label.name}</span>
