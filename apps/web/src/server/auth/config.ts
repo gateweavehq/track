@@ -63,8 +63,12 @@ export function createAuth(config: AuthConfig) {
 		rateLimit: {
 			enabled: true,
 			...DEFAULT_AUTH_LIMIT,
-			// Each invitation can send an email, so admins get fewer than the default 100 per 10s.
-			customRules: { "/organization/invite-member": { window: 60, max: 20 } },
+			customRules: {
+				// Each invitation can send an email, so admins get fewer than the default 100 per 10s.
+				"/organization/invite-member": { window: 60, max: 20 },
+				// Each workspace is a Durable Object; nobody needs more than a few a minute.
+				"/organization/create": { window: 60, max: 10 },
+			},
 			...(config.rateLimitStorage && { customStorage: config.rateLimitStorage }),
 		},
 		advanced: {

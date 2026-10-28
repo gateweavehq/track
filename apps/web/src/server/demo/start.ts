@@ -1,4 +1,5 @@
 import type { MemberProfile } from "@gateweave/track-sync-server";
+import { eq } from "drizzle-orm";
 import { slugProblem } from "../../lib/slug";
 import { db, getAuth } from "../auth";
 import { schema } from "../db";
@@ -42,55 +43,80 @@ export async function startDemoSandbox(headers: Headers): Promise<{ slug: string
 		},
 	});
 
-	const slug = `acme-${randomSuffix(6)}`;
-	const problem = slugProblem(slug);
-	if (problem) throw new Error(`Demo slug ${slug} is not valid: ${problem}`);
-	// Creating through Better Auth fires the organization hooks, which sync membership to the
-	// workspace's Durable Object. No headers: a server call names the owner in the body.
-	const workspace = await auth.api.createOrganization({
-		body: { name: WORKSPACE_NAME, slug, userId: user.id, keepCurrentActiveOrganization: true },
-	});
-
-	for (const [key, person] of SAMPLE_PEOPLE) {
-		const userId = people[key].id;
-		await auth.api.addMember({
-			body: { userId, role: person.role, organizationId: workspace.id },
+	let workspaceId: string | undefined;
+	try {
+		const slug = `acme-${randomSuffix(6)}`;
+		const problem = slugProblem(slug);
+		if (problem) throw new Error(`Demo slug ${slug} is not valid: ${problem}`);
+		// Creating through Better Auth fires the organization hooks, which sync membership to the
+		// workspace's Durable Object. No headers: a server call names the owner in the body.
+		const workspace = await auth.api.createOrganization({
+			body: { name: WORKSPACE_NAME, slug, userId: user.id, keepCurrentActiveOrganization: true },
 		});
-	}
+		workspaceId = workspace.id;
 
-	const stub = workspaceStub(workspace.id);
-	const steps = sampleSteps({
-		userIds: Object.fromEntries(SAMPLE_PEOPLE.map(([key]) => [key, people[key].id])) as Record<
-			PersonKey,
-			string
-		>,
-		newId: () => crypto.randomUUID(),
-	});
-	for (const [index, { person, mutation }] of steps.entries()) {
-		const result = await stub.mutate(people[person], "demo-sandbox", crypto.randomUUID(), mutation);
-		if (!result.ok) {
-			throw new Error(
-				`Demo seeding failed at step ${index + 1} of ${steps.length} (${mutation.name}): ${result.reason}: ${result.message}`,
-			);
+		for (const [key, person] of SAMPLE_PEOPLE) {
+			const userId = people[key].id;
+			await auth.api.addMember({
+				body: { userId, role: person.role, organizationId: workspace.id },
+			});
 		}
-	}
 
-	return { slug };
+		const stub = workspaceStub(workspace.id);
+		const steps = sampleSteps({
+			userIds: Object.fromEntries(SAMPLE_PEOPLE.map(([key]) => [key, people[key].id])) as Record<
+				PersonKey,
+				string
+			>,
+			newId: () => crypto.randomUUID(),
+		});
+		for (const [index, { person, mutation }] of steps.entries()) {
+			const result = await stub.mutate(
+				people[person],
+				"demo-sandbox",
+				crypto.randomUUID(),
+				mutation,
+			);
+			if (!result.ok) {
+				throw new Error(
+					`Demo seeding failed at step ${index + 1} of ${steps.length} (${mutation.name}): ${result.reason}: ${result.message}`,
+				);
+			}
+		}
+
+		return { slug };
+	} catch (error) {
+		// A half-built sandbox is worse than none. Take it all back: the visitor's new session goes
+		// with their account, and the page shows the error instead of an empty workspace.
+		await discardSandbox(user.id, workspaceId).catch((cleanup: unknown) =>
+			console.error("demo: could not discard a failed sandbox", cleanup),
+		);
+		throw error;
+	}
+}
+
+async function discardSandbox(userId: string, workspaceId: string | undefined) {
+	if (workspaceId) {
+		await workspaceStub(workspaceId).destroy();
+		await db.delete(schema.organization).where(eq(schema.organization.id, workspaceId));
+	}
+	await db.delete(schema.user).where(eq(schema.user.id, userId));
 }
 
 /**
  * The four sample people as users, created once. They are verified and have no credentials, so
  * nobody can sign in as them; they exist to be members of every sandbox and to author its issues.
+ * A database that already has them under other ids, such as a local one `pnpm dev:seed` filled,
+ * keeps those: they are looked up by address.
  */
 async function ensureSamplePeople(): Promise<Record<PersonKey, MemberProfile>> {
 	const now = new Date();
 	const people = {} as Record<PersonKey, MemberProfile>;
 	for (const [key, person] of SAMPLE_PEOPLE) {
-		const id = samplePersonId(key);
 		await db
 			.insert(schema.user)
 			.values({
-				id,
+				id: samplePersonId(key),
 				name: person.name,
 				email: person.email,
 				emailVerified: true,
@@ -98,7 +124,19 @@ async function ensureSamplePeople(): Promise<Record<PersonKey, MemberProfile>> {
 				updatedAt: now,
 			})
 			.onConflictDoNothing();
-		people[key] = { id, name: person.name, email: person.email, image: null, role: person.role };
+		const row = await db
+			.select({ id: schema.user.id })
+			.from(schema.user)
+			.where(eq(schema.user.email, person.email))
+			.get();
+		if (!row) throw new Error(`Sample person ${person.email} is missing`);
+		people[key] = {
+			id: row.id,
+			name: person.name,
+			email: person.email,
+			image: null,
+			role: person.role,
+		};
 	}
 	return people;
 }

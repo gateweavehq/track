@@ -255,6 +255,60 @@ describe("on any other deployment", () => {
 	});
 });
 
+describe("on a demo whose database already has the sample people", () => {
+	let track: Track;
+
+	beforeAll(async () => {
+		track = await startTrack(origin, { demo: true });
+	});
+
+	afterAll(async () => {
+		await track?.dispose();
+	});
+
+	it("uses them as they are", async () => {
+		// As `pnpm dev:seed` leaves a local database: the same people, under ids of its own.
+		const now = Date.now();
+		for (const [key, person] of Object.entries(PEOPLE)) {
+			await track.db
+				.prepare(
+					'insert into "user" (id, name, email, email_verified, created_at, updated_at) values (?, ?, ?, 1, ?, ?)',
+				)
+				.bind(`seeded-${key}`, person.name, person.email, now, now)
+				.run();
+		}
+
+		const { slug, cookie } = await startVisitor(track, "203.0.113.60");
+		const data = (await (await snapshot(track, slug, cookie)).json()) as Snapshot;
+		expect(data.members.map((member) => member.id)).toEqual(
+			expect.arrayContaining(Object.keys(PEOPLE).map((key) => `seeded-${key}`)),
+		);
+		expect(
+			await count(track, `"user" where email like '%@example.com' and id like 'sample-%'`),
+		).toBe(0);
+	});
+
+	it("takes back a sandbox it could not finish", async () => {
+		// Make adding the sample members fail partway, after the visitor and workspace exist.
+		await track.db
+			.prepare(
+				"create trigger refuse_members before insert on member when new.role = 'member' begin select raise(abort, 'refused for the test'); end",
+			)
+			.run();
+		const visitors = await count(track, `"user" where email like '%@visitors.example.com'`);
+		const workspaces = await count(track, '"organization"');
+		try {
+			const { failed, cookie } = await openDemo(track, "203.0.113.61");
+			expect(failed).toBe(true);
+			expect(await count(track, `"user" where email like '%@visitors.example.com'`)).toBe(visitors);
+			expect(await count(track, '"organization"')).toBe(workspaces);
+			expect(await session(track, cookie)).toBeNull();
+		} finally {
+			await track.db.prepare("drop trigger refuse_members").run();
+		}
+	});
+});
+
 async function workspaceId(track: Track, slug: string) {
 	const row = await track.db
 		.prepare('select id from "organization" where slug = ?')

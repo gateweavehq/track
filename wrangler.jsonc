@@ -57,7 +57,7 @@
 		"demo": {
 			"name": "gateweave-track-demo",
 			"vars": { "TRACK_DEMO": "1" },
-			"triggers": { "crons": ["*/30 * * * *"] },
+			"triggers": { "crons": ["*/10 * * * *"] },
 			"d1_databases": [
 				{
 					"binding": "DB",

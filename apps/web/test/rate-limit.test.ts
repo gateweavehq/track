@@ -56,3 +56,28 @@ it("counts a client's attempts in every isolate together", async () => {
 	// Had the Durable Object failed, each isolate would have fallen back to its own count.
 	expect(track.logs.filter((log) => log.message.startsWith("rate limit:"))).toEqual([]);
 });
+
+it("limits how fast one client creates workspaces, each a Durable Object", async () => {
+	const client = { "cf-connecting-ip": "203.0.113.40" };
+	const signedUp = await track.fetch(`${origin}/api/auth/sign-up/email`, {
+		method: "POST",
+		headers: { "content-type": "application/json", origin, ...client },
+		body: JSON.stringify({ name: "Busy", email: "busy@example.com", password: "a-long-password" }),
+	});
+	expect(signedUp.status).toBe(200);
+	const cookie = signedUp.headers
+		.getSetCookie()
+		.map((header) => header.split(";")[0])
+		.join("; ");
+
+	const statuses = [];
+	for (let n = 0; n < 11; n++) {
+		const response = await track.fetch(`${origin}/api/auth/organization/create`, {
+			method: "POST",
+			headers: { "content-type": "application/json", origin, cookie, ...client },
+			body: JSON.stringify({ name: `Workspace ${n}`, slug: `busy-${n}` }),
+		});
+		statuses.push(response.status);
+	}
+	expect(statuses).toEqual([...Array(10).fill(200), 429]);
+});

@@ -136,7 +136,7 @@ Gateweave runs a public demo as its own deployment: the `demo` environment in `w
 is a separate Worker with its own D1 database and Durable Objects, and it shares nothing with
 production. Self-hosters do not need it, and the code stays inert on any deployment where the
 `TRACK_DEMO` variable is not `"1"`: the server function, the cleanup and the sign-in changes all
-check it first.
+check it first. To try it locally, add `TRACK_DEMO=1` to `.dev.vars` and restart `pnpm dev`.
 
 A shared demo account would be vandalized within minutes, so each visitor gets a sandbox:
 
@@ -152,7 +152,7 @@ A shared demo account would be vandalized within minutes, so each visitor gets a
 - In the demo, HTTP requests to sign up, sign in, reset or change a password or email, and
   delete an account are refused. Only the server creates accounts. Server-side `auth.api` calls
   carry no `Request`, which is how the hook tells them apart. Email is off.
-- A Cron Trigger runs every 30 minutes (`src/server/demo/cleanup.ts`). It deletes visitors more
+- A Cron Trigger runs every 10 minutes (`src/server/demo/cleanup.ts`). It deletes visitors more
   than a day old: for each of their workspaces it calls `destroy()` on the Durable Object, then
   deletes the organization row, then the user (sessions, accounts and memberships cascade). The
   sample people are never selected. Visitors are found by their address, so a failed run leaves

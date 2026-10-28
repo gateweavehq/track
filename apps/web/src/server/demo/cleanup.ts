@@ -4,8 +4,12 @@ import { schema } from "../db";
 import { workspaceStub } from "../workspaces";
 import { assertDemo, SANDBOX_LIFETIME_MS, VISITOR_DOMAIN } from "./mode";
 
-/** Visitors handled per run, so one run stays well inside a Worker's subrequest limit. */
-const BATCH = 40;
+/**
+ * Visitors handled per run. Each costs about two subrequests (destroying the Durable Object and
+ * deleting the workspace), so a run stays well inside the 1,000 a Worker gets. Every 10 minutes,
+ * that clears up to 900 visitors an hour, more than a busy launch day opens.
+ */
+const BATCH = 150;
 
 export interface CleanupResult {
 	workspaces: number;
