@@ -50,6 +50,9 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   an edit reaching a second browser, and fails when a median goes over its budget.
 - **Full-text search.** The command palette searches keys, titles, descriptions and comments in
   the local copy; each workspace's database keeps an FTS5 index for MCP. Shipped in v0.2.0.
+- **Agent members and webhooks.** Agents that work on their own join a workspace under their own
+  name and connect over MCP with a key, and signed webhooks tell them about changes as they
+  happen. Shipped in v0.3.0.
 
 ## Next: launch
 
@@ -64,5 +67,5 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - Projects and cycles.
 - GitHub integration: link pull requests and close issues from commits.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations
-  people use (see [ecosystem.md](ecosystem.md#agents-are-members)). Agent members, which it
-  works as, and webhooks that tell it about new issues are built.
+  people use (see [ecosystem.md](ecosystem.md#agents-are-members)). It runs in Gateweave Agents,
+  on the agent members and webhooks above.
