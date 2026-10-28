@@ -43,11 +43,15 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-/** Stands in for every receiver. Deliveries come from the Durable Object, in this isolate. */
+/**
+ * Stands in for every receiver. Deliveries come from the Durable Object, in this isolate. It
+ * takes a moment to answer, as a real one does, so sends overlap the way they do in production.
+ */
 function receiver(status: (count: number) => number = () => 204): Received[] {
 	const received: Received[] = [];
 	vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
 		const request = new Request(input, init);
+		await new Promise((resolve) => setTimeout(resolve, 20));
 		received.push({
 			url: request.url,
 			headers: Object.fromEntries(request.headers),
@@ -110,19 +114,29 @@ async function deliveries(workspace: Workspace): Promise<WebhookDelivery[]> {
 	return ok(await workspace.webhooks(owner)).deliveries;
 }
 
-/** Runs the alarm until nothing is due now, the way it runs itself after each change. */
+/**
+ * Runs the alarm until every delivery is settled: sent, failed for good, or waiting out a retry.
+ * The alarm the object sets after each change runs on its own too, so a delivery may be on its
+ * way already, claimed by that run, when this one finds nothing due.
+ */
 async function deliver(workspace: Workspace) {
-	for (let round = 0; round < 10; round++) {
-		await runDurableObjectAlarm(workspace);
-		const due = (await deliveries(workspace)).some(
-			(delivery) =>
-				delivery.status === "pending" &&
-				delivery.nextAttemptAt !== null &&
-				delivery.nextAttemptAt <= Date.now(),
-		);
-		if (!due) return;
-	}
-	throw new Error("Deliveries kept coming due");
+	await vi.waitFor(
+		async () => {
+			await runDurableObjectAlarm(workspace);
+			const now = Date.now();
+			const unsettled = (await deliveries(workspace)).filter(
+				(delivery) =>
+					delivery.status === "pending" &&
+					!(
+						delivery.nextAttemptAt !== null &&
+						delivery.nextAttemptAt > now &&
+						RETRY_DELAYS_MS.includes(delivery.nextAttemptAt - delivery.updatedAt)
+					),
+			);
+			if (unsettled.length > 0) throw new Error(`${unsettled.length} deliveries are unsettled`);
+		},
+		{ timeout: 5000, interval: 10 },
+	);
 }
 
 /** Makes every waiting retry due, rather than waiting for its backoff. */
@@ -139,6 +153,13 @@ async function skipBackoff(workspace: Workspace) {
 function payloadOf(request: Received | undefined): WebhookPayload {
 	if (!request) throw new Error("Nothing was delivered");
 	return JSON.parse(request.body) as WebhookPayload;
+}
+
+/** What arrived, in the order of the changes. Deliveries go out in parallel, in any order. */
+function payloads(received: Received[]): WebhookPayload[] {
+	const version = (payload: WebhookPayload) =>
+		"version" in payload.data ? payload.data.version : 0;
+	return received.map(payloadOf).sort((a, b) => version(a) - version(b));
 }
 
 describe("delivery", () => {
@@ -220,13 +241,13 @@ describe("delivery", () => {
 		});
 		await deliver(workspace);
 
-		expect(received.map((request) => payloadOf(request).data)).toMatchObject([
+		const sent = payloads(received);
+		expect(sent.map((payload) => payload.data)).toMatchObject([
 			{ issue: { status: "in_progress" }, updatedFrom: { status: "backlog" } },
 			{ issue: { labelIds: ["label-bug"] }, updatedFrom: { labelIds: [] } },
 		]);
-		const [first] = received;
-		const data = payloadOf(first).data;
-		expect("updatedFrom" in data && Object.keys(data.updatedFrom)).toEqual(["status"]);
+		const data = sent[0]?.data;
+		expect(data && "updatedFrom" in data && Object.keys(data.updatedFrom)).toEqual(["status"]);
 	});
 
 	it("sends comments with their issue", async () => {
@@ -242,7 +263,7 @@ describe("delivery", () => {
 		await mutate(workspace, alice, { name: "comment.delete", args: { id: "comment-1" } });
 		await deliver(workspace);
 
-		expect(received.map(payloadOf)).toMatchObject([
+		expect(payloads(received)).toMatchObject([
 			{
 				type: "comment.created",
 				data: {
@@ -338,7 +359,7 @@ describe("delivery", () => {
 
 		expect(repeated.ok).toBe(true);
 		expect(rejected.ok).toBe(false);
-		expect(received.map((request) => payloadOf(request).data)).toMatchObject([
+		expect(payloads(received).map((payload) => payload.data)).toMatchObject([
 			{ issue: { id: "issue-1" } },
 			{ issue: { id: "issue-2" } },
 		]);
