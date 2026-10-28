@@ -6,13 +6,13 @@ import { Label } from "#/components/ui/label";
 import { authClient } from "#/lib/auth-client";
 import { lastWorkspace, withOfflineFallback } from "#/lib/offline";
 import { forgetEverything } from "#/lib/replica";
-import { getSession } from "#/lib/session";
+import { getHome } from "#/lib/session";
 import { slugify, slugProblem } from "#/lib/slug";
 
 export const Route = createFileRoute("/")({
 	beforeLoad: async () => {
-		const session = await withOfflineFallback(
-			() => getSession(),
+		const { session, sandbox } = await withOfflineFallback(
+			() => getHome(),
 			() => {
 				// An installed app starts here. Without a connection, open the workspace used last.
 				const last = lastWorkspace();
@@ -21,6 +21,7 @@ export const Route = createFileRoute("/")({
 			},
 		);
 		if (!session) throw redirect({ to: "/login" });
+		if (sandbox) throw redirect({ to: "/$workspace", params: { workspace: sandbox } });
 		return { session };
 	},
 	component: WorkspacesPage,

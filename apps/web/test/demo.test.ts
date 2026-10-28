@@ -105,6 +105,14 @@ describe("on the demo deployment", () => {
 		expect(data.issues.some((issue) => issue.assigneeId === maya?.id)).toBe(true);
 	});
 
+	it("sends a returning visitor straight back to their sandbox", async () => {
+		const { slug, cookie } = await startVisitor(track, "203.0.113.5");
+
+		const home = await track.fetch(`${origin}/`, { headers: { cookie } });
+		expect(home.status).toBe(307);
+		expect(new URL(home.headers.get("location") ?? "", origin).pathname).toBe(`/${slug}`);
+	});
+
 	it("gives each visitor a workspace nobody else can read", async () => {
 		const first = await startVisitor(track, "203.0.113.2");
 		const second = await startVisitor(track, "203.0.113.3");
@@ -239,6 +247,17 @@ describe("on any other deployment", () => {
 			}),
 		});
 		expect(response.status).toBe(200);
+
+		// With a workspace, `/` still lists workspaces rather than opening one, as it does
+		// everywhere but the demo.
+		const cookie = cookieOf(response);
+		const created = await track.fetch(`${origin}/api/auth/organization/create`, {
+			method: "POST",
+			headers: { origin, cookie, "content-type": "application/json" },
+			body: JSON.stringify({ name: "Ada's", slug: "adas" }),
+		});
+		expect(created.status).toBe(200);
+		expect((await track.fetch(`${origin}/`, { headers: { cookie } })).status).toBe(200);
 	});
 
 	it("does not run cleanup", async () => {
