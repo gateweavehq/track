@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { invitationEmail, passwordResetEmail } from "./templates";
+import { invitationEmail, passwordResetEmail, verificationEmail } from "./templates";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -49,5 +49,16 @@ describe("passwordResetEmail", () => {
 		expect(email.text).toContain(url);
 		expect(email.text).toContain("signs you out on every device");
 		expect(email.html).toContain(`href="${url}"`);
+	});
+});
+
+describe("verificationEmail", () => {
+	it("links to the verification and says how long it works", () => {
+		const url = "https://track.example.com/api/auth/verify-email?token=t&callbackURL=%2F";
+		const email = verificationEmail({ url });
+		expect(email.subject).toBe("Verify your email for Gateweave Track");
+		expect(email.text).toContain(url);
+		expect(email.text).toContain("24 hours");
+		expect(email.html).toContain(`href="${url.replace("&", "&amp;")}"`);
 	});
 });

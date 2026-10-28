@@ -19,6 +19,18 @@ export function passwordResetEmail({ url }: { url: string }): Message {
 	});
 }
 
+export function verificationEmail({ url }: { url: string }): Message {
+	return compose({
+		subject: `Verify your email for ${PRODUCT}`,
+		heading: "Verify your email",
+		body: [
+			`Confirm that this address is yours to finish setting up your ${PRODUCT} account. Workspaces you are invited to need it before you can join. The link works for 24 hours.`,
+		],
+		action: { label: "Verify email", url },
+		footer: `If you did not create a ${PRODUCT} account, ignore this email.`,
+	});
+}
+
 export function invitationEmail({
 	inviter,
 	workspace,

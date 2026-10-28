@@ -16,4 +16,7 @@ worker-configuration.d.ts
 # Only selects the Wrangler environment for `vite build --mode staging`; holds no secrets.
 !apps/web/.env.staging
 
+# Git worktrees that coding agents work in
+.claude/worktrees/
+
 .DS_Store

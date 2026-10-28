@@ -9,7 +9,7 @@ import { slugProblem } from "../../lib/slug";
 import type { Database } from "../db";
 import { schema } from "../db";
 import type { Mailer } from "../email/mailer";
-import { invitationEmail, passwordResetEmail } from "../email/templates";
+import { invitationEmail, passwordResetEmail, verificationEmail } from "../email/templates";
 
 export interface AuthConfig {
 	db: Database;
@@ -87,12 +87,20 @@ export function createAuth(config: AuthConfig) {
 			// The JWT plugin's session-to-token exchange. Agents get tokens through OAuth instead.
 			"/token",
 		],
+		emailVerification: mailer && {
+			sendVerificationEmail: async ({ user, url }) => {
+				await mailer.send({ to: user.email, ...verificationEmail({ url }) });
+			},
+			sendOnSignUp: true,
+			autoSignInAfterVerification: true,
+			expiresIn: VERIFICATION_LIFETIME_SECONDS,
+		},
 		hooks: {
 			before: createAuthMiddleware(async (ctx) => {
 				if (ctx.path !== "/organization/list-invitations") return;
-				// Better Auth lets every member list invitations. Until accounts verify their
-				// email, an invitation's id is enough to accept it with a new account under the
-				// invited address, so only those who can invite may see the ids.
+				// Better Auth lets every member list invitations. Where accounts cannot verify their
+				// email (a server without email), an invitation's id is enough to accept it with a
+				// new account under the invited address, so only those who can invite see the ids.
 				const session = await getSessionFromCtx(ctx);
 				const organizationId: unknown =
 					ctx.query?.organizationId ?? session?.session.activeOrganizationId;
@@ -123,12 +131,11 @@ export function createAuth(config: AuthConfig) {
 		},
 		plugins: [
 			organization({
-				// Links are shared by hand until Track sends email, so give people time.
 				invitationExpiresIn: INVITATION_LIFETIME_SECONDS,
-				// Accounts do not verify their email yet, so requiring it would block every
-				// invitation. The list-invitations hook above keeps ids away from members instead.
-				// Turn this on together with email verification.
-				requireEmailVerificationOnInvitation: false,
+				// Proving the invited address is what makes an invitation safe to hold: without it,
+				// anyone with the link can sign up under that address and join. Servers without
+				// email cannot verify anyone, so there the list-invitations hook above guards the ids.
+				requireEmailVerificationOnInvitation: Boolean(mailer),
 				...(mailer && {
 					sendInvitationEmail: async (
 						{ id, email, organization, inviter, invitation },
@@ -216,6 +223,9 @@ export function createAuth(config: AuthConfig) {
 export type Auth = ReturnType<typeof createAuth>;
 
 export const INVITATION_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
+
+/** How long an emailed verification link works. */
+export const VERIFICATION_LIFETIME_SECONDS = 24 * 60 * 60;
 
 /** How many invitations one person can send by email in a day. More still work as links. */
 export const INVITATION_EMAILS_PER_DAY = 100;

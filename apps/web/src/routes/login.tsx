@@ -1,5 +1,6 @@
 import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -48,11 +49,22 @@ function LoginPage() {
 		const result =
 			mode === "sign-in"
 				? await authClient.signIn.email({ email, password })
-				: await authClient.signUp.email({ email, password, name: String(form.get("name")) });
+				: await authClient.signUp.email({
+						email,
+						password,
+						name: String(form.get("name")),
+						// Where the verification email brings them back to, such as an invitation.
+						callbackURL: next,
+					});
 		if (result.error) {
 			setPending(false);
 			setError(result.error.message ?? "Something went wrong");
 			return;
+		}
+		if (mode === "sign-up" && options.email) {
+			toast.success("Check your email", {
+				description: `We sent a link to verify ${email}.`,
+			});
 		}
 		// The auth client is already on its way back to the agent's authorization.
 		if (inAuthorizationFlow(window.location.search)) return;

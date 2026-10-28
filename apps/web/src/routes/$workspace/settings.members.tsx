@@ -31,6 +31,7 @@ function MembersPage() {
 			members={data.members}
 			invitations={data.invitations}
 			inviteByEmail={data.inviteByEmail}
+			emailEnabled={data.emailEnabled}
 			focusInvite={invite === true}
 		/>
 	);

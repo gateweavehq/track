@@ -43,13 +43,15 @@ async function signUp(client: string, name: string, email: string, password: str
 }
 
 /** Email is sent after the response, so wait for it to arrive. */
-async function emailTo(address: string): Promise<SentEmail> {
+async function emailTo(address: string, subject: string): Promise<SentEmail> {
 	for (let attempt = 0; attempt < 100; attempt++) {
-		const email = (await track.emails()).find((sent) => sent.to === address);
+		const email = (await track.emails()).find(
+			(sent) => sent.to === address && sent.subject === subject,
+		);
 		if (email) return email;
 		await new Promise((resolve) => setTimeout(resolve, 50));
 	}
-	throw new Error(`No email to ${address}`);
+	throw new Error(`No email to ${address} about "${subject}"`);
 }
 
 async function emailsTo(address: string) {
@@ -71,9 +73,8 @@ describe("password reset", () => {
 			expect(response.status).toBe(200);
 		}
 
-		const email = await emailTo("sam@example.com");
+		const email = await emailTo("sam@example.com", "Reset your Gateweave Track password");
 		expect(email.from).toEqual(EMAIL_FROM);
-		expect(email.subject).toBe("Reset your Gateweave Track password");
 		const link = /https:\/\/track\.test\/api\/auth\/reset-password\/\S+/.exec(email.text)?.[0];
 		if (!link) throw new Error(`No reset link in: ${email.text}`);
 		expect(email.html).toContain(link.replaceAll("&", "&amp;"));
@@ -148,9 +149,11 @@ describe("invitations", () => {
 			.run();
 		const invitationId = await invite("diego@example.com");
 
-		const email = await emailTo("diego@example.com");
+		const email = await emailTo(
+			"diego@example.com",
+			"Maya Chen invited you to Acme & <Co> on Gateweave Track",
+		);
 		expect(email.from).toEqual(EMAIL_FROM);
-		expect(email.subject).toBe("Maya Chen invited you to Acme & <Co> on Gateweave Track");
 		const link = `${origin}/invite/${invitationId}`;
 		expect(email.text).toContain(link);
 		expect(email.text).toContain("maya@example.com");
@@ -158,6 +161,65 @@ describe("invitations", () => {
 		expect(email.html).toContain("Acme &amp; &lt;Co&gt;");
 		expect(email.html).not.toContain("<Co>");
 		expect(await emailsTo("lena@example.com")).toEqual([]);
+		expect(track.outbound).toEqual([]);
+	});
+});
+
+describe("email verification", () => {
+	const client = "203.0.113.30";
+
+	it("is required to accept an invitation, and the emailed link provides it", async () => {
+		const owner = await signUp(client, "Ana Silva", "ana@example.com", "a-long-test-password");
+		await track.db
+			.prepare("UPDATE user SET email_verified = 1 WHERE email = ?")
+			.bind("ana@example.com")
+			.run();
+		const created = await authApi("/organization/create", {
+			client,
+			cookie: owner,
+			body: { name: "Globex", slug: "globex" },
+		});
+		const { id: organizationId } = (await created.json()) as { id: string };
+		const invited = await authApi("/organization/invite-member", {
+			client,
+			cookie: owner,
+			body: { email: "ravi@example.com", role: "member", organizationId },
+		});
+		const { id: invitationId } = (await invited.json()) as { id: string };
+
+		// Signing up under the invited address is not enough: anyone could type it.
+		const signedUp = await authApi("/sign-up/email", {
+			client,
+			body: {
+				name: "Ravi Patel",
+				email: "ravi@example.com",
+				password: "a-long-test-password",
+				callbackURL: `/invite/${invitationId}`,
+			},
+		});
+		const ravi = cookieOf(signedUp);
+		const refused = await authApi("/organization/accept-invitation", {
+			client,
+			cookie: ravi,
+			body: { invitationId },
+		});
+		expect(refused.status).toBe(403);
+
+		const email = await emailTo("ravi@example.com", "Verify your email for Gateweave Track");
+		const link = /https:\/\/track\.test\/api\/auth\/verify-email\?\S+/.exec(email.text)?.[0];
+		if (!link) throw new Error(`No verification link in: ${email.text}`);
+
+		const opened = await track.fetch(link, { headers: { "cf-connecting-ip": client } });
+		expect(opened.status).toBe(302);
+		expect(opened.headers.get("location")).toBe(`/invite/${invitationId}`);
+		const verified = cookieOf(opened) || ravi;
+
+		const accepted = await authApi("/organization/accept-invitation", {
+			client,
+			cookie: verified,
+			body: { invitationId },
+		});
+		expect(accepted.status).toBe(200);
 		expect(track.outbound).toEqual([]);
 	});
 });

@@ -30,13 +30,13 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - **Comments and activity.** A thread on every issue, edited by its author and moderated by
   admins, next to a history of who changed what, written by the server and merged so quick edits
   read as one change. Agents read and add comments over MCP.
-- **Email.** Optional, through Cloudflare Email Service: password reset, and invitations sent by
-  email from admins who verified their address. Self-hosters can run without it.
+- **Email.** Optional, through Cloudflare Email Service: password reset, verified addresses, and
+  invitations sent by email from admins who verified their address. Where email is on, joining a
+  workspace requires a verified address, so an invitation link on its own is no longer enough.
+  Self-hosters can run without it.
 
 ## Next: launch readiness
 
-- Verified email addresses, and `requireEmailVerificationOnInvitation`, so that an invitation link
-  on its own is no longer enough to join a workspace.
 - Opening the app with no connection. A loaded workspace already keeps working offline; starting
   one offline needs a service worker that serves the app shell, and workspace loaders that fall
   back to what the device already knows when the session and membership checks cannot reach the

@@ -2,7 +2,9 @@ import { deleteIdbReplicas } from "@gateweave/track-sync-client";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { Button } from "#/components/ui/button";
+import { VerifyEmailButton } from "#/components/verify-email";
 import { authClient } from "#/lib/auth-client";
 import { formatRelative } from "#/lib/dates";
 import { previewInvitation } from "#/lib/members";
@@ -10,12 +12,14 @@ import { useDocumentTitle } from "#/lib/title";
 import type { InvitationPreview } from "#/server/workspaces";
 
 export const Route = createFileRoute("/invite/$invitationId")({
+	// A verification link that failed sends the browser back here with an error code.
+	validateSearch: z.object({ error: z.string().optional().catch(undefined) }),
 	loader: ({ params }) => previewInvitation({ data: params.invitationId }),
 	component: InvitePage,
 });
 
 function InvitePage() {
-	const { invitation, viewer } = Route.useLoaderData();
+	const { invitation, viewer, verificationRequired } = Route.useLoaderData();
 	const { invitationId } = Route.useParams();
 	useDocumentTitle(invitation ? `Join ${invitation.workspaceName}` : "Invitation");
 
@@ -32,18 +36,28 @@ function InvitePage() {
 			</Card>
 		);
 	}
-	return <ValidInvitation invitationId={invitationId} invitation={invitation} viewer={viewer} />;
+	return (
+		<ValidInvitation
+			invitationId={invitationId}
+			invitation={invitation}
+			viewer={viewer}
+			verificationRequired={verificationRequired}
+		/>
+	);
 }
 
 function ValidInvitation({
 	invitationId,
 	invitation,
 	viewer,
+	verificationRequired,
 }: {
 	invitationId: string;
 	invitation: InvitationPreview;
-	viewer: { email: string } | null;
+	viewer: { email: string; emailVerified: boolean } | null;
+	verificationRequired: boolean;
 }) {
+	const { error: linkError } = Route.useSearch();
 	const router = useRouter();
 	const [pending, setPending] = useState(false);
 	const here = `/invite/${invitationId}`;
@@ -119,6 +133,20 @@ function ValidInvitation({
 				<Button className="w-full" onClick={switchAccount} disabled={pending}>
 					Switch account
 				</Button>
+			</Card>
+		);
+	}
+
+	if (verificationRequired && !viewer.emailVerified) {
+		return (
+			<Card title={title}>
+				{intro}
+				<p className="text-sm">
+					{linkError ? "That link has expired or was already used. " : ""}
+					To join, confirm that {invitation.email} is yours. We email it a link that brings you back
+					here.
+				</p>
+				<VerifyEmailButton email={viewer.email} callbackURL={here} className="w-full" />
 			</Card>
 		);
 	}
