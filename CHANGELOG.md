@@ -8,6 +8,40 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.5.0] - 2026-10-29
+
+Projects group issues from any team toward a goal, and what agents propose has a page of its own.
+Updating a self-hosted copy applies a migration in each workspace's database, which runs on its
+own; there is no D1 migration this time.
+
+### Added
+
+- Projects. A project groups issues from any team toward a goal, with a description, a status
+  (planned, started, paused, completed or canceled), a lead, a target date and its progress: the
+  issues done out of all that are not canceled. Projects have a list and a page with their issues
+  as a list or a board, every issue has a Project property, and the command palette goes to them,
+  creates them and sets them. People create and edit projects, admins delete them, and an admin
+  can have an agent member only propose project changes. ([#53])
+- MCP: `create_issue`, `update_issue` and `search_issues` take a `project`, by name or id, and
+  `get_workspace` lists the projects. ([#53])
+- A Proposals page lists the workspace's open proposals by issue, with a count in the sidebar, a
+  filter by agent kept in the URL, and keys to move between them (J and K), accept (A) and dismiss
+  (D). ([#52])
+- Webhook events for proposals: `proposal.created`, `proposal.updated`, `proposal.accepted` and
+  `proposal.dismissed`. An agent's own webhook is sent a person's decision on what it proposed,
+  and not its own proposals. A new webhook leaves them off until they are chosen. ([#51])
+
+### Changed
+
+- The sync protocol is at version 6, for projects. Open tabs fetch their workspace again after
+  the update. ([#53])
+
+### Fixed
+
+- A tab left open on an older version no longer keeps a tab opened after an update on
+  "Loading…". Tabs now pick the one that holds the connection among tabs of the same version.
+  ([#54])
+
 ## [0.4.0] - 2026-10-29
 
 People stay in control of what agents do: an admin chooses which kinds of change each agent member
@@ -240,6 +274,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.5.0]: https://github.com/gateweavehq/track/releases/tag/v0.5.0
 [0.4.0]: https://github.com/gateweavehq/track/releases/tag/v0.4.0
 [0.3.0]: https://github.com/gateweavehq/track/releases/tag/v0.3.0
 [0.2.0]: https://github.com/gateweavehq/track/releases/tag/v0.2.0
@@ -284,3 +319,7 @@ The first pre-release.
 [#45]: https://github.com/gateweavehq/track/pull/45
 [#46]: https://github.com/gateweavehq/track/pull/46
 [#49]: https://github.com/gateweavehq/track/pull/49
+[#51]: https://github.com/gateweavehq/track/pull/51
+[#52]: https://github.com/gateweavehq/track/pull/52
+[#53]: https://github.com/gateweavehq/track/pull/53
+[#54]: https://github.com/gateweavehq/track/pull/54
