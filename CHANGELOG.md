@@ -8,6 +8,30 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.4.0] - 2026-10-29
+
+People stay in control of what agents do: an admin chooses which kinds of change each agent member
+only proposes, and people accept or dismiss them. Updating a self-hosted copy applies a migration
+in each workspace's database, which runs on its own; there is no D1 migration this time.
+
+### Added
+
+- Proposals. Under Settings, Agents, an admin picks for each agent the kinds of change it only
+  proposes: title, description, status, closing (as Done or Canceled), priority, assignee and
+  labels. The server holds those back, even on a new issue the agent creates, and shows them on
+  the issue under "Proposed by agents" with Accept and Dismiss. Accepting makes the change as the
+  person who accepted it, and the history notes which agent proposed it. An agent has one open
+  proposal per field and issue, and agents never decide on proposals, their own included. An
+  agent proposes nothing until an admin sets it up, so existing agents work as before. ([#49])
+- MCP: `create_issue` and `update_issue` return what they proposed under `proposed`, so an
+  agent knows the change waits for a person, and `get_issue` lists an issue's open proposals.
+  ([#49])
+
+### Changed
+
+- The sync protocol is at version 5, for proposals. Open tabs fetch their workspace again after
+  the update. ([#49])
+
 ## [0.3.0] - 2026-10-28
 
 Agents that work on their own: they join a workspace under their own name, and webhooks tell them
@@ -216,6 +240,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.4.0]: https://github.com/gateweavehq/track/releases/tag/v0.4.0
 [0.3.0]: https://github.com/gateweavehq/track/releases/tag/v0.3.0
 [0.2.0]: https://github.com/gateweavehq/track/releases/tag/v0.2.0
 [0.1.0]: https://github.com/gateweavehq/track/releases/tag/v0.1.0
@@ -258,3 +283,4 @@ The first pre-release.
 [#43]: https://github.com/gateweavehq/track/pull/43
 [#45]: https://github.com/gateweavehq/track/pull/45
 [#46]: https://github.com/gateweavehq/track/pull/46
+[#49]: https://github.com/gateweavehq/track/pull/49
