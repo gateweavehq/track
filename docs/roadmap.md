@@ -53,6 +53,9 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - **Agent members and webhooks.** Agents that work on their own join a workspace under their own
   name and connect over MCP with a key, and signed webhooks tell them about changes as they
   happen. Shipped in v0.3.0.
+- **Proposals.** An admin chooses which kinds of change each agent member only proposes, such as
+  closing issues or assigning them, and people accept or dismiss them on the issue. On `main`,
+  for the next release.
 
 ## Next: launch
 

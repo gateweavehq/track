@@ -4,10 +4,12 @@
  */
 import {
 	type ActivityChange,
+	type AgentChangeKind,
 	ENTITY_NAMES,
 	ISSUE_STATUSES,
 	type IssuePriority,
 	MEMBER_ROLES,
+	type ProposedChange,
 	type WebhookDelivery,
 	type WebhookEventType,
 } from "@gateweave/track-protocol";
@@ -97,19 +99,49 @@ export const activities = sqliteTable(
 			.references(() => issues.id),
 		actorId: text("actor_id").notNull(),
 		change: text("change", { mode: "json" }).$type<ActivityChange>().notNull(),
+		proposedBy: text("proposed_by"),
 		createdAt: integer("created_at").notNull(),
 		updatedAt: integer("updated_at").notNull(),
 	},
 	(table) => [index("activities_issue_idx").on(table.issueId)],
 );
 
-/** Replica of workspace membership. The app worker owns membership and pushes changes here. */
+/**
+ * Agents' proposals. Decided ones keep their row, as the record of who decided, but leave
+ * clients. A deleted issue's proposals go with it, like its comments.
+ */
+export const proposals = sqliteTable(
+	"proposals",
+	{
+		id: text("id").primaryKey(),
+		issueId: text("issue_id")
+			.notNull()
+			.references(() => issues.id),
+		agentId: text("agent_id").notNull(),
+		change: text("change", { mode: "json" }).$type<ProposedChange>().notNull(),
+		status: text("status", { enum: ["open", "accepted", "dismissed"] }).notNull(),
+		decidedBy: text("decided_by"),
+		decidedAt: integer("decided_at"),
+		createdAt: integer("created_at").notNull(),
+		updatedAt: integer("updated_at").notNull(),
+	},
+	(table) => [index("proposals_issue_idx").on(table.issueId, table.status)],
+);
+
+/**
+ * Replica of workspace membership. The app worker owns membership and pushes changes here.
+ * `proposes` is the workspace's own: admins set it with `agent.update`, and pushes leave it be.
+ */
 export const members = sqliteTable("members", {
 	userId: text("user_id").primaryKey(),
 	name: text("name").notNull(),
 	email: text("email").notNull(),
 	image: text("image"),
 	role: text("role", { enum: MEMBER_ROLES }).notNull(),
+	proposes: text("proposes", { mode: "json" })
+		.$type<AgentChangeKind[]>()
+		.notNull()
+		.default(sql`'[]'`),
 	removedAt: integer("removed_at"),
 });
 
@@ -188,6 +220,7 @@ export type IssueRow = typeof issues.$inferSelect;
 export type LabelRow = typeof labels.$inferSelect;
 export type CommentRow = typeof comments.$inferSelect;
 export type ActivityRow = typeof activities.$inferSelect;
+export type ProposalRow = typeof proposals.$inferSelect;
 export type MemberRow = typeof members.$inferSelect;
 export type WebhookRow = typeof webhooks.$inferSelect;
 export type WebhookDeliveryRow = typeof webhookDeliveries.$inferSelect;

@@ -104,7 +104,8 @@ browser does:
   An agent that sleeps between tasks instead hears about them from a signed webhook (see
   [architecture.md](architecture.md#webhooks)), which is built in Track.
 - **People stay in control.** High-impact changes can be proposed instead of applied, and a
-  person accepts them.
+  person accepts them. Track does this for agent members (see
+  [architecture.md](architecture.md#proposals)).
 - Models are reached through Cloudflare AI Gateway, so any provider works, with caching, rate
   limits and logs. Workers AI covers models that should run on Cloudflare.
 - Each product also exposes its queries and mutations as an MCP server, so outside agents can use

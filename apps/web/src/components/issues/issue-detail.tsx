@@ -21,6 +21,7 @@ import { send, useUpdateIssue } from "#/lib/mutations";
 import { useMembersById } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import { IssueActivity } from "./issue-activity";
+import { IssueProposals } from "./issue-proposals";
 import type { IssueField } from "./issue-row";
 import { LabelChips, LabelPicker } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
@@ -88,6 +89,7 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 				<article className="min-w-0 space-y-4 px-6 py-8 lg:flex-1 lg:px-12">
 					<TitleField issue={issue} />
 					<DescriptionField issue={issue} />
+					<IssueProposals issue={issue} />
 					<IssueActivity issue={issue} />
 				</article>
 

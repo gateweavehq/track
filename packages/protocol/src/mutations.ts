@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { ISSUE_PRIORITIES, ISSUE_STATUSES, MAX_LABELS_PER_ISSUE } from "./domain";
+import {
+	AGENT_CHANGE_KINDS,
+	ISSUE_PRIORITIES,
+	ISSUE_STATUSES,
+	MAX_LABELS_PER_ISSUE,
+} from "./domain";
 
 /** Client-generated ids. UUIDv7 is recommended so ids sort by creation time. */
 const id = z.string().min(1).max(64);
@@ -99,6 +104,26 @@ export const mutationSchema = z.discriminatedUnion("name", [
 	}),
 	z.object({
 		name: z.literal("comment.delete"),
+		args: z.object({ id }),
+	}),
+	// Admins only. Agents themselves are made in settings, like people's memberships.
+	z.object({
+		name: z.literal("agent.update"),
+		args: z.object({
+			id,
+			patch: z
+				.object({ proposes: z.array(z.enum(AGENT_CHANGE_KINDS)).max(AGENT_CHANGE_KINDS.length) })
+				.partial()
+				.refine(nonEmpty, "Empty patch"),
+		}),
+	}),
+	// People decide on agents' proposals; agents never do, their own included.
+	z.object({
+		name: z.literal("proposal.accept"),
+		args: z.object({ id }),
+	}),
+	z.object({
+		name: z.literal("proposal.dismiss"),
 		args: z.object({ id }),
 	}),
 ]);

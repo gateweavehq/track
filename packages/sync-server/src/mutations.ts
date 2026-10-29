@@ -1,17 +1,27 @@
 import {
 	type ActivityChange,
+	AGENT_CHANGE_KINDS,
 	isAdminRole,
 	MAX_LABELS_PER_ISSUE,
 	type Mutation,
 	type MutationArgs,
+	type ProposedChange,
 } from "@gateweave/track-protocol";
 import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import { recordActivity } from "./activity";
 import * as schema from "./db/schema";
 import { ChangeSet, type WriteResult } from "./log";
+import {
+	decide,
+	findOpenProposal,
+	openProposals,
+	patchOf,
+	propose,
+	proposesChange,
+} from "./proposals";
 import { MutationRejected } from "./rejected";
 import { indexIssue, indexTeamIssues, unindexIssue } from "./search";
-import { activeMember, type Db, toComment, toIssue, toLabel, toTeam } from "./state";
+import { activeMember, type Db, toComment, toIssue, toLabel, toMember, toTeam } from "./state";
 import { queueDeliveries } from "./webhooks";
 
 export interface Actor {
@@ -83,6 +93,15 @@ export function applyMutation(
 		case "comment.delete":
 			deleteComment(db, changes, actor, mutation.args);
 			break;
+		case "agent.update":
+			updateAgent(db, changes, actor, mutation.args);
+			break;
+		case "proposal.accept":
+			acceptProposal(db, changes, actor, mutation.args);
+			break;
+		case "proposal.dismiss":
+			dismissProposal(db, changes, actor, mutation.args);
+			break;
 	}
 
 	const result = changes.result();
@@ -90,7 +109,7 @@ export function applyMutation(
 		.values({ id: mutationId, clientId: actor.clientId, version: result.version, at: now })
 		.run();
 	const queued = queueDeliveries(db, actor.member, changes.events, result.version, now);
-	return { ...result, queued };
+	return { ...result, queued, proposed: changes.proposed };
 }
 
 function createTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"team.create">) {
@@ -132,16 +151,38 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		throw new MutationRejected("invalid", "Issue id already exists");
 	}
 	assertAssignable(db, args.assigneeId);
-	const labelIds = [...new Set(args.labelIds)];
-	for (const labelId of labelIds) {
+	const requested = [...new Set(args.labelIds)];
+	for (const labelId of requested) {
 		if (!findLiveLabel(db, labelId)) throw new MutationRejected("not_found", "Label not found");
 	}
+
+	// What an agent proposes, the issue is made without; the proposals go on it once it exists.
+	const held: ProposedChange[] = [];
+	const hold = (change: ProposedChange) => {
+		if (!proposesChange(actor.member, change)) return false;
+		held.push(change);
+		return true;
+	};
+	const status =
+		args.status !== "backlog" && hold({ type: "status", to: args.status })
+			? "backlog"
+			: args.status;
+	const priority =
+		args.priority !== 0 && hold({ type: "priority", to: args.priority }) ? 0 : args.priority;
+	const assigneeId =
+		args.assigneeId !== null && hold({ type: "assignee", to: args.assigneeId })
+			? null
+			: args.assigneeId;
+	const labelIds = requested.filter((labelId) => !hold({ type: "label", labelId, added: true }));
 
 	const number = team.issueCounter + 1;
 	db.update(schema.teams).set({ issueCounter: number }).where(eq(schema.teams.id, team.id)).run();
 
 	const row: schema.IssueRow = {
 		...args,
+		status,
+		priority,
+		assigneeId,
 		labelIds,
 		number,
 		creatorId: actor.member.userId,
@@ -156,25 +197,42 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 	indexIssue(db, row.id);
 	changes.put("issue", toIssue(row));
 	changes.events.push({ type: "issue.created", issue: row });
+	for (const change of held) propose(db, changes, row, actor.member.userId, change);
 }
 
 /**
  * Field-level optimistic concurrency: each field in the patch is applied unless another client
  * wrote that field after `baseVersion`. A client's own earlier writes never conflict with its
  * later ones, so rapid successive edits from one tab all land. If every field conflicts, the
- * whole mutation is rejected.
+ * whole mutation is rejected. The fields an agent proposes become proposals instead.
  */
-function updateIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"issue.update">) {
+function updateIssue(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"issue.update">,
+	proposedBy: string | null = null,
+) {
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
 	if (args.patch.assigneeId !== undefined) assertAssignable(db, args.patch.assigneeId);
+
+	const patch: IssuePatch = {};
+	for (const [field, value] of Object.entries(args.patch) as [keyof IssuePatch, never][]) {
+		const change = proposedChange(field, value);
+		if (change && proposesChange(actor.member, change)) {
+			propose(db, changes, issue, actor.member.userId, change);
+		} else {
+			patch[field] = value;
+		}
+	}
 
 	const version = changes.nextVersion;
 	const accepted: Partial<schema.IssueRow> = {};
 	const stamps = { ...issue.fieldStamps };
 	let conflicted = false;
 
-	for (const [field, value] of Object.entries(args.patch) as [keyof typeof args.patch, never][]) {
+	for (const [field, value] of Object.entries(patch) as [keyof IssuePatch, never][]) {
 		const stamp = issue.fieldStamps[field];
 		if (stamp && stamp.version > args.baseVersion && stamp.clientId !== actor.clientId) {
 			conflicted = true;
@@ -207,7 +265,27 @@ function updateIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 	}
 	// After the issue's own op, so the issue's version stays the version that wrote it.
 	for (const change of issueChanges(issue, accepted)) {
-		recordActivity(db, changes, issue, actor.member.userId, change);
+		recordActivity(db, changes, issue, actor.member.userId, change, proposedBy);
+	}
+}
+
+type IssuePatch = MutationArgs<"issue.update">["patch"];
+
+/** A patch field as a proposal. Manual ordering is never proposed. */
+function proposedChange(field: keyof IssuePatch, value: never): ProposedChange | null {
+	switch (field) {
+		case "title":
+			return { type: "title", to: value };
+		case "description":
+			return { type: "description", to: value };
+		case "status":
+			return { type: "status", to: value };
+		case "priority":
+			return { type: "priority", to: value };
+		case "assigneeId":
+			return { type: "assignee", to: value };
+		case "sortOrder":
+			return null;
 	}
 }
 
@@ -249,6 +327,7 @@ function deleteIssue(db: Db, changes: ChangeSet, args: MutationArgs<"issue.delet
 		.where(eq(schema.activities.issueId, issue.id))
 		.all();
 	for (const activity of activities) changes.delete("activity", activity.id);
+	for (const proposal of openProposals(db, issue.id)) changes.delete("proposal", proposal.id);
 
 	db.update(schema.issues)
 		.set({ deletedAt: changes.now, version: changes.nextVersion, updatedAt: changes.now })
@@ -260,10 +339,21 @@ function deleteIssue(db: Db, changes: ChangeSet, args: MutationArgs<"issue.delet
 }
 
 /** Labels are sets, so adding one that is already there, or removing one that is not, is a no-op. */
-function addLabel(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"issue.addLabel">) {
+function addLabel(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"issue.addLabel">,
+	proposedBy: string | null = null,
+) {
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
 	if (!findLiveLabel(db, args.labelId)) throw new MutationRejected("not_found", "Label not found");
+	const change: ProposedChange = { type: "label", labelId: args.labelId, added: true };
+	if (proposesChange(actor.member, change)) {
+		propose(db, changes, issue, actor.member.userId, change);
+		return;
+	}
 	if (issue.labelIds.includes(args.labelId)) return;
 	if (issue.labelIds.length >= MAX_LABELS_PER_ISSUE) {
 		throw new MutationRejected(
@@ -272,11 +362,7 @@ function addLabel(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"
 		);
 	}
 	writeIssueLabels(db, changes, issue, [...issue.labelIds, args.labelId]);
-	recordActivity(db, changes, issue, actor.member.userId, {
-		type: "label",
-		labelId: args.labelId,
-		added: true,
-	});
+	recordActivity(db, changes, issue, actor.member.userId, change, proposedBy);
 }
 
 function removeLabel(
@@ -284,9 +370,15 @@ function removeLabel(
 	changes: ChangeSet,
 	actor: Actor,
 	args: MutationArgs<"issue.removeLabel">,
+	proposedBy: string | null = null,
 ) {
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
+	const change: ProposedChange = { type: "label", labelId: args.labelId, added: false };
+	if (proposesChange(actor.member, change)) {
+		propose(db, changes, issue, actor.member.userId, change);
+		return;
+	}
 	if (!issue.labelIds.includes(args.labelId)) return;
 	writeIssueLabels(
 		db,
@@ -294,11 +386,7 @@ function removeLabel(
 		issue,
 		issue.labelIds.filter((id) => id !== args.labelId),
 	);
-	recordActivity(db, changes, issue, actor.member.userId, {
-		type: "label",
-		labelId: args.labelId,
-		added: false,
-	});
+	recordActivity(db, changes, issue, actor.member.userId, change, proposedBy);
 }
 
 function writeIssueLabels(db: Db, changes: ChangeSet, issue: schema.IssueRow, labelIds: string[]) {
@@ -449,8 +537,77 @@ function deleteComment(
 	changes.events.push({ type: "comment.deleted", comment });
 }
 
+/** Sets what an agent proposes instead of making. Its open proposals stay as they are. */
+function updateAgent(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"agent.update">) {
+	requireAdmin(actor, "Only workspace admins can manage agents");
+	const agent = activeMember(db, args.id);
+	if (agent?.role !== "agent") throw new MutationRejected("not_found", "Agent not found");
+	if (args.patch.proposes === undefined) return;
+
+	// Stored in one order, without repeats, so equal settings compare equal.
+	const wanted = new Set(args.patch.proposes);
+	const proposes = AGENT_CHANGE_KINDS.filter((kind) => wanted.has(kind));
+	if (proposes.join() === agent.proposes.join()) return;
+	const row = db
+		.update(schema.members)
+		.set({ proposes })
+		.where(eq(schema.members.userId, agent.userId))
+		.returning()
+		.get();
+	if (row) changes.put("member", toMember(row));
+}
+
+/**
+ * Makes the proposed change as the person accepting it, through the same handlers as their own
+ * edits, with the agent noted in the history. It is made against the issue as it is now:
+ * accepting is a decision taken looking at it.
+ */
+function acceptProposal(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"proposal.accept">,
+) {
+	requirePerson(actor, "Only people can accept proposals");
+	const proposal = findOpenProposal(db, args.id);
+	if (!proposal) {
+		throw new MutationRejected("not_found", "That proposal was already accepted or dismissed");
+	}
+	const { change, agentId, issueId } = proposal;
+	if (change.type === "label") {
+		const labelArgs = { id: issueId, labelId: change.labelId };
+		if (change.added) addLabel(db, changes, actor, labelArgs, agentId);
+		else removeLabel(db, changes, actor, labelArgs, agentId);
+	} else {
+		const issue = findLiveIssue(db, issueId);
+		if (!issue) throw new MutationRejected("not_found", "Issue not found");
+		const patch = patchOf(change);
+		updateIssue(db, changes, actor, { id: issueId, baseVersion: issue.version, patch }, agentId);
+	}
+	decide(db, changes, proposal, "accepted", actor.member.userId);
+}
+
+function dismissProposal(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"proposal.dismiss">,
+) {
+	requirePerson(actor, "Only people can dismiss proposals");
+	const proposal = findOpenProposal(db, args.id);
+	if (!proposal) {
+		throw new MutationRejected("not_found", "That proposal was already accepted or dismissed");
+	}
+	decide(db, changes, proposal, "dismissed", actor.member.userId);
+}
+
 function requireAdmin(actor: Actor, message: string) {
 	if (!isAdminRole(actor.member.role)) throw new MutationRejected("forbidden", message);
+}
+
+/** Proposals are how people stay in control of agents, so no agent decides on one. */
+function requirePerson(actor: Actor, message: string) {
+	if (actor.member.role === "agent") throw new MutationRejected("forbidden", message);
 }
 
 function findTeam(db: Db, id: string) {

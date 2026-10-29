@@ -22,6 +22,7 @@ const append: MergeDecision = { kind: "append" };
 interface LatestEntry {
 	actorId: string;
 	change: ActivityChange;
+	proposedBy: string | null;
 	updatedAt: number;
 }
 
@@ -34,7 +35,8 @@ interface IssueOrigin {
  * Decides how a change joins an issue's history, given its latest entry. Saving as you type,
  * clicking through statuses or toggling a label then reads as one change, and a change that is
  * put back leaves no trace. Edits to the title and description right after creating an issue
- * are part of writing it, so they are not recorded at all.
+ * are part of writing it, so they are not recorded at all. An accepted proposal is always an
+ * entry of its own, so the history keeps whose idea it was.
  */
 export function mergeActivity(
 	latest: LatestEntry | undefined,
@@ -42,7 +44,9 @@ export function mergeActivity(
 	actorId: string,
 	change: ActivityChange,
 	now: number,
+	proposedBy: string | null = null,
 ): MergeDecision {
+	if (proposedBy !== null) return append;
 	if (!latest) {
 		const drafting =
 			actorId === issue.creatorId &&
@@ -50,7 +54,11 @@ export function mergeActivity(
 			(change.type === "title" || change.type === "description");
 		return drafting ? { kind: "skip" } : { kind: "append" };
 	}
-	if (latest.actorId !== actorId || now - latest.updatedAt > ACTIVITY_MERGE_WINDOW_MS) {
+	if (
+		latest.actorId !== actorId ||
+		latest.proposedBy !== null ||
+		now - latest.updatedAt > ACTIVITY_MERGE_WINDOW_MS
+	) {
 		return { kind: "append" };
 	}
 
@@ -77,13 +85,17 @@ function retarget(change: Extract<ActivityChange, { from: unknown }>): MergeDeci
 	return change.from === change.to ? { kind: "remove" } : { kind: "replace", change };
 }
 
-/** Adds a change to an issue's history. Runs inside the mutation's transaction. */
+/**
+ * Adds a change to an issue's history. Runs inside the mutation's transaction. `proposedBy` is
+ * the agent whose proposal the actor accepted, if any.
+ */
 export function recordActivity(
 	db: Db,
 	changes: ChangeSet,
 	issue: schema.IssueRow,
 	actorId: string,
 	change: ActivityChange,
+	proposedBy: string | null = null,
 ): void {
 	const latest = db
 		.select()
@@ -93,7 +105,7 @@ export function recordActivity(
 		.limit(1)
 		.get();
 
-	const decision = mergeActivity(latest, issue, actorId, change, changes.now);
+	const decision = mergeActivity(latest, issue, actorId, change, changes.now, proposedBy);
 	if (decision.kind === "skip") return;
 
 	if (decision.kind === "append" || !latest) {
@@ -102,6 +114,7 @@ export function recordActivity(
 			issueId: issue.id,
 			actorId,
 			change,
+			proposedBy,
 			createdAt: changes.now,
 			updatedAt: changes.now,
 		};

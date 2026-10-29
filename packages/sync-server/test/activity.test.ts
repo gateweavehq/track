@@ -5,8 +5,13 @@ import { ACTIVITY_MERGE_WINDOW_MS, mergeActivity } from "../src/activity";
 const issue = { creatorId: "user-creator", createdAt: 1_000_000 };
 const later = issue.createdAt + ACTIVITY_MERGE_WINDOW_MS + 1;
 
-function latest(change: ActivityChange, actorId = "user-a", updatedAt = later) {
-	return { actorId, change, updatedAt };
+function latest(
+	change: ActivityChange,
+	actorId = "user-a",
+	updatedAt = later,
+	proposedBy: string | null = null,
+) {
+	return { actorId, change, updatedAt, proposedBy };
 }
 
 describe("mergeActivity", () => {
@@ -97,5 +102,27 @@ describe("mergeActivity", () => {
 				later,
 			),
 		).toEqual({ kind: "skip" });
+	});
+
+	it("keeps an accepted proposal in an entry of its own, so the history says whose idea it was", () => {
+		const next: ActivityChange = { type: "status", from: "todo", to: "done" };
+		const own = latest({ type: "status", from: "backlog", to: "todo" });
+		const accepted = latest(
+			{ type: "status", from: "backlog", to: "todo" },
+			"user-a",
+			later,
+			"agent",
+		);
+
+		expect(mergeActivity(own, issue, "user-a", next, later, "agent")).toEqual({ kind: "append" });
+		expect(mergeActivity(accepted, issue, "user-a", next, later)).toEqual({ kind: "append" });
+		// Even a proposal that puts back what the person just changed leaves both in the history.
+		const back: ActivityChange = { type: "status", from: "todo", to: "backlog" };
+		expect(mergeActivity(own, issue, "user-a", back, later, "agent")).toEqual({ kind: "append" });
+		// And an issue's first entries are kept when they were an agent's idea.
+		const title: ActivityChange = { type: "title", from: "A", to: "B" };
+		expect(
+			mergeActivity(undefined, issue, "user-creator", title, issue.createdAt + 10, "agent"),
+		).toEqual({ kind: "append" });
 	});
 });

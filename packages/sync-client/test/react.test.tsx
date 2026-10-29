@@ -13,6 +13,7 @@ const snapshot: Snapshot = {
 	labels: [],
 	comments: [],
 	activities: [],
+	proposals: [],
 	members: [],
 };
 

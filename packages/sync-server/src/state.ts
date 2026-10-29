@@ -4,6 +4,7 @@ import type {
 	Issue,
 	Label,
 	Member,
+	Proposal,
 	Snapshot,
 	Team,
 } from "@gateweave/track-protocol";
@@ -14,8 +15,8 @@ import { ChangeSet, currentVersion, type WriteResult } from "./log";
 
 export type Db = DrizzleSqliteDODatabase<typeof schema>;
 
-/** A verified workspace member, as supplied by the app worker. */
-export type MemberProfile = Omit<Member, "removedAt">;
+/** A verified workspace member, as supplied by the app worker, which owns membership. */
+export type MemberProfile = Omit<Member, "removedAt" | "proposes">;
 
 export const toTeam = ({ issueCounter: _, ...team }: schema.TeamRow): Team => team;
 
@@ -27,6 +28,13 @@ export const toLabel = ({ deletedAt: _, ...label }: schema.LabelRow): Label => l
 export const toComment = ({ deletedAt: _, ...comment }: schema.CommentRow): Comment => comment;
 
 export const toActivity = (activity: schema.ActivityRow): Activity => activity;
+
+export const toProposal = ({
+	status: _,
+	decidedBy: __,
+	decidedAt: ___,
+	...proposal
+}: schema.ProposalRow): Proposal => proposal;
 
 export const toMember = ({ userId, ...member }: schema.MemberRow): Member => ({
 	id: userId,
@@ -66,6 +74,14 @@ export function readSnapshot(db: Db): Snapshot {
 			.orderBy(sql`${schema.activities}.rowid`)
 			.all()
 			.map(toActivity),
+		proposals: db
+			.select(getTableColumns(schema.proposals))
+			.from(schema.proposals)
+			.innerJoin(schema.issues, eq(schema.issues.id, schema.proposals.issueId))
+			.where(and(eq(schema.proposals.status, "open"), isNull(schema.issues.deletedAt)))
+			.orderBy(asc(schema.proposals.createdAt), asc(schema.proposals.id))
+			.all()
+			.map(toProposal),
 		members: db.select().from(schema.members).all().map(toMember),
 	};
 }
@@ -81,19 +97,21 @@ export function activeMember(db: Db, userId: string): schema.MemberRow | undefin
 /** Inserts or refreshes a member. Emits an op only when something visible changed. */
 export function upsertMember(db: Db, profile: MemberProfile, now: number): WriteResult {
 	const changes = new ChangeSet(db, null, now);
+	const existing = db
+		.select()
+		.from(schema.members)
+		.where(eq(schema.members.userId, profile.id))
+		.get();
 	const row: schema.MemberRow = {
 		userId: profile.id,
 		name: profile.name,
 		email: profile.email,
 		image: profile.image,
 		role: profile.role,
+		// Only an agent proposes, so someone who is no longer one proposes nothing.
+		proposes: profile.role === "agent" ? (existing?.proposes ?? []) : [],
 		removedAt: null,
 	};
-	const existing = db
-		.select()
-		.from(schema.members)
-		.where(eq(schema.members.userId, row.userId))
-		.get();
 	if (existing && sameMember(existing, row)) return changes.result();
 
 	db.insert(schema.members)
@@ -123,6 +141,7 @@ function sameMember(a: schema.MemberRow, b: schema.MemberRow): boolean {
 		a.email === b.email &&
 		a.image === b.image &&
 		a.role === b.role &&
+		a.proposes.join() === b.proposes.join() &&
 		a.removedAt === b.removedAt
 	);
 }

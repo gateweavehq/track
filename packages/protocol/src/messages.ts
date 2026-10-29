@@ -1,9 +1,19 @@
 import { z } from "zod";
-import type { Activity, Comment, Entities, EntityName, Issue, Label, Member, Team } from "./domain";
+import type {
+	Activity,
+	Comment,
+	Entities,
+	EntityName,
+	Issue,
+	Label,
+	Member,
+	Proposal,
+	Team,
+} from "./domain";
 import type { MutationInput } from "./mutations";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";
@@ -77,9 +87,10 @@ export interface Snapshot {
 	teams: Team[];
 	issues: Issue[];
 	labels: Label[];
-	/** Comments and activity of live issues only. */
+	/** Comments, activity and open proposals of live issues only. */
 	comments: Comment[];
 	activities: Activity[];
+	proposals: Proposal[];
 	members: Member[];
 }
 
@@ -90,5 +101,6 @@ export const SNAPSHOT_KEYS = {
 	label: "labels",
 	comment: "comments",
 	activity: "activities",
+	proposal: "proposals",
 	member: "members",
 } as const satisfies { [E in EntityName]: Exclude<keyof Snapshot, "version"> };

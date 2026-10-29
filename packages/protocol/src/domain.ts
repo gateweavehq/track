@@ -31,6 +31,25 @@ export function isAdminRole(role: MemberRole): boolean {
 	return role === "owner" || role === "admin";
 }
 
+/**
+ * Kinds of change to an issue that an admin can have an agent member propose rather than make.
+ * `close` is a status change to done or canceled; `status` covers every status change, closing
+ * included. Creating an issue, commenting and managing labels are never proposed.
+ */
+export const AGENT_CHANGE_KINDS = [
+	"title",
+	"description",
+	"status",
+	"close",
+	"priority",
+	"assignee",
+	"labels",
+] as const;
+export type AgentChangeKind = (typeof AGENT_CHANGE_KINDS)[number];
+
+/** Statuses that close an issue, which the `close` kind of change covers. */
+export const CLOSED_STATUSES: readonly IssueStatus[] = ["done", "canceled"];
+
 export interface Team {
 	id: string;
 	/** Short uppercase prefix for issue identifiers, e.g. `ENG` in `ENG-42`. */
@@ -106,6 +125,33 @@ export interface Activity {
 	issueId: string;
 	actorId: string;
 	change: ActivityChange;
+	/** The agent whose proposal this was, when the actor accepted one. */
+	proposedBy: string | null;
+	createdAt: number;
+	updatedAt: number;
+}
+
+/** A change an agent proposed. Labels are proposed one at a time, as they are added. */
+export type ProposedChange =
+	| { type: "title"; to: string }
+	| { type: "description"; to: string | null }
+	| { type: "status"; to: IssueStatus }
+	| { type: "priority"; to: IssuePriority }
+	| { type: "assignee"; to: string | null }
+	| { type: "label"; labelId: string; added: boolean };
+
+/**
+ * A change an agent member was set to propose instead of make. It waits on the issue until a
+ * person accepts it, which makes the change as them, or dismisses it. Only open proposals reach
+ * clients. An agent has at most one open proposal per field of an issue (per label, for
+ * labels): proposing again replaces it.
+ */
+export interface Proposal {
+	id: string;
+	issueId: string;
+	/** The agent member who proposed it. */
+	agentId: string;
+	change: ProposedChange;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -117,6 +163,11 @@ export interface Member {
 	email: string;
 	image: string | null;
 	role: MemberRole;
+	/**
+	 * For an agent, the kinds of change it proposes instead of making, as an admin set them with
+	 * `agent.update`. Always empty for people.
+	 */
+	proposes: AgentChangeKind[];
 	/** Set when the user leaves the workspace; kept so historical references still resolve. */
 	removedAt: number | null;
 }
@@ -127,6 +178,7 @@ export interface Entities {
 	label: Label;
 	comment: Comment;
 	activity: Activity;
+	proposal: Proposal;
 	member: Member;
 }
 export type EntityName = keyof Entities;
@@ -136,5 +188,6 @@ export const ENTITY_NAMES = [
 	"label",
 	"comment",
 	"activity",
+	"proposal",
 	"member",
 ] as const satisfies readonly EntityName[];

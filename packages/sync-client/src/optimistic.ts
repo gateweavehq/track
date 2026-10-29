@@ -1,4 +1,10 @@
-import { type Issue, isAdminRole, MAX_LABELS_PER_ISSUE } from "@gateweave/track-protocol";
+import {
+	AGENT_CHANGE_KINDS,
+	type Issue,
+	isAdminRole,
+	MAX_LABELS_PER_ISSUE,
+	type ProposedChange,
+} from "@gateweave/track-protocol";
 import type { Draft, PendingMutation } from "./store";
 
 /**
@@ -53,6 +59,9 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			}
 			for (const activity of [...draft.values("activity")]) {
 				if (activity.issueId === id) draft.delete("activity", activity.id);
+			}
+			for (const proposal of [...draft.values("proposal")]) {
+				if (proposal.issueId === id) draft.delete("proposal", proposal.id);
 			}
 			draft.delete("issue", id);
 			return;
@@ -110,6 +119,57 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			if (comment.authorId !== userId && (role === undefined || !isAdminRole(role))) return;
 			draft.delete("comment", comment.id);
 			return;
+		}
+		case "agent.update": {
+			const { id, patch } = mutation.args;
+			const role = draft.get("member", userId)?.role;
+			const agent = draft.get("member", id);
+			if (role === undefined || !isAdminRole(role) || agent?.role !== "agent") return;
+			if (patch.proposes === undefined) return;
+			const wanted = new Set(patch.proposes);
+			draft.put("member", {
+				...agent,
+				proposes: AGENT_CHANGE_KINDS.filter((kind) => wanted.has(kind)),
+			});
+			return;
+		}
+		case "proposal.accept": {
+			const proposal = draft.get("proposal", mutation.args.id);
+			const issue = proposal && draft.get("issue", proposal.issueId);
+			// Once the server has decided, the proposal is gone and the issue already has the change.
+			if (!proposal || !issue || draft.get("member", userId)?.role === "agent") return;
+			const accepted = withChange(draft, issue, proposal.change, now);
+			if (accepted) draft.put("issue", accepted);
+			draft.delete("proposal", proposal.id);
+			return;
+		}
+		case "proposal.dismiss": {
+			if (draft.get("member", userId)?.role === "agent") return;
+			draft.delete("proposal", mutation.args.id);
+			return;
+		}
+	}
+}
+
+/** The issue with a proposed change made, or null where the server would not make it. */
+function withChange(draft: Draft, issue: Issue, change: ProposedChange, now: number): Issue | null {
+	switch (change.type) {
+		case "title":
+			return { ...issue, title: change.to, updatedAt: now };
+		case "description":
+			return { ...issue, description: change.to, updatedAt: now };
+		case "status":
+			return { ...issue, status: change.to, updatedAt: now };
+		case "priority":
+			return { ...issue, priority: change.to, updatedAt: now };
+		case "assignee":
+			return { ...issue, assigneeId: change.to, updatedAt: now };
+		case "label": {
+			const has = issue.labelIds.includes(change.labelId);
+			if (!change.added) return has ? withoutLabel(issue, change.labelId, now) : null;
+			if (has || !draft.get("label", change.labelId)) return null;
+			if (issue.labelIds.length >= MAX_LABELS_PER_ISSUE) return null;
+			return { ...issue, labelIds: [...issue.labelIds, change.labelId], updatedAt: now };
 		}
 	}
 }

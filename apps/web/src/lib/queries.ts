@@ -1,4 +1,12 @@
-import type { Activity, Comment, Issue, Label, Member, Team } from "@gateweave/track-protocol";
+import type {
+	Activity,
+	Comment,
+	Issue,
+	Label,
+	Member,
+	Proposal,
+	Team,
+} from "@gateweave/track-protocol";
 import type { SyncState } from "@gateweave/track-sync-client";
 import { shallowEqual, useQuery } from "@gateweave/track-sync-client/react";
 import { useCallback } from "react";
@@ -126,6 +134,22 @@ export function useIssueComments(issueId: string): Comment[] {
 			[issueId],
 		),
 		// Changes to other issues regroup the table but leave this issue's rows as they were.
+		shallowEqual,
+	);
+}
+
+const proposalGroups = new WeakMap<
+	ReadonlyMap<string, Proposal>,
+	ReadonlyMap<string, Proposal[]>
+>();
+
+/** Agents' open proposals for an issue, oldest first. */
+export function useIssueProposals(issueId: string): Proposal[] {
+	return useQuery(
+		useCallback(
+			(state: SyncState) => groupedByIssue(proposalGroups, state.proposals).get(issueId) ?? NONE,
+			[issueId],
+		),
 		shallowEqual,
 	);
 }
