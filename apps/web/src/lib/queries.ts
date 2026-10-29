@@ -154,6 +154,25 @@ export function useIssueProposals(issueId: string): Proposal[] {
 	);
 }
 
+const selectProposals = (state: SyncState) => state.proposals;
+
+/** Every open proposal of the workspace, by id. */
+export function useProposals(): ReadonlyMap<string, Proposal> {
+	return useQuery(selectProposals);
+}
+
+const selectProposalCount = (state: SyncState) => state.proposals.size;
+
+export function useProposalCount(): number {
+	return useQuery(selectProposalCount);
+}
+
+const selectIssuesById = (state: SyncState) => state.issues;
+
+export function useIssuesById(): ReadonlyMap<string, Issue> {
+	return useQuery(selectIssuesById);
+}
+
 export function useIssueActivity(issueId: string): Activity[] {
 	return useQuery(
 		useCallback(

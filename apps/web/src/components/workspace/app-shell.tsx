@@ -2,6 +2,7 @@ import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
 	ArrowLeftRight,
+	Bot,
 	ChevronDown,
 	Inbox,
 	Keyboard,
@@ -27,7 +28,7 @@ import {
 import { Kbd } from "#/components/ui/kbd";
 import { authClient } from "#/lib/auth-client";
 import { MOD_LABEL } from "#/lib/hotkeys";
-import { useMembersById, useTeams } from "#/lib/queries";
+import { useMembersById, useProposalCount, useTeams } from "#/lib/queries";
 import { forgetEverything } from "#/lib/replica";
 import { cn } from "#/lib/utils";
 import { isAdmin, useMyRole, useWorkspace, useWorkspaceActions } from "./context";
@@ -90,6 +91,7 @@ function Sidebar() {
 	const { slug, userId } = useWorkspace();
 	const actions = useWorkspaceActions();
 	const teams = useTeams();
+	const proposalCount = useProposalCount();
 	const me = useMembersById().get(userId);
 	const admin = isAdmin(useMyRole());
 
@@ -128,6 +130,20 @@ function Sidebar() {
 				>
 					<Inbox className="size-4" />
 					My issues
+				</Link>
+				<Link
+					to="/$workspace/proposals"
+					params={{ workspace: slug }}
+					className={navLink}
+					activeProps={{ className: activeNavLink }}
+				>
+					<Bot className="size-4" />
+					Proposals
+					{proposalCount > 0 && (
+						<span className="ml-auto rounded-full bg-primary px-1.5 text-xs text-primary-foreground tabular-nums">
+							{proposalCount}
+						</span>
+					)}
 				</Link>
 				<Link
 					to="/$workspace/settings"
