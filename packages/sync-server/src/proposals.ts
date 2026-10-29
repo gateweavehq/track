@@ -52,7 +52,10 @@ export function propose(
 				.where(eq(schema.proposals.id, existing.id))
 				.returning()
 				.get();
-			if (row) changes.put("proposal", toProposal(row));
+			if (row) {
+				changes.put("proposal", toProposal(row));
+				changes.events.push({ type: "proposal.updated", proposal: row });
+			}
 		}
 		changes.proposed.push(toProposal({ ...existing, change }));
 		return;
@@ -70,6 +73,7 @@ export function propose(
 	};
 	db.insert(schema.proposals).values(row).run();
 	changes.put("proposal", toProposal(row));
+	changes.events.push({ type: "proposal.created", proposal: row });
 	changes.proposed.push(toProposal(row));
 }
 
@@ -81,11 +85,14 @@ export function decide(
 	status: "accepted" | "dismissed",
 	by: string,
 ): void {
-	db.update(schema.proposals)
+	const row = db
+		.update(schema.proposals)
 		.set({ status, decidedBy: by, decidedAt: changes.now, updatedAt: changes.now })
 		.where(eq(schema.proposals.id, proposal.id))
-		.run();
+		.returning()
+		.get();
 	changes.delete("proposal", proposal.id);
+	if (row) changes.events.push({ type: `proposal.${status}`, proposal: row });
 }
 
 /** An issue's open proposals, oldest first. */

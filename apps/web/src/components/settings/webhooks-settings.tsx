@@ -45,6 +45,10 @@ const EVENT_LABELS: Record<WebhookEventType, string> = {
 	"comment.created": "Comment added",
 	"comment.updated": "Comment edited",
 	"comment.deleted": "Comment deleted",
+	"proposal.created": "Proposal made",
+	"proposal.updated": "Proposal changed",
+	"proposal.accepted": "Proposal accepted",
+	"proposal.dismissed": "Proposal dismissed",
 };
 
 /** A secret just made, shown once. */

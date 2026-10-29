@@ -16,7 +16,7 @@ import { and, asc, count, desc, eq, inArray, isNotNull, lt, lte, min, ne } from 
 import { z } from "zod";
 import * as schema from "./db/schema";
 import { MutationRejected } from "./rejected";
-import { type Db, toComment, toIssue } from "./state";
+import { type Db, toComment, toIssue, toProposal } from "./state";
 
 /**
  * Webhooks, delivered by the workspace's own Durable Object. A change queues its deliveries in
@@ -45,7 +45,10 @@ export type ChangeEvent =
 	| {
 			type: "comment.created" | "comment.updated" | "comment.deleted";
 			comment: schema.CommentRow;
-	  };
+	  }
+	| { type: "proposal.created" | "proposal.updated"; proposal: schema.ProposalRow }
+	// The row as decided: it carries who decided it and when.
+	| { type: "proposal.accepted" | "proposal.dismissed"; proposal: schema.ProposalRow };
 
 /** How long a receiver has to answer. */
 export const DELIVERY_TIMEOUT_MS = 10_000;
@@ -164,7 +167,10 @@ class Payloads {
 	}
 
 	build(event: ChangeEvent): { teamId: string; body: string } | undefined {
-		const issueRow = "issue" in event ? event.issue : this.#issue(event.comment.issueId);
+		const issueRow =
+			"issue" in event
+				? event.issue
+				: this.#issue("comment" in event ? event.comment.issueId : event.proposal.issueId);
 		if (!issueRow) return undefined;
 		const issue = this.#webhookIssue(issueRow);
 		const change = {
@@ -184,6 +190,23 @@ class Payloads {
 				timestamp: this.#timestamp,
 				data: { ...change, updatedFrom: from },
 			};
+		} else if ("proposal" in event) {
+			const proposal = { ...toProposal(event.proposal), issueKey: issue.key };
+			if (event.type === "proposal.created" || event.type === "proposal.updated") {
+				payload = { type: event.type, timestamp: this.#timestamp, data: { ...change, proposal } };
+			} else {
+				// A person decides on their own mutation, and an agent withdraws with its own.
+				payload = {
+					type: event.type,
+					timestamp: this.#timestamp,
+					data: {
+						...change,
+						proposal,
+						decidedBy: this.#actor,
+						decidedAt: event.proposal.decidedAt ?? 0,
+					},
+				};
+			}
 		} else if ("comment" in event) {
 			payload = {
 				type: event.type,

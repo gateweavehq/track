@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Comment, Issue } from "./domain";
+import type { Comment, Issue, Proposal } from "./domain";
 
 /**
  * Webhooks tell other services, such as an agent's trigger, about changes as they happen. Each
@@ -13,6 +13,10 @@ export const WEBHOOK_EVENTS = [
 	"comment.created",
 	"comment.updated",
 	"comment.deleted",
+	"proposal.created",
+	"proposal.updated",
+	"proposal.accepted",
+	"proposal.dismissed",
 ] as const;
 export type WebhookEventType = (typeof WEBHOOK_EVENTS)[number];
 
@@ -100,6 +104,11 @@ export interface WebhookWorkspace {
 	slug: string;
 }
 
+export interface WebhookProposal extends Proposal {
+	/** The key of the proposal's issue, such as `ENG-42`. */
+	issueKey: string;
+}
+
 interface Change {
 	workspace: WebhookWorkspace;
 	/** The workspace version after the change. A later change has a higher version. */
@@ -127,5 +136,16 @@ export type WebhookPayload =
 	| Envelope<
 			"comment.created" | "comment.updated" | "comment.deleted",
 			Change & { comment: Comment }
+	  >
+	| Envelope<"proposal.created" | "proposal.updated", Change & { proposal: WebhookProposal }>
+	| Envelope<
+			"proposal.accepted" | "proposal.dismissed",
+			Change & {
+				proposal: WebhookProposal;
+				/** Who decided: a person, or the agent itself when it withdrew the proposal. */
+				decidedBy: WebhookActor;
+				/** When it was decided, in milliseconds since the epoch. */
+				decidedAt: number;
+			}
 	  >
 	| Envelope<typeof WEBHOOK_TEST_EVENT, { workspace: WebhookWorkspace; webhookId: string }>;
