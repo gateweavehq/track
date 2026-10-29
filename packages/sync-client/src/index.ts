@@ -11,6 +11,7 @@ export {
 	supportsBrowserTabs,
 	type TabMessage,
 	type Tabs,
+	tabsName,
 } from "./tabs";
 export {
 	HttpError,

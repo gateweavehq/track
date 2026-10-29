@@ -1,5 +1,6 @@
+import { PROTOCOL_VERSION } from "@gateweave/track-protocol";
 import { afterEach, describe, expect, it } from "vitest";
-import { browserTabs, openIdbPersistence, supportsBrowserTabs } from "../src";
+import { browserTabs, openIdbPersistence, supportsBrowserTabs, tabsName } from "../src";
 import {
 	issueBy,
 	make,
@@ -23,7 +24,7 @@ function opener(ws: TestWorkspace, network: TestNetwork) {
 		ws.client("alice", {
 			network,
 			persistence: openIdbPersistence(key),
-			tabs: browserTabs(`track:${key}`),
+			tabs: browserTabs(tabsName(key)),
 		});
 }
 
@@ -54,6 +55,29 @@ describe.skipIf(!supportsBrowserTabs())("tabs", () => {
 		await waitFor(() => follower.getState().issues.size === 1);
 		expect(issueBy(follower, "From Bob")).toEqual(issueBy(leader, "From Bob"));
 		expect(network.connects).toBe(1);
+	});
+
+	it("never wait for a tab left open on the protocol version before an update", async () => {
+		workspace = new TestWorkspace();
+		const network = workspace.network("alice");
+		const key = `tabs-${workspace.id}`;
+		// The old tab leads its own version's tabs until it is reloaded, and answers none of ours.
+		let releaseOld = () => {};
+		const held = new Promise<void>((resolve) => {
+			void navigator.locks.request(tabsName(key, PROTOCOL_VERSION - 1), () => {
+				resolve();
+				return new Promise<void>((release) => {
+					releaseOld = release;
+				});
+			});
+		});
+		await held;
+
+		const tab = opener(workspace, network)();
+		await waitForLive(tab);
+		expect(tab.getStatus().loaded).toBe(true);
+		expect(network.connects).toBe(1);
+		releaseOld();
 	});
 
 	it("hand the connection over when the leader closes", async () => {

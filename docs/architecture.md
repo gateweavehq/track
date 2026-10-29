@@ -551,6 +551,11 @@ announcement, or sees a gap in versions, reloads from storage and is guaranteed 
 what it was told about. When the leader closes, the lock passes to the next tab, which connects
 and resends any unacknowledged mutations. Mutation ids make that resend safe.
 
+The lock and the channel are named for the replica and the protocol version (`tabsName`). After an
+update, a tab still open on the old version leads only the tabs of its own version, which can show
+nothing but "Update available". It never holds up a tab on the new version, which would otherwise
+wait for a leader that writes the wrong storage and speaks the old messages.
+
 Where IndexedDB or Web Locks are unavailable, each tab keeps its replica in memory and connects
 on its own.
 
