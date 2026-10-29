@@ -474,8 +474,10 @@ is `packages/sync-server/src/webhooks.ts`.
   webhook is made or its secret replaced.
 - **Bodies are `{ type, timestamp, data }`.** `data` has the workspace's id and slug, the
   workspace version after the change, the actor (a person or an agent), and the issue with its
-  key and URL. `issue.updated` adds `updatedFrom`, the changed fields' earlier values; an update
-  that only reorders the list is not sent. Comment events add the comment.
+  key, URL and labels (`{ id, name }`, in the order of `labelIds`, with the names as of the
+  event). `issue.updated` adds `updatedFrom`, the changed fields' earlier values, so a receiver
+  can tell which labels an update added from `updatedFrom.labelIds`; an update that only
+  reorders the list is not sent. Comment events add the comment.
 - **Proposal events** add the proposal (`id`, `issueId`, `issueKey`, `agentId`, `change`,
   `createdAt`, `updatedAt`) and belong to their issue's team. `proposal.created` is a new open
   proposal and `proposal.updated` the agent proposing the same field again with another value;

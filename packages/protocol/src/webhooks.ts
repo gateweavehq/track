@@ -96,6 +96,8 @@ export interface WebhookIssue extends Issue {
 	key: string;
 	/** Where people open the issue. */
 	url: string;
+	/** The issue's labels with their names as of this event, in the order of `labelIds`. */
+	labels: { id: string; name: string }[];
 }
 
 export interface WebhookWorkspace {
