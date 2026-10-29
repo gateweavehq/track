@@ -18,7 +18,7 @@ export function MemberAvatar({
 	member,
 	className,
 }: {
-	member: Member | undefined;
+	member: Omit<Member, "proposes"> | undefined;
 	className?: string;
 }) {
 	if (!member) {

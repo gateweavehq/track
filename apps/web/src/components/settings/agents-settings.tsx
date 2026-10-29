@@ -1,9 +1,12 @@
+import { AGENT_CHANGE_KINDS, type AgentChangeKind } from "@gateweave/track-protocol";
+import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { useRouter } from "@tanstack/react-router";
 import { Copy, Ellipsis, KeyRound, Plus } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useId, useState } from "react";
 import { toast } from "sonner";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { Button } from "#/components/ui/button";
+import { Checkbox } from "#/components/ui/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -25,6 +28,8 @@ import { useWorkspace } from "#/components/workspace/context";
 import type { AgentInfo, AgentKeyInfo } from "#/lib/agents";
 import { authClient } from "#/lib/auth-client";
 import { formatDateTime, formatRelative, formatShortDate } from "#/lib/dates";
+import { send } from "#/lib/mutations";
+import { useMembersById } from "#/lib/queries";
 
 /** A key just made, shown once. */
 interface NewKey {
@@ -52,7 +57,8 @@ export function AgentsSettings({
 				<p className="text-sm text-muted-foreground">
 					An agent is a member for an AI agent, such as one that triages new issues. It connects
 					over MCP with a key, can do what members do, and everyone sees its changes as they happen.
-					It never signs in, and it cannot manage the workspace.
+					It never signs in, and it cannot manage the workspace. Choose which kinds of change it
+					only proposes, for a person to accept.
 					{!admin && " Admins create agents and their keys."}
 				</p>
 			</div>
@@ -302,6 +308,7 @@ function AgentRow({ agent, onNewKey }: { agent: AgentInfo; onNewKey: (key: NewKe
 					))}
 				</ul>
 			)}
+			<ProposalSettings agent={agent} />
 			{revoking && (
 				<ConfirmDialog
 					title={`Revoke key ${revoking.start}…?`}
@@ -324,6 +331,60 @@ function AgentRow({ agent, onNewKey }: { agent: AgentInfo; onNewKey: (key: NewKe
 			)}
 			{action === "rename" && <RenameAgentDialog agent={agent} onClose={() => setAction(null)} />}
 		</li>
+	);
+}
+
+const CHANGE_KIND_LABELS: Record<AgentChangeKind, string> = {
+	title: "Title",
+	description: "Description",
+	status: "Status",
+	close: "Closing, as Done or Canceled",
+	priority: "Priority",
+	assignee: "Assignee",
+	labels: "Labels",
+};
+
+/**
+ * Which kinds of change the agent proposes rather than makes. The setting lives in the
+ * workspace, where the Durable Object enforces it, so it is read from and written to the replica.
+ */
+function ProposalSettings({ agent }: { agent: AgentInfo }) {
+	const client = useSyncClient();
+	const id = useId();
+	const proposes = useMembersById().get(agent.id)?.proposes ?? [];
+
+	function toggle(kind: AgentChangeKind, on: boolean) {
+		const next = on ? [...proposes, kind] : proposes.filter((other) => other !== kind);
+		send(client, { name: "agent.update", args: { id: agent.id, patch: { proposes: next } } });
+	}
+
+	return (
+		<fieldset className="space-y-2 pl-11">
+			<legend className="text-xs font-medium">Proposes instead of making</legend>
+			<p className="text-xs text-muted-foreground">
+				These wait on the issue until someone accepts or dismisses them. {agent.name} makes every
+				other change directly.
+			</p>
+			<div className="grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
+				{AGENT_CHANGE_KINDS.map((kind) => {
+					// Proposing every status change includes closing.
+					const implied = kind === "close" && proposes.includes("status");
+					return (
+						<div key={kind} className="flex items-center gap-2">
+							<Checkbox
+								id={`${id}-${kind}`}
+								checked={implied || proposes.includes(kind)}
+								disabled={implied}
+								onCheckedChange={(checked) => toggle(kind, checked === true)}
+							/>
+							<Label htmlFor={`${id}-${kind}`} className="text-xs font-normal">
+								{CHANGE_KIND_LABELS[kind]}
+							</Label>
+						</div>
+					);
+				})}
+			</div>
+		</fieldset>
 	);
 }
 

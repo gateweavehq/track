@@ -13,6 +13,7 @@ import {
 	PING,
 	PONG,
 	PROTOCOL_VERSION,
+	type Proposal,
 	type RejectReason,
 	type ServerMessage,
 	type Snapshot,
@@ -28,6 +29,7 @@ import migrations from "../drizzle/migrations";
 import * as schema from "./db/schema";
 import { compact, currentVersion, oplogFloor, opsSince, type RetentionPolicy } from "./log";
 import { applyMutation } from "./mutations";
+import { issueProposals } from "./proposals";
 import {
 	type Directory,
 	findComments,
@@ -96,9 +98,12 @@ const issueQuery = z.object({
 	limit: z.number().int().min(1).max(MAX_QUERY_LIMIT),
 });
 
-/** The outcome of {@link WorkspaceDO.mutate}, mirroring a socket client's ack or reject. */
+/**
+ * The outcome of {@link WorkspaceDO.mutate}, mirroring a socket client's ack or reject. `proposed`
+ * is what an agent's mutation proposed instead of making, for the agent to be told.
+ */
 export type MutateResult =
-	| { ok: true; version: number }
+	| { ok: true; version: number; proposed: Proposal[] }
 	| { ok: false; reason: RejectReason; message: string };
 
 /** The outcome of managing webhooks, which only admins may do. */
@@ -177,6 +182,11 @@ export class WorkspaceDO extends DurableObject {
 		return findComments(this.#db, shortId.parse(issueId));
 	}
 
+	/** An issue's open proposals, oldest first. */
+	proposals(issueId: string): Proposal[] {
+		return issueProposals(this.#db, shortId.parse(issueId));
+	}
+
 	lastSortOrder(): string | null {
 		return lastSortOrder(this.#db);
 	}
@@ -201,7 +211,7 @@ export class WorkspaceDO extends DurableObject {
 			const result = this.#write(() =>
 				applyMutation(this.#db, { member: row, clientId }, mutationId, mutation.data, Date.now()),
 			);
-			return { ok: true, version: result.version };
+			return { ok: true, version: result.version, proposed: result.proposed ?? [] };
 		} catch (error) {
 			if (!(error instanceof MutationRejected)) throw error;
 			return { ok: false, reason: error.reason, message: error.message };

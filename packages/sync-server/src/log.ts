@@ -1,4 +1,4 @@
-import type { Entities, EntityName, Op } from "@gateweave/track-protocol";
+import type { Entities, EntityName, Op, Proposal } from "@gateweave/track-protocol";
 import { and, asc, eq, gt, lt, lte, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
 import type { Db } from "./state";
@@ -12,6 +12,8 @@ export interface WriteResult {
 	ops: Op[];
 	/** Webhook deliveries the write queued, which the alarm sends. */
 	queued?: number;
+	/** What an agent's write proposed instead of making, open proposals included as they stand. */
+	proposed?: Proposal[];
 }
 
 /**
@@ -22,6 +24,8 @@ export class ChangeSet {
 	readonly ops: Op[] = [];
 	/** What the write did, in the terms webhooks report. Handlers add to it. */
 	readonly events: ChangeEvent[] = [];
+	/** What an agent's write proposed instead of making, for the agent to be told. */
+	readonly proposed: Proposal[] = [];
 	#next: number;
 
 	constructor(

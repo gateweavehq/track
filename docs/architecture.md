@@ -246,6 +246,8 @@ Settings has an Agents page for it.
 - **It acts as itself.** Its tool calls go through `mutate` with its own profile, so the same
   validation applies, the oplog and activity name it, and people see its changes live. It can do
   what members do and nothing only admins can. The app shows it with a robot for an avatar.
+- **It proposes what an admin chooses.** An admin picks the kinds of change it only proposes
+  (see [Proposals](#proposals)); everything else it makes directly.
 - **It goes with its workspace.** Deleting an agent deletes its user, membership and keys; the
   workspace keeps its profile, marked removed, for what it did. Deleting a workspace deletes its
   agents too, as does the demo's cleanup.
@@ -357,9 +359,38 @@ title, description, or a label added or removed. To keep the history readable:
 - The creation itself is not stored. The UI shows it from the issue's `creatorId` and
   `createdAt`, so issues older than activity still start their history correctly.
 
-Deleting an issue sends delete ops for its comments and activity ahead of the issue's own, so
-clients drop them together. Deleting a label records nothing, and entries about it read as "a
-deleted label".
+Deleting an issue sends delete ops for its comments, activity and proposals ahead of the issue's
+own, so clients drop them together. Deleting a label records nothing, and entries about it read
+as "a deleted label".
+
+### Proposals
+
+People stay in control of agents: for each agent member, an admin chooses which kinds of change
+to an issue it only proposes (`agent.update`, kept in the member's `proposes` in the Durable
+Object). The kinds are the title, the description, the status, closing (a status of done or
+canceled, which `status` includes), the priority, the assignee and labels. Creating issues,
+commenting and managing labels are never proposed. An agent proposes nothing until an admin
+says so.
+
+- **The server splits the agent's mutation.** `applyMutation` makes the fields its `proposes`
+  does not cover and turns the rest into proposals (`proposals.ts`), in the same transaction.
+  A new issue is made without the proposed status, priority, assignee or labels, and then
+  gets them as proposals. The agent cannot get around this: the split happens where the
+  mutation is applied, whatever sent it.
+- **One open proposal per agent and field.** Proposing a field again replaces the agent's open
+  proposal for it (each label is a field of its own). Proposing what the issue already has
+  withdraws it, since the agent's latest word is that nothing needs to change.
+- **People decide.** `proposal.accept` makes the change as the person accepting it, through the
+  same handlers as their own edit and against the issue as it is now, and the activity entry
+  notes the agent in `proposedBy` (it never merges with other entries). `proposal.dismiss`
+  leaves the issue alone. No agent decides on a proposal, its own included. A decided proposal
+  leaves clients but keeps its row, with who decided and when.
+- **The agent is told.** `mutate` answers with what it proposed, and the MCP tools return it
+  under `proposed`, so the model knows the change is waiting rather than made. `get_issue`
+  lists an issue's open proposals.
+
+Only open proposals of live issues are in a snapshot. Webhooks do not report proposals yet; an
+accepted one is an `issue.updated` by the person who accepted it.
 
 ### Search
 

@@ -1,5 +1,6 @@
 import { runInDurableObject } from "cloudflare:test";
 import {
+	type AgentChangeKind,
 	CloseCode,
 	type Issue,
 	MAX_LABELS_PER_ISSUE,
@@ -12,7 +13,7 @@ import { drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { describe, expect, it } from "vitest";
 import migrations from "../drizzle/migrations";
-import type { MemberProfile } from "../src";
+import type { MemberProfile, MutateResult } from "../src";
 import * as schema from "../src/db/schema";
 import { compact } from "../src/log";
 import { freshWorkspace, TestClient, type Workspace } from "./client";
@@ -79,7 +80,7 @@ describe("connection", () => {
 				entity: "member",
 				id: owner.id,
 				op: "put",
-				data: { ...owner, removedAt: null },
+				data: { ...owner, proposes: [], removedAt: null },
 			},
 		]);
 	});
@@ -826,7 +827,7 @@ describe("server-side clients", () => {
 			args: { id: "issue-1", teamId: TEAM_ID, title: "Filed by an agent", sortOrder: "a0" },
 		});
 
-		expect(result).toEqual({ ok: true, version: expect.any(Number) });
+		expect(result).toEqual({ ok: true, version: expect.any(Number), proposed: [] });
 		const issue = await issueOf(admin, "issue-1");
 		expect(issue).toMatchObject({ title: "Filed by an agent", number: 1, creatorId: alice.id });
 	});
@@ -867,7 +868,7 @@ describe("server-side clients", () => {
 			args: { id: "comment-1" },
 		});
 
-		expect(filed).toEqual({ ok: true, version: expect.any(Number) });
+		expect(filed).toEqual({ ok: true, version: expect.any(Number), proposed: [] });
 		expect(await issueOf(admin, "issue-2")).toMatchObject({ creatorId: triage.id });
 		expect(team).toMatchObject({ ok: false, reason: "forbidden" });
 		expect(comment).toMatchObject({ ok: false, reason: "forbidden" });
@@ -992,6 +993,268 @@ describe("server-side clients", () => {
 		expect(directory.members.map((member) => member.id).sort()).toEqual(
 			[alice.id, owner.id].sort(),
 		);
+	});
+});
+
+describe("proposals", () => {
+	const AGENT = "mcp:test-agent";
+	const triage: MemberProfile = { ...owner, id: "user-triage", name: "Triage", role: "agent" };
+
+	/** A workspace with an issue, a Bug label, and Triage set to propose `proposes`. */
+	async function withAgent(proposes: AgentChangeKind[]) {
+		const { workspace, admin } = await withTeam();
+		await workspace.syncMember(triage);
+		await workspace.syncMember(alice);
+		await admin.apply({
+			name: "label.create",
+			args: { id: "label-bug", name: "Bug", color: "#e5484d" },
+		});
+		const issue = await createIssue(admin, "issue-1");
+		await admin.apply({ name: "agent.update", args: { id: triage.id, patch: { proposes } } });
+		let n = 0;
+		const asTriage = (mutation: MutationInput) =>
+			workspace.mutate(triage, AGENT, `m-${++n}`, mutation);
+		const setStatus = (status: Issue["status"]) =>
+			asTriage({
+				name: "issue.update",
+				args: { id: issue.id, baseVersion: issue.version, patch: { status } },
+			});
+		return { workspace, admin, issue, asTriage, setStatus };
+	}
+
+	function proposed(result: MutateResult) {
+		if (!result.ok) throw new Error(`Expected the mutation to apply: ${result.message}`);
+		return result.proposed;
+	}
+
+	async function openProposals(workspace: Workspace) {
+		const { proposals } = await snapshotOf(workspace);
+		return proposals.map(({ agentId, change }) => ({ agentId, change }));
+	}
+
+	it("makes what an agent may make, and proposes the rest", async () => {
+		const { workspace, admin, issue, asTriage } = await withAgent(["status", "assignee", "labels"]);
+
+		const update = await asTriage({
+			name: "issue.update",
+			args: {
+				id: issue.id,
+				baseVersion: issue.version,
+				patch: { priority: 2, status: "todo", assigneeId: alice.id },
+			},
+		});
+		const label = await asTriage({
+			name: "issue.addLabel",
+			args: { id: issue.id, labelId: "label-bug" },
+		});
+
+		expect(proposed(update).map((proposal) => proposal.change)).toEqual([
+			{ type: "status", to: "todo" },
+			{ type: "assignee", to: alice.id },
+		]);
+		expect(proposed(label)).toMatchObject([
+			{ agentId: triage.id, issueId: issue.id, change: { type: "label", labelId: "label-bug" } },
+		]);
+		expect(await workspace.issue(issue.id)).toMatchObject({
+			priority: 2,
+			status: "backlog",
+			assigneeId: null,
+			labelIds: [],
+		});
+		const open = await openProposals(workspace);
+		expect(open).toHaveLength(3);
+		expect(open).toEqual(
+			expect.arrayContaining([
+				{ agentId: triage.id, change: { type: "status", to: "todo" } },
+				{ agentId: triage.id, change: { type: "assignee", to: alice.id } },
+				{ agentId: triage.id, change: { type: "label", labelId: "label-bug", added: true } },
+			]),
+		);
+		expect(await workspace.proposals(issue.id)).toHaveLength(3);
+		// People see them as they are made.
+		await admin.op((op) => op.entity === "proposal" && op.op === "put");
+	});
+
+	it("proposes only closing when that is what it is set to propose", async () => {
+		const { workspace, issue, setStatus } = await withAgent(["close"]);
+
+		const start = await setStatus("in_progress");
+		const close = await setStatus("done");
+
+		expect(proposed(start)).toEqual([]);
+		expect(proposed(close).map((proposal) => proposal.change)).toEqual([
+			{ type: "status", to: "done" },
+		]);
+		expect(await workspace.issue(issue.id)).toMatchObject({ status: "in_progress" });
+	});
+
+	it("makes an agent's new issue without what it proposes, then proposes that on it", async () => {
+		const { workspace, asTriage } = await withAgent(["close", "assignee", "labels"]);
+
+		const created = await asTriage({
+			name: "issue.create",
+			args: {
+				id: "issue-2",
+				teamId: TEAM_ID,
+				title: "Filed by triage",
+				status: "done",
+				priority: 1,
+				assigneeId: alice.id,
+				labelIds: ["label-bug"],
+				sortOrder: "a1",
+			},
+		});
+		const open = await asTriage({
+			name: "issue.create",
+			args: {
+				id: "issue-3",
+				teamId: TEAM_ID,
+				title: "Still open",
+				status: "todo",
+				sortOrder: "a2",
+			},
+		});
+
+		expect(proposed(created).map((proposal) => proposal.change)).toEqual([
+			{ type: "status", to: "done" },
+			{ type: "assignee", to: alice.id },
+			{ type: "label", labelId: "label-bug", added: true },
+		]);
+		expect(await workspace.issue("issue-2")).toMatchObject({
+			title: "Filed by triage",
+			status: "backlog",
+			priority: 1,
+			assigneeId: null,
+			labelIds: [],
+		});
+		expect(proposed(open)).toEqual([]);
+		expect(await workspace.issue("issue-3")).toMatchObject({ status: "todo" });
+	});
+
+	it("replaces an agent's proposal for a field, and withdraws it once nothing needs to change", async () => {
+		const { workspace, setStatus } = await withAgent(["status"]);
+
+		const [first] = proposed(await setStatus("done"));
+		const [second] = proposed(await setStatus("canceled"));
+		const [same] = proposed(await setStatus("canceled"));
+
+		expect(second?.id).toBe(first?.id);
+		expect(same).toMatchObject({ id: first?.id, change: { type: "status", to: "canceled" } });
+		expect(await openProposals(workspace)).toEqual([
+			{ agentId: triage.id, change: { type: "status", to: "canceled" } },
+		]);
+
+		// Backlog is what the issue has, so the agent no longer proposes anything.
+		expect(proposed(await setStatus("backlog"))).toEqual([]);
+		expect(await openProposals(workspace)).toEqual([]);
+	});
+
+	it("makes an accepted change as the person, with the agent in the history", async () => {
+		const { workspace, admin, issue, asTriage, setStatus } = await withAgent(["status", "labels"]);
+		const [status] = proposed(await setStatus("done"));
+		const [label] = proposed(
+			await asTriage({ name: "issue.addLabel", args: { id: issue.id, labelId: "label-bug" } }),
+		);
+		if (!status || !label) throw new Error("Expected two proposals");
+		const member = await TestClient.live(workspace, alice);
+
+		await member.apply({ name: "proposal.accept", args: { id: status.id } });
+		await member.apply({ name: "proposal.accept", args: { id: label.id } });
+
+		expect(await workspace.issue(issue.id)).toMatchObject({
+			status: "done",
+			labelIds: ["label-bug"],
+		});
+		const { activities, proposals } = await snapshotOf(workspace);
+		expect(
+			activities.map(({ actorId, change, proposedBy }) => ({ actorId, change, proposedBy })),
+		).toEqual([
+			{
+				actorId: alice.id,
+				change: { type: "status", from: "backlog", to: "done" },
+				proposedBy: triage.id,
+			},
+			{
+				actorId: alice.id,
+				change: { type: "label", labelId: "label-bug", added: true },
+				proposedBy: triage.id,
+			},
+		]);
+		expect(proposals).toEqual([]);
+		await admin.op((op) => op.entity === "proposal" && op.id === status.id && op.op === "delete");
+		// Decided proposals keep their row, as the record of who decided.
+		await runInDurableObject(workspace, (_, state) => {
+			const rows = drizzle(state.storage, { schema }).select().from(schema.proposals).all();
+			expect(rows.map(({ status, decidedBy }) => ({ status, decidedBy }))).toEqual([
+				{ status: "accepted", decidedBy: alice.id },
+				{ status: "accepted", decidedBy: alice.id },
+			]);
+		});
+	});
+
+	it("leaves the issue as it was when a person dismisses a proposal, and no agent decides", async () => {
+		const { workspace, issue, asTriage } = await withAgent(["priority"]);
+		const [proposal] = proposed(
+			await asTriage({
+				name: "issue.update",
+				args: { id: issue.id, baseVersion: issue.version, patch: { priority: 1 } },
+			}),
+		);
+		if (!proposal) throw new Error("Expected a proposal");
+
+		const accepted = await asTriage({ name: "proposal.accept", args: { id: proposal.id } });
+		const dismissed = await asTriage({ name: "proposal.dismiss", args: { id: proposal.id } });
+		expect(accepted).toMatchObject({ ok: false, reason: "forbidden" });
+		expect(dismissed).toMatchObject({ ok: false, reason: "forbidden" });
+
+		const member = await TestClient.live(workspace, alice);
+		await member.apply({ name: "proposal.dismiss", args: { id: proposal.id } });
+		const late = await member.mutate({ name: "proposal.accept", args: { id: proposal.id } });
+
+		expect(late).toMatchObject({ type: "reject", reason: "not_found" });
+		expect(await workspace.issue(issue.id)).toMatchObject({ priority: 0 });
+		const { activities, proposals } = await snapshotOf(workspace);
+		expect(activities).toEqual([]);
+		expect(proposals).toEqual([]);
+	});
+
+	it("drops a deleted issue's proposals", async () => {
+		const { workspace, admin, issue, setStatus } = await withAgent(["status"]);
+		const [proposal] = proposed(await setStatus("done"));
+		if (!proposal) throw new Error("Expected a proposal");
+
+		await admin.apply({ name: "issue.delete", args: { id: issue.id } });
+
+		await admin.op((op) => op.entity === "proposal" && op.id === proposal.id && op.op === "delete");
+		expect((await snapshotOf(workspace)).proposals).toEqual([]);
+		const late = await admin.mutate({ name: "proposal.accept", args: { id: proposal.id } });
+		expect(late).toMatchObject({ type: "reject", reason: "not_found" });
+	});
+
+	it("lets only admins set what an agent proposes, and only for agents", async () => {
+		const { workspace, admin } = await withTeam();
+		await workspace.syncMember(triage);
+		const member = await TestClient.live(workspace, alice);
+		const setting = (id: string): MutationInput => ({
+			name: "agent.update",
+			args: { id, patch: { proposes: ["status"] } },
+		});
+
+		expect(await member.mutate(setting(triage.id))).toMatchObject({ reason: "forbidden" });
+		expect(await admin.mutate(setting(alice.id))).toMatchObject({ reason: "not_found" });
+		await admin.apply({
+			name: "agent.update",
+			args: { id: triage.id, patch: { proposes: ["labels", "status", "labels"] } },
+		});
+		// The app worker pushes membership, and leaves the workspace's own setting alone.
+		await workspace.syncMember({ ...triage, name: "Triage bot" });
+
+		const { members } = await snapshotOf(workspace);
+		expect(members.find((m) => m.id === triage.id)).toMatchObject({
+			name: "Triage bot",
+			proposes: ["status", "labels"],
+		});
+		expect(members.find((m) => m.id === alice.id)?.proposes).toEqual([]);
 	});
 });
 
@@ -1130,6 +1393,9 @@ describe("search", () => {
 			db.run(sql`drop table issue_search_docs`);
 			db.run(sql`drop table webhook_deliveries`);
 			db.run(sql`drop table webhooks`);
+			db.run(sql`drop table proposals`);
+			db.run(sql`alter table activities drop column proposed_by`);
+			db.run(sql`alter table members drop column proposes`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${search.when}`);
 			await migrate(db, migrations);
 		});

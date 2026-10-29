@@ -5,6 +5,7 @@ import type {
 	Member,
 	Mutation,
 	MutationInput,
+	Proposal,
 	Team,
 } from "@gateweave/track-protocol";
 import { mutationSchema } from "@gateweave/track-protocol";
@@ -27,6 +28,7 @@ const sam: Member = {
 	email: "sam@example.com",
 	image: null,
 	role: "member",
+	proposes: [],
 	removedAt: null,
 };
 const team: Team = { id: "team-eng", key: "ENG", name: "Engineering", createdAt: 0, updatedAt: 0 };
@@ -45,10 +47,17 @@ class FakeWorkspace implements WorkspaceAccess {
 	comments_: Comment[] = [];
 	mutations: Mutation[] = [];
 	nextResult: MutateResult | null = null;
+	/** What the server would turn into proposals rather than make, as for an agent set so. */
+	proposing = new Set<"status" | "assigneeId" | "labels">();
+	proposals_: Proposal[] = [];
 	#version = 10;
 
 	async directory() {
-		return { teams: this.teams, labels: this.labels, members: [{ ...me, removedAt: null }, sam] };
+		return {
+			teams: this.teams,
+			labels: this.labels,
+			members: [{ ...me, proposes: [], removedAt: null }, sam],
+		};
 	}
 	async issues(query: IssueQuery) {
 		return this.issues_
@@ -66,6 +75,9 @@ class FakeWorkspace implements WorkspaceAccess {
 	}
 	async comments(issueId: string) {
 		return this.comments_.filter((comment) => comment.issueId === issueId);
+	}
+	async proposals(issueId: string) {
+		return this.proposals_.filter((proposal) => proposal.issueId === issueId);
 	}
 	async lastSortOrder() {
 		return (
@@ -97,6 +109,19 @@ class FakeWorkspace implements WorkspaceAccess {
 			}
 		}
 		const version = ++this.#version;
+		const proposed: Proposal[] = [];
+		const propose = (issueId: string, change: Proposal["change"]) => {
+			const proposal = {
+				id: `p-${version}`,
+				issueId,
+				agentId: me.id,
+				change,
+				createdAt: 0,
+				updatedAt: 0,
+			};
+			proposed.push(proposal);
+			this.proposals_.push(proposal);
+		};
 		if (mutation.name === "issue.create") {
 			const { id, teamId, title, description, status, priority, assigneeId, labelIds, sortOrder } =
 				mutation.args;
@@ -109,12 +134,26 @@ class FakeWorkspace implements WorkspaceAccess {
 				updatedAt: Date.UTC(2026, 9, 27),
 			});
 		} else if (mutation.name === "issue.update") {
-			const issue = this.issues_.find((issue) => issue.id === mutation.args.id);
-			if (issue) Object.assign(issue, mutation.args.patch, { version });
+			const { id, patch } = mutation.args;
+			const { status, assigneeId, ...rest } = patch;
+			const issue = this.issues_.find((issue) => issue.id === id);
+			if (status !== undefined && this.proposing.has("status")) {
+				propose(id, { type: "status", to: status });
+			} else if (status !== undefined) {
+				Object.assign(rest, { status });
+			}
+			if (assigneeId !== undefined && this.proposing.has("assigneeId")) {
+				propose(id, { type: "assignee", to: assigneeId });
+			} else if (assigneeId !== undefined) {
+				Object.assign(rest, { assigneeId });
+			}
+			if (issue) Object.assign(issue, rest, { version });
 		} else if (mutation.name === "issue.addLabel" || mutation.name === "issue.removeLabel") {
 			const { id, labelId } = mutation.args;
 			const issue = this.issues_.find((issue) => issue.id === id);
-			if (issue) {
+			if (this.proposing.has("labels")) {
+				propose(id, { type: "label", labelId, added: mutation.name === "issue.addLabel" });
+			} else if (issue) {
 				const rest = issue.labelIds.filter((other) => other !== labelId);
 				issue.labelIds = mutation.name === "issue.addLabel" ? [...rest, labelId] : rest;
 				issue.version = version;
@@ -127,7 +166,7 @@ class FakeWorkspace implements WorkspaceAccess {
 			const at = Date.UTC(2026, 9, 28);
 			this.comments_.push({ ...mutation.args, authorId: me.id, createdAt: at, updatedAt: at });
 		}
-		return { ok: true, version };
+		return { ok: true, version, proposed };
 	}
 }
 
@@ -274,6 +313,7 @@ describe("Track MCP tools", () => {
 			priority: "low",
 			assignee: "maya@example.com",
 		});
+		expect(result.structuredContent).not.toHaveProperty("proposed");
 		expect(workspace.mutations.at(-1)).toEqual({
 			name: "issue.update",
 			args: {
@@ -297,6 +337,47 @@ describe("Track MCP tools", () => {
 				text: "Someone changed the same fields a moment ago. Read the issue again and retry.",
 			},
 		]);
+	});
+
+	it("says what an agent proposed instead of making, and shows what waits on the issue", async () => {
+		await created({ title: "Triage me" });
+		workspace.labels.push({
+			id: "l-bug",
+			name: "Bug",
+			color: "#e5484d",
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		workspace.proposing = new Set(["status", "assigneeId", "labels"]);
+
+		const updated = await call("update_issue", {
+			workspace: "acme",
+			key: "ENG-1",
+			status: "done",
+			priority: "high",
+			assignee: "sam@example.com",
+			add_labels: ["Bug"],
+		});
+		const read = await call("get_issue", { workspace: "acme", key: "ENG-1" });
+
+		expect(updated.structuredContent).toMatchObject({
+			status: "backlog",
+			priority: "high",
+			assignee: null,
+			labels: [],
+			proposed: [
+				{ change: "status", to: "done" },
+				{ change: "assignee", to: "sam@example.com" },
+				{ change: "add_label", to: "Bug" },
+			],
+		});
+		expect(read.structuredContent).toMatchObject({
+			proposals: [
+				{ change: "status", to: "done", by: "maya@example.com" },
+				{ change: "assignee", to: "sam@example.com", by: "maya@example.com" },
+				{ change: "add_label", to: "Bug", by: "maya@example.com" },
+			],
+		});
 	});
 
 	it("refuses an update that changes nothing", async () => {
@@ -327,7 +408,11 @@ describe("Track MCP tools", () => {
 		const missing = await call("get_issue", { workspace: "acme", key: "ENG-9" });
 		const malformed = await call("get_issue", { workspace: "acme", key: "not a key" });
 
-		expect(found.structuredContent).toMatchObject({ key: "ENG-1", description: "Body" });
+		expect(found.structuredContent).toMatchObject({
+			key: "ENG-1",
+			description: "Body",
+			proposals: [],
+		});
 		expect(missing.content).toEqual([{ type: "text", text: "Issue ENG-9 not found." }]);
 		expect(malformed.isError).toBe(true);
 	});

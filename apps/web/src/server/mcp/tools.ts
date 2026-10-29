@@ -8,6 +8,7 @@ import {
 	type Member,
 	type MutationInput,
 	mutationSchema,
+	type Proposal,
 } from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import type {
@@ -46,6 +47,8 @@ export interface WorkspaceAccess {
 	issueByKey(teamKey: string, number: number): Promise<Issue | null>;
 	/** A live issue's comments, oldest first. */
 	comments(issueId: string): Promise<Comment[]>;
+	/** A live issue's open proposals, oldest first. */
+	proposals(issueId: string): Promise<Proposal[]>;
 	lastSortOrder(): Promise<string | null>;
 	/** Applies a mutation as the user, through the same validation as the app's. */
 	mutate(mutation: MutationInput): Promise<MutateResult>;
@@ -96,9 +99,38 @@ const commentOutput = z.looseObject({
 	createdAt: z.string(),
 	edited: z.boolean(),
 });
+// A string rather than an enum, so kinds of change added later do not fail cached schemas.
+const proposalOutput = z.looseObject({
+	change: z
+		.string()
+		.describe(
+			'What it changes: "title", "description", "status", "priority", "assignee", "add_label" or "remove_label".',
+		),
+	to: z
+		.string()
+		.nullable()
+		.describe(
+			"The proposed value: the text, a status, a priority, an assignee's email or a label name. Null clears the field.",
+		),
+});
+const openProposalOutput = proposalOutput.extend({
+	by: z.string().nullable().describe("The email of the agent that proposed it."),
+	createdAt: z.string(),
+});
+const proposedOutput = z
+	.array(proposalOutput)
+	.optional()
+	.describe(
+		"Changes you proposed instead of making, because an admin set you to propose that kind of change. They wait for a person to accept them, and are not applied yet.",
+	);
 type IssueSummary = z.infer<typeof issueSummary>;
 type IssueDetail = z.infer<typeof issueDetail>;
 type CommentOutput = z.infer<typeof commentOutput>;
+type ProposalOutput = z.infer<typeof proposalOutput>;
+
+/** What agents are told about proposals, in the tool descriptions that make changes. */
+const PROPOSALS_NOTE =
+	"If an admin set you to propose some kinds of change, those are not made: they come back under proposed, for a person to accept or dismiss.";
 
 /** A failure the agent can act on. Reported as a tool error, not thrown to the client. */
 class ToolError extends Error {}
@@ -203,9 +235,13 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"get_issue",
 		{
 			title: "Get issue",
-			description: "Reads one issue, including its description and comments, oldest first.",
+			description:
+				"Reads one issue, including its description, its comments, oldest first, and the changes agents proposed that wait for a person.",
 			inputSchema: z.object({ workspace: workspaceInput, key: keyInput }),
-			outputSchema: issueDetail.extend({ comments: z.array(commentOutput) }),
+			outputSchema: issueDetail.extend({
+				comments: z.array(commentOutput),
+				proposals: z.array(openProposalOutput),
+			}),
 			annotations: { readOnlyHint: true, openWorldHint: false },
 		},
 		({ workspace: slug, key }) =>
@@ -213,10 +249,18 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				const workspace = await open(access, slug);
 				const directory = await workspace.directory();
 				const issue = await findIssue(workspace, key);
-				const comments = await workspace.comments(issue.id);
+				const [comments, proposals] = await Promise.all([
+					workspace.comments(issue.id),
+					workspace.proposals(issue.id),
+				]);
 				return {
 					...detail(access, workspace, directory, issue),
 					comments: comments.map((comment) => commentView(directory, comment)),
+					proposals: proposals.map((proposal) => ({
+						...proposalView(directory, proposal),
+						by: emailOf(directory, proposal.agentId),
+						createdAt: new Date(proposal.createdAt).toISOString(),
+					})),
 				};
 			}),
 	);
@@ -225,7 +269,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"create_issue",
 		{
 			title: "Create issue",
-			description: "Creates an issue in a team. It goes to the end of the manual order.",
+			description: `Creates an issue in a team. It goes to the end of the manual order. ${PROPOSALS_NOTE}`,
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				team: z.string().describe("The team's key, such as ENG."),
@@ -236,7 +280,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				assignee: assigneeInput.optional(),
 				labels: labelsInput.optional(),
 			}),
-			outputSchema: issueDetail,
+			outputSchema: issueDetail.extend({ proposed: proposedOutput }),
 			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
 		},
 		(input) =>
@@ -244,7 +288,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				const workspace = await open(access, input.workspace);
 				const directory = await workspace.directory();
 				const id = uuidv7();
-				await apply(workspace, {
+				const proposed = await apply(workspace, {
 					name: "issue.create",
 					args: {
 						id,
@@ -261,7 +305,11 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						sortOrder: generateKeyBetween(await workspace.lastSortOrder(), null),
 					},
 				});
-				return detail(access, workspace, directory, await reread(workspace, id));
+				return withProposed(
+					detail(access, workspace, directory, await reread(workspace, id)),
+					directory,
+					proposed,
+				);
 			}),
 	);
 
@@ -269,8 +317,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"update_issue",
 		{
 			title: "Update issue",
-			description:
-				"Changes an issue's title, description, status, priority, assignee or labels. Fields you leave out stay as they are.",
+			description: `Changes an issue's title, description, status, priority, assignee or labels. Fields you leave out stay as they are. ${PROPOSALS_NOTE}`,
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				key: keyInput,
@@ -287,7 +334,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				add_labels: labelsInput.optional(),
 				remove_labels: labelsInput.optional(),
 			}),
-			outputSchema: issueDetail,
+			outputSchema: issueDetail.extend({ proposed: proposedOutput }),
 			annotations: {
 				readOnlyHint: false,
 				destructiveHint: false,
@@ -316,24 +363,38 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				if (Object.keys(patch).length === 0 && added.length === 0 && removed.length === 0) {
 					throw new ToolError("Nothing to change.");
 				}
+				const proposed: Proposal[] = [];
 				if (Object.keys(patch).length > 0) {
 					// The issue was read just now, so only an edit landing in between can conflict.
-					await apply(workspace, {
-						name: "issue.update",
-						args: { id: issue.id, baseVersion: issue.version, patch },
-					});
+					proposed.push(
+						...(await apply(workspace, {
+							name: "issue.update",
+							args: { id: issue.id, baseVersion: issue.version, patch },
+						})),
+					);
 				}
 				// Label changes are set operations, so they never conflict.
 				for (const id of added) {
-					await apply(workspace, { name: "issue.addLabel", args: { id: issue.id, labelId: id } });
+					proposed.push(
+						...(await apply(workspace, {
+							name: "issue.addLabel",
+							args: { id: issue.id, labelId: id },
+						})),
+					);
 				}
 				for (const id of removed) {
-					await apply(workspace, {
-						name: "issue.removeLabel",
-						args: { id: issue.id, labelId: id },
-					});
+					proposed.push(
+						...(await apply(workspace, {
+							name: "issue.removeLabel",
+							args: { id: issue.id, labelId: id },
+						})),
+					);
 				}
-				return detail(access, workspace, directory, await reread(workspace, issue.id));
+				return withProposed(
+					detail(access, workspace, directory, await reread(workspace, issue.id)),
+					directory,
+					proposed,
+				);
 			}),
 	);
 
@@ -465,9 +526,10 @@ async function open(access: TrackAccess, slug: string): Promise<WorkspaceAccess>
 	return workspace;
 }
 
-async function apply(workspace: WorkspaceAccess, mutation: MutationInput): Promise<void> {
+/** Applies a mutation, returning what it proposed instead of making. */
+async function apply(workspace: WorkspaceAccess, mutation: MutationInput): Promise<Proposal[]> {
 	const result = await workspace.mutate(mutation);
-	if (result.ok) return;
+	if (result.ok) return result.proposed;
 	throw new ToolError(
 		result.reason === "conflict"
 			? "Someone changed the same fields a moment ago. Read the issue again and retry."
@@ -561,6 +623,30 @@ function detail(
 		creator: emailOf(directory, issue.creatorId),
 		createdAt: new Date(issue.createdAt).toISOString(),
 	};
+}
+
+/** An issue's detail, with what the call proposed when it proposed anything. */
+function withProposed(issue: IssueDetail, directory: Directory, proposed: Proposal[]) {
+	if (proposed.length === 0) return issue;
+	return { ...issue, proposed: proposed.map((proposal) => proposalView(directory, proposal)) };
+}
+
+function proposalView(directory: Directory, { change }: Proposal): ProposalOutput {
+	switch (change.type) {
+		case "title":
+		case "description":
+		case "status":
+			return { change: change.type, to: change.to };
+		case "priority":
+			return { change: "priority", to: priorityName(change.to) };
+		case "assignee":
+			return { change: "assignee", to: emailOf(directory, change.to) };
+		case "label":
+			return {
+				change: change.added ? "add_label" : "remove_label",
+				to: directory.labels.find((label) => label.id === change.labelId)?.name ?? null,
+			};
+	}
 }
 
 function commentView(directory: Directory, comment: Comment): CommentOutput {

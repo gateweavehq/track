@@ -1,4 +1,4 @@
-import type { Issue, Op, Snapshot, Team } from "@gateweave/track-protocol";
+import type { Issue, Member, Op, Proposal, Snapshot, Team } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import { type PendingMutation, Replica } from "../src/store";
 
@@ -26,6 +26,7 @@ const snapshot: Snapshot = {
 	labels: [],
 	comments: [],
 	activities: [],
+	proposals: [],
 	members: [],
 };
 
@@ -251,6 +252,7 @@ describe("Replica", () => {
 			email: "alice@example.com",
 			image: null,
 			role: "member" as const,
+			proposes: [],
 			removedAt: null,
 		};
 		r.applyOps([
@@ -297,8 +299,23 @@ describe("Replica", () => {
 					issueId: "i1",
 					actorId: "alice",
 					change: { type: "status", from: "backlog", to: "todo" },
+					proposedBy: null,
 					createdAt: 4,
 					updatedAt: 4,
+				},
+			},
+			{
+				version: 5,
+				entity: "proposal",
+				id: "p1",
+				op: "put",
+				data: {
+					id: "p1",
+					issueId: "i1",
+					agentId: "bot",
+					change: { type: "status", to: "done" },
+					createdAt: 5,
+					updatedAt: 5,
 				},
 			},
 		]);
@@ -307,6 +324,78 @@ describe("Replica", () => {
 
 		expect(r.getState().comments.size).toBe(0);
 		expect(r.getState().activities.size).toBe(0);
+		expect(r.getState().proposals.size).toBe(0);
+	});
+
+	it("predicts what an admin sets an agent to propose", () => {
+		const r = replica();
+		const member = (id: string, role: Member["role"]): Member => ({
+			id,
+			name: id,
+			email: `${id}@example.com`,
+			image: null,
+			role,
+			proposes: [],
+			removedAt: null,
+		});
+		r.applyOps([
+			{ version: 3, entity: "member", id: "alice", op: "put", data: member("alice", "member") },
+			{ version: 4, entity: "member", id: "bot", op: "put", data: member("bot", "agent") },
+		]);
+		const setting = pending("m1", {
+			name: "agent.update",
+			args: { id: "bot", patch: { proposes: ["labels", "status", "labels"] } },
+		});
+
+		// Only admins set it, so a member's attempt is left to the server to refuse.
+		r.addPending(setting);
+		expect(r.getState().members.get("bot")?.proposes).toEqual([]);
+
+		r.applyOps([
+			{ version: 5, entity: "member", id: "alice", op: "put", data: member("alice", "admin") },
+		]);
+		expect(r.getState().members.get("bot")?.proposes).toEqual(["status", "labels"]);
+	});
+
+	it("predicts accepting and dismissing proposals, and replays them over the server's result", () => {
+		const r = replica();
+		const label = { id: "l1", name: "Bug", color: "#e5484d", createdAt: 3, updatedAt: 3 };
+		const proposal = (id: string, change: Proposal["change"]): Op => ({
+			version: 0,
+			entity: "proposal",
+			id,
+			op: "put",
+			data: { id, issueId: "i1", agentId: "bot", change, createdAt: 4, updatedAt: 4 },
+		});
+		r.applyOps([
+			{ version: 3, entity: "label", id: "l1", op: "put", data: label },
+			{ ...proposal("p1", { type: "status", to: "done" }), version: 4 },
+			{ ...proposal("p2", { type: "label", labelId: "l1", added: true }), version: 5 },
+			{ ...proposal("p3", { type: "priority", to: 1 }), version: 6 },
+		]);
+
+		r.addPending(
+			pending("m1", { name: "proposal.accept", args: { id: "p1" } }),
+			pending("m2", { name: "proposal.accept", args: { id: "p2" } }),
+			pending("m3", { name: "proposal.dismiss", args: { id: "p3" } }),
+		);
+		expect(r.getState().issues.get("i1")).toMatchObject({
+			status: "done",
+			labelIds: ["l1"],
+			priority: 0,
+		});
+		expect(r.getState().proposals.size).toBe(0);
+
+		// The server has decided all three; the acks have not arrived yet.
+		r.applyOps([
+			put(7, { ...issue, status: "done", version: 7 }),
+			{ version: 8, entity: "proposal", id: "p1", op: "delete" },
+			put(9, { ...issue, status: "done", labelIds: ["l1"], version: 9 }),
+			{ version: 10, entity: "proposal", id: "p2", op: "delete" },
+			{ version: 11, entity: "proposal", id: "p3", op: "delete" },
+		]);
+		expect(r.getState().issues.get("i1")).toMatchObject({ status: "done", labelIds: ["l1"] });
+		expect(r.getState().proposals.size).toBe(0);
 	});
 
 	it("only replaces state with newer snapshots when asked to", () => {

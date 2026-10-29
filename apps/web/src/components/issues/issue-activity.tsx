@@ -73,6 +73,7 @@ export function IssueActivity({ issue }: { issue: Issue }) {
 							<HistoryItem
 								actorId={entry.kind === "created" ? entry.actorId : entry.activity.actorId}
 								change={entry.kind === "created" ? null : entry.activity.change}
+								proposedBy={entry.kind === "created" ? null : entry.activity.proposedBy}
 								at={entry.at}
 							/>
 						)}
@@ -88,10 +89,13 @@ export function IssueActivity({ issue }: { issue: Issue }) {
 function HistoryItem({
 	actorId,
 	change,
+	proposedBy,
 	at,
 }: {
 	actorId: string;
 	change: ActivityChange | null;
+	/** The agent whose proposal the actor accepted. */
+	proposedBy: string | null;
 	at: number;
 }) {
 	const members = useMembersById();
@@ -104,6 +108,7 @@ function HistoryItem({
 			<span className="flex size-5 shrink-0 items-center justify-center">{icon}</span>
 			<p className="min-w-0 flex-1 leading-5">
 				<span className="font-medium text-foreground">{name(actorId)}</span> {text}
+				{proposedBy && <>, as {name(proposedBy)} proposed</>}
 				<span aria-hidden> · </span>
 				<time dateTime={new Date(at).toISOString()} title={formatDateTime(at)}>
 					{formatRelative(at)}

@@ -27,6 +27,7 @@ interface ReplicaSchema extends DBSchema {
 	label: { key: string; value: Entities["label"] };
 	comment: { key: string; value: Entities["comment"] };
 	activity: { key: string; value: Entities["activity"] };
+	proposal: { key: string; value: Entities["proposal"] };
 	member: { key: string; value: Entities["member"] };
 	pending: { key: number; value: PendingMutation & { seq?: number }; indexes: { id: string } };
 }
@@ -94,7 +95,7 @@ class IdbPersistence implements Persistence {
 			clientId = crypto.randomUUID();
 			await meta.put(clientId, "clientId");
 		}
-		const [version, teams, issues, labels, comments, activities, members, pending] =
+		const [version, teams, issues, labels, comments, activities, proposals, members, pending] =
 			await Promise.all([
 				meta.get("version") as Promise<number | undefined>,
 				tx.objectStore("team").getAll(),
@@ -102,6 +103,7 @@ class IdbPersistence implements Persistence {
 				tx.objectStore("label").getAll(),
 				tx.objectStore("comment").getAll(),
 				tx.objectStore("activity").getAll(),
+				tx.objectStore("proposal").getAll(),
 				tx.objectStore("member").getAll(),
 				tx.objectStore("pending").getAll(),
 			]);
@@ -111,7 +113,7 @@ class IdbPersistence implements Persistence {
 			snapshot:
 				version === undefined
 					? null
-					: { version, teams, issues, labels, comments, activities, members },
+					: { version, teams, issues, labels, comments, activities, proposals, members },
 			pending: pending.map(({ seq: _, ...mutation }) => mutation),
 		};
 	}
@@ -124,6 +126,7 @@ class IdbPersistence implements Persistence {
 			label: snapshot.labels,
 			comment: snapshot.comments,
 			activity: snapshot.activities,
+			proposal: snapshot.proposals,
 			member: snapshot.members,
 		};
 		await Promise.all([
