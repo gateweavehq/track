@@ -70,6 +70,10 @@ const labelsInput = z
 	.array(z.string().min(1))
 	.max(MAX_LABELS_PER_ISSUE)
 	.describe("Label names, from get_workspace. Make new ones with create_label.");
+const projectInput = z
+	.string()
+	.min(1)
+	.describe("A project's name (ignoring case) or id, from get_workspace.");
 const assigneeInput = z
 	.string()
 	.min(1)
@@ -85,6 +89,7 @@ const issueSummary = z.looseObject({
 	priority: priorityInput,
 	assignee: z.string().nullable().describe("The assignee's email."),
 	labels: z.array(z.string()).describe("Label names."),
+	project: z.string().nullable().describe("The project's name."),
 	url: z.string(),
 	updatedAt: z.string(),
 });
@@ -104,13 +109,13 @@ const proposalOutput = z.looseObject({
 	change: z
 		.string()
 		.describe(
-			'What it changes: "title", "description", "status", "priority", "assignee", "add_label" or "remove_label".',
+			'What it changes: "title", "description", "status", "priority", "assignee", "project", "add_label" or "remove_label".',
 		),
 	to: z
 		.string()
 		.nullable()
 		.describe(
-			"The proposed value: the text, a status, a priority, an assignee's email or a label name. Null clears the field.",
+			"The proposed value: the text, a status, a priority, an assignee's email, a project's name or a label name. Null clears the field.",
 		),
 });
 const openProposalOutput = proposalOutput.extend({
@@ -159,11 +164,12 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Get workspace",
 			description:
-				"Lists a workspace's teams (whose keys prefix issue keys), its labels, and its members (who can be assignees).",
+				"Lists a workspace's teams (whose keys prefix issue keys), its labels, its projects, and its members (who can be assignees).",
 			inputSchema: z.object({ workspace: workspaceInput }),
 			outputSchema: z.looseObject({
 				teams: z.array(z.looseObject({ key: z.string(), name: z.string() })),
 				labels: z.array(z.looseObject({ name: z.string(), color: z.string() })),
+				projects: z.array(z.looseObject({ id: z.string(), name: z.string(), status: z.string() })),
 				members: z.array(
 					z.looseObject({
 						id: z.string(),
@@ -177,10 +183,13 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		},
 		({ workspace }) =>
 			run(async () => {
-				const { teams, labels, members } = await (await open(access, workspace)).directory();
+				const { teams, labels, projects, members } = await (
+					await open(access, workspace)
+				).directory();
 				return {
 					teams: teams.map(({ key, name }) => ({ key, name })),
 					labels: labels.map(({ name, color }) => ({ name, color })),
+					projects: projects.map(({ id, name, status }) => ({ id, name, status })),
 					members: members
 						.filter((member) => member.removedAt === null)
 						.map(({ id, name, email, role }) => ({ id, name, email, role })),
@@ -200,6 +209,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				status: z.array(statusInput).optional().describe("Any of these statuses."),
 				assignee: assigneeInput.optional(),
 				label: z.string().min(1).optional().describe("A label name."),
+				project: projectInput.optional().describe("Only issues in this project: its name or id."),
 				text: z
 					.string()
 					.max(200)
@@ -224,6 +234,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 							? undefined
 							: resolveAssignee(directory, workspace.me, input.assignee),
 					labelId: input.label === undefined ? undefined : labelId(directory, input.label),
+					projectId: input.project === undefined ? undefined : projectId(directory, input.project),
 					text: input.text,
 					limit: input.limit,
 				});
@@ -269,7 +280,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"create_issue",
 		{
 			title: "Create issue",
-			description: `Creates an issue in a team. It goes to the end of the manual order. ${PROPOSALS_NOTE}`,
+			description: `Creates an issue in a team, and in a project if you name one. It goes to the end of the manual order. ${PROPOSALS_NOTE}`,
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				team: z.string().describe("The team's key, such as ENG."),
@@ -278,6 +289,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				status: statusInput.default("backlog"),
 				priority: priorityInput.default("none"),
 				assignee: assigneeInput.optional(),
+				project: projectInput.optional(),
 				labels: labelsInput.optional(),
 			}),
 			outputSchema: issueDetail.extend({ proposed: proposedOutput }),
@@ -301,6 +313,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 							input.assignee === undefined
 								? null
 								: resolveAssignee(directory, workspace.me, input.assignee),
+						projectId: input.project === undefined ? null : projectId(directory, input.project),
 						labelIds: (input.labels ?? []).map((name) => labelId(directory, name)),
 						sortOrder: generateKeyBetween(await workspace.lastSortOrder(), null),
 					},
@@ -317,7 +330,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"update_issue",
 		{
 			title: "Update issue",
-			description: `Changes an issue's title, description, status, priority, assignee or labels. Fields you leave out stay as they are. ${PROPOSALS_NOTE}`,
+			description: `Changes an issue's title, description, status, priority, assignee, project or labels. Fields you leave out stay as they are. ${PROPOSALS_NOTE}`,
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				key: keyInput,
@@ -331,6 +344,10 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				status: statusInput.optional(),
 				priority: priorityInput.optional(),
 				assignee: assigneeInput.optional(),
+				project: projectInput
+					.nullable()
+					.optional()
+					.describe("Moves the issue to this project. Null takes it out of its project."),
 				add_labels: labelsInput.optional(),
 				remove_labels: labelsInput.optional(),
 			}),
@@ -356,6 +373,9 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					...(input.priority !== undefined && { priority: priorityValue(input.priority) }),
 					...(input.assignee !== undefined && {
 						assigneeId: resolveAssignee(directory, workspace.me, input.assignee),
+					}),
+					...(input.project !== undefined && {
+						projectId: input.project === null ? null : projectId(directory, input.project),
 					}),
 				};
 				const added = (input.add_labels ?? []).map((name) => labelId(directory, name));
@@ -560,6 +580,19 @@ function teamId(directory: Directory, key: string): string {
 	return team.id;
 }
 
+function projectId(directory: Directory, nameOrId: string): string {
+	const value = nameOrId.trim();
+	const folded = value.toLowerCase();
+	const project =
+		directory.projects.find((project) => project.id === value) ??
+		directory.projects.find((project) => project.name.toLowerCase() === folded);
+	if (!project) {
+		const names = directory.projects.map((project) => project.name).join(", ") || "none";
+		throw new ToolError(`No project "${nameOrId}". Projects: ${names}. See get_workspace.`);
+	}
+	return project.id;
+}
+
 function labelId(directory: Directory, name: string): string {
 	const label = findLabelByName(directory.labels, name);
 	if (!label) {
@@ -606,6 +639,7 @@ function summarize(
 		labels: issue.labelIds
 			.map((id) => directory.labels.find((label) => label.id === id)?.name)
 			.filter((name) => name !== undefined),
+		project: directory.projects.find((project) => project.id === issue.projectId)?.name ?? null,
 		url: `${access.origin}/${encodeURIComponent(workspace.slug)}/issue/${key}`,
 		updatedAt: new Date(issue.updatedAt).toISOString(),
 	};
@@ -641,6 +675,11 @@ function proposalView(directory: Directory, { change }: Proposal): ProposalOutpu
 			return { change: "priority", to: priorityName(change.to) };
 		case "assignee":
 			return { change: "assignee", to: emailOf(directory, change.to) };
+		case "project":
+			return {
+				change: "project",
+				to: directory.projects.find((project) => project.id === change.to)?.name ?? null,
+			};
 		case "label":
 			return {
 				change: change.added ? "add_label" : "remove_label",

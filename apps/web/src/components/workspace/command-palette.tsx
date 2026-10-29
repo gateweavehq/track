@@ -1,12 +1,13 @@
 import type { Issue } from "@gateweave/track-protocol";
 import type { SyncState } from "@gateweave/track-sync-client";
 import { shallowEqual, useQuery } from "@gateweave/track-sync-client/react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import {
 	ArrowLeftRight,
 	Bot,
 	Inbox,
 	Keyboard,
+	Layers,
 	type LucideIcon,
 	Settings,
 	SquarePen,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { StatusIcon } from "#/components/issues/meta";
+import { ProjectStatusIcon } from "#/components/projects/meta";
 import {
 	Command,
 	CommandEmpty,
@@ -26,8 +28,9 @@ import {
 } from "#/components/ui/command";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "#/components/ui/dialog";
 import { MOD_LABEL } from "#/lib/hotkeys";
-import { issueKey, matchesQuery } from "#/lib/issues";
-import { useTeams, useTeamsById } from "#/lib/queries";
+import { issueKey, matchesQuery, parseIssueKey } from "#/lib/issues";
+import { useUpdateIssue } from "#/lib/mutations";
+import { useProjectList, useTeams, useTeamsById } from "#/lib/queries";
 import { search } from "#/lib/search";
 import { isAdmin, useMyRole, useWorkspace, useWorkspaceActions } from "./context";
 
@@ -47,6 +50,16 @@ const MAX_RECENT = 5;
 
 const selectState = (state: SyncState) => state;
 
+function findIssue(state: SyncState, teamKey: string, number: number): Issue | undefined {
+	for (const team of state.teams.values()) {
+		if (team.key !== teamKey) continue;
+		for (const issue of state.issues.values()) {
+			if (issue.teamId === team.id && issue.number === number) return issue;
+		}
+	}
+	return undefined;
+}
+
 export function CommandPalette({ onClose }: { onClose: () => void }) {
 	const navigate = useNavigate();
 	const { slug } = useWorkspace();
@@ -56,7 +69,15 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 	const issues = useQuery(selectRecentIssues, shallowEqual);
 	const state = useQuery(selectState);
 	const [query, setQuery] = useState("");
+	// "Set project…" turns the palette into a list of projects for the issue on screen.
+	const [mode, setMode] = useState<"commands" | "project">("commands");
+	const projects = useProjectList();
+	const updateIssue = useUpdateIssue();
+	const params = useParams({ strict: false });
 	const admin = isAdmin(useMyRole());
+
+	const parsedKey = parseIssueKey(params.issueKey ?? "");
+	const screenIssue = parsedKey ? findIssue(state, parsedKey.teamKey, parsedKey.number) : undefined;
 
 	const commands: PaletteCommand[] = [
 		{
@@ -67,6 +88,24 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 			keywords: ["new"],
 			run: () => actions.createIssue(),
 		},
+		{
+			id: "create-project",
+			label: "Create project",
+			icon: Layers,
+			keywords: ["new"],
+			run: actions.createProject,
+		},
+		...(screenIssue
+			? [
+					{
+						id: "set-project",
+						label: "Set project…",
+						icon: Layers,
+						keywords: ["move", "add", "issue"],
+						run: () => setMode("project"),
+					},
+				]
+			: []),
 		...(admin
 			? [
 					{
@@ -96,6 +135,13 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 			icon: Inbox,
 			keywords: ["assigned"],
 			run: () => void navigate({ to: "/$workspace/my-issues", params: { workspace: slug } }),
+		},
+		{
+			id: "projects",
+			label: "Go to projects",
+			icon: Layers,
+			keywords: ["goals"],
+			run: () => void navigate({ to: "/$workspace/projects", params: { workspace: slug } }),
 		},
 		{
 			id: "proposals",
@@ -155,6 +201,15 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 		? found
 		: issues.slice(0, MAX_RECENT).map((issue) => ({ issue }));
 
+	const projectChoices = [{ id: null, name: "No project", status: null }, ...projects].filter(
+		(choice) => matchesQuery(query, choice.name),
+	);
+
+	function chooseProject() {
+		setQuery("");
+		setMode("project");
+	}
+
 	function run(action: () => void) {
 		onClose();
 		action();
@@ -172,12 +227,33 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 					<CommandInput
 						value={query}
 						onValueChange={setQuery}
-						placeholder="Search issues or type a command…"
+						placeholder={mode === "project" ? "Set project…" : "Search issues or type a command…"}
 						className="h-12"
 					/>
 					<CommandList className="max-h-96">
 						<CommandEmpty>Nothing matches “{query}”.</CommandEmpty>
-						{matchingIssues.length > 0 && (
+						{mode === "project" && screenIssue && (
+							<CommandGroup heading={`Set project for ${keyOf(screenIssue)}`}>
+								{projectChoices.map((choice) => (
+									<CommandItem
+										key={choice.id ?? "none"}
+										value={`project-${choice.id ?? "none"}`}
+										onSelect={() => run(() => updateIssue(screenIssue, { projectId: choice.id }))}
+									>
+										{choice.status ? (
+											<ProjectStatusIcon status={choice.status} />
+										) : (
+											<Layers className="size-4 text-muted-foreground" />
+										)}
+										<span className="truncate">{choice.name}</span>
+										{choice.id === screenIssue.projectId && (
+											<CommandShortcut>current</CommandShortcut>
+										)}
+									</CommandItem>
+								))}
+							</CommandGroup>
+						)}
+						{mode === "commands" && matchingIssues.length > 0 && (
 							<CommandGroup heading={searching ? "Issues" : "Recently updated"}>
 								{matchingIssues.map(({ issue, snippet }) => {
 									const key = keyOf(issue);
@@ -212,13 +288,15 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 								})}
 							</CommandGroup>
 						)}
-						{matchingCommands.length > 0 && (
+						{mode === "commands" && matchingCommands.length > 0 && (
 							<CommandGroup heading="Commands">
 								{matchingCommands.map((command) => (
 									<CommandItem
 										key={command.id}
 										value={command.id}
-										onSelect={() => run(command.run)}
+										onSelect={() =>
+											command.id === "set-project" ? chooseProject() : run(command.run)
+										}
 									>
 										<command.icon className="size-4 text-muted-foreground" />
 										{command.label}

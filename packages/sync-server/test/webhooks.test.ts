@@ -250,6 +250,40 @@ describe("delivery", () => {
 		expect(data && "updatedFrom" in data && Object.keys(data.updatedFrom)).toEqual(["status"]);
 	});
 
+	it("carries an issue's project, and reports a change of it", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await mutate(workspace, owner, {
+			name: "project.create",
+			args: { id: "project-1", name: "Launch" },
+		});
+		await createHook(workspace, { events: ["issue.created", "issue.updated"] });
+
+		await mutate(workspace, owner, {
+			name: "issue.create",
+			args: {
+				id: "issue-1",
+				teamId: "team-eng",
+				title: "In a project",
+				projectId: "project-1",
+				sortOrder: "a0",
+			},
+		});
+		await mutate(workspace, owner, {
+			name: "project.delete",
+			args: { id: "project-1" },
+		});
+		await deliver(workspace);
+
+		const sent = payloads(received);
+		expect(sent.map((payload) => payload.type)).toEqual(["issue.created", "issue.updated"]);
+		expect(sent[0]?.data).toMatchObject({ issue: { projectId: "project-1" } });
+		expect(sent[1]?.data).toMatchObject({
+			issue: { projectId: null },
+			updatedFrom: { projectId: "project-1" },
+		});
+	});
+
 	it("sends comments with their issue", async () => {
 		const received = receiver();
 		const workspace = await workspaceWithTeams();

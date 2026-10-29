@@ -56,6 +56,9 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - **Proposals.** An admin chooses which kinds of change each agent member only proposes, such as
   closing issues or assigning them, and people accept or dismiss them on the issue. Shipped in
   v0.4.0. Next release: a workspace-wide list of open proposals, and webhook events for them.
+- **Projects.** Groups of issues across teams toward a goal, with a lead, a status, a target date
+  and progress. They have a page, a list, a picker on every issue and a place in the command
+  palette, and agents set them over MCP. Coming in the next release. Cycles are still to come.
 
 ## Next: launch
 
@@ -67,7 +70,7 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 ## After launch
 
 - Notifications and an inbox.
-- Projects and cycles.
+- Cycles: time-boxed sprints for the issues of a team, next to projects.
 - GitHub integration: link pull requests and close issues from commits.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations
   people use (see [ecosystem.md](ecosystem.md#agents-are-members)). It runs in Gateweave Agents,

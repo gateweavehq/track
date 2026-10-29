@@ -78,6 +78,8 @@ export function mergeActivity(
 			return previous.type === "priority" ? retarget({ ...change, from: previous.from }) : append;
 		case "assignee":
 			return previous.type === "assignee" ? retarget({ ...change, from: previous.from }) : append;
+		case "project":
+			return previous.type === "project" ? retarget({ ...change, from: previous.from }) : append;
 	}
 }
 

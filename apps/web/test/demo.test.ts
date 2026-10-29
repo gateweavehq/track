@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Snapshot } from "@gateweave/track-protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ISSUES, LABELS, PEOPLE, TEAMS } from "../src/server/demo/sample-data";
+import { ISSUES, LABELS, PEOPLE, PROJECTS, TEAMS } from "../src/server/demo/sample-data";
 import { startTrack } from "./track-worker";
 
 // The public demo (TRK-11): every visitor gets a private sandbox that cleanup deletes after a
@@ -96,6 +96,12 @@ describe("on the demo deployment", () => {
 		expect(data.teams.map((team) => team.key).sort()).toEqual(Object.keys(TEAMS).sort());
 		expect(data.labels).toHaveLength(Object.keys(LABELS).length);
 		expect(data.issues).toHaveLength(ISSUES.length);
+		expect(data.projects.map((project) => project.name).sort()).toEqual(
+			Object.values(PROJECTS)
+				.map((project) => project.name)
+				.sort(),
+		);
+		expect(data.issues.some((issue) => issue.projectId !== null)).toBe(true);
 		expect(data.comments.length).toBeGreaterThan(0);
 		// The visitor and the four sample people.
 		expect(data.members.map((member) => member.email).sort()).toEqual(

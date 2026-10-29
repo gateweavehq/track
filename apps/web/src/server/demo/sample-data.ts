@@ -1,7 +1,12 @@
 // Sample content for `pnpm dev:seed` and for the public demo's sandboxes: a small product
 // company with a few people, teams and issues in every state. Names and addresses are fictional;
 // example.com never receives mail. Pure data, no Node or Worker APIs (see sample.ts).
-import type { IssuePriority, IssueStatus, PersonRole } from "@gateweave/track-protocol";
+import type {
+	IssuePriority,
+	IssueStatus,
+	PersonRole,
+	ProjectStatus,
+} from "@gateweave/track-protocol";
 
 export const WORKSPACE_NAME = "Acme";
 
@@ -47,7 +52,45 @@ export const LABELS: Record<LabelKey, { name: string; color: string }> = {
 	docs: { name: "Docs", color: "#8d8d8d" },
 };
 
+export type ProjectKey = "launch" | "reliability" | "polish";
+
+export interface SampleProject {
+	name: string;
+	description: string;
+	status: ProjectStatus;
+	lead: PersonKey | null;
+	/** Days from now to the target date, so the sample never goes stale. */
+	targetInDays: number | null;
+}
+
+export const PROJECTS: Record<ProjectKey, SampleProject> = {
+	launch: {
+		name: "Public launch",
+		description:
+			"Everything between a working product and the first thousand visitors: the site, " +
+			"the guides, the demo and the launch post.",
+		status: "started",
+		lead: "maya",
+		targetInDays: 45,
+	},
+	reliability: {
+		name: "Sync reliability",
+		description: "Sign-in, sync and speed on large workspaces, so edits are never lost.",
+		status: "started",
+		lead: "sam",
+		targetInDays: 21,
+	},
+	polish: {
+		name: "Design polish",
+		description: "Layouts, empty states and accessibility across the app.",
+		status: "planned",
+		lead: "diego",
+		targetInDays: null,
+	},
+};
+
 export interface SampleIssue {
+	project?: ProjectKey;
 	team: TeamKey;
 	title: string;
 	labels?: LabelKey[];
@@ -64,6 +107,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Sign-in fails when the email has uppercase letters",
+		project: "reliability",
 		labels: ["bug"],
 		status: "in_progress",
 		priority: 1,
@@ -107,6 +151,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Slow first load on large workspaces",
+		project: "reliability",
 		labels: ["performance"],
 		status: "in_progress",
 		priority: 2,
@@ -126,6 +171,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Flaky test: realtime sync drops the last edit",
+		project: "reliability",
 		labels: ["bug"],
 		status: "in_review",
 		priority: 2,
@@ -141,6 +187,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Rate limit the sign-up endpoint",
+		project: "reliability",
 		labels: ["security"],
 		status: "todo",
 		priority: 2,
@@ -209,6 +256,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Set up error tracking for the Worker",
+		project: "reliability",
 		status: "done",
 		priority: 3,
 		assignee: "sam",
@@ -235,6 +283,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "DES",
 		title: "Mobile layout for the issue page",
+		project: "polish",
 		labels: ["improvement"],
 		status: "in_review",
 		priority: 2,
@@ -244,6 +293,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "DES",
 		title: "Empty states for lists and boards",
+		project: "polish",
 		status: "in_progress",
 		priority: 3,
 		assignee: "diego",
@@ -263,6 +313,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "DES",
 		title: "Accessible focus rings across the app",
+		project: "polish",
 		labels: ["accessibility"],
 		status: "todo",
 		priority: 2,
@@ -272,6 +323,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "DES",
 		title: "Settings navigation feels hidden",
+		project: "polish",
 		status: "todo",
 		priority: 3,
 		assignee: null,
@@ -280,6 +332,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "DES",
 		title: "Refresh the marketing site hero",
+		project: "launch",
 		status: "backlog",
 		priority: 3,
 		assignee: null,
@@ -296,6 +349,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "DES",
 		title: "Icon set for issue priorities",
+		project: "polish",
 		status: "done",
 		priority: 4,
 		assignee: "diego",
@@ -304,6 +358,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "DES",
 		title: "Design tokens for spacing and radius",
+		project: "polish",
 		status: "done",
 		priority: 3,
 		assignee: "diego",
@@ -320,6 +375,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "GRO",
 		title: "Launch post for Show HN",
+		project: "launch",
 		status: "todo",
 		priority: 1,
 		assignee: "maya",
@@ -338,6 +394,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "GRO",
 		title: "Pricing page draft",
+		project: "launch",
 		status: "in_progress",
 		priority: 2,
 		assignee: "maya",
@@ -354,6 +411,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "GRO",
 		title: "Self-hosting guide",
+		project: "launch",
 		labels: ["docs"],
 		status: "todo",
 		priority: 2,
@@ -363,6 +421,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "GRO",
 		title: "Demo workspace that resets every night",
+		project: "launch",
 		status: "todo",
 		priority: 2,
 		assignee: "lena",
@@ -371,6 +430,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "GRO",
 		title: "Changelog page",
+		project: "launch",
 		labels: ["docs"],
 		status: "backlog",
 		priority: 3,

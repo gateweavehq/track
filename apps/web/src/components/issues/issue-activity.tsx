@@ -5,6 +5,7 @@ import {
 	CircleUserRound,
 	Ellipsis,
 	FileText,
+	Layers,
 	type LucideIcon,
 	Pencil,
 	Plus,
@@ -27,7 +28,13 @@ import { isAdmin, useMyRole, useWorkspace } from "#/components/workspace/context
 import { formatDateTime, formatRelative } from "#/lib/dates";
 import { MOD_LABEL } from "#/lib/hotkeys";
 import { send } from "#/lib/mutations";
-import { useIssueActivity, useIssueComments, useLabelsById, useMembersById } from "#/lib/queries";
+import {
+	useIssueActivity,
+	useIssueComments,
+	useLabelsById,
+	useMembersById,
+	useProjectsById,
+} from "#/lib/queries";
 import { LabelChip } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 
@@ -100,8 +107,11 @@ function HistoryItem({
 }) {
 	const members = useMembersById();
 	const labels = useLabelsById();
+	const projects = useProjectsById();
 	const name = (id: string | null) => (id ? (members.get(id)?.name ?? "Someone") : "nobody");
-	const { icon, text } = describe(change, actorId, name, labels);
+	const projectName = (id: string | null) =>
+		id ? (projects.get(id)?.name ?? "a deleted project") : "no project";
+	const { icon, text } = describe(change, actorId, name, labels, projectName);
 
 	return (
 		<div className="flex items-start gap-2 px-1 text-xs text-muted-foreground">
@@ -123,6 +133,7 @@ function describe(
 	actorId: string,
 	name: (id: string | null) => string,
 	labels: ReadonlyMap<string, Label>,
+	projectName: (id: string | null) => string,
 ): { icon: ReactNode; text: ReactNode } {
 	const plain = (Icon: LucideIcon, text: ReactNode) => ({
 		icon: <Icon className="size-3.5" />,
@@ -171,6 +182,23 @@ function describe(
 				) : (
 					<>
 						reassigned the issue from {name(change.from)} to <Strong>{name(change.to)}</Strong>
+					</>
+				),
+			);
+		case "project":
+			if (change.to === null) {
+				return plain(Layers, <>removed the issue from {projectName(change.from)}</>);
+			}
+			return plain(
+				Layers,
+				change.from === null ? (
+					<>
+						added the issue to <Strong>{projectName(change.to)}</Strong>
+					</>
+				) : (
+					<>
+						moved the issue from {projectName(change.from)} to{" "}
+						<Strong>{projectName(change.to)}</Strong>
 					</>
 				),
 			);

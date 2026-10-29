@@ -1,6 +1,6 @@
 import { mutationSchema } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
-import { ISSUES, PEOPLE, type PersonKey, sampleSteps } from "./sample";
+import { ISSUES, PEOPLE, type PersonKey, PROJECTS, sampleSteps } from "./sample";
 
 const people = Object.keys(PEOPLE) as PersonKey[];
 const userIds = Object.fromEntries(people.map((key) => [key, `user-${key}`])) as Record<
@@ -20,7 +20,7 @@ describe("sampleSteps", () => {
 		}
 	});
 
-	it("creates teams and labels, as an admin, before anything refers to them", () => {
+	it("creates teams, labels and projects, as an admin, before anything refers to them", () => {
 		const all = steps();
 		const firstIssue = all.findIndex((step) => step.mutation.name === "issue.create");
 		const before = all.slice(0, firstIssue);
@@ -28,6 +28,7 @@ describe("sampleSteps", () => {
 		expect(before.map((step) => step.mutation.name)).toEqual([
 			...Array(3).fill("team.create"),
 			...Array(7).fill("label.create"),
+			...Array(Object.keys(PROJECTS).length).fill("project.create"),
 		]);
 	});
 
@@ -58,6 +59,38 @@ describe("sampleSteps", () => {
 			),
 		);
 		expect([...assignees].sort()).toEqual(people.map((key) => userIds[key]).sort());
+	});
+
+	it("puts sample issues in projects that exist, led by sample people", () => {
+		const all = steps();
+		const projects = all.flatMap(({ mutation }) =>
+			mutation.name === "project.create" ? [mutation.args] : [],
+		);
+		expect(projects).toHaveLength(Object.keys(PROJECTS).length);
+		for (const project of projects) {
+			expect(Object.values(userIds)).toContain(project.leadId);
+		}
+		const ids = new Set(projects.map((project) => project.id));
+		const inProjects = all.flatMap(({ mutation }) =>
+			mutation.name === "issue.create" && mutation.args.projectId ? [mutation.args.projectId] : [],
+		);
+		expect(inProjects.length).toBeGreaterThan(Object.keys(PROJECTS).length);
+		expect(inProjects.every((id) => ids.has(id))).toBe(true);
+		expect(new Set(inProjects).size).toBe(ids.size);
+	});
+
+	it("counts target dates from the given day", () => {
+		let next = 0;
+		const all = sampleSteps({
+			userIds,
+			newId: () => `id-${++next}`,
+			now: new Date("2026-11-30T12:00:00Z"),
+		});
+		const dates = all.flatMap(({ mutation }) =>
+			mutation.name === "project.create" ? [mutation.args.targetDate] : [],
+		);
+		expect(dates).toContain("2027-01-14");
+		expect(dates).toContain(null);
 	});
 
 	it("marks only generated filler as unordered, after everything else", () => {

@@ -23,7 +23,7 @@ flowchart LR
   Mcp -- "RPC" --> DO
   Auth -- "membership hooks (RPC)" --> DO
   subgraph DO["WorkspaceDO (one per workspace)"]
-    SQLite[("SQLite<br/>teams, issues, labels,<br/>comments, activity,<br/>members, oplog")]
+    SQLite[("SQLite<br/>teams, issues, labels,<br/>projects, comments, activity,<br/>members, oplog")]
   end
 ```
 
@@ -58,7 +58,8 @@ different protocol versions in production. It also gives self-hosters one thing 
 | Workspaces, members, invitations    | D1           | Better Auth organization plugin    |
 | OAuth clients, grants, signing keys | D1           | Better Auth MCP plugin             |
 | Agent members' keys (hashed)        | D1           | Track's agent members plugin       |
-| Teams, issues, labels, comments     | Workspace DO | `sync-server`                      |
+| Teams, issues, labels, projects     | Workspace DO | `sync-server`                      |
+| Comments on issues                  | Workspace DO | `sync-server`                      |
 | Issue activity (history)            | Workspace DO | `sync-server`, from issue writes   |
 | Webhooks, their secrets, deliveries | Workspace DO | `sync-server`, managed by admins   |
 | Member replica (name, avatar, role) | Workspace DO | Pushed from D1 by membership hooks |
@@ -261,14 +262,14 @@ and reconcile against what the server broadcasts.
 
 Every write appends one or more ops to the workspace's **oplog**. Each op gets the next workspace
 version, so versions are gapless and totally ordered. An op is either a full-row `put` or a
-`delete` for a `team`, `issue`, `label`, `comment`, `activity` or `member`. A client's entire sync state is the highest version
-it has applied.
+`delete` for a `team`, `issue`, `label`, `project`, `comment`, `activity`, `proposal` or `member`.
+A client's entire sync state is the highest version it has applied.
 
 ### Connecting
 
 1. `GET /api/sync/:slug/snapshot` returns
-   `{ version, teams, issues, labels, comments, activities, members }`, leaving out the comments
-   and activity of deleted issues. It is served over HTTP so it can be compressed and fetched in
+   `{ version, teams, issues, labels, projects, comments, activities, proposals, members }`,
+   leaving out the comments, activity and proposals of deleted issues, and deleted projects. It is served over HTTP so it can be compressed and fetched in
    parallel with the socket.
 2. The client opens the socket and sends `hello { protocol, clientId, since: snapshot.version }`.
 3. The server streams any ops after `since` as `delta` messages, then `ready { version }`. From
@@ -340,6 +341,31 @@ one that is not, writes nothing. They never conflict, so two people labeling the
 same time both get their label. Deleting a label (admins only) removes it from every issue that
 has it, one issue op each, before the label's own delete op.
 
+### Projects
+
+A project groups issues from any team toward a goal. It has a name, a description, a status
+(planned, started, paused, completed or canceled), a lead and a target date (`YYYY-MM-DD`, checked
+to be a real day). An issue belongs to at most one project through its `projectId`.
+
+- `project.create` and `project.update` are open to any person; an agent member is refused.
+  `leadId` must be a person who is an active member, as an assignee must be a member, and not an
+  agent. Projects have no version: two people editing one concurrently, the last edit wins.
+- `project.delete` is for owners and admins, decided with `isAdminRole`. Like a label, the
+  project keeps its row on the server and leaves clients, and it takes itself off every issue
+  that has it: one issue op each, before the project's own delete op, so replicas update.
+  Deleting writes no history, as deleting a label does.
+- `issue.create` and `issue.update` refuse a `projectId` that is missing or deleted
+  (`not_found`). `projectId` is an ordinary field of the issue patch, with the same per-field
+  conflict detection as the status or the assignee.
+- Progress is not stored. The UI counts the issues in the project that are done, out of all that
+  are not canceled, from the local copy.
+- Changing an issue's project is recorded in its history, and is one of the kinds of change an
+  admin can have an agent propose (`project`).
+
+The Projects page (`/$workspace/projects`) lists them with their lead, target date and progress,
+and a project's page (`/$workspace/project/$projectId`) edits its fields above the project's
+issues, shown with the same list and board as a team's.
+
 ### Comments and activity
 
 Comments are ordinary synced rows. Any member can comment. Only the author edits a comment, so
@@ -349,7 +375,7 @@ admin can delete it.
 Activity, an issue's history, is written by the server as a side effect of issue mutations and
 never by clients. It cannot be forged, needs no prediction, and arrives in the same delta as the
 change it describes. Each entry is one person changing one field: status, priority, assignee,
-title, description, or a label added or removed. To keep the history readable:
+title, description, project, or a label added or removed. To keep the history readable:
 
 - Changes by the same person to the same field within five minutes merge into their latest
   entry, keeping the first `from` and the newest `to`. Putting a field back where it started
@@ -368,13 +394,13 @@ as "a deleted label".
 People stay in control of agents: for each agent member, an admin chooses which kinds of change
 to an issue it only proposes (`agent.update`, kept in the member's `proposes` in the Durable
 Object). The kinds are the title, the description, the status, closing (a status of done or
-canceled, which `status` includes), the priority, the assignee and labels. Creating issues,
-commenting and managing labels are never proposed. An agent proposes nothing until an admin
+canceled, which `status` includes), the priority, the assignee, the project and labels.
+Creating issues, commenting, and managing labels and projects are never proposed. An agent proposes nothing until an admin
 says so.
 
 - **The server splits the agent's mutation.** `applyMutation` makes the fields its `proposes`
   does not cover and turns the rest into proposals (`proposals.ts`), in the same transaction.
-  A new issue is made without the proposed status, priority, assignee or labels, and then
+  A new issue is made without the proposed status, priority, assignee, project or labels, and then
   gets them as proposals. The agent cannot get around this: the split happens where the
   mutation is applied, whatever sent it.
 - **One open proposal per agent and field.** Proposing a field again replaces the agent's open

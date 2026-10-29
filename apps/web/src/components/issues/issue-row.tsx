@@ -13,7 +13,7 @@ import { LabelChips } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 import { AssigneePicker, PriorityPicker, StatusPicker } from "./pickers";
 
-export type IssueField = "status" | "priority" | "assignee" | "labels";
+export type IssueField = "status" | "priority" | "assignee" | "project" | "labels";
 
 interface IssueRowProps {
 	issue: Issue;

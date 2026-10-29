@@ -134,6 +134,8 @@ export function patchOf(change: Exclude<ProposedChange, { type: "label" }>) {
 			return { priority: change.to };
 		case "assignee":
 			return { assigneeId: change.to };
+		case "project":
+			return { projectId: change.to };
 	}
 }
 
@@ -149,6 +151,8 @@ function alreadyMade(issue: schema.IssueRow, change: ProposedChange): boolean {
 			return issue.priority === change.to;
 		case "assignee":
 			return issue.assigneeId === change.to;
+		case "project":
+			return issue.projectId === change.to;
 		case "label":
 			return issue.labelIds.includes(change.labelId) === change.added;
 	}

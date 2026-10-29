@@ -11,6 +11,7 @@ const snapshot: Snapshot = {
 	teams: [{ id: "t1", key: "ENG", name: "Engineering", createdAt: 1, updatedAt: 1 }],
 	issues: [],
 	labels: [],
+	projects: [],
 	comments: [],
 	activities: [],
 	proposals: [],

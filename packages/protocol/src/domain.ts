@@ -44,6 +44,7 @@ export const AGENT_CHANGE_KINDS = [
 	"priority",
 	"assignee",
 	"labels",
+	"project",
 ] as const;
 export type AgentChangeKind = (typeof AGENT_CHANGE_KINDS)[number];
 
@@ -70,12 +71,31 @@ export interface Issue {
 	priority: IssuePriority;
 	assigneeId: string | null;
 	creatorId: string;
+	/** The project the issue belongs to, if any. */
+	projectId: string | null;
 	/** Ids of the issue's labels, in the order they were added. */
 	labelIds: string[];
 	/** Fractional index used for manual ordering. */
 	sortOrder: string;
 	/** Workspace version of the last write to this issue. Used as `baseVersion` for updates. */
 	version: number;
+	createdAt: number;
+	updatedAt: number;
+}
+
+export const PROJECT_STATUSES = ["planned", "started", "paused", "completed", "canceled"] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+
+/** A goal that groups issues across teams. Deleted projects leave the client store. */
+export interface Project {
+	id: string;
+	name: string;
+	description: string | null;
+	status: ProjectStatus;
+	/** A person member who leads the project. */
+	leadId: string | null;
+	/** `YYYY-MM-DD`, a real calendar date. */
+	targetDate: string | null;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -113,6 +133,7 @@ export type ActivityChange =
 	| { type: "status"; from: IssueStatus; to: IssueStatus }
 	| { type: "priority"; from: IssuePriority; to: IssuePriority }
 	| { type: "assignee"; from: string | null; to: string | null }
+	| { type: "project"; from: string | null; to: string | null }
 	| { type: "label"; labelId: string; added: boolean };
 
 /**
@@ -138,6 +159,7 @@ export type ProposedChange =
 	| { type: "status"; to: IssueStatus }
 	| { type: "priority"; to: IssuePriority }
 	| { type: "assignee"; to: string | null }
+	| { type: "project"; to: string | null }
 	| { type: "label"; labelId: string; added: boolean };
 
 /**
@@ -176,6 +198,7 @@ export interface Entities {
 	team: Team;
 	issue: Issue;
 	label: Label;
+	project: Project;
 	comment: Comment;
 	activity: Activity;
 	proposal: Proposal;
@@ -186,6 +209,7 @@ export const ENTITY_NAMES = [
 	"team",
 	"issue",
 	"label",
+	"project",
 	"comment",
 	"activity",
 	"proposal",

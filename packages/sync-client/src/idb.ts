@@ -25,6 +25,7 @@ interface ReplicaSchema extends DBSchema {
 	team: { key: string; value: Entities["team"] };
 	issue: { key: string; value: Entities["issue"] };
 	label: { key: string; value: Entities["label"] };
+	project: { key: string; value: Entities["project"] };
 	comment: { key: string; value: Entities["comment"] };
 	activity: { key: string; value: Entities["activity"] };
 	proposal: { key: string; value: Entities["proposal"] };
@@ -95,25 +96,46 @@ class IdbPersistence implements Persistence {
 			clientId = crypto.randomUUID();
 			await meta.put(clientId, "clientId");
 		}
-		const [version, teams, issues, labels, comments, activities, proposals, members, pending] =
-			await Promise.all([
-				meta.get("version") as Promise<number | undefined>,
-				tx.objectStore("team").getAll(),
-				tx.objectStore("issue").getAll(),
-				tx.objectStore("label").getAll(),
-				tx.objectStore("comment").getAll(),
-				tx.objectStore("activity").getAll(),
-				tx.objectStore("proposal").getAll(),
-				tx.objectStore("member").getAll(),
-				tx.objectStore("pending").getAll(),
-			]);
+		const [
+			version,
+			teams,
+			issues,
+			labels,
+			projects,
+			comments,
+			activities,
+			proposals,
+			members,
+			pending,
+		] = await Promise.all([
+			meta.get("version") as Promise<number | undefined>,
+			tx.objectStore("team").getAll(),
+			tx.objectStore("issue").getAll(),
+			tx.objectStore("label").getAll(),
+			tx.objectStore("project").getAll(),
+			tx.objectStore("comment").getAll(),
+			tx.objectStore("activity").getAll(),
+			tx.objectStore("proposal").getAll(),
+			tx.objectStore("member").getAll(),
+			tx.objectStore("pending").getAll(),
+		]);
 		await tx.done;
 		return {
 			clientId,
 			snapshot:
 				version === undefined
 					? null
-					: { version, teams, issues, labels, comments, activities, proposals, members },
+					: {
+							version,
+							teams,
+							issues,
+							labels,
+							projects,
+							comments,
+							activities,
+							proposals,
+							members,
+						},
 			pending: pending.map(({ seq: _, ...mutation }) => mutation),
 		};
 	}
@@ -124,6 +146,7 @@ class IdbPersistence implements Persistence {
 			team: snapshot.teams,
 			issue: snapshot.issues,
 			label: snapshot.labels,
+			project: snapshot.projects,
 			comment: snapshot.comments,
 			activity: snapshot.activities,
 			proposal: snapshot.proposals,

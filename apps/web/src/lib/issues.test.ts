@@ -23,6 +23,7 @@ function issue(overrides: Partial<Issue>): Issue {
 		status: "backlog",
 		priority: 0,
 		assigneeId: null,
+		projectId: null,
 		labelIds: [],
 		creatorId: "user",
 		sortOrder: "a0",

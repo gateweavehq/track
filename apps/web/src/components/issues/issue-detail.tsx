@@ -1,9 +1,10 @@
 import type { Issue, Team } from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link, useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
-import { ChevronRight, Trash } from "lucide-react";
+import { ChevronRight, Layers, Trash } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";
+import { ProjectStatusIcon } from "#/components/projects/meta";
 import { Button } from "#/components/ui/button";
 import {
 	Dialog,
@@ -18,14 +19,14 @@ import { formatDateTime, formatRelative } from "#/lib/dates";
 import { useHotkeys } from "#/lib/hotkeys";
 import { issueKey } from "#/lib/issues";
 import { send, useUpdateIssue } from "#/lib/mutations";
-import { useMembersById } from "#/lib/queries";
+import { useMembersById, useProject } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import { IssueActivity } from "./issue-activity";
 import { IssueProposals } from "./issue-proposals";
 import type { IssueField } from "./issue-row";
 import { LabelChips, LabelPicker } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
-import { AssigneePicker, PriorityPicker, StatusPicker } from "./pickers";
+import { AssigneePicker, PriorityPicker, ProjectPicker, StatusPicker } from "./pickers";
 
 export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 	const { slug } = useWorkspace();
@@ -39,6 +40,7 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 	const key = issueKey(team, issue);
 	const assignee = issue.assigneeId ? members.get(issue.assigneeId) : undefined;
 	const creator = members.get(issue.creatorId);
+	const project = useProject(issue.projectId ?? "");
 
 	function back() {
 		if (canGoBack) router.history.back();
@@ -132,6 +134,27 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 								{assignee?.name ?? "Unassigned"}
 							</PropertyButton>
 						</AssigneePicker>
+					</Property>
+					<Property label="Project">
+						<ProjectPicker
+							value={issue.projectId}
+							onChange={(projectId) => update(issue, { projectId })}
+							{...menuProps("project")}
+						>
+							<PropertyButton>
+								{project ? (
+									<>
+										<ProjectStatusIcon status={project.status} />
+										<span className="truncate">{project.name}</span>
+									</>
+								) : (
+									<>
+										<Layers className="size-4 text-muted-foreground" />
+										<span className="text-muted-foreground">No project</span>
+									</>
+								)}
+							</PropertyButton>
+						</ProjectPicker>
 					</Property>
 					<Property label="Labels">
 						<LabelPicker issue={issue} {...menuProps("labels")}>

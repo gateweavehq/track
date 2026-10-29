@@ -1,4 +1,12 @@
-import type { Issue, Member, Op, Proposal, Snapshot, Team } from "@gateweave/track-protocol";
+import type {
+	Issue,
+	Member,
+	Op,
+	Project,
+	Proposal,
+	Snapshot,
+	Team,
+} from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import { type PendingMutation, Replica } from "../src/store";
 
@@ -12,6 +20,7 @@ const issue: Issue = {
 	status: "backlog",
 	priority: 0,
 	assigneeId: null,
+	projectId: null,
 	creatorId: "alice",
 	labelIds: [],
 	sortOrder: "a0",
@@ -24,6 +33,7 @@ const snapshot: Snapshot = {
 	teams: [team],
 	issues: [issue],
 	labels: [],
+	projects: [],
 	comments: [],
 	activities: [],
 	proposals: [],
@@ -127,6 +137,7 @@ describe("Replica", () => {
 				status: "backlog",
 				priority: 0,
 				assigneeId: null,
+				projectId: null,
 				labelIds: [],
 				sortOrder: "a1",
 			},
@@ -204,6 +215,7 @@ describe("Replica", () => {
 					status: "backlog",
 					priority: 0,
 					assigneeId: null,
+					projectId: null,
 					labelIds: ["unknown"],
 					sortOrder: "a1",
 				},
@@ -355,6 +367,198 @@ describe("Replica", () => {
 			{ version: 5, entity: "member", id: "alice", op: "put", data: member("alice", "admin") },
 		]);
 		expect(r.getState().members.get("bot")?.proposes).toEqual(["status", "labels"]);
+	});
+
+	describe("projects", () => {
+		const person = (id: string, role: Member["role"]): Member => ({
+			id,
+			name: id,
+			email: `${id}@example.com`,
+			image: null,
+			role,
+			proposes: [],
+			removedAt: null,
+		});
+		const project: Project = {
+			id: "p1",
+			name: "Launch",
+			description: null,
+			status: "planned",
+			leadId: null,
+			targetDate: null,
+			createdAt: 3,
+			updatedAt: 3,
+		};
+		const putMember = (version: number, member: Member): Op => ({
+			version,
+			entity: "member",
+			id: member.id,
+			op: "put",
+			data: member,
+		});
+		const putProject = (version: number, data: Project): Op => ({
+			version,
+			entity: "project",
+			id: data.id,
+			op: "put",
+			data,
+		});
+		const create = pending("m1", {
+			name: "project.create",
+			args: {
+				id: "p1",
+				name: "Launch",
+				description: null,
+				status: "planned",
+				leadId: null,
+				targetDate: null,
+			},
+		});
+
+		it("predicts creating and updating a project, and replays them over the server's result", () => {
+			const r = replica();
+			r.addPending(
+				create,
+				pending("m2", {
+					name: "project.update",
+					args: { id: "p1", patch: { status: "started", targetDate: "2026-12-31" } },
+				}),
+			);
+			expect(r.getState().projects.get("p1")).toMatchObject({
+				name: "Launch",
+				status: "started",
+				targetDate: "2026-12-31",
+			});
+
+			// The server has applied both; the acks have not arrived yet.
+			const confirmed = { ...project, status: "started" as const, targetDate: "2026-12-31" };
+			r.applyOps([putProject(3, project), putProject(4, confirmed)]);
+			expect(r.getState().projects.get("p1")).toMatchObject({ ...confirmed, updatedAt: 100 });
+			r.removePending("m1");
+			r.removePending("m2");
+			expect(r.getState().projects.get("p1")).toEqual(confirmed);
+			expect(r.snapshot().projects).toEqual([confirmed]);
+		});
+
+		it("rolls a project back when its mutation is removed", () => {
+			const r = replica();
+			r.addPending(create);
+			expect(r.getState().projects.has("p1")).toBe(true);
+			r.removePending("m1");
+			expect(r.getState().projects.has("p1")).toBe(false);
+		});
+
+		it("leaves what the server would refuse to the server", () => {
+			const r = replica();
+			r.applyOps([
+				putMember(3, person("alice", "member")),
+				putMember(4, person("bot", "agent")),
+				putProject(5, project),
+			]);
+			r.addPending(
+				pending("m1", {
+					name: "project.create",
+					args: {
+						id: "p2",
+						name: "Led by an agent",
+						description: null,
+						status: "planned",
+						leadId: "bot",
+						targetDate: null,
+					},
+				}),
+				pending("m2", { name: "project.update", args: { id: "p1", patch: { leadId: "ghost" } } }),
+				pending("m3", { name: "project.delete", args: { id: "p1" } }),
+				pending("m4", {
+					name: "issue.update",
+					args: { id: "i1", baseVersion: 2, patch: { projectId: "missing" } },
+				}),
+			);
+			expect(r.getState().projects.has("p2")).toBe(false);
+			expect(r.getState().projects.get("p1")?.leadId).toBeNull();
+			// Only admins delete projects.
+			expect(r.getState().projects.has("p1")).toBe(true);
+			expect(r.getState().issues.get("i1")?.projectId).toBeNull();
+		});
+
+		it("predicts an issue's project, and that deleting the project clears it", () => {
+			const r = replica();
+			r.applyOps([putMember(3, person("alice", "admin")), putProject(4, project)]);
+			r.addPending(
+				pending("m1", {
+					name: "issue.update",
+					args: { id: "i1", baseVersion: 2, patch: { projectId: "p1" } },
+				}),
+				pending("m2", {
+					name: "issue.create",
+					args: {
+						id: "i2",
+						teamId: "t1",
+						title: "In the project",
+						description: null,
+						status: "backlog",
+						priority: 0,
+						assigneeId: null,
+						projectId: "p1",
+						labelIds: [],
+						sortOrder: "a1",
+					},
+				}),
+			);
+			expect(r.getState().issues.get("i1")?.projectId).toBe("p1");
+			expect(r.getState().issues.get("i2")?.projectId).toBe("p1");
+
+			r.addPending(pending("m3", { name: "project.delete", args: { id: "p1" } }));
+			expect(r.getState().projects.has("p1")).toBe(false);
+			expect(r.getState().issues.get("i1")?.projectId).toBeNull();
+			expect(r.getState().issues.get("i2")?.projectId).toBeNull();
+		});
+
+		it("leaves a new issue in an unknown project to the server", () => {
+			const r = replica();
+			r.addPending(
+				pending("m1", {
+					name: "issue.create",
+					args: {
+						id: "i2",
+						teamId: "t1",
+						title: "Nowhere",
+						description: null,
+						status: "backlog",
+						priority: 0,
+						assigneeId: null,
+						projectId: "unknown",
+						labelIds: [],
+						sortOrder: "a1",
+					},
+				}),
+			);
+			expect(r.getState().issues.has("i2")).toBe(false);
+		});
+
+		it("predicts accepting a proposed project", () => {
+			const r = replica();
+			r.applyOps([
+				putProject(3, project),
+				{
+					version: 4,
+					entity: "proposal",
+					id: "pr1",
+					op: "put",
+					data: {
+						id: "pr1",
+						issueId: "i1",
+						agentId: "bot",
+						change: { type: "project", to: "p1" },
+						createdAt: 4,
+						updatedAt: 4,
+					},
+				},
+			]);
+			r.addPending(pending("m1", { name: "proposal.accept", args: { id: "pr1" } }));
+			expect(r.getState().issues.get("i1")?.projectId).toBe("p1");
+			expect(r.getState().proposals.size).toBe(0);
+		});
 	});
 
 	it("predicts accepting and dismissing proposals, and replays them over the server's result", () => {

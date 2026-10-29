@@ -21,7 +21,16 @@ import {
 } from "./proposals";
 import { MutationRejected } from "./rejected";
 import { indexIssue, indexTeamIssues, unindexIssue } from "./search";
-import { activeMember, type Db, toComment, toIssue, toLabel, toMember, toTeam } from "./state";
+import {
+	activeMember,
+	type Db,
+	toComment,
+	toIssue,
+	toLabel,
+	toMember,
+	toProject,
+	toTeam,
+} from "./state";
 import { queueDeliveries } from "./webhooks";
 
 export interface Actor {
@@ -83,6 +92,15 @@ export function applyMutation(
 			break;
 		case "label.delete":
 			deleteLabel(db, changes, actor, mutation.args);
+			break;
+		case "project.create":
+			createProject(db, changes, actor, mutation.args);
+			break;
+		case "project.update":
+			updateProject(db, changes, actor, mutation.args);
+			break;
+		case "project.delete":
+			deleteProject(db, changes, actor, mutation.args);
 			break;
 		case "comment.create":
 			createComment(db, changes, actor, mutation.args);
@@ -151,6 +169,7 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		throw new MutationRejected("invalid", "Issue id already exists");
 	}
 	assertAssignable(db, args.assigneeId);
+	assertProjectLive(db, args.projectId);
 	const requested = [...new Set(args.labelIds)];
 	for (const labelId of requested) {
 		if (!findLiveLabel(db, labelId)) throw new MutationRejected("not_found", "Label not found");
@@ -173,6 +192,10 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		args.assigneeId !== null && hold({ type: "assignee", to: args.assigneeId })
 			? null
 			: args.assigneeId;
+	const projectId =
+		args.projectId !== null && hold({ type: "project", to: args.projectId })
+			? null
+			: args.projectId;
 	const labelIds = requested.filter((labelId) => !hold({ type: "label", labelId, added: true }));
 
 	const number = team.issueCounter + 1;
@@ -183,6 +206,7 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		status,
 		priority,
 		assigneeId,
+		projectId,
 		labelIds,
 		number,
 		creatorId: actor.member.userId,
@@ -216,6 +240,7 @@ function updateIssue(
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
 	if (args.patch.assigneeId !== undefined) assertAssignable(db, args.patch.assigneeId);
+	if (args.patch.projectId !== undefined) assertProjectLive(db, args.patch.projectId);
 
 	const patch: IssuePatch = {};
 	for (const [field, value] of Object.entries(args.patch) as [keyof IssuePatch, never][]) {
@@ -284,6 +309,8 @@ function proposedChange(field: keyof IssuePatch, value: never): ProposedChange |
 			return { type: "priority", to: value };
 		case "assigneeId":
 			return { type: "assignee", to: value };
+		case "projectId":
+			return { type: "project", to: value };
 		case "sortOrder":
 			return null;
 	}
@@ -300,6 +327,9 @@ function issueChanges(before: schema.IssueRow, patch: Partial<schema.IssueRow>):
 	}
 	if (patch.assigneeId !== undefined) {
 		changes.push({ type: "assignee", from: before.assigneeId, to: patch.assigneeId });
+	}
+	if (patch.projectId !== undefined) {
+		changes.push({ type: "project", from: before.projectId, to: patch.projectId });
 	}
 	if (patch.title !== undefined)
 		changes.push({ type: "title", from: before.title, to: patch.title });
@@ -462,6 +492,88 @@ function deleteLabel(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		.where(eq(schema.labels.id, label.id))
 		.run();
 	changes.delete("label", label.id);
+}
+
+function createProject(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"project.create">,
+) {
+	requirePerson(actor, "Agents cannot create projects");
+	if (db.select().from(schema.projects).where(eq(schema.projects.id, args.id)).get()) {
+		throw new MutationRejected("invalid", "Project id already exists");
+	}
+	assertLead(db, args.leadId);
+
+	const row: schema.ProjectRow = {
+		...args,
+		createdAt: changes.now,
+		updatedAt: changes.now,
+		deletedAt: null,
+	};
+	db.insert(schema.projects).values(row).run();
+	changes.put("project", toProject(row));
+}
+
+function updateProject(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"project.update">,
+) {
+	requirePerson(actor, "Agents cannot change projects");
+	const project = findLiveProject(db, args.id);
+	if (!project) throw new MutationRejected("not_found", "Project not found");
+	if (args.patch.leadId !== undefined) assertLead(db, args.patch.leadId);
+
+	const changed = (Object.entries(args.patch) as [keyof typeof args.patch, unknown][]).some(
+		([field, value]) => project[field] !== value,
+	);
+	if (!changed) return;
+	const row = db
+		.update(schema.projects)
+		.set({ ...args.patch, updatedAt: changes.now })
+		.where(eq(schema.projects.id, project.id))
+		.returning()
+		.get();
+	if (row) changes.put("project", toProject(row));
+}
+
+/** Takes the project off every issue in it, then deletes it. Admins only: it is wide. */
+function deleteProject(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"project.delete">,
+) {
+	requireAdmin(actor, "Only workspace admins can delete projects");
+	const project = findLiveProject(db, args.id);
+	if (!project) throw new MutationRejected("not_found", "Project not found");
+
+	const members = db
+		.select()
+		.from(schema.issues)
+		.where(and(isNull(schema.issues.deletedAt), eq(schema.issues.projectId, project.id)))
+		.all();
+	for (const issue of members) {
+		const row = db
+			.update(schema.issues)
+			.set({ projectId: null, version: changes.nextVersion, updatedAt: changes.now })
+			.where(eq(schema.issues.id, issue.id))
+			.returning()
+			.get();
+		if (row) {
+			changes.put("issue", toIssue(row));
+			changes.events.push({ type: "issue.updated", issue: row, previous: issue });
+		}
+	}
+
+	db.update(schema.projects)
+		.set({ deletedAt: changes.now, updatedAt: changes.now })
+		.where(eq(schema.projects.id, project.id))
+		.run();
+	changes.delete("project", project.id);
 }
 
 function createComment(
@@ -629,6 +741,14 @@ function findLiveComment(db: Db, id: string) {
 	return comment && findLiveIssue(db, comment.issueId) ? comment : undefined;
 }
 
+function findLiveProject(db: Db, id: string) {
+	return db
+		.select()
+		.from(schema.projects)
+		.where(and(eq(schema.projects.id, id), isNull(schema.projects.deletedAt)))
+		.get();
+}
+
 function findLiveLabel(db: Db, id: string) {
 	return db
 		.select()
@@ -660,6 +780,21 @@ function assertTeamKeyFree(db: Db, key: string, exceptTeamId?: string) {
 		)
 		.get();
 	if (taken) throw new MutationRejected("conflict", `Team key ${key} is already in use`);
+}
+
+function assertProjectLive(db: Db, projectId: string | null) {
+	if (projectId !== null && !findLiveProject(db, projectId)) {
+		throw new MutationRejected("not_found", "Project not found");
+	}
+}
+
+/** A project is led by a person: an agent proposes and works, it does not lead. */
+function assertLead(db: Db, leadId: string | null) {
+	if (leadId === null) return;
+	const lead = activeMember(db, leadId);
+	if (!lead || lead.role === "agent") {
+		throw new MutationRejected("invalid", "Lead is not a person in this workspace");
+	}
 }
 
 function assertAssignable(db: Db, assigneeId: string | null) {

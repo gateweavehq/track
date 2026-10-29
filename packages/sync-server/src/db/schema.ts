@@ -9,6 +9,7 @@ import {
 	ISSUE_STATUSES,
 	type IssuePriority,
 	MEMBER_ROLES,
+	PROJECT_STATUSES,
 	type ProposedChange,
 	type WebhookDelivery,
 	type WebhookEventType,
@@ -44,6 +45,7 @@ export const issues = sqliteTable(
 		status: text("status", { enum: ISSUE_STATUSES }).notNull(),
 		priority: integer("priority").$type<IssuePriority>().notNull(),
 		assigneeId: text("assignee_id"),
+		projectId: text("project_id"),
 		creatorId: text("creator_id").notNull(),
 		labelIds: text("label_ids", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
 		sortOrder: text("sort_order").notNull(),
@@ -56,7 +58,10 @@ export const issues = sqliteTable(
 		updatedAt: integer("updated_at").notNull(),
 		deletedAt: integer("deleted_at"),
 	},
-	(table) => [uniqueIndex("issues_team_number_idx").on(table.teamId, table.number)],
+	(table) => [
+		uniqueIndex("issues_team_number_idx").on(table.teamId, table.number),
+		index("issues_project_idx").on(table.projectId),
+	],
 );
 
 /** Deleted labels keep their row, like issues, but are removed from every issue. */
@@ -64,6 +69,19 @@ export const labels = sqliteTable("labels", {
 	id: text("id").primaryKey(),
 	name: text("name").notNull(),
 	color: text("color").notNull(),
+	createdAt: integer("created_at").notNull(),
+	updatedAt: integer("updated_at").notNull(),
+	deletedAt: integer("deleted_at"),
+});
+
+/** Deleted projects keep their row, like labels, but are cleared from every issue. */
+export const projects = sqliteTable("projects", {
+	id: text("id").primaryKey(),
+	name: text("name").notNull(),
+	description: text("description"),
+	status: text("status", { enum: PROJECT_STATUSES }).notNull(),
+	leadId: text("lead_id"),
+	targetDate: text("target_date"),
 	createdAt: integer("created_at").notNull(),
 	updatedAt: integer("updated_at").notNull(),
 	deletedAt: integer("deleted_at"),
@@ -218,6 +236,7 @@ export const webhookDeliveries = sqliteTable(
 export type TeamRow = typeof teams.$inferSelect;
 export type IssueRow = typeof issues.$inferSelect;
 export type LabelRow = typeof labels.$inferSelect;
+export type ProjectRow = typeof projects.$inferSelect;
 export type CommentRow = typeof comments.$inferSelect;
 export type ActivityRow = typeof activities.$inferSelect;
 export type ProposalRow = typeof proposals.$inferSelect;
