@@ -49,6 +49,7 @@ export interface IssueDefaults {
 	teamId?: string;
 	status?: IssueStatus;
 	assigneeId?: string | null;
+	projectId?: string | null;
 	labelIds?: string[];
 }
 
@@ -56,6 +57,7 @@ export interface IssueDefaults {
 export interface WorkspaceActions {
 	createIssue: (defaults?: IssueDefaults) => void;
 	createTeam: () => void;
+	createProject: () => void;
 	openCommandPalette: () => void;
 	showShortcuts: () => void;
 }

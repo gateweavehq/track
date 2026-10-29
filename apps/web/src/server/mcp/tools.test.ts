@@ -5,6 +5,7 @@ import type {
 	Member,
 	Mutation,
 	MutationInput,
+	Project,
 	Proposal,
 	Team,
 } from "@gateweave/track-protocol";
@@ -48,7 +49,8 @@ class FakeWorkspace implements WorkspaceAccess {
 	mutations: Mutation[] = [];
 	nextResult: MutateResult | null = null;
 	/** What the server would turn into proposals rather than make, as for an agent set so. */
-	proposing = new Set<"status" | "assigneeId" | "labels">();
+	proposing = new Set<"status" | "assigneeId" | "labels" | "projectId">();
+	projects: Project[] = [];
 	proposals_: Proposal[] = [];
 	#version = 10;
 
@@ -56,6 +58,7 @@ class FakeWorkspace implements WorkspaceAccess {
 		return {
 			teams: this.teams,
 			labels: this.labels,
+			projects: this.projects,
 			members: [{ ...me, proposes: [], removedAt: null }, sam],
 		};
 	}
@@ -64,6 +67,7 @@ class FakeWorkspace implements WorkspaceAccess {
 			.filter((issue) => query.assigneeId === undefined || issue.assigneeId === query.assigneeId)
 			.filter((issue) => !query.statuses || query.statuses.includes(issue.status))
 			.filter((issue) => query.labelId === undefined || issue.labelIds.includes(query.labelId))
+			.filter((issue) => query.projectId === undefined || issue.projectId === query.projectId)
 			.slice(0, query.limit);
 	}
 	async issue(id: string) {
@@ -123,10 +127,9 @@ class FakeWorkspace implements WorkspaceAccess {
 			this.proposals_.push(proposal);
 		};
 		if (mutation.name === "issue.create") {
-			const { id, teamId, title, description, status, priority, assigneeId, labelIds, sortOrder } =
-				mutation.args;
+			const args = mutation.args;
 			this.issues_.push({
-				...{ id, teamId, title, description, status, priority, assigneeId, labelIds, sortOrder },
+				...{ ...args },
 				number: this.issues_.length + 1,
 				creatorId: me.id,
 				version,
@@ -135,7 +138,7 @@ class FakeWorkspace implements WorkspaceAccess {
 			});
 		} else if (mutation.name === "issue.update") {
 			const { id, patch } = mutation.args;
-			const { status, assigneeId, ...rest } = patch;
+			const { status, assigneeId, projectId, ...rest } = patch;
 			const issue = this.issues_.find((issue) => issue.id === id);
 			if (status !== undefined && this.proposing.has("status")) {
 				propose(id, { type: "status", to: status });
@@ -146,6 +149,11 @@ class FakeWorkspace implements WorkspaceAccess {
 				propose(id, { type: "assignee", to: assigneeId });
 			} else if (assigneeId !== undefined) {
 				Object.assign(rest, { assigneeId });
+			}
+			if (projectId !== undefined && this.proposing.has("projectId")) {
+				propose(id, { type: "project", to: projectId });
+			} else if (projectId !== undefined) {
+				Object.assign(rest, { projectId });
 			}
 			if (issue) Object.assign(issue, rest, { version });
 		} else if (mutation.name === "issue.addLabel" || mutation.name === "issue.removeLabel") {
@@ -236,6 +244,7 @@ describe("Track MCP tools", () => {
 		expect((await call("get_workspace", { workspace: "acme" })).structuredContent).toEqual({
 			teams: [{ key: "ENG", name: "Engineering" }],
 			labels: [],
+			projects: [],
 			members: [
 				{ id: me.id, name: "Maya", email: "maya@example.com", role: "owner" },
 				{ id: sam.id, name: "Sam", email: "sam@example.com", role: "member" },
@@ -508,6 +517,133 @@ describe("Track MCP tools", () => {
 		expect(underivable.isError).toBe(true);
 		// Only the taken key reached the server; the malformed ones were refused before any write.
 		expect(workspace.mutations.map((m) => m.name)).toEqual(["team.create"]);
+	});
+
+	it("puts issues in projects by name or id, and finds them by project", async () => {
+		workspace.projects.push(
+			{
+				id: "p-launch",
+				name: "Public launch",
+				description: null,
+				status: "started",
+				leadId: null,
+				targetDate: null,
+				createdAt: 0,
+				updatedAt: 0,
+			},
+			{
+				id: "p-docs",
+				name: "Docs",
+				description: null,
+				status: "planned",
+				leadId: null,
+				targetDate: null,
+				createdAt: 0,
+				updatedAt: 0,
+			},
+		);
+
+		const listed = await call("get_workspace", { workspace: "acme" });
+		const first = await created({ title: "Announce", project: "PUBLIC LAUNCH" });
+		await created({ title: "Write guides", project: "p-docs" });
+		await created({ title: "Loose" });
+		const found = await call("search_issues", { workspace: "acme", project: "public launch" });
+		const moved = await call("update_issue", { workspace: "acme", key: "ENG-3", project: "Docs" });
+		const cleared = await call("update_issue", { workspace: "acme", key: "ENG-1", project: null });
+		const unchanged = await call("update_issue", {
+			workspace: "acme",
+			key: "ENG-3",
+			title: "Renamed",
+		});
+
+		expect(listed.structuredContent).toMatchObject({
+			projects: [
+				{ id: "p-launch", name: "Public launch", status: "started" },
+				{ id: "p-docs", name: "Docs", status: "planned" },
+			],
+		});
+		expect(first).toMatchObject({ key: "ENG-1", project: "Public launch" });
+		expect(workspace.issues_.map((issue) => issue.projectId)).toEqual([null, "p-docs", "p-docs"]);
+		expect(found.structuredContent).toMatchObject({ issues: [{ key: "ENG-1" }] });
+		expect(moved.structuredContent).toMatchObject({ key: "ENG-3", project: "Docs" });
+		expect(cleared.structuredContent).toMatchObject({ key: "ENG-1", project: null });
+		// Leaving the project out leaves it where it was.
+		expect(unchanged.structuredContent).toMatchObject({ key: "ENG-3", project: "Docs" });
+		const patch = workspace.mutations.find(
+			(m) => m.name === "issue.update" && m.args.patch.projectId === null,
+		);
+		expect(patch).toBeDefined();
+	});
+
+	it("refuses an unknown project without writing", async () => {
+		workspace.projects.push({
+			id: "p-docs",
+			name: "Docs",
+			description: null,
+			status: "planned",
+			leadId: null,
+			targetDate: null,
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		await created({ title: "Something" });
+
+		const create = await call("create_issue", {
+			workspace: "acme",
+			team: "ENG",
+			title: "Nope",
+			project: "Launch",
+		});
+		const update = await call("update_issue", {
+			workspace: "acme",
+			key: "ENG-1",
+			project: "Launch",
+		});
+		const search = await call("search_issues", { workspace: "acme", project: "Launch" });
+
+		const text = [
+			{ type: "text", text: 'No project "Launch". Projects: Docs. See get_workspace.' },
+		];
+		for (const result of [create, update, search]) {
+			expect(result.isError).toBe(true);
+			expect(result.content).toEqual(text);
+		}
+		expect(workspace.mutations.map((m) => m.name)).toEqual(["issue.create"]);
+	});
+
+	it("offers no way to create a project", async () => {
+		const { tools } = await client.listTools();
+		expect(tools.map((tool) => tool.name).filter((name) => name.includes("project"))).toEqual([]);
+	});
+
+	it("says when an agent proposed a project instead of setting it", async () => {
+		workspace.projects.push({
+			id: "p-docs",
+			name: "Docs",
+			description: null,
+			status: "planned",
+			leadId: null,
+			targetDate: null,
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		await created({ title: "Triage me" });
+		workspace.proposing = new Set(["projectId"]);
+
+		const updated = await call("update_issue", {
+			workspace: "acme",
+			key: "ENG-1",
+			project: "Docs",
+		});
+		const read = await call("get_issue", { workspace: "acme", key: "ENG-1" });
+
+		expect(updated.structuredContent).toMatchObject({
+			project: null,
+			proposed: [{ change: "project", to: "Docs" }],
+		});
+		expect(read.structuredContent).toMatchObject({
+			proposals: [{ change: "project", to: "Docs" }],
+		});
 	});
 
 	it("labels issues by name, and finds them by label", async () => {

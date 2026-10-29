@@ -34,6 +34,7 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			const args = mutation.args;
 			if (draft.get("issue", args.id) || !draft.get("team", args.teamId)) return;
 			if (args.labelIds.some((labelId) => !draft.get("label", labelId))) return;
+			if (args.projectId !== null && !draft.get("project", args.projectId)) return;
 			draft.put("issue", {
 				...args,
 				labelIds: [...new Set(args.labelIds)],
@@ -47,8 +48,10 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			return;
 		}
 		case "issue.update": {
-			const issue = draft.get("issue", mutation.args.id);
-			if (issue) draft.put("issue", { ...issue, ...mutation.args.patch, updatedAt: now });
+			const { id, patch } = mutation.args;
+			const issue = draft.get("issue", id);
+			if (patch.projectId && !draft.get("project", patch.projectId)) return;
+			if (issue) draft.put("issue", { ...issue, ...patch, updatedAt: now });
 			return;
 		}
 		case "issue.delete": {
@@ -98,6 +101,33 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 				if (issue.labelIds.includes(id)) draft.put("issue", withoutLabel(issue, id, now));
 			}
 			draft.delete("label", id);
+			return;
+		}
+		case "project.create": {
+			const { id, ...fields } = mutation.args;
+			if (draft.get("project", id) || isAgent(draft, userId) || !isLead(draft, fields.leadId)) {
+				return;
+			}
+			draft.put("project", { id, ...fields, createdAt: now, updatedAt: now });
+			return;
+		}
+		case "project.update": {
+			const { id, patch } = mutation.args;
+			const project = draft.get("project", id);
+			if (!project || isAgent(draft, userId)) return;
+			if (patch.leadId !== undefined && !isLead(draft, patch.leadId)) return;
+			draft.put("project", { ...project, ...patch, updatedAt: now });
+			return;
+		}
+		case "project.delete": {
+			const { id } = mutation.args;
+			const role = draft.get("member", userId)?.role;
+			if (!draft.get("project", id) || role === undefined || !isAdminRole(role)) return;
+			for (const issue of [...draft.values("issue")]) {
+				if (issue.projectId === id)
+					draft.put("issue", { ...issue, projectId: null, updatedAt: now });
+			}
+			draft.delete("project", id);
 			return;
 		}
 		case "comment.create": {
@@ -164,6 +194,9 @@ function withChange(draft: Draft, issue: Issue, change: ProposedChange, now: num
 			return { ...issue, priority: change.to, updatedAt: now };
 		case "assignee":
 			return { ...issue, assigneeId: change.to, updatedAt: now };
+		case "project":
+			if (change.to !== null && !draft.get("project", change.to)) return null;
+			return { ...issue, projectId: change.to, updatedAt: now };
 		case "label": {
 			const has = issue.labelIds.includes(change.labelId);
 			if (!change.added) return has ? withoutLabel(issue, change.labelId, now) : null;
@@ -172,6 +205,17 @@ function withChange(draft: Draft, issue: Issue, change: ProposedChange, now: num
 			return { ...issue, labelIds: [...issue.labelIds, change.labelId], updatedAt: now };
 		}
 	}
+}
+
+function isAgent(draft: Draft, userId: string): boolean {
+	return draft.get("member", userId)?.role === "agent";
+}
+
+/** Whether the server would take this member as a project's lead: a person, or no one. */
+function isLead(draft: Draft, leadId: string | null): boolean {
+	if (leadId === null) return true;
+	const lead = draft.get("member", leadId);
+	return lead !== undefined && lead.role !== "agent" && lead.removedAt === null;
 }
 
 function withoutLabel(issue: Issue, labelId: string, now: number): Issue {

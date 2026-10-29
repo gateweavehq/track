@@ -1,8 +1,16 @@
-import type { Comment, Issue, IssueStatus, Label, Member, Team } from "@gateweave/track-protocol";
+import type {
+	Comment,
+	Issue,
+	IssueStatus,
+	Label,
+	Member,
+	Project,
+	Team,
+} from "@gateweave/track-protocol";
 import { and, asc, desc, eq, inArray, isNull, max, type SQL, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
 import { issueSearch, issueSearchDocs, matchExpression, matches, RANK } from "./search";
-import { type Db, toComment, toIssue, toLabel, toMember, toTeam } from "./state";
+import { type Db, toComment, toIssue, toLabel, toMember, toProject, toTeam } from "./state";
 
 // Reads for server-side clients, which ask for a slice of the workspace instead of a replica.
 
@@ -11,6 +19,8 @@ export interface IssueQuery {
 	statuses?: readonly IssueStatus[] | undefined;
 	/** A member's id, or null for unassigned issues. */
 	assigneeId?: string | null | undefined;
+	/** Only issues in this project. */
+	projectId?: string | undefined;
 	/** Only issues with this label. */
 	labelId?: string | undefined;
 	/**
@@ -26,6 +36,7 @@ export const MAX_QUERY_LIMIT = 200;
 export interface Directory {
 	teams: Team[];
 	labels: Label[];
+	projects: Project[];
 	members: Member[];
 }
 
@@ -39,6 +50,13 @@ export function readDirectory(db: Db): Directory {
 			.orderBy(schema.labels.name)
 			.all()
 			.map(toLabel),
+		projects: db
+			.select()
+			.from(schema.projects)
+			.where(isNull(schema.projects.deletedAt))
+			.orderBy(schema.projects.name)
+			.all()
+			.map(toProject),
 		members: db.select().from(schema.members).orderBy(schema.members.name).all().map(toMember),
 	};
 }
@@ -52,6 +70,7 @@ export function findIssues(db: Db, query: IssueQuery): Issue[] {
 	else if (query.assigneeId !== undefined) {
 		filters.push(eq(schema.issues.assigneeId, query.assigneeId));
 	}
+	if (query.projectId !== undefined) filters.push(eq(schema.issues.projectId, query.projectId));
 	if (query.labelId !== undefined) {
 		filters.push(
 			sql`exists (select 1 from json_each(${schema.issues.labelIds}) where value = ${query.labelId})`,

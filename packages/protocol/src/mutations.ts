@@ -4,6 +4,7 @@ import {
 	ISSUE_PRIORITIES,
 	ISSUE_STATUSES,
 	MAX_LABELS_PER_ISSUE,
+	PROJECT_STATUSES,
 } from "./domain";
 
 /** Client-generated ids. UUIDv7 is recommended so ids sort by creation time. */
@@ -19,6 +20,16 @@ const priority = z.literal(ISSUE_PRIORITIES);
 const sortOrder = z.string().min(1).max(128);
 const labelName = z.string().trim().min(1).max(64);
 const labelColor = z.string().regex(/^#[0-9a-f]{6}$/, "A lowercase hex color, like #e5484d");
+const projectName = z.string().trim().min(1).max(64);
+const projectStatus = z.enum(PROJECT_STATUSES);
+/** `YYYY-MM-DD`, and a day that exists: 2026-02-30 is refused. */
+const targetDate = z
+	.string()
+	.regex(/^\d{4}-\d{2}-\d{2}$/, "A date like 2026-03-31")
+	.refine((value) => {
+		const date = new Date(`${value}T00:00:00Z`);
+		return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
+	}, "Not a real calendar date");
 const commentBody = z.string().trim().min(1).max(100_000);
 
 const nonEmpty = (patch: object) => Object.keys(patch).length > 0;
@@ -45,6 +56,7 @@ export const mutationSchema = z.discriminatedUnion("name", [
 			status: status.default("backlog"),
 			priority: priority.default(0),
 			assigneeId: id.nullable().default(null),
+			projectId: id.nullable().default(null),
 			labelIds: z.array(id).max(MAX_LABELS_PER_ISSUE).default([]),
 			sortOrder,
 		}),
@@ -56,7 +68,15 @@ export const mutationSchema = z.discriminatedUnion("name", [
 			/** The issue `version` the client saw when it made the edit. */
 			baseVersion: z.number().int().nonnegative(),
 			patch: z
-				.object({ title, description, status, priority, assigneeId: id.nullable(), sortOrder })
+				.object({
+					title,
+					description,
+					status,
+					priority,
+					assigneeId: id.nullable(),
+					projectId: id.nullable(),
+					sortOrder,
+				})
 				.partial()
 				.refine(nonEmpty, "Empty patch"),
 		}),
@@ -91,6 +111,37 @@ export const mutationSchema = z.discriminatedUnion("name", [
 	}),
 	z.object({
 		name: z.literal("label.delete"),
+		args: z.object({ id }),
+	}),
+	z.object({
+		name: z.literal("project.create"),
+		args: z.object({
+			id,
+			name: projectName,
+			description: description.default(null),
+			status: projectStatus.default("planned"),
+			leadId: id.nullable().default(null),
+			targetDate: targetDate.nullable().default(null),
+		}),
+	}),
+	z.object({
+		name: z.literal("project.update"),
+		args: z.object({
+			id,
+			patch: z
+				.object({
+					name: projectName,
+					description,
+					status: projectStatus,
+					leadId: id.nullable(),
+					targetDate: targetDate.nullable(),
+				})
+				.partial()
+				.refine(nonEmpty, "Empty patch"),
+		}),
+	}),
+	z.object({
+		name: z.literal("project.delete"),
 		args: z.object({ id }),
 	}),
 	z.object({

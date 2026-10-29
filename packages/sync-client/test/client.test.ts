@@ -8,6 +8,7 @@ import {
 	SyncClient,
 	type SyncSocket,
 	type Transport,
+	uuidv7,
 } from "../src";
 import { issueBy, make, TestWorkspace, waitFor, waitForConvergence, waitForLive } from "./harness";
 
@@ -105,6 +106,41 @@ describe("mutations", () => {
 		expect(bob.getStatus().pending).toBe(0);
 		expect(onReject).toHaveBeenCalledOnce();
 		expect(onReject.mock.calls[0]?.[0]).toBeInstanceOf(MutationError);
+	});
+
+	it("rolls back an issue's project when the project was deleted meanwhile", async () => {
+		const ws = setup();
+		const alice = await ws.live("alice");
+		const network = ws.network("bob");
+		const bob = await ws.live("bob", { network });
+		const team = make.team();
+		const project = {
+			name: "project.create",
+			args: { id: uuidv7(), name: "Launch" },
+		} as const;
+		await alice.mutate(team);
+		await alice.mutate(make.issue(team.args.id, "Plan"));
+		await alice.mutate(project);
+		await waitForConvergence(alice, bob);
+		const plan = issueBy(bob, "Plan");
+
+		network.offline();
+		await waitFor(() => bob.getStatus().connection === "offline");
+		const result = bob.mutate({
+			name: "issue.update",
+			args: { id: plan.id, baseVersion: plan.version, patch: { projectId: project.args.id } },
+		});
+		expect(issueBy(bob, "Plan").projectId).toBe(project.args.id);
+
+		await alice.mutate({ name: "project.delete", args: { id: project.args.id } });
+		network.online();
+
+		await expect(result).rejects.toMatchObject({ name: "MutationError", reason: "not_found" });
+		await waitForConvergence(alice, bob);
+		for (const client of [alice, bob]) {
+			expect(client.getState().projects.size).toBe(0);
+			expect(issueBy(client, "Plan").projectId).toBeNull();
+		}
 	});
 
 	it("validates input before queueing it", async () => {
@@ -283,6 +319,7 @@ describe("offline", () => {
 			teams: [],
 			issues: [],
 			labels: [],
+			projects: [],
 			comments: [],
 			activities: [],
 			proposals: [],
@@ -392,6 +429,7 @@ function scriptedTransport(
 			teams: [],
 			issues: [],
 			labels: [],
+			projects: [],
 			comments: [],
 			activities: [],
 			proposals: [],

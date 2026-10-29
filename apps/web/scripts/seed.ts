@@ -117,7 +117,7 @@ async function main() {
 		);
 		const count = (name: string) => steps.filter((step) => step.mutation.name === name).length;
 		console.log(
-			`Created ${name} with ${count("team.create")} teams, ${count("label.create")} labels, ${count("issue.create")} issues and ${count("comment.create")} comments.`,
+			`Created ${name} with ${count("team.create")} teams, ${count("label.create")} labels, ${count("project.create")} projects, ${count("issue.create")} issues and ${count("comment.create")} comments.`,
 		);
 	} finally {
 		await Promise.all(people.map((key) => clients[key].close()));

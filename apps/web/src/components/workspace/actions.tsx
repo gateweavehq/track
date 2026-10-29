@@ -3,10 +3,11 @@ import { useParams, useSearch } from "@tanstack/react-router";
 import { type ReactNode, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { CreateIssueDialog } from "#/components/issues/create-issue-dialog";
+import { CreateProjectDialog } from "#/components/projects/create-project-dialog";
 import { CreateTeamDialog } from "#/components/teams/create-team-dialog";
 import { useHotkeys } from "#/lib/hotkeys";
 import { parseIssueKey } from "#/lib/issues";
-import { useTeamByKey, useTeams } from "#/lib/queries";
+import { useProject, useTeamByKey, useTeams } from "#/lib/queries";
 import { issuePageSearch } from "#/lib/views";
 import { CommandPalette } from "./command-palette";
 import {
@@ -21,6 +22,7 @@ import { ShortcutsDialog } from "./shortcuts-dialog";
 type OpenDialog =
 	| { kind: "issue"; defaults: IssueDefaults }
 	| { kind: "team" }
+	| { kind: "project" }
 	| { kind: "palette" }
 	| { kind: "shortcuts" }
 	| null;
@@ -34,6 +36,8 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 	const params = useParams({ strict: false });
 	const routeTeamKey = params.teamKey ?? parseIssueKey(params.issueKey ?? "")?.teamKey ?? "";
 	const routeTeamId = useTeamByKey(routeTeamKey)?.id;
+	// And to the project on screen, which only counts while it exists.
+	const routeProjectId = useProject(params.projectId ?? "")?.id;
 	// And they start with the labels the page is filtered by, so they show up on it. Parsed only
 	// when used, so the raw value keeps its identity between renders.
 	const routeLabels = useSearch({ strict: false }).labels;
@@ -47,6 +51,7 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 						defaults: {
 							...defaults,
 							teamId: defaults.teamId ?? routeTeamId,
+							projectId: defaults.projectId === undefined ? routeProjectId : defaults.projectId,
 							labelIds: defaults.labelIds ?? issuePageSearch.shape.labels.parse(routeLabels),
 						},
 					});
@@ -59,10 +64,12 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 			},
 			// Only admins manage teams. The UI hides the way in for others; this is the backstop.
 			createTeam: () => admin && setDialog({ kind: "team" }),
+			// Any person can make a project; the server refuses agents, which never use this UI.
+			createProject: () => setDialog({ kind: "project" }),
 			openCommandPalette: () => setDialog({ kind: "palette" }),
 			showShortcuts: () => setDialog({ kind: "shortcuts" }),
 		}),
-		[hasTeams, routeTeamId, routeLabels, admin],
+		[hasTeams, routeTeamId, routeProjectId, routeLabels, admin],
 	);
 
 	const { loaded } = useSyncStatus();
@@ -85,6 +92,7 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 			{children}
 			{dialog?.kind === "issue" && <CreateIssueDialog defaults={dialog.defaults} onClose={close} />}
 			{dialog?.kind === "team" && <CreateTeamDialog onClose={close} />}
+			{dialog?.kind === "project" && <CreateProjectDialog onClose={close} />}
 			{dialog?.kind === "palette" && <CommandPalette onClose={close} />}
 			{dialog?.kind === "shortcuts" && <ShortcutsDialog onClose={close} />}
 		</WorkspaceActionsContext>

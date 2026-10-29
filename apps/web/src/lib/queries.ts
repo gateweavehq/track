@@ -4,6 +4,7 @@ import type {
 	Issue,
 	Label,
 	Member,
+	Project,
 	Proposal,
 	Team,
 } from "@gateweave/track-protocol";
@@ -12,6 +13,7 @@ import { shallowEqual, useQuery } from "@gateweave/track-sync-client/react";
 import { useCallback } from "react";
 import { compareIssues } from "./issues";
 import { compareLabels } from "./labels";
+import { compareProjects, type ProjectProgress, projectProgress } from "./projects";
 
 // Selectors over the synced state. Each hook keeps its selector stable for the inputs it
 // depends on, so useQuery can skip work when unrelated parts of the state change.
@@ -53,6 +55,67 @@ function countsEqual(a: ReadonlyMap<string, number>, b: ReadonlyMap<string, numb
 /** How many issues each team has, by team id. */
 export function useIssueCountsByTeam(): ReadonlyMap<string, number> {
 	return useQuery(selectIssueCounts, countsEqual);
+}
+
+const selectProjectList = (state: SyncState) => [...state.projects.values()].sort(compareProjects);
+
+/** Live projects, open work first, for pickers. */
+export function useProjectList(): Project[] {
+	return useQuery(selectProjectList, shallowEqual);
+}
+
+const selectProjectsById = (state: SyncState) => state.projects;
+
+export function useProjectsById(): ReadonlyMap<string, Project> {
+	return useQuery(selectProjectsById);
+}
+
+export function useProject(id: string): Project | undefined {
+	return useQuery(useCallback((state: SyncState) => state.projects.get(id), [id]));
+}
+
+/** A project with how many issues it has and how many of them are done. */
+export interface ProjectSummary {
+	project: Project;
+	/** Every issue in the project. */
+	issues: number;
+	/** Done out of all that are not canceled. */
+	progress: ProjectProgress;
+}
+
+const selectProjectSummaries = (state: SyncState): ProjectSummary[] => {
+	const grouped = new Map<string, Issue[]>();
+	for (const issue of state.issues.values()) {
+		if (issue.projectId === null) continue;
+		const group = grouped.get(issue.projectId);
+		if (group) group.push(issue);
+		else grouped.set(issue.projectId, [issue]);
+	}
+	return [...state.projects.values()].sort(compareProjects).map((project) => {
+		const issues = grouped.get(project.id) ?? [];
+		return { project, issues: issues.length, progress: projectProgress(issues) };
+	});
+};
+
+function summariesEqual(a: readonly ProjectSummary[], b: readonly ProjectSummary[]) {
+	return (
+		a.length === b.length &&
+		a.every((summary, index) => {
+			const other = b[index];
+			return (
+				other !== undefined &&
+				summary.project === other.project &&
+				summary.issues === other.issues &&
+				summary.progress.done === other.progress.done &&
+				summary.progress.total === other.progress.total
+			);
+		})
+	);
+}
+
+/** Live projects with their issue counts and progress. */
+export function useProjects(): ProjectSummary[] {
+	return useQuery(selectProjectSummaries, summariesEqual);
 }
 
 const selectMembers = (state: SyncState) =>
@@ -201,6 +264,10 @@ export function useIssues(filter: (issue: Issue) => boolean): Issue[] {
 
 export function useTeamIssues(teamId: string | undefined): Issue[] {
 	return useIssues(useCallback((issue: Issue) => issue.teamId === teamId, [teamId]));
+}
+
+export function useProjectIssues(projectId: string): Issue[] {
+	return useIssues(useCallback((issue: Issue) => issue.projectId === projectId, [projectId]));
 }
 
 export function useAssignedIssues(userId: string): Issue[] {

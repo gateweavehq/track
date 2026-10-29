@@ -556,6 +556,309 @@ describe("labels", () => {
 	});
 });
 
+describe("projects", () => {
+	const agent: MemberProfile = { ...owner, id: "user-bot", name: "Bot", role: "agent" };
+	const AGENT = "mcp:test-agent";
+
+	async function createProject(client: TestClient, id: string, name = "Launch") {
+		await client.apply({ name: "project.create", args: { id, name } });
+	}
+
+	async function projectsOf(workspace: Workspace) {
+		return (await snapshotOf(workspace)).projects;
+	}
+
+	it("creates, updates and deletes projects, and tells other clients", async () => {
+		const { workspace, admin } = await withTeam();
+		const viewer = await TestClient.live(workspace, alice);
+
+		await admin.apply({
+			name: "project.create",
+			args: { id: "project-1", name: "  Launch  ", description: "Ship it", leadId: alice.id },
+		});
+		const created = await viewer.op((op) => op.entity === "project" && op.op === "put");
+		expect(created).toMatchObject({
+			id: "project-1",
+			data: {
+				name: "Launch",
+				description: "Ship it",
+				status: "planned",
+				leadId: alice.id,
+				targetDate: null,
+			},
+		});
+
+		// Any person can change a project, not only an admin.
+		const member = await TestClient.live(workspace, alice);
+		await member.apply({
+			name: "project.update",
+			args: {
+				id: "project-1",
+				patch: { status: "started", targetDate: "2028-02-29", leadId: null, description: null },
+			},
+		});
+		expect((await projectsOf(workspace))[0]).toMatchObject({
+			status: "started",
+			targetDate: "2028-02-29",
+			leadId: null,
+			description: null,
+		});
+
+		await admin.apply({ name: "project.delete", args: { id: "project-1" } });
+		expect(await viewer.op((op) => op.entity === "project" && op.op === "delete")).toMatchObject({
+			id: "project-1",
+		});
+		expect(await projectsOf(workspace)).toEqual([]);
+		// The row stays, as labels do.
+		await runInDurableObject(workspace, (_, state) => {
+			const rows = drizzle(state.storage, { schema }).select().from(schema.projects).all();
+			expect(rows).toMatchObject([{ id: "project-1", deletedAt: expect.any(Number) }]);
+		});
+	});
+
+	it("does not write when an update changes nothing", async () => {
+		const { workspace, admin } = await withTeam();
+		await createProject(admin, "project-1");
+		const head = (await snapshotOf(workspace)).version;
+
+		const result = await admin.apply({
+			name: "project.update",
+			args: { id: "project-1", patch: { name: "Launch", status: "planned" } },
+		});
+
+		expect(result.version).toBe(head);
+	});
+
+	it("sets a project on issues, at creation and after", async () => {
+		const { workspace, admin } = await withTeam();
+		await createProject(admin, "project-1");
+		await admin.apply({
+			name: "issue.create",
+			args: {
+				id: "issue-1",
+				teamId: TEAM_ID,
+				title: "In",
+				projectId: "project-1",
+				sortOrder: "a0",
+			},
+		});
+		const loose = await createIssue(admin, "issue-2");
+
+		await admin.apply({
+			name: "issue.update",
+			args: { id: loose.id, baseVersion: loose.version, patch: { projectId: "project-1" } },
+		});
+
+		expect((await issueOf(admin, "issue-1")).projectId).toBe("project-1");
+		expect((await issueOf(admin, "issue-2")).projectId).toBe("project-1");
+		expect(await createIssue(admin, "issue-3")).toMatchObject({ projectId: null });
+		const found = await workspace.issues({ projectId: "project-1", limit: 10 });
+		expect(found.map((issue) => issue.id).sort()).toEqual(["issue-1", "issue-2"]);
+		expect((await workspace.directory()).projects).toMatchObject([
+			{ id: "project-1", name: "Launch" },
+		]);
+	});
+
+	it("takes the project off every issue in it when an admin deletes it", async () => {
+		const { workspace, admin } = await withTeam();
+		const viewer = await TestClient.live(workspace, alice);
+		await createProject(admin, "project-1");
+		await createProject(admin, "project-2", "Other");
+		for (const [id, projectId] of [
+			["issue-1", "project-1"],
+			["issue-2", "project-1"],
+			["issue-3", "project-2"],
+		] as const) {
+			await admin.apply({
+				name: "issue.create",
+				args: { id, teamId: TEAM_ID, title: id, projectId, sortOrder: "a0" },
+			});
+		}
+		await issueOf(viewer, "issue-3");
+
+		await admin.apply({ name: "project.delete", args: { id: "project-1" } });
+
+		const cleared = (client: TestClient) =>
+			client
+				.ops()
+				.filter((op) => op.entity === "issue" && op.op === "put" && op.data.projectId === null)
+				.map((op) => op.id)
+				.sort();
+		await viewer.op((op) => op.entity === "project" && op.op === "delete");
+		expect(cleared(viewer)).toEqual(["issue-1", "issue-2"]);
+		const snapshot = await snapshotOf(workspace);
+		expect(snapshot.issues.map((issue) => [issue.id, issue.projectId]).sort()).toEqual([
+			["issue-1", null],
+			["issue-2", null],
+			["issue-3", "project-2"],
+		]);
+		expect(snapshot.projects.map((project) => project.id)).toEqual(["project-2"]);
+	});
+
+	it("refuses an agent writing a project, and a member deleting one", async () => {
+		const { workspace, admin } = await withTeam();
+		await workspace.syncMember(agent);
+		const member = await TestClient.live(workspace, alice);
+		await createProject(admin, "project-1");
+
+		const agentCreate = await workspace.mutate(agent, AGENT, "m-1", {
+			name: "project.create",
+			args: { id: "project-2", name: "By a bot" },
+		});
+		const agentUpdate = await workspace.mutate(agent, AGENT, "m-2", {
+			name: "project.update",
+			args: { id: "project-1", patch: { name: "Renamed by a bot" } },
+		});
+		const agentDelete = await workspace.mutate(agent, AGENT, "m-3", {
+			name: "project.delete",
+			args: { id: "project-1" },
+		});
+		const memberDelete = await member.mutate({ name: "project.delete", args: { id: "project-1" } });
+
+		expect(agentCreate).toMatchObject({ ok: false, reason: "forbidden" });
+		expect(agentUpdate).toMatchObject({ ok: false, reason: "forbidden" });
+		expect(agentDelete).toMatchObject({ ok: false, reason: "forbidden" });
+		expect(memberDelete).toMatchObject({ type: "reject", reason: "forbidden" });
+		expect(await projectsOf(workspace)).toMatchObject([{ id: "project-1", name: "Launch" }]);
+	});
+
+	it("lets only people lead a project", async () => {
+		const { workspace, admin } = await withTeam();
+		await workspace.syncMember(alice);
+		await workspace.syncMember(agent);
+		await workspace.syncMember(bob);
+		await workspace.removeMember(bob.id);
+		await createProject(admin, "project-1");
+
+		const lead = (leadId: string) =>
+			admin.mutate({ name: "project.update", args: { id: "project-1", patch: { leadId } } });
+
+		expect(await lead("user-nobody")).toMatchObject({ type: "reject", reason: "invalid" });
+		expect(await lead(agent.id)).toMatchObject({ type: "reject", reason: "invalid" });
+		expect(await lead(bob.id)).toMatchObject({ type: "reject", reason: "invalid" });
+		expect(
+			await admin.mutate({
+				name: "project.create",
+				args: { id: "project-2", name: "Led by a bot", leadId: agent.id },
+			}),
+		).toMatchObject({ type: "reject", reason: "invalid" });
+		expect(await lead(alice.id)).toMatchObject({ type: "ack" });
+		expect((await projectsOf(workspace))[0]?.leadId).toBe(alice.id);
+	});
+
+	it("refuses invalid names, dates, ids and projects that are gone", async () => {
+		const { admin } = await withTeam();
+		await createProject(admin, "project-1");
+		const issue = await createIssue(admin, "issue-1");
+		const update = (patch: Record<string, unknown>) =>
+			admin.mutate({ name: "project.update", args: { id: "project-1", patch } } as MutationInput);
+
+		expect(await update({ name: "   " })).toMatchObject({ type: "reject", reason: "invalid" });
+		expect(await update({ name: "x".repeat(65) })).toMatchObject({ reason: "invalid" });
+		expect(await update({})).toMatchObject({ type: "reject", reason: "invalid" });
+		expect(await update({ status: "finished" })).toMatchObject({ reason: "invalid" });
+		for (const targetDate of ["2026-02-30", "2027-02-29", "2026-13-01", "2026-1-5", "tomorrow"]) {
+			expect(await update({ targetDate })).toMatchObject({ type: "reject", reason: "invalid" });
+		}
+		expect(await update({ targetDate: "2028-02-29" })).toMatchObject({ type: "ack" });
+		expect(await update({ targetDate: null })).toMatchObject({ type: "ack" });
+		expect(
+			await admin.mutate({ name: "project.create", args: { id: "project-1", name: "Again" } }),
+		).toMatchObject({ type: "reject", reason: "invalid" });
+		expect(
+			await admin.mutate({
+				name: "project.update",
+				args: { id: "project-9", patch: { name: "Nope" } },
+			}),
+		).toMatchObject({ type: "reject", reason: "not_found" });
+		expect(await admin.mutate({ name: "project.delete", args: { id: "project-9" } })).toMatchObject(
+			{ type: "reject", reason: "not_found" },
+		);
+
+		// An issue refuses a project that does not exist, or no longer does.
+		await admin.apply({ name: "project.delete", args: { id: "project-1" } });
+		const toDeleted = await admin.mutate({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { projectId: "project-1" } },
+		});
+		const toMissing = await admin.mutate({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { projectId: "project-9" } },
+		});
+		const created = await admin.mutate({
+			name: "issue.create",
+			args: {
+				id: "issue-2",
+				teamId: TEAM_ID,
+				title: "Late",
+				projectId: "project-1",
+				sortOrder: "a1",
+			},
+		});
+		expect(toDeleted).toMatchObject({ type: "reject", reason: "not_found" });
+		expect(toMissing).toMatchObject({ type: "reject", reason: "not_found" });
+		expect(created).toMatchObject({ type: "reject", reason: "not_found" });
+		expect((await issueOf(admin, issue.id)).projectId).toBeNull();
+		// A rejected create must not consume an issue number.
+		expect(await createIssue(admin, "issue-3")).toMatchObject({ number: 2 });
+	});
+
+	it("treats projectId like any other issue field when edits collide", async () => {
+		const { workspace, admin } = await withTeam();
+		await createProject(admin, "project-1");
+		await createProject(admin, "project-2", "Other");
+		const issue = await createIssue(admin, "issue-1");
+		const a = await TestClient.live(workspace, alice);
+		const b = await TestClient.live(workspace, bob);
+		const move = (client: TestClient, projectId: string | null, extra = {}) =>
+			client.mutate({
+				name: "issue.update",
+				args: { id: issue.id, baseVersion: issue.version, patch: { projectId, ...extra } },
+			});
+
+		expect(await move(a, "project-1")).toMatchObject({ type: "ack" });
+		// Bob never saw Alice's edit, so his is stale for this field.
+		expect(await move(b, "project-2")).toMatchObject({ type: "reject", reason: "conflict" });
+		expect((await issueOf(admin, issue.id)).projectId).toBe("project-1");
+		// Other fields of the same patch still land; the same client's later edits always do.
+		expect(await move(a, "project-2")).toMatchObject({ type: "ack" });
+		expect(await move(a, null)).toMatchObject({ type: "ack" });
+		expect(await issueOf(admin, issue.id)).toMatchObject({ projectId: null });
+		// And a partially stale patch applies what does not conflict.
+		await a.apply({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { projectId: "project-1" } },
+		});
+		expect(await move(b, "project-2", { priority: 3 })).toMatchObject({ type: "ack" });
+		expect(await issueOf(admin, issue.id)).toMatchObject({ projectId: "project-1", priority: 3 });
+	});
+
+	it("records an issue's project in its history", async () => {
+		const { workspace, admin } = await withTeam();
+		await createProject(admin, "project-1");
+		const issue = await createIssue(admin, "issue-1");
+
+		await admin.apply({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { projectId: "project-1" } },
+		});
+
+		const { activities } = await snapshotOf(workspace);
+		expect(activities.map((activity) => activity.change)).toEqual([
+			{ type: "project", from: null, to: "project-1" },
+		]);
+	});
+
+	it("leaves deleted projects out of the snapshot", async () => {
+		const { workspace, admin } = await withTeam();
+		await createProject(admin, "project-1");
+		await createProject(admin, "project-2", "Gone");
+		await admin.apply({ name: "project.delete", args: { id: "project-2" } });
+
+		expect((await projectsOf(workspace)).map((project) => project.id)).toEqual(["project-1"]);
+	});
+});
+
 describe("comments", () => {
 	async function comment(client: TestClient, id: string, issueId: string, body = "Looks good") {
 		return client.apply({ name: "comment.create", args: { id, issueId, body } });
@@ -1131,6 +1434,62 @@ describe("proposals", () => {
 		expect(await workspace.issue("issue-3")).toMatchObject({ status: "todo" });
 	});
 
+	it("proposes a project change when an admin chose the project kind, and applies it on accept", async () => {
+		const { workspace, admin, issue, asTriage } = await withAgent(["project"]);
+		await admin.apply({ name: "project.create", args: { id: "project-1", name: "Launch" } });
+
+		const update = await asTriage({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { projectId: "project-1" } },
+		});
+		const [proposal] = proposed(update);
+		const created = await asTriage({
+			name: "issue.create",
+			args: {
+				id: "issue-2",
+				teamId: TEAM_ID,
+				title: "Filed by triage",
+				projectId: "project-1",
+				sortOrder: "a1",
+			},
+		});
+
+		expect(proposal?.change).toEqual({ type: "project", to: "project-1" });
+		expect(proposed(created).map((p) => p.change)).toEqual([{ type: "project", to: "project-1" }]);
+		expect(await workspace.issue(issue.id)).toMatchObject({ projectId: null });
+		expect(await workspace.issue("issue-2")).toMatchObject({ projectId: null });
+		expect(await openProposals(workspace)).toHaveLength(2);
+
+		const member = await TestClient.live(workspace, alice);
+		await member.apply({ name: "proposal.accept", args: { id: proposal?.id ?? "" } });
+
+		expect(await workspace.issue(issue.id)).toMatchObject({ projectId: "project-1" });
+		const { activities } = await snapshotOf(workspace);
+		expect(
+			activities.map(({ actorId, change, proposedBy }) => ({ actorId, change, proposedBy })),
+		).toEqual([
+			{
+				actorId: alice.id,
+				change: { type: "project", from: null, to: "project-1" },
+				proposedBy: triage.id,
+			},
+		]);
+		expect(await openProposals(workspace)).toHaveLength(1);
+	});
+
+	it("makes a project change at once when the agent is not set to propose it", async () => {
+		const { workspace, admin, issue, asTriage } = await withAgent(["priority"]);
+		await admin.apply({ name: "project.create", args: { id: "project-1", name: "Launch" } });
+
+		const update = await asTriage({
+			name: "issue.update",
+			args: { id: issue.id, baseVersion: issue.version, patch: { projectId: "project-1" } },
+		});
+
+		expect(proposed(update)).toEqual([]);
+		expect(await workspace.issue(issue.id)).toMatchObject({ projectId: "project-1" });
+	});
+
 	it("replaces an agent's proposal for a field, and withdraws it once nothing needs to change", async () => {
 		const { workspace, setStatus } = await withAgent(["status"]);
 
@@ -1389,6 +1748,9 @@ describe("search", () => {
 		if (!search) throw new Error("No search migration");
 		await runInDurableObject(workspace, async (_, state) => {
 			const db = drizzle(state.storage, { schema });
+			db.run(sql`drop index issues_project_idx`);
+			db.run(sql`alter table issues drop column project_id`);
+			db.run(sql`drop table projects`);
 			db.run(sql`drop table issue_search`);
 			db.run(sql`drop table issue_search_docs`);
 			db.run(sql`drop table webhook_deliveries`);

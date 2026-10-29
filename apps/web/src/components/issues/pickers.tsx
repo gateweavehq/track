@@ -2,11 +2,14 @@ import {
 	ISSUE_STATUSES,
 	type IssuePriority,
 	type IssueStatus,
+	PROJECT_STATUSES,
+	type ProjectStatus,
 	type Team,
 } from "@gateweave/track-protocol";
-import { Check } from "lucide-react";
+import { Check, Layers } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";
+import { PROJECT_STATUS_META, ProjectStatusIcon } from "#/components/projects/meta";
 import {
 	Command,
 	CommandEmpty,
@@ -17,7 +20,7 @@ import {
 } from "#/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover";
 import { useWorkspace } from "#/components/workspace/context";
-import { useActiveMembers } from "#/lib/queries";
+import { useActiveMembers, useProjectList } from "#/lib/queries";
 import { PRIORITY_META, PRIORITY_ORDER, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 
 interface Option<V> {
@@ -118,6 +121,47 @@ export function AssigneePicker(props: PickerProps<string | null>) {
 		})),
 	];
 	return <OptionPicker {...props} options={options} placeholder="Assign to…" />;
+}
+
+/** A project for an issue, or none. A project deleted elsewhere is no longer offered. */
+export function ProjectPicker(props: PickerProps<string | null>) {
+	const projects = useProjectList();
+	const options: Option<string | null>[] = [
+		{ value: null, label: "No project", icon: <Layers className="size-4 text-muted-foreground" /> },
+		...projects.map((project) => ({
+			value: project.id,
+			label: project.name,
+			icon: <ProjectStatusIcon status={project.status} />,
+		})),
+	];
+	return <OptionPicker {...props} options={options} placeholder="Set project…" />;
+}
+
+export function ProjectStatusPicker(props: PickerProps<ProjectStatus>) {
+	return <OptionPicker {...props} options={PROJECT_STATUS_OPTIONS} placeholder="Change status…" />;
+}
+
+const PROJECT_STATUS_OPTIONS: Option<ProjectStatus>[] = PROJECT_STATUSES.map((status) => ({
+	value: status,
+	label: PROJECT_STATUS_META[status].label,
+	icon: <ProjectStatusIcon status={status} />,
+}));
+
+/** A project's lead: a person, since agents propose and work but do not lead. */
+export function LeadPicker(props: PickerProps<string | null>) {
+	const { userId } = useWorkspace();
+	const people = useActiveMembers().filter((member) => member.role !== "agent");
+	const sorted = [...people].sort((a, b) => Number(b.id === userId) - Number(a.id === userId));
+	const options: Option<string | null>[] = [
+		{ value: null, label: "No lead", icon: <MemberAvatar member={undefined} /> },
+		...sorted.map((member) => ({
+			value: member.id,
+			label: member.id === userId ? `${member.name} (you)` : member.name,
+			icon: <MemberAvatar member={member} />,
+			keywords: [member.email, ...(member.id === userId ? ["me"] : [])],
+		})),
+	];
+	return <OptionPicker {...props} options={options} placeholder="Choose a lead…" />;
 }
 
 export function TeamPicker({ teams, ...props }: PickerProps<string> & { teams: Team[] }) {

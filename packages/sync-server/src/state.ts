@@ -4,6 +4,7 @@ import type {
 	Issue,
 	Label,
 	Member,
+	Project,
 	Proposal,
 	Snapshot,
 	Team,
@@ -24,6 +25,8 @@ export const toIssue = ({ fieldStamps: _, deletedAt: __, ...issue }: schema.Issu
 	issue;
 
 export const toLabel = ({ deletedAt: _, ...label }: schema.LabelRow): Label => label;
+
+export const toProject = ({ deletedAt: _, ...project }: schema.ProjectRow): Project => project;
 
 export const toComment = ({ deletedAt: _, ...comment }: schema.CommentRow): Comment => comment;
 
@@ -57,6 +60,13 @@ export function readSnapshot(db: Db): Snapshot {
 			.where(isNull(schema.labels.deletedAt))
 			.all()
 			.map(toLabel),
+		projects: db
+			.select()
+			.from(schema.projects)
+			.where(isNull(schema.projects.deletedAt))
+			.orderBy(asc(schema.projects.createdAt), asc(schema.projects.id))
+			.all()
+			.map(toProject),
 		comments: db
 			.select(getTableColumns(schema.comments))
 			.from(schema.comments)

@@ -5,7 +5,7 @@ import { MemberAvatar } from "#/components/members/member-avatar";
 import { Button } from "#/components/ui/button";
 import { formatDateTime, formatRelative } from "#/lib/dates";
 import { send } from "#/lib/mutations";
-import { useLabelsById, useMembersById } from "#/lib/queries";
+import { useLabelsById, useMembersById, useProjectsById } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import { LabelChip } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
@@ -34,6 +34,7 @@ export function ProposalItem({
 	const client = useSyncClient();
 	const members = useMembersById();
 	const labels = useLabelsById();
+	const projects = useProjectsById();
 	const textId = useId();
 	const agent = members.get(proposal.agentId);
 	const name = (id: string | null) => (id ? (members.get(id)?.name ?? "someone") : "nobody");
@@ -64,7 +65,12 @@ export function ProposalItem({
 				<MemberAvatar member={agent} className="mt-0.5 size-5" />
 				<div id={textId} className="min-w-0 flex-1 leading-6">
 					<span className="font-medium">{agent?.name ?? "An agent"}</span>{" "}
-					{describe(proposal.change, name, labels)}
+					{describe(
+						proposal.change,
+						name,
+						labels,
+						(id) => projects.get(id)?.name ?? "a deleted project",
+					)}
 					<span aria-hidden className="text-muted-foreground">
 						{" "}
 						·{" "}
@@ -104,6 +110,7 @@ function describe(
 	change: Proposal["change"],
 	name: (id: string | null) => string,
 	labels: ReadonlyMap<string, Label>,
+	projectName: (id: string) => string,
 ): ReactNode {
 	switch (change.type) {
 		case "status":
@@ -132,6 +139,13 @@ function describe(
 			return (
 				<>
 					proposes assigning <span className="font-medium">{name(change.to)}</span>
+				</>
+			);
+		case "project":
+			if (change.to === null) return "proposes taking it out of its project";
+			return (
+				<>
+					proposes adding it to <span className="font-medium">{projectName(change.to)}</span>
 				</>
 			);
 		case "title":

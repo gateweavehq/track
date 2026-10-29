@@ -16,11 +16,13 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as WorkspaceIndexRouteImport } from './routes/$workspace/index'
 import { Route as WorkspaceMyIssuesRouteImport } from './routes/$workspace/my-issues'
+import { Route as WorkspaceProjectsRouteImport } from './routes/$workspace/projects'
 import { Route as WorkspaceProposalsRouteImport } from './routes/$workspace/proposals'
 import { Route as WorkspaceSettingsRouteImport } from './routes/$workspace/settings'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite.$invitationId'
 import { Route as OauthConsentRouteImport } from './routes/oauth.consent'
 import { Route as WorkspaceIssueIssueKeyRouteImport } from './routes/$workspace/issue.$issueKey'
+import { Route as WorkspaceProjectProjectIdRouteImport } from './routes/$workspace/project.$projectId'
 import { Route as WorkspaceSettingsIndexRouteImport } from './routes/$workspace/settings.index'
 import { Route as WorkspaceSettingsAgentsRouteImport } from './routes/$workspace/settings.agents'
 import { Route as WorkspaceSettingsLabelsRouteImport } from './routes/$workspace/settings.labels'
@@ -65,6 +67,11 @@ const WorkspaceMyIssuesRoute = WorkspaceMyIssuesRouteImport.update({
   path: '/my-issues',
   getParentRoute: () => WorkspaceRoute,
 } as any)
+const WorkspaceProjectsRoute = WorkspaceProjectsRouteImport.update({
+  id: '/projects',
+  path: '/projects',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
 const WorkspaceProposalsRoute = WorkspaceProposalsRouteImport.update({
   id: '/proposals',
   path: '/proposals',
@@ -90,6 +97,12 @@ const WorkspaceIssueIssueKeyRoute = WorkspaceIssueIssueKeyRouteImport.update({
   path: '/issue/$issueKey',
   getParentRoute: () => WorkspaceRoute,
 } as any)
+const WorkspaceProjectProjectIdRoute =
+  WorkspaceProjectProjectIdRouteImport.update({
+    id: '/project/$projectId',
+    path: '/project/$projectId',
+    getParentRoute: () => WorkspaceRoute,
+  } as any)
 const WorkspaceSettingsIndexRoute = WorkspaceSettingsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -140,12 +153,14 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
+  '/$workspace/projects': typeof WorkspaceProjectsRoute
   '/$workspace/proposals': typeof WorkspaceProposalsRoute
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/$workspace/': typeof WorkspaceIndexRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
+  '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
   '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
@@ -161,11 +176,13 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
+  '/$workspace/projects': typeof WorkspaceProjectsRoute
   '/$workspace/proposals': typeof WorkspaceProposalsRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/$workspace': typeof WorkspaceIndexRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
+  '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
   '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
@@ -183,12 +200,14 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
+  '/$workspace/projects': typeof WorkspaceProjectsRoute
   '/$workspace/proposals': typeof WorkspaceProposalsRoute
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/$workspace/': typeof WorkspaceIndexRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
+  '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
   '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
@@ -207,12 +226,14 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/$workspace/my-issues'
+    | '/$workspace/projects'
     | '/$workspace/proposals'
     | '/$workspace/settings'
     | '/invite/$invitationId'
     | '/oauth/consent'
     | '/$workspace/'
     | '/$workspace/issue/$issueKey'
+    | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
     | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
@@ -228,11 +249,13 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/$workspace/my-issues'
+    | '/$workspace/projects'
     | '/$workspace/proposals'
     | '/invite/$invitationId'
     | '/oauth/consent'
     | '/$workspace'
     | '/$workspace/issue/$issueKey'
+    | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
     | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
@@ -249,12 +272,14 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/$workspace/my-issues'
+    | '/$workspace/projects'
     | '/$workspace/proposals'
     | '/$workspace/settings'
     | '/invite/$invitationId'
     | '/oauth/consent'
     | '/$workspace/'
     | '/$workspace/issue/$issueKey'
+    | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
     | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
@@ -327,6 +352,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceMyIssuesRouteImport
       parentRoute: typeof WorkspaceRoute
     }
+    '/$workspace/projects': {
+      id: '/$workspace/projects'
+      path: '/projects'
+      fullPath: '/$workspace/projects'
+      preLoaderRoute: typeof WorkspaceProjectsRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
     '/$workspace/proposals': {
       id: '/$workspace/proposals'
       path: '/proposals'
@@ -360,6 +392,13 @@ declare module '@tanstack/react-router' {
       path: '/issue/$issueKey'
       fullPath: '/$workspace/issue/$issueKey'
       preLoaderRoute: typeof WorkspaceIssueIssueKeyRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/$workspace/project/$projectId': {
+      id: '/$workspace/project/$projectId'
+      path: '/project/$projectId'
+      fullPath: '/$workspace/project/$projectId'
+      preLoaderRoute: typeof WorkspaceProjectProjectIdRouteImport
       parentRoute: typeof WorkspaceRoute
     }
     '/$workspace/settings/': {
@@ -444,19 +483,23 @@ const WorkspaceSettingsRouteWithChildren =
 
 interface WorkspaceRouteChildren {
   WorkspaceMyIssuesRoute: typeof WorkspaceMyIssuesRoute
+  WorkspaceProjectsRoute: typeof WorkspaceProjectsRoute
   WorkspaceProposalsRoute: typeof WorkspaceProposalsRoute
   WorkspaceSettingsRoute: typeof WorkspaceSettingsRouteWithChildren
   WorkspaceIndexRoute: typeof WorkspaceIndexRoute
   WorkspaceIssueIssueKeyRoute: typeof WorkspaceIssueIssueKeyRoute
+  WorkspaceProjectProjectIdRoute: typeof WorkspaceProjectProjectIdRoute
   WorkspaceTeamTeamKeyRoute: typeof WorkspaceTeamTeamKeyRoute
 }
 
 const WorkspaceRouteChildren: WorkspaceRouteChildren = {
   WorkspaceMyIssuesRoute: WorkspaceMyIssuesRoute,
+  WorkspaceProjectsRoute: WorkspaceProjectsRoute,
   WorkspaceProposalsRoute: WorkspaceProposalsRoute,
   WorkspaceSettingsRoute: WorkspaceSettingsRouteWithChildren,
   WorkspaceIndexRoute: WorkspaceIndexRoute,
   WorkspaceIssueIssueKeyRoute: WorkspaceIssueIssueKeyRoute,
+  WorkspaceProjectProjectIdRoute: WorkspaceProjectProjectIdRoute,
   WorkspaceTeamTeamKeyRoute: WorkspaceTeamTeamKeyRoute,
 }
 

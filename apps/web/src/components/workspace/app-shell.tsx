@@ -6,6 +6,7 @@ import {
 	ChevronDown,
 	Inbox,
 	Keyboard,
+	Layers,
 	LogOut,
 	Menu,
 	Plus,
@@ -130,6 +131,15 @@ function Sidebar() {
 				>
 					<Inbox className="size-4" />
 					My issues
+				</Link>
+				<Link
+					to="/$workspace/projects"
+					params={{ workspace: slug }}
+					className={navLink}
+					activeProps={{ className: activeNavLink }}
+				>
+					<Layers className="size-4" />
+					Projects
 				</Link>
 				<Link
 					to="/$workspace/proposals"

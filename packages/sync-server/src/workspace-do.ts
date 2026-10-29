@@ -93,6 +93,7 @@ const issueQuery = z.object({
 	teamId: shortId.optional(),
 	statuses: z.array(z.enum(ISSUE_STATUSES)).optional(),
 	assigneeId: shortId.nullable().optional(),
+	projectId: shortId.optional(),
 	labelId: shortId.optional(),
 	text: z.string().max(200).optional(),
 	limit: z.number().int().min(1).max(MAX_QUERY_LIMIT),

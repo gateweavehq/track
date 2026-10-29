@@ -10,6 +10,8 @@ import {
 	type LabelKey,
 	PEOPLE,
 	type PersonKey,
+	PROJECTS,
+	type ProjectKey,
 	type SampleIssue,
 	TEAMS,
 	type TeamKey,
@@ -26,20 +28,27 @@ export interface SampleStep {
 }
 
 export interface SampleOptions {
-	/** The user id of each sample person, which issues are assigned to. */
+	/** The user id of each sample person, which issues are assigned to and projects are led by. */
 	userIds: Record<PersonKey, string>;
 	/** A fresh entity id. */
 	newId: () => string;
 	/** Extra generated issues after the sample ones, for load testing. */
 	extraIssues?: number;
+	/** The day target dates are counted from. */
+	now?: Date;
 }
 
 /**
  * Every write that builds the sample workspace, in an order that is valid: teams and labels
- * first (only admins create them), then the issues in listed order so they are numbered that
- * way, then their comments, then any generated filler.
+ * first (only admins create them), then the projects, then the issues in listed order so they
+ * are numbered that way, then their comments, then any generated filler.
  */
-export function sampleSteps({ userIds, newId, extraIssues = 0 }: SampleOptions): SampleStep[] {
+export function sampleSteps({
+	userIds,
+	newId,
+	extraIssues = 0,
+	now = new Date(),
+}: SampleOptions): SampleStep[] {
 	const maya: PersonKey = "maya";
 	const steps: SampleStep[] = [];
 
@@ -61,6 +70,28 @@ export function sampleSteps({ userIds, newId, extraIssues = 0 }: SampleOptions):
 		});
 	}
 
+	const projectIds = {} as Record<ProjectKey, string>;
+	for (const [key, project] of Object.entries(PROJECTS) as [
+		ProjectKey,
+		(typeof PROJECTS)[ProjectKey],
+	][]) {
+		projectIds[key] = newId();
+		steps.push({
+			person: maya,
+			mutation: {
+				name: "project.create",
+				args: {
+					id: projectIds[key],
+					name: project.name,
+					description: project.description,
+					status: project.status,
+					leadId: project.lead && userIds[project.lead],
+					targetDate: project.targetInDays === null ? null : dayFrom(now, project.targetInDays),
+				},
+			},
+		});
+	}
+
 	const issues = [...ISSUES, ...generatedIssues(extraIssues)];
 	// Each team's issues are ordered as listed, with fractional sort keys like the app's own.
 	const sortKeys = new Map<TeamKey, string[]>();
@@ -75,7 +106,7 @@ export function sampleSteps({ userIds, newId, extraIssues = 0 }: SampleOptions):
 		const id = newId();
 		const step: SampleStep = {
 			person: issue.by,
-			mutation: issueCreate(issue, id, sortOrder, teamIds, labelIds, userIds),
+			mutation: issueCreate(issue, id, sortOrder, teamIds, labelIds, projectIds, userIds),
 			...(index >= ISSUES.length && { parallel: true as const }),
 		};
 		return { id, issue, step };
@@ -105,6 +136,7 @@ function issueCreate(
 	sortOrder: string,
 	teamIds: Record<TeamKey, string>,
 	labelIds: Record<LabelKey, string>,
+	projectIds: Record<ProjectKey, string>,
 	userIds: Record<PersonKey, string>,
 ): MutationInput {
 	return {
@@ -117,10 +149,16 @@ function issueCreate(
 			status: issue.status,
 			priority: issue.priority,
 			assigneeId: issue.assignee && userIds[issue.assignee],
+			projectId: issue.project ? projectIds[issue.project] : null,
 			labelIds: (issue.labels ?? []).map((key) => labelIds[key]),
 			sortOrder,
 		},
 	};
+}
+
+/** `YYYY-MM-DD`, `days` after the day `from` falls on in UTC. */
+function dayFrom(from: Date, days: number): string {
+	return new Date(from.getTime() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 /** The people a sample workspace has, with the role each holds there. */

@@ -12,6 +12,7 @@ function issue(id: string, updatedAt: number): Issue {
 		status: "backlog",
 		priority: 0,
 		assigneeId: null,
+		projectId: null,
 		labelIds: [],
 		creatorId: "user",
 		sortOrder: "a0",

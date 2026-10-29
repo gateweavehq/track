@@ -28,9 +28,12 @@ export function IssuesPage({
 	onViewChange,
 	labelFilter,
 	onLabelFilterChange,
+	intro,
 }: {
 	title: string;
 	badge?: ReactNode;
+	/** Shown between the header and the issues, such as a project's details. */
+	intro?: ReactNode;
 	issues: Issue[];
 	defaults: IssueDefaults;
 	empty: ReactNode;
@@ -136,6 +139,7 @@ export function IssuesPage({
 					</Button>
 				</div>
 			</header>
+			{intro}
 			{view === "board" ? (
 				<div className="min-h-0 flex-1">
 					<IssueBoard issues={filtered} defaults={defaults} empty={emptyState} />

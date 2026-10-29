@@ -7,13 +7,14 @@ import type {
 	Issue,
 	Label,
 	Member,
+	Project,
 	Proposal,
 	Team,
 } from "./domain";
 import type { MutationInput } from "./mutations";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";
@@ -87,6 +88,7 @@ export interface Snapshot {
 	teams: Team[];
 	issues: Issue[];
 	labels: Label[];
+	projects: Project[];
 	/** Comments, activity and open proposals of live issues only. */
 	comments: Comment[];
 	activities: Activity[];
@@ -99,6 +101,7 @@ export const SNAPSHOT_KEYS = {
 	team: "teams",
 	issue: "issues",
 	label: "labels",
+	project: "projects",
 	comment: "comments",
 	activity: "activities",
 	proposal: "proposals",

@@ -342,6 +342,7 @@ const CHANGE_KIND_LABELS: Record<AgentChangeKind, string> = {
 	priority: "Priority",
 	assignee: "Assignee",
 	labels: "Labels",
+	project: "Project",
 };
 
 /**

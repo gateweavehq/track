@@ -6,10 +6,11 @@ import {
 import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronRight, Tag } from "lucide-react";
+import { ChevronRight, Layers, Tag } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useState } from "react";
 import { toast } from "sonner";
 import { MemberAvatar } from "#/components/members/member-avatar";
+import { ProjectStatusIcon } from "#/components/projects/meta";
 import { Button } from "#/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "#/components/ui/dialog";
 import { Kbd } from "#/components/ui/kbd";
@@ -17,10 +18,10 @@ import { type IssueDefaults, useWorkspace } from "#/components/workspace/context
 import { MOD_LABEL } from "#/lib/hotkeys";
 import { issueKey, sortOrderAfter } from "#/lib/issues";
 import { send } from "#/lib/mutations";
-import { useMembersById, useTeams } from "#/lib/queries";
+import { useMembersById, useProjectsById, useTeams } from "#/lib/queries";
 import { LabelChips, LabelMenu } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
-import { AssigneePicker, PriorityPicker, StatusPicker, TeamPicker } from "./pickers";
+import { AssigneePicker, PriorityPicker, ProjectPicker, StatusPicker, TeamPicker } from "./pickers";
 
 export function CreateIssueDialog({
 	defaults,
@@ -34,12 +35,20 @@ export function CreateIssueDialog({
 	const { slug } = useWorkspace();
 	const teams = useTeams();
 	const members = useMembersById();
+	const projects = useProjectsById();
 	const [teamId, setTeamId] = useState(defaults.teamId ?? teams[0]?.id ?? "");
 	const [title, setTitle] = useState("");
 	const [description, setDescription] = useState("");
 	const [status, setStatus] = useState<IssueStatus>(defaults.status ?? "backlog");
 	const [priority, setPriority] = useState<IssuePriority>(0);
 	const [assigneeId, setAssigneeId] = useState<string | null>(defaults.assigneeId ?? null);
+	// The default comes from the page on screen, whose project may be deleted by now.
+	const [projectId, setProjectId] = useState<string | null>(
+		defaults.projectId && client.getState().projects.has(defaults.projectId)
+			? defaults.projectId
+			: null,
+	);
+	const project = projectId ? projects.get(projectId) : undefined;
 	const [labelIds, setLabelIds] = useState(() => {
 		// Defaults can come from a URL, so they may name labels that do not exist.
 		const known = client.getState().labels;
@@ -60,6 +69,8 @@ export function CreateIssueDialog({
 				status,
 				priority,
 				assigneeId,
+				// A project picked here may have been deleted elsewhere since.
+				projectId: projectId && client.getState().projects.has(projectId) ? projectId : null,
 				// A label picked here may have been deleted elsewhere since.
 				labelIds: labelIds.filter((id) => client.getState().labels.has(id)),
 				sortOrder: sortOrderAfter(client.getState().issues.values()),
@@ -155,6 +166,21 @@ export function CreateIssueDialog({
 								{assigneeId ? (members.get(assigneeId)?.name ?? "Unknown") : "Assignee"}
 							</Button>
 						</AssigneePicker>
+						<ProjectPicker value={project?.id ?? null} onChange={setProjectId}>
+							<Button type="button" variant="outline" size="sm" className="h-7 max-w-48 px-2">
+								{project ? (
+									<>
+										<ProjectStatusIcon status={project.status} />
+										<span className="truncate">{project.name}</span>
+									</>
+								) : (
+									<>
+										<Layers />
+										Project
+									</>
+								)}
+							</Button>
+						</ProjectPicker>
 						<LabelMenu
 							selected={labelIds}
 							creatable
