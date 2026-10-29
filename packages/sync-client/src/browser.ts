@@ -1,7 +1,7 @@
 import { type MutationError, SyncClient } from "./client";
 import { openIdbPersistence } from "./idb";
 import { MemoryPersistence } from "./persistence";
-import { browserTabs, supportsBrowserTabs } from "./tabs";
+import { browserTabs, supportsBrowserTabs, tabsName } from "./tabs";
 import { httpTransport } from "./transport";
 
 export interface BrowserSyncClientOptions {
@@ -36,7 +36,7 @@ export function createBrowserSyncClient(options: BrowserSyncClientOptions): Sync
 					return new MemoryPersistence();
 				})
 			: new MemoryPersistence(),
-		tabs: shared ? browserTabs(`track:${storageKey}`) : undefined,
+		tabs: shared ? browserTabs(tabsName(storageKey)) : undefined,
 		wake: browserWake,
 	});
 }

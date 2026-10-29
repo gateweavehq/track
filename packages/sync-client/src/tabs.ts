@@ -1,4 +1,4 @@
-import type { Op, RejectReason } from "@gateweave/track-protocol";
+import { type Op, PROTOCOL_VERSION, type RejectReason } from "@gateweave/track-protocol";
 import type { PendingMutation } from "./store";
 
 export type ConnectionStatus =
@@ -51,6 +51,16 @@ export function standaloneTabs(): Tabs {
 		subscribe() {},
 		close() {},
 	};
+}
+
+/**
+ * The name the tabs of one replica elect a leader and talk under. It holds the protocol version.
+ * A tab left open on the version before an update keeps its lock until it is reloaded. It neither
+ * writes the new version's storage nor speaks its messages, so a tab on the new version must not
+ * wait for it.
+ */
+export function tabsName(storageKey: string, protocolVersion: number = PROTOCOL_VERSION): string {
+	return `track:${storageKey}:v${protocolVersion}`;
 }
 
 /** True if this browser can coordinate tabs with `browserTabs`. */
