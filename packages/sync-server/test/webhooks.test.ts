@@ -250,6 +250,122 @@ describe("delivery", () => {
 		expect(data && "updatedFrom" in data && Object.keys(data.updatedFrom)).toEqual(["status"]);
 	});
 
+	it("names an issue's labels in labelIds order, and reads each name for each event", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await mutate(workspace, owner, {
+			name: "label.create",
+			args: { id: "label-bug", name: "Bug", color: "#ff0000" },
+		});
+		await mutate(workspace, owner, {
+			name: "label.create",
+			args: { id: "label-ui", name: "UI", color: "#00ff00" },
+		});
+		await createIssue(workspace, owner, "issue-1");
+		await createHook(workspace, { events: ["issue.updated"] });
+
+		await mutate(workspace, owner, {
+			name: "issue.addLabel",
+			args: { id: "issue-1", labelId: "label-ui" },
+		});
+		await mutate(workspace, owner, {
+			name: "issue.addLabel",
+			args: { id: "issue-1", labelId: "label-bug" },
+		});
+		// Renamed after the issue wore it: the next event must say so, with no stale cache.
+		await mutate(workspace, owner, {
+			name: "label.update",
+			args: { id: "label-bug", patch: { name: "Defect" } },
+		});
+		await mutate(workspace, owner, {
+			name: "issue.update",
+			args: { id: "issue-1", baseVersion: 0, patch: { status: "in_progress" } },
+		});
+		await deliver(workspace);
+
+		const sent = payloads(received);
+		expect(sent.map((payload) => payload.data)).toMatchObject([
+			{ issue: { labelIds: ["label-ui"], labels: [{ id: "label-ui", name: "UI" }] } },
+			{
+				issue: {
+					labelIds: ["label-ui", "label-bug"],
+					labels: [
+						{ id: "label-ui", name: "UI" },
+						{ id: "label-bug", name: "Bug" },
+					],
+				},
+			},
+			{
+				issue: {
+					labelIds: ["label-ui", "label-bug"],
+					labels: [
+						{ id: "label-ui", name: "UI" },
+						{ id: "label-bug", name: "Defect" },
+					],
+				},
+			},
+		]);
+	});
+
+	it("leaves out a label id that has no row, and keeps labelIds as they are", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await mutate(workspace, owner, {
+			name: "label.create",
+			args: { id: "label-bug", name: "Bug", color: "#ff0000" },
+		});
+		await createIssue(workspace, owner, "issue-1");
+		await mutate(workspace, owner, {
+			name: "issue.addLabel",
+			args: { id: "issue-1", labelId: "label-bug" },
+		});
+		await runInDurableObject(workspace, (_, state) => {
+			drizzle(state.storage, { schema })
+				.update(schema.issues)
+				.set({ labelIds: ["label-ghost", "label-bug"] })
+				.where(eq(schema.issues.id, "issue-1"))
+				.run();
+		});
+		await createHook(workspace, { events: ["issue.updated"] });
+		await mutate(workspace, owner, {
+			name: "issue.update",
+			args: { id: "issue-1", baseVersion: 0, patch: { status: "in_progress" } },
+		});
+		await deliver(workspace);
+
+		expect(payloadOf(received[0]).data).toMatchObject({
+			issue: {
+				labelIds: ["label-ghost", "label-bug"],
+				labels: [{ id: "label-bug", name: "Bug" }],
+			},
+		});
+	});
+
+	it("names an issue's labels on a comment event", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await mutate(workspace, owner, {
+			name: "label.create",
+			args: { id: "label-bug", name: "Bug", color: "#ff0000" },
+		});
+		await createIssue(workspace, owner, "issue-1");
+		await mutate(workspace, owner, {
+			name: "issue.addLabel",
+			args: { id: "issue-1", labelId: "label-bug" },
+		});
+		await createHook(workspace, { events: ["comment.created"] });
+		await mutate(workspace, alice, {
+			name: "comment.create",
+			args: { id: "comment-1", issueId: "issue-1", body: "Reproduced" },
+		});
+		await deliver(workspace);
+
+		expect(payloadOf(received[0]).data).toMatchObject({
+			issue: { labels: [{ id: "label-bug", name: "Bug" }] },
+			comment: { id: "comment-1" },
+		});
+	});
+
 	it("carries an issue's project, and reports a change of it", async () => {
 		const received = receiver();
 		const workspace = await workspaceWithTeams();
@@ -504,6 +620,30 @@ describe("proposals", () => {
 	) => mutate(workspace, person, { name, args: { id } });
 
 	const types = (received: Received[]) => payloads(received).map((payload) => payload.type);
+
+	it("names the labels of a proposal's issue", async () => {
+		const received = receiver();
+		const workspace = await proposingWorkspace();
+		await mutate(workspace, owner, {
+			name: "label.create",
+			args: { id: "label-bug", name: "Bug", color: "#ff0000" },
+		});
+		await mutate(workspace, owner, {
+			name: "issue.addLabel",
+			args: { id: "issue-1", labelId: "label-bug" },
+		});
+		await createHook(workspace, { events: ["proposal.created"] });
+
+		await propose(workspace, "issue-1", { status: "done" });
+		await deliver(workspace);
+
+		expect(payloads(received)).toMatchObject([
+			{
+				type: "proposal.created",
+				data: { issue: { labels: [{ id: "label-bug", name: "Bug" }] } },
+			},
+		]);
+	});
 
 	it("tells of every step in a proposal's life, with who decided", async () => {
 		const received = receiver();

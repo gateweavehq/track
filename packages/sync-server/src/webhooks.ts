@@ -68,6 +68,8 @@ const CONCURRENCY = 10;
 /** A claimed delivery is due again after this, in case the object restarts while sending it. */
 const CLAIM_MS = DELIVERY_TIMEOUT_MS + MINUTE;
 const LINK_KEY = "workspace_link";
+/** Durable Object SQLite binds at most 100 parameters per statement. */
+const LABEL_LOOKUP_CHUNK = 90;
 const SECRET_PREFIX = "whsec_";
 
 // Recording, inside the mutation's transaction.
@@ -236,7 +238,28 @@ class Payloads {
 		}
 		const key = `${teamKey}-${row.number}`;
 		const url = new URL(`/${encodeURIComponent(this.link.slug)}/issue/${key}`, this.link.origin);
-		return { ...toIssue(row), key, url: url.href };
+		return { ...toIssue(row), key, url: url.href, labels: this.#labelsOf(row.labelIds) };
+	}
+
+	/**
+	 * Reads the names now, since labels get renamed: nothing is cached past this payload. Ids
+	 * are looked up in chunks, as Durable Object SQLite allows only so many bound parameters.
+	 */
+	#labelsOf(ids: readonly string[]): { id: string; name: string }[] {
+		const names = new Map<string, string>();
+		for (let start = 0; start < ids.length; start += LABEL_LOOKUP_CHUNK) {
+			const rows = this.db
+				.select({ id: schema.labels.id, name: schema.labels.name })
+				.from(schema.labels)
+				.where(inArray(schema.labels.id, ids.slice(start, start + LABEL_LOOKUP_CHUNK)))
+				.all();
+			for (const row of rows) names.set(row.id, row.name);
+		}
+		// In the order of labelIds, leaving out any id with no row.
+		return ids.flatMap((id) => {
+			const name = names.get(id);
+			return name === undefined ? [] : [{ id, name }];
+		});
 	}
 }
 
