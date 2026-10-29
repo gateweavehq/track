@@ -22,6 +22,9 @@ const OPTIONAL_SECRETS = [
 	"TRACK_DEMO",
 ];
 
+/** Where the end-to-end tests reach the app (see e2e/server.mjs). */
+const E2E_ORIGIN = "http://localhost:4711";
+
 export default defineConfig(({ command }) => ({
 	resolve: { tsconfigPaths: true },
 	plugins: [
@@ -33,10 +36,18 @@ export default defineConfig(({ command }) => ({
 			// The end-to-end tests keep their data apart from `pnpm dev` (see e2e/server.mjs).
 			persistState: process.env.TRACK_STATE_DIR ? { path: process.env.TRACK_STATE_DIR } : true,
 			config: (config) => {
-				if (command !== "serve") return;
+				// The end-to-end build (e2e/build.mjs) pins the address the tests use, which is what
+				// turns /mcp on, so the tests can play an agent.
+				const e2e = process.env.TRACK_E2E
+					? { vars: { ...config.vars, BETTER_AUTH_URL: E2E_ORIGIN } }
+					: {};
+				if (command !== "serve") return e2e;
 				const set = devVarsKeys();
 				const optional = OPTIONAL_SECRETS.filter((key) => set.has(key));
-				return { secrets: { required: [...(config.secrets?.required ?? []), ...optional] } };
+				return {
+					secrets: { required: [...(config.secrets?.required ?? []), ...optional] },
+					...e2e,
+				};
 			},
 		}),
 		tailwindcss(),

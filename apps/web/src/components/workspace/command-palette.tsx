@@ -4,6 +4,7 @@ import { shallowEqual, useQuery } from "@gateweave/track-sync-client/react";
 import { useNavigate } from "@tanstack/react-router";
 import {
 	ArrowLeftRight,
+	Bot,
 	Inbox,
 	Keyboard,
 	type LucideIcon,
@@ -95,6 +96,13 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 			icon: Inbox,
 			keywords: ["assigned"],
 			run: () => void navigate({ to: "/$workspace/my-issues", params: { workspace: slug } }),
+		},
+		{
+			id: "proposals",
+			label: "Go to Proposals",
+			icon: Bot,
+			keywords: ["agents", "review", "accept", "dismiss"],
+			run: () => void navigate({ to: "/$workspace/proposals", params: { workspace: slug } }),
 		},
 		...teams.map((team) => ({
 			id: `team-${team.id}`,

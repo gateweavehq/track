@@ -389,6 +389,11 @@ says so.
   under `proposed`, so the model knows the change is waiting rather than made. `get_issue`
   lists an issue's open proposals.
 
+The Proposals page (`/$workspace/proposals`) lists the workspace's open proposals grouped by
+issue, the most recently touched issue first, and the sidebar badges their count. Every open
+proposal is already in the replica, so it reads that and works offline; accepting and dismissing
+use the same mutations as the issue page. The agent filter lives in the URL (`?agent=<id>`).
+
 Only open proposals of live issues are in a snapshot. Webhooks report proposals (see
 [Webhooks](#webhooks)); an accepted one also sends the `issue.updated` of the person who
 accepted it.

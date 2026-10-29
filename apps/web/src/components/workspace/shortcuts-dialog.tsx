@@ -34,6 +34,16 @@ const SHORTCUTS: { group: string; items: { keys: string[][]; label: string }[] }
 		],
 	},
 	{
+		group: "Proposals",
+		items: [
+			{ keys: [["J"], ["↓"]], label: "Next proposal" },
+			{ keys: [["K"], ["↑"]], label: "Previous proposal" },
+			{ keys: [["A"]], label: "Accept the selected proposal" },
+			{ keys: [["D"]], label: "Dismiss the selected proposal" },
+			{ keys: [["Enter"]], label: "Open the selected proposal's issue" },
+		],
+	},
+	{
 		group: "Issues",
 		items: [
 			{ keys: [["S"]], label: "Change status" },

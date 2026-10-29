@@ -128,7 +128,8 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
 - `apps/web/e2e` has browser tests: Playwright drives Chromium against the production build
   (`vite preview`, port 4711, its own empty local database), because the service worker exists
   only there. They cover what the other suites cannot: sign-up, realtime across tabs and people,
-  and working offline. `pnpm test:e2e` builds and runs them; the first time, run
+  and working offline. `pnpm test:e2e` builds (`e2e/build.mjs`, which pins `BETTER_AUTH_URL` so
+  `/mcp` is on for tests that play an agent) and runs them; the first time, run
   `pnpm --filter @gateweave/track-web exec playwright install chromium`. They are not part of
   `pnpm verify`; CI runs them as the `e2e` job. Every test signs up its own user and workspace.
   Go offline with `network.goOffline()` (`e2e/network.ts`), which also closes open sockets.

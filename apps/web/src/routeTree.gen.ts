@@ -16,6 +16,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as WorkspaceIndexRouteImport } from './routes/$workspace/index'
 import { Route as WorkspaceMyIssuesRouteImport } from './routes/$workspace/my-issues'
+import { Route as WorkspaceProposalsRouteImport } from './routes/$workspace/proposals'
 import { Route as WorkspaceSettingsRouteImport } from './routes/$workspace/settings'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite.$invitationId'
 import { Route as OauthConsentRouteImport } from './routes/oauth.consent'
@@ -62,6 +63,11 @@ const WorkspaceIndexRoute = WorkspaceIndexRouteImport.update({
 const WorkspaceMyIssuesRoute = WorkspaceMyIssuesRouteImport.update({
   id: '/my-issues',
   path: '/my-issues',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceProposalsRoute = WorkspaceProposalsRouteImport.update({
+  id: '/proposals',
+  path: '/proposals',
   getParentRoute: () => WorkspaceRoute,
 } as any)
 const WorkspaceSettingsRoute = WorkspaceSettingsRouteImport.update({
@@ -134,6 +140,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
+  '/$workspace/proposals': typeof WorkspaceProposalsRoute
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
@@ -154,6 +161,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
+  '/$workspace/proposals': typeof WorkspaceProposalsRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/$workspace': typeof WorkspaceIndexRoute
@@ -175,6 +183,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
+  '/$workspace/proposals': typeof WorkspaceProposalsRoute
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
@@ -198,6 +207,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/$workspace/my-issues'
+    | '/$workspace/proposals'
     | '/$workspace/settings'
     | '/invite/$invitationId'
     | '/oauth/consent'
@@ -218,6 +228,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/$workspace/my-issues'
+    | '/$workspace/proposals'
     | '/invite/$invitationId'
     | '/oauth/consent'
     | '/$workspace'
@@ -238,6 +249,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/$workspace/my-issues'
+    | '/$workspace/proposals'
     | '/$workspace/settings'
     | '/invite/$invitationId'
     | '/oauth/consent'
@@ -313,6 +325,13 @@ declare module '@tanstack/react-router' {
       path: '/my-issues'
       fullPath: '/$workspace/my-issues'
       preLoaderRoute: typeof WorkspaceMyIssuesRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/$workspace/proposals': {
+      id: '/$workspace/proposals'
+      path: '/proposals'
+      fullPath: '/$workspace/proposals'
+      preLoaderRoute: typeof WorkspaceProposalsRouteImport
       parentRoute: typeof WorkspaceRoute
     }
     '/$workspace/settings': {
@@ -425,6 +444,7 @@ const WorkspaceSettingsRouteWithChildren =
 
 interface WorkspaceRouteChildren {
   WorkspaceMyIssuesRoute: typeof WorkspaceMyIssuesRoute
+  WorkspaceProposalsRoute: typeof WorkspaceProposalsRoute
   WorkspaceSettingsRoute: typeof WorkspaceSettingsRouteWithChildren
   WorkspaceIndexRoute: typeof WorkspaceIndexRoute
   WorkspaceIssueIssueKeyRoute: typeof WorkspaceIssueIssueKeyRoute
@@ -433,6 +453,7 @@ interface WorkspaceRouteChildren {
 
 const WorkspaceRouteChildren: WorkspaceRouteChildren = {
   WorkspaceMyIssuesRoute: WorkspaceMyIssuesRoute,
+  WorkspaceProposalsRoute: WorkspaceProposalsRoute,
   WorkspaceSettingsRoute: WorkspaceSettingsRouteWithChildren,
   WorkspaceIndexRoute: WorkspaceIndexRoute,
   WorkspaceIssueIssueKeyRoute: WorkspaceIssueIssueKeyRoute,
