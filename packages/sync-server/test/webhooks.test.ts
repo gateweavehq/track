@@ -431,6 +431,182 @@ describe("filters", () => {
 	});
 });
 
+describe("proposals", () => {
+	const PROPOSAL_EVENTS: WebhookInput["events"] = [
+		"proposal.created",
+		"proposal.updated",
+		"proposal.accepted",
+		"proposal.dismissed",
+	];
+	const OTHER_URL = "https://other.test/track";
+
+	/** A workspace whose triage agent only proposes status and priority changes. */
+	async function proposingWorkspace() {
+		const workspace = await workspaceWithTeams();
+		await workspace.syncMember(triage);
+		await mutate(workspace, owner, {
+			name: "agent.update",
+			args: { id: triage.id, patch: { proposes: ["status", "priority"] } },
+		});
+		await createIssue(workspace, owner, "issue-1");
+		return workspace;
+	}
+
+	/** Has the agent propose, and returns the open proposals it was told about. */
+	async function propose(workspace: Workspace, issueId: string, patch: Record<string, unknown>) {
+		const result = await workspace.mutate(triage, `client-${triage.id}`, crypto.randomUUID(), {
+			name: "issue.update",
+			args: { id: issueId, baseVersion: 0, patch },
+		} as MutationInput);
+		if (!result.ok) throw new Error(`${result.reason}: ${result.message}`);
+		return result.proposed;
+	}
+
+	const decide = (
+		workspace: Workspace,
+		person: MemberProfile,
+		name: "proposal.accept" | "proposal.dismiss",
+		id: string,
+	) => mutate(workspace, person, { name, args: { id } });
+
+	const types = (received: Received[]) => payloads(received).map((payload) => payload.type);
+
+	it("tells of every step in a proposal's life, with who decided", async () => {
+		const received = receiver();
+		const workspace = await proposingWorkspace();
+		await createHook(workspace, { events: PROPOSAL_EVENTS });
+
+		const [status] = await propose(workspace, "issue-1", { status: "done" });
+		await propose(workspace, "issue-1", { status: "in_progress" });
+		await decide(workspace, alice, "proposal.accept", status?.id ?? "");
+		const [priority] = await propose(workspace, "issue-1", { priority: 2 });
+		await decide(workspace, alice, "proposal.dismiss", priority?.id ?? "");
+		// Proposing what the issue already has withdraws the open proposal.
+		const [again] = await propose(workspace, "issue-1", { priority: 3 });
+		await propose(workspace, "issue-1", { priority: 0 });
+		await deliver(workspace);
+
+		expect(types(received)).toEqual([
+			"proposal.created",
+			"proposal.updated",
+			"proposal.accepted",
+			"proposal.created",
+			"proposal.dismissed",
+			"proposal.created",
+			"proposal.dismissed",
+		]);
+		const [created, updated, accepted, , dismissed, , withdrawn] = payloads(received);
+		expect(created).toMatchObject({
+			type: "proposal.created",
+			data: {
+				actor: { id: triage.id, type: "agent" },
+				issue: { id: "issue-1", key: "ENG-1" },
+				proposal: {
+					id: status?.id,
+					issueId: "issue-1",
+					issueKey: "ENG-1",
+					agentId: triage.id,
+					change: { type: "status", to: "done" },
+					createdAt: status?.createdAt,
+					updatedAt: status?.updatedAt,
+				},
+			},
+		});
+		expect(updated).toMatchObject({
+			data: { proposal: { id: status?.id, change: { type: "status", to: "in_progress" } } },
+		});
+		expect(accepted).toMatchObject({
+			data: {
+				actor: { id: alice.id, type: "person" },
+				proposal: { id: status?.id, change: { type: "status", to: "in_progress" } },
+				decidedBy: { id: alice.id, name: "Alice", type: "person" },
+				decidedAt: expect.any(Number),
+			},
+		});
+		expect(dismissed).toMatchObject({
+			data: {
+				actor: { id: alice.id },
+				proposal: { id: priority?.id },
+				decidedBy: { id: alice.id },
+			},
+		});
+		expect(withdrawn).toMatchObject({
+			data: {
+				actor: { id: triage.id, type: "agent" },
+				proposal: { id: again?.id },
+				decidedBy: { id: triage.id, type: "agent" },
+			},
+		});
+	});
+
+	it("sends an agent's webhook what people decided, not what the agent did", async () => {
+		const received = receiver();
+		const workspace = await proposingWorkspace();
+		await createHook(workspace, {
+			agentId: triage.id,
+			events: [...PROPOSAL_EVENTS, "issue.updated"],
+		});
+
+		const [status] = await propose(workspace, "issue-1", { status: "done" });
+		await propose(workspace, "issue-1", { status: "in_progress" });
+		await decide(workspace, alice, "proposal.accept", status?.id ?? "");
+		const [priority] = await propose(workspace, "issue-1", { priority: 2 });
+		await decide(workspace, alice, "proposal.dismiss", priority?.id ?? "");
+		await propose(workspace, "issue-1", { priority: 3 });
+		await propose(workspace, "issue-1", { priority: 0 });
+		await deliver(workspace);
+
+		// The accepted change keeps its own issue.updated, made by the person.
+		expect(
+			received
+				.map(payloadOf)
+				.map((payload) => payload.type)
+				.sort(),
+		).toEqual(["issue.updated", "proposal.accepted", "proposal.dismissed"]);
+		for (const payload of received.map(payloadOf)) {
+			expect(payload.data).toMatchObject({ actor: { id: alice.id } });
+		}
+	});
+
+	it("limits proposal events to the webhook's team", async () => {
+		const received = receiver();
+		const workspace = await proposingWorkspace();
+		await createIssue(workspace, owner, "ops-1", "team-ops");
+		await createHook(workspace, { events: PROPOSAL_EVENTS, teamId: "team-eng" });
+
+		await propose(workspace, "issue-1", { status: "done" });
+		await propose(workspace, "ops-1", { status: "done" });
+		await deliver(workspace);
+
+		expect(received.map(payloadOf)).toMatchObject([
+			{ type: "proposal.created", data: { issue: { id: "issue-1" } } },
+		]);
+	});
+
+	it("says nothing of open proposals when their issue is deleted", async () => {
+		const received = receiver();
+		const workspace = await proposingWorkspace();
+		await createHook(workspace, { events: [...PROPOSAL_EVENTS, "issue.deleted"], url: OTHER_URL });
+
+		await propose(workspace, "issue-1", { status: "done" });
+		await mutate(workspace, owner, { name: "issue.delete", args: { id: "issue-1" } });
+		await deliver(workspace);
+
+		expect(types(received)).toEqual(["proposal.created", "issue.deleted"]);
+	});
+
+	it("subscribes to proposal events only when asked", async () => {
+		const received = receiver();
+		const workspace = await proposingWorkspace();
+		await createHook(workspace);
+
+		await propose(workspace, "issue-1", { status: "done" });
+		await deliver(workspace);
+
+		expect(received).toHaveLength(0);
+	});
+});
+
 describe("management", () => {
 	it("is for admins only", async () => {
 		const workspace = await workspaceWithTeams();

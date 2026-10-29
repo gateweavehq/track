@@ -389,8 +389,9 @@ says so.
   under `proposed`, so the model knows the change is waiting rather than made. `get_issue`
   lists an issue's open proposals.
 
-Only open proposals of live issues are in a snapshot. Webhooks do not report proposals yet; an
-accepted one is an `issue.updated` by the person who accepted it.
+Only open proposals of live issues are in a snapshot. Webhooks report proposals (see
+[Webhooks](#webhooks)); an accepted one also sends the `issue.updated` of the person who
+accepted it.
 
 ### Search
 
@@ -422,9 +423,10 @@ puts that issue first.
 A webhook posts each change to a URL, such as an agent's trigger, so that a service hears about
 new issues without holding a socket open. Admins manage them on Settings › Webhooks: a URL, the
 events it wants (`issue.created`, `issue.updated`, `issue.deleted`, `comment.created`,
-`comment.updated`, `comment.deleted`), an optional team, and optionally the agent member it sets
-off. The payload types and input schemas are in `packages/protocol/src/webhooks.ts`; the rest is
-`packages/sync-server/src/webhooks.ts`.
+`comment.updated`, `comment.deleted`, `proposal.created`, `proposal.updated`,
+`proposal.accepted`, `proposal.dismissed`), an optional team, and optionally the agent member it
+sets off. The payload types and input schemas are in `packages/protocol/src/webhooks.ts`; the rest
+is `packages/sync-server/src/webhooks.ts`.
 
 - **The workspace's Durable Object delivers them, from an outbox.** Mutation handlers add what
   they did to the change set (an issue created, an issue's fields before and after, a comment),
@@ -443,6 +445,16 @@ off. The payload types and input schemas are in `packages/protocol/src/webhooks.
   workspace version after the change, the actor (a person or an agent), and the issue with its
   key and URL. `issue.updated` adds `updatedFrom`, the changed fields' earlier values; an update
   that only reorders the list is not sent. Comment events add the comment.
+- **Proposal events** add the proposal (`id`, `issueId`, `issueKey`, `agentId`, `change`,
+  `createdAt`, `updatedAt`) and belong to their issue's team. `proposal.created` is a new open
+  proposal and `proposal.updated` the agent proposing the same field again with another value;
+  their actor is the agent. `proposal.accepted` and `proposal.dismissed` also carry `decidedBy`
+  and `decidedAt`; the actor is the person who decided, or the agent when it withdrew a
+  proposal by proposing what the issue already has. So a webhook made for an agent hears when
+  people accept or dismiss its proposals, and skips the rest, which it caused. An accepted
+  proposal still sends the `issue.updated` of its change. Deleting an issue discards its open
+  proposals without a decision and sends no proposal event: `issue.deleted` covers it. New
+  webhooks do not subscribe to proposal events by default.
 - **Retries.** A delivery that gets no 2xx answer (a redirect counts as a failure) is retried
   after 5 seconds, 5 minutes, 30 minutes, 2, 5 and 10 hours, then marked failed. Settings show
   each webhook's latest deliveries, and finished ones are kept for seven days.
