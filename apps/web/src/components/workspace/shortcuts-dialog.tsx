@@ -50,6 +50,8 @@ const SHORTCUTS: { group: string; items: { keys: string[][]; label: string }[] }
 			{ keys: [["P"]], label: "Set priority" },
 			{ keys: [["A"]], label: "Assign" },
 			{ keys: [["L"]], label: "Add or remove labels, on the issue page" },
+			{ keys: [["D"]], label: "Set the due date, on the issue page" },
+			{ keys: [["E"]], label: "Set the estimate, on the issue page" },
 			{ keys: [["Esc"]], label: "Back to the list" },
 		],
 	},

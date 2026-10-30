@@ -1,12 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	compareProjects,
-	formatTargetDate,
-	isOverdue,
-	progressPercent,
-	projectProgress,
-	today,
-} from "./projects";
+import { compareProjects, isOverdue, progressPercent, projectProgress } from "./projects";
 
 describe("projectProgress", () => {
 	it("counts done issues out of all that are not canceled", () => {
@@ -50,17 +43,7 @@ describe("compareProjects", () => {
 	});
 });
 
-describe("dates", () => {
-	it("formats a calendar date without moving it across time zones", () => {
-		expect(formatTargetDate("2026-12-31")).toMatch(/31/);
-		expect(formatTargetDate("2026-12-31")).toMatch(/2026/);
-	});
-
-	it("reads today in the viewer's time zone", () => {
-		expect(today(new Date(2026, 0, 5, 23, 59))).toBe("2026-01-05");
-		expect(today(new Date(2026, 10, 30, 0, 0))).toBe("2026-11-30");
-	});
-
+describe("isOverdue", () => {
 	it("calls an open project overdue once its day has passed", () => {
 		const now = new Date(2026, 5, 15, 12);
 		expect(isOverdue({ status: "started", targetDate: "2026-06-14" }, now)).toBe(true);

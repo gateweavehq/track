@@ -9,8 +9,9 @@ import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { ConfirmDialog } from "#/components/workspace/confirm-dialog";
 import { isAdmin, useMyRole, useWorkspace } from "#/components/workspace/context";
+import { formatDay } from "#/lib/dates";
 import { send } from "#/lib/mutations";
-import { formatTargetDate, isOverdue, progressPercent, projectProgress } from "#/lib/projects";
+import { isOverdue, progressPercent, projectProgress } from "#/lib/projects";
 import { useMembersById, useProjectIssues } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import { PROJECT_STATUS_META, ProjectStatusIcon } from "./meta";
@@ -85,7 +86,7 @@ export function ProjectDetails({ project }: { project: Project }) {
 			</div>
 			{overdue && project.targetDate && (
 				<p className="text-xs text-destructive">
-					Past its target date, {formatTargetDate(project.targetDate)}.
+					Past its target date, {formatDay(project.targetDate)}.
 				</p>
 			)}
 			<TextField

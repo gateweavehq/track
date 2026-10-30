@@ -20,6 +20,7 @@ import { type IssueField, RowButton } from "./issue-row";
 import { LabelChips } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 import { AssigneePicker, PriorityPicker, StatusPicker } from "./pickers";
+import { DueDate, Estimate } from "./schedule";
 
 /** The space between cards, in pixels. Drop indicators sit in the middle of it. */
 const CARD_GAP = 8;
@@ -301,6 +302,10 @@ const IssueCard = memo(function IssueCard({
 					</RowButton>
 				</PriorityPicker>
 				<LabelChips labelIds={issue.labelIds} max={3} />
+				<div className="ml-auto flex shrink-0 items-center gap-1.5 pl-1">
+					<DueDate issue={issue} />
+					<Estimate estimate={issue.estimate} />
+				</div>
 			</div>
 		</div>
 	);

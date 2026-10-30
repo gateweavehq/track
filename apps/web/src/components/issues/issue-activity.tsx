@@ -2,9 +2,12 @@ import type { Activity, ActivityChange, Comment, Issue, Label } from "@gateweave
 import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import {
+	CalendarClock,
+	CalendarDays,
 	CircleUserRound,
 	Ellipsis,
 	FileText,
+	Gauge,
 	Layers,
 	type LucideIcon,
 	Pencil,
@@ -25,8 +28,9 @@ import { Kbd } from "#/components/ui/kbd";
 import { Textarea } from "#/components/ui/textarea";
 import { ConfirmDialog } from "#/components/workspace/confirm-dialog";
 import { isAdmin, useMyRole, useWorkspace } from "#/components/workspace/context";
-import { formatDateTime, formatRelative } from "#/lib/dates";
+import { formatDateTime, formatDay, formatRelative } from "#/lib/dates";
 import { MOD_LABEL } from "#/lib/hotkeys";
+import { estimateLabel } from "#/lib/issues";
 import { send } from "#/lib/mutations";
 import {
 	useIssueActivity,
@@ -221,7 +225,42 @@ function describe(
 				</span>,
 			);
 		}
+		case "startDate":
+			return plain(CalendarDays, dateText("start date", change.from, change.to));
+		case "dueDate":
+			return plain(CalendarClock, dateText("due date", change.from, change.to));
+		case "estimate":
+			if (change.to === null) return plain(Gauge, "removed the estimate");
+			return plain(
+				Gauge,
+				change.from === null ? (
+					<>
+						estimated the issue at <Strong>{estimateLabel(change.to)}</Strong>
+					</>
+				) : (
+					<>
+						changed the estimate from {estimateLabel(change.from)} to{" "}
+						<Strong>{estimateLabel(change.to)}</Strong>
+					</>
+				),
+			);
 	}
+}
+
+function dateText(field: string, from: string | null, to: string | null): ReactNode {
+	if (to === null) return `removed the ${field}`;
+	if (from === null) {
+		return (
+			<>
+				set the {field} to <Strong>{formatDay(to)}</Strong>
+			</>
+		);
+	}
+	return (
+		<>
+			changed the {field} from {formatDay(from)} to <Strong>{formatDay(to)}</Strong>
+		</>
+	);
 }
 
 function Strong({ children, title }: { children: ReactNode; title?: string }) {

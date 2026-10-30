@@ -1,8 +1,8 @@
-import type { Issue, Team } from "@gateweave/track-protocol";
+import { calendarDate, type Issue, type Team } from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link, useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
-import { ChevronRight, Layers, Trash } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ChevronRight, Gauge, Layers, Trash, X } from "lucide-react";
+import { type ReactNode, type Ref, useCallback, useEffect, useRef, useState } from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { ProjectStatusIcon } from "#/components/projects/meta";
 import { Button } from "#/components/ui/button";
@@ -14,10 +14,11 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "#/components/ui/dialog";
+import { Input } from "#/components/ui/input";
 import { useWorkspace } from "#/components/workspace/context";
 import { formatDateTime, formatRelative } from "#/lib/dates";
 import { useHotkeys } from "#/lib/hotkeys";
-import { issueKey } from "#/lib/issues";
+import { estimateLabel, isIssueOverdue, issueKey } from "#/lib/issues";
 import { send, useUpdateIssue } from "#/lib/mutations";
 import { useMembersById, useProject } from "#/lib/queries";
 import { cn } from "#/lib/utils";
@@ -26,7 +27,13 @@ import { IssueProposals } from "./issue-proposals";
 import type { IssueField } from "./issue-row";
 import { LabelChips, LabelPicker } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
-import { AssigneePicker, PriorityPicker, ProjectPicker, StatusPicker } from "./pickers";
+import {
+	AssigneePicker,
+	EstimatePicker,
+	PriorityPicker,
+	ProjectPicker,
+	StatusPicker,
+} from "./pickers";
 
 export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 	const { slug } = useWorkspace();
@@ -41,6 +48,7 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 	const assignee = issue.assigneeId ? members.get(issue.assigneeId) : undefined;
 	const creator = members.get(issue.creatorId);
 	const project = useProject(issue.projectId ?? "");
+	const dueDateRef = useRef<HTMLInputElement>(null);
 
 	function back() {
 		if (canGoBack) router.history.back();
@@ -56,6 +64,8 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 		p: () => setMenu("priority"),
 		a: () => setMenu("assignee"),
 		l: () => setMenu("labels"),
+		d: () => openDatePicker(dueDateRef.current),
+		e: () => setMenu("estimate"),
 		Escape: back,
 	});
 
@@ -167,6 +177,40 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 							</PropertyButton>
 						</LabelPicker>
 					</Property>
+					<Property label="Start date">
+						<DateField
+							label="Start date"
+							value={issue.startDate}
+							max={issue.dueDate}
+							onChange={(startDate) => update(issue, { startDate })}
+						/>
+					</Property>
+					<Property label="Due date">
+						<DateField
+							label="Due date"
+							value={issue.dueDate}
+							min={issue.startDate}
+							overdue={isIssueOverdue(issue)}
+							inputRef={dueDateRef}
+							onChange={(dueDate) => update(issue, { dueDate })}
+						/>
+					</Property>
+					<Property label="Estimate">
+						<EstimatePicker
+							value={issue.estimate}
+							onChange={(estimate) => update(issue, { estimate })}
+							{...menuProps("estimate")}
+						>
+							<PropertyButton>
+								<Gauge className="size-4 text-muted-foreground" />
+								{issue.estimate === null ? (
+									<span className="text-muted-foreground">No estimate</span>
+								) : (
+									estimateLabel(issue.estimate)
+								)}
+							</PropertyButton>
+						</EstimatePicker>
+					</Property>
 					<dl className="space-y-2 pt-4 text-xs text-muted-foreground">
 						<div className="flex justify-between gap-2 px-2">
 							<dt>Created by</dt>
@@ -229,6 +273,74 @@ function PropertyButton({
 			{children}
 		</Button>
 	);
+}
+
+/**
+ * A calendar day picked with the browser's own date input, and a button that clears it. `min` and
+ * `max` keep a start date before its due date in the picker, though neither is enforced.
+ */
+function DateField({
+	label,
+	value,
+	onChange,
+	min,
+	max,
+	overdue = false,
+	inputRef,
+}: {
+	label: string;
+	value: string | null;
+	onChange: (value: string | null) => void;
+	min?: string | null;
+	max?: string | null;
+	overdue?: boolean;
+	inputRef?: Ref<HTMLInputElement>;
+}) {
+	return (
+		<div className="flex items-center gap-1">
+			<Input
+				ref={inputRef}
+				type="date"
+				value={value ?? ""}
+				min={min ?? undefined}
+				max={max ?? undefined}
+				onChange={(event) => {
+					const next = event.target.value;
+					// While a year is being typed the input can hold one the protocol would refuse.
+					if (next === "") onChange(null);
+					else if (calendarDate.safeParse(next).success && next !== value) onChange(next);
+				}}
+				aria-label={label}
+				className={cn(
+					"h-8 min-w-0 flex-1 border-transparent px-2 shadow-none hover:bg-accent focus-visible:bg-transparent",
+					!value && "text-muted-foreground",
+					overdue && "text-destructive",
+				)}
+			/>
+			{value && (
+				<Button
+					variant="ghost"
+					size="icon"
+					className="size-8 shrink-0"
+					aria-label={`Clear the ${label.toLowerCase()}`}
+					onClick={() => onChange(null)}
+				>
+					<X />
+				</Button>
+			)}
+		</div>
+	);
+}
+
+/** Focuses a date input and opens its calendar, where the browser allows that. */
+function openDatePicker(input: HTMLInputElement | null) {
+	if (!input) return;
+	input.focus();
+	try {
+		input.showPicker();
+	} catch {
+		// Some browsers refuse without a click; the focused field still takes typing.
+	}
 }
 
 /**

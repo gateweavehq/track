@@ -369,6 +369,26 @@ The Projects page (`/$workspace/projects`) lists them with their lead, target da
 and a project's page (`/$workspace/project/$projectId`) edits its fields above the project's
 issues, shown with the same list and board as a team's.
 
+### Dates and estimates
+
+An issue can have a start date and a due date (`startDate`, `dueDate`: `YYYY-MM-DD`, checked to
+be a real day, like a project's target date) and an estimate (`estimate`: whole points from 0 to
+1000). They are ordinary fields of the issue patch, with per-field conflict detection, and each
+change is recorded in the issue's history.
+
+- A day is a day on the calendar, the same in every time zone, not an instant. "Overdue" is
+  decided in the viewer's time zone: an issue that is not done or canceled, whose due date is
+  before today.
+- The server does not require the start to come before the due date. The issue page only keeps
+  them in order in the date pickers.
+- Teams pick their own scale. The UI offers 1, 2, 3, 5, 8, 13 and 21 points, and shows any other
+  value an agent set.
+- Dates and estimates are never proposed: an agent member sets them directly, as it can create
+  issues. They are planning, which people correct by editing, not a decision about the work.
+- Lists and boards show the due date (red once overdue) and the estimate, and a page of issues
+  filters to overdue issues, issues due within a week, or issues without a due date (`due` in
+  the URL). Agents set all three over MCP with `create_issue` and `update_issue`.
+
 ### Comments and activity
 
 Comments are ordinary synced rows. Any member can comment. Only the author edits a comment, so
@@ -378,7 +398,8 @@ admin can delete it.
 Activity, an issue's history, is written by the server as a side effect of issue mutations and
 never by clients. It cannot be forged, needs no prediction, and arrives in the same delta as the
 change it describes. Each entry is one person changing one field: status, priority, assignee,
-title, description, project, or a label added or removed. To keep the history readable:
+title, description, project, start date, due date, estimate, or a label added or removed. To keep
+the history readable:
 
 - Changes by the same person to the same field within five minutes merge into their latest
   entry, keeping the first `from` and the newest `to`. Putting a field back where it started
@@ -398,8 +419,8 @@ People stay in control of agents: for each agent member, an admin chooses which 
 to an issue it only proposes (`agent.update`, kept in the member's `proposes` in the Durable
 Object). The kinds are the title, the description, the status, closing (a status of done or
 canceled, which `status` includes), the priority, the assignee, the project and labels.
-Creating issues, commenting, and managing labels and projects are never proposed. An agent proposes nothing until an admin
-says so.
+Creating issues, setting dates and estimates, commenting, and managing labels and projects are
+never proposed. An agent proposes nothing until an admin says so.
 
 - **The server splits the agent's mutation.** `applyMutation` makes the fields its `proposes`
   does not cover and turns the rest into proposals (`proposals.ts`), in the same transaction.

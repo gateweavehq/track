@@ -1,5 +1,6 @@
 import { runInDurableObject } from "cloudflare:test";
 import {
+	AGENT_CHANGE_KINDS,
 	type AgentChangeKind,
 	CloseCode,
 	type Issue,
@@ -300,6 +301,46 @@ describe("issues", () => {
 
 		expect(stranger).toMatchObject({ type: "reject", reason: "invalid" });
 		expect((await issueOf(admin, issue.id)).assigneeId).toBe(alice.id);
+	});
+
+	it("keeps an issue's dates and estimate, and refuses days that do not exist", async () => {
+		const { admin } = await withTeam();
+		const bare = await createIssue(admin, "issue-1");
+		await admin.apply({
+			name: "issue.create",
+			args: {
+				id: "issue-2",
+				teamId: TEAM_ID,
+				title: "Launch",
+				sortOrder: "a1",
+				startDate: "2026-11-02",
+				dueDate: "2028-02-29",
+				estimate: 0,
+			},
+		});
+		const dated = await issueOf(admin, "issue-2");
+		const update = (patch: Record<string, unknown>) =>
+			admin.mutate({
+				name: "issue.update",
+				args: { id: dated.id, baseVersion: dated.version, patch },
+			} as MutationInput);
+
+		expect(bare).toMatchObject({ startDate: null, dueDate: null, estimate: null });
+		expect(dated).toMatchObject({ startDate: "2026-11-02", dueDate: "2028-02-29", estimate: 0 });
+		for (const dueDate of ["2026-02-30", "2027-02-29", "2026-13-01", "2026-1-5", "tomorrow"]) {
+			expect(await update({ dueDate })).toMatchObject({ type: "reject", reason: "invalid" });
+		}
+		for (const estimate of [-1, 1.5, 1001, "3"]) {
+			expect(await update({ estimate })).toMatchObject({ type: "reject", reason: "invalid" });
+		}
+		expect(await update({ startDate: null, dueDate: "2026-12-01", estimate: 1000 })).toMatchObject({
+			type: "ack",
+		});
+		expect(await issueOf(admin, dated.id)).toMatchObject({
+			startDate: null,
+			dueDate: "2026-12-01",
+			estimate: 1000,
+		});
 	});
 
 	it("broadcasts deletes and treats deleted issues as gone", async () => {
@@ -1047,6 +1088,29 @@ describe("activity", () => {
 		]);
 	});
 
+	it("records dates and estimates, merging quick changes", async () => {
+		const { workspace, admin } = await withTeam();
+		const issue = await createIssue(admin, "issue-1");
+
+		await update(admin, issue.id, { startDate: "2026-11-02" });
+		await update(admin, issue.id, { dueDate: "2026-11-20" });
+		await update(admin, issue.id, { dueDate: "2026-11-27" });
+		await update(admin, issue.id, { estimate: 3 });
+		await update(admin, issue.id, { estimate: 5 });
+
+		expect(await historyOf(workspace, issue.id)).toEqual([
+			{ actorId: owner.id, change: { type: "startDate", from: null, to: "2026-11-02" } },
+			{ actorId: owner.id, change: { type: "dueDate", from: null, to: "2026-11-27" } },
+			{ actorId: owner.id, change: { type: "estimate", from: null, to: 5 } },
+		]);
+
+		await update(admin, issue.id, { estimate: null });
+		expect((await historyOf(workspace, issue.id)).map(({ change }) => change.type)).toEqual([
+			"startDate",
+			"dueDate",
+		]);
+	});
+
 	it("records labels added and removed, and a quick toggle leaves nothing", async () => {
 		const { workspace, admin } = await withTeam();
 		const member = await TestClient.live(workspace, alice);
@@ -1376,6 +1440,26 @@ describe("proposals", () => {
 		expect(await workspace.proposals(issue.id)).toHaveLength(3);
 		// People see them as they are made.
 		await admin.op((op) => op.entity === "proposal" && op.op === "put");
+	});
+
+	it("makes an agent's dates and estimates at once, whatever it is set to propose", async () => {
+		const { workspace, issue, asTriage } = await withAgent([...AGENT_CHANGE_KINDS]);
+
+		const result = await asTriage({
+			name: "issue.update",
+			args: {
+				id: issue.id,
+				baseVersion: issue.version,
+				patch: { startDate: "2026-11-02", dueDate: "2026-11-20", estimate: 8 },
+			},
+		});
+
+		expect(proposed(result)).toEqual([]);
+		expect(await workspace.issue(issue.id)).toMatchObject({
+			startDate: "2026-11-02",
+			dueDate: "2026-11-20",
+			estimate: 8,
+		});
 	});
 
 	it("proposes only closing when that is what it is set to propose", async () => {
@@ -1758,6 +1842,9 @@ describe("search", () => {
 			db.run(sql`drop table proposals`);
 			db.run(sql`alter table activities drop column proposed_by`);
 			db.run(sql`alter table members drop column proposes`);
+			db.run(sql`alter table issues drop column start_date`);
+			db.run(sql`alter table issues drop column due_date`);
+			db.run(sql`alter table issues drop column estimate`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${search.when}`);
 			await migrate(db, migrations);
 		});

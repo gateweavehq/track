@@ -6,7 +6,7 @@ import {
 	type ProjectStatus,
 	type Team,
 } from "@gateweave/track-protocol";
-import { Check, Layers } from "lucide-react";
+import { Check, Gauge, Layers } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { PROJECT_STATUS_META, ProjectStatusIcon } from "#/components/projects/meta";
@@ -20,6 +20,7 @@ import {
 } from "#/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover";
 import { useWorkspace } from "#/components/workspace/context";
+import { ESTIMATE_OPTIONS, estimateLabel } from "#/lib/issues";
 import { useActiveMembers, useProjectList } from "#/lib/queries";
 import { PRIORITY_META, PRIORITY_ORDER, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 
@@ -135,6 +136,24 @@ export function ProjectPicker(props: PickerProps<string | null>) {
 		})),
 	];
 	return <OptionPicker {...props} options={options} placeholder="Set project…" />;
+}
+
+/** Points on a short scale, or none. An estimate set off the scale, by an agent, is listed too. */
+export function EstimatePicker(props: PickerProps<number | null>) {
+	const scale: number[] = [...ESTIMATE_OPTIONS];
+	if (props.value !== null && !scale.includes(props.value)) {
+		scale.push(props.value);
+		scale.sort((a, b) => a - b);
+	}
+	const options: Option<number | null>[] = [
+		{ value: null, label: "No estimate", icon: <Gauge className="size-4 text-muted-foreground" /> },
+		...scale.map((points) => ({
+			value: points,
+			label: estimateLabel(points),
+			icon: <Gauge className="size-4" />,
+		})),
+	];
+	return <OptionPicker {...props} options={options} placeholder="Set estimate…" />;
 }
 
 export function ProjectStatusPicker(props: PickerProps<ProjectStatus>) {

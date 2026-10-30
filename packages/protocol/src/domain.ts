@@ -73,6 +73,12 @@ export interface Issue {
 	creatorId: string;
 	/** The project the issue belongs to, if any. */
 	projectId: string | null;
+	/** When work should start: `YYYY-MM-DD`, a calendar day with no time zone. */
+	startDate: string | null;
+	/** When it should be done: `YYYY-MM-DD`, a calendar day with no time zone. */
+	dueDate: string | null;
+	/** The size of the work in points, which the team decides the meaning of. */
+	estimate: number | null;
 	/** Ids of the issue's labels, in the order they were added. */
 	labelIds: string[];
 	/** Fractional index used for manual ordering. */
@@ -134,6 +140,9 @@ export type ActivityChange =
 	| { type: "priority"; from: IssuePriority; to: IssuePriority }
 	| { type: "assignee"; from: string | null; to: string | null }
 	| { type: "project"; from: string | null; to: string | null }
+	| { type: "startDate"; from: string | null; to: string | null }
+	| { type: "dueDate"; from: string | null; to: string | null }
+	| { type: "estimate"; from: number | null; to: number | null }
 	| { type: "label"; labelId: string; added: boolean };
 
 /**

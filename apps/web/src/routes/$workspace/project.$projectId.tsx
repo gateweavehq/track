@@ -82,6 +82,8 @@ function ProjectIssues({ project }: { project: Project }) {
 			onLabelFilterChange={(labels) =>
 				setSearch({ labels: labels.length > 0 ? labels : undefined })
 			}
+			dueFilter={search.due}
+			onDueFilterChange={(due) => setSearch({ due })}
 			empty={
 				<Notice
 					title="No issues in this project"

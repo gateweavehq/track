@@ -23,13 +23,15 @@ const labelColor = z.string().regex(/^#[0-9a-f]{6}$/, "A lowercase hex color, li
 const projectName = z.string().trim().min(1).max(64);
 const projectStatus = z.enum(PROJECT_STATUSES);
 /** `YYYY-MM-DD`, and a day that exists: 2026-02-30 is refused. */
-const targetDate = z
+export const calendarDate = z
 	.string()
 	.regex(/^\d{4}-\d{2}-\d{2}$/, "A date like 2026-03-31")
 	.refine((value) => {
 		const date = new Date(`${value}T00:00:00Z`);
 		return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
 	}, "Not a real calendar date");
+/** Points. Teams pick their own scale; 0 is a valid size, for work too small to count. */
+export const estimate = z.number().int().min(0).max(1000);
 const commentBody = z.string().trim().min(1).max(100_000);
 
 const nonEmpty = (patch: object) => Object.keys(patch).length > 0;
@@ -57,6 +59,9 @@ export const mutationSchema = z.discriminatedUnion("name", [
 			priority: priority.default(0),
 			assigneeId: id.nullable().default(null),
 			projectId: id.nullable().default(null),
+			startDate: calendarDate.nullable().default(null),
+			dueDate: calendarDate.nullable().default(null),
+			estimate: estimate.nullable().default(null),
 			labelIds: z.array(id).max(MAX_LABELS_PER_ISSUE).default([]),
 			sortOrder,
 		}),
@@ -75,6 +80,9 @@ export const mutationSchema = z.discriminatedUnion("name", [
 					priority,
 					assigneeId: id.nullable(),
 					projectId: id.nullable(),
+					startDate: calendarDate.nullable(),
+					dueDate: calendarDate.nullable(),
+					estimate: estimate.nullable(),
 					sortOrder,
 				})
 				.partial()
@@ -121,7 +129,7 @@ export const mutationSchema = z.discriminatedUnion("name", [
 			description: description.default(null),
 			status: projectStatus.default("planned"),
 			leadId: id.nullable().default(null),
-			targetDate: targetDate.nullable().default(null),
+			targetDate: calendarDate.nullable().default(null),
 		}),
 	}),
 	z.object({
@@ -134,7 +142,7 @@ export const mutationSchema = z.discriminatedUnion("name", [
 					description,
 					status: projectStatus,
 					leadId: id.nullable(),
-					targetDate: targetDate.nullable(),
+					targetDate: calendarDate.nullable(),
 				})
 				.partial()
 				.refine(nonEmpty, "Empty patch"),

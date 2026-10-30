@@ -68,6 +68,8 @@ function TeamIssues({ team }: { team: Team }) {
 			onLabelFilterChange={(labels) =>
 				setSearch({ labels: labels.length > 0 ? labels : undefined })
 			}
+			dueFilter={search.due}
+			onDueFilterChange={(due) => setSearch({ due })}
 			empty={
 				<Notice
 					title="No issues yet"

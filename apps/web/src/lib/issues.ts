@@ -1,5 +1,11 @@
-import type { Issue, IssueStatus, Team } from "@gateweave/track-protocol";
+import {
+	CLOSED_STATUSES,
+	type Issue,
+	type IssueStatus,
+	type Team,
+} from "@gateweave/track-protocol";
 import { generateKeyBetween } from "fractional-indexing";
+import { addDays, today } from "./dates";
 
 /** The human-readable identifier of an issue, e.g. `ENG-42`. */
 export function issueKey(team: Pick<Team, "key"> | undefined, issue: Pick<Issue, "number">) {
@@ -108,4 +114,51 @@ export function matchesQuery(query: string, ...fields: readonly string[]): boole
 	if (terms.length === 0) return true;
 	const haystack = fields.map((field) => field.toLowerCase());
 	return terms.every((term) => haystack.some((field) => field.includes(term)));
+}
+
+/** The estimates offered when picking one, in points. Agents can set any whole number to 1,000. */
+export const ESTIMATE_OPTIONS = [1, 2, 3, 5, 8, 13, 21] as const;
+
+/** "1 point", "5 points". */
+export function estimateLabel(points: number): string {
+	return points === 1 ? "1 point" : `${points} points`;
+}
+
+/** True when an open issue's due date has passed. Done and canceled issues are never overdue. */
+export function isIssueOverdue(
+	issue: Pick<Issue, "dueDate" | "status">,
+	now = new Date(),
+): boolean {
+	return (
+		issue.dueDate !== null && issue.dueDate < today(now) && !CLOSED_STATUSES.includes(issue.status)
+	);
+}
+
+export const DUE_FILTERS = ["overdue", "week", "none"] as const;
+export type DueFilter = (typeof DUE_FILTERS)[number];
+
+export const DUE_FILTER_LABELS: Record<DueFilter, string> = {
+	overdue: "Overdue",
+	week: "Due within a week",
+	none: "No due date",
+};
+
+/**
+ * Whether an issue passes a due-date filter: overdue, due today or in the next six days (open
+ * issues only, like overdue), or without a due date.
+ */
+export function matchesDue(
+	issue: Pick<Issue, "dueDate" | "status">,
+	filter: DueFilter,
+	now = new Date(),
+): boolean {
+	if (filter === "none") return issue.dueDate === null;
+	if (filter === "overdue") return isIssueOverdue(issue, now);
+	const day = today(now);
+	return (
+		issue.dueDate !== null &&
+		issue.dueDate >= day &&
+		issue.dueDate <= addDays(day, 6) &&
+		!CLOSED_STATUSES.includes(issue.status)
+	);
 }

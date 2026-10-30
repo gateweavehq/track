@@ -1,11 +1,34 @@
 import type { Issue } from "@gateweave/track-protocol";
-import { Columns3, type LucideIcon, Plus, Rows3, Search, Tag, X } from "lucide-react";
+import {
+	CalendarClock,
+	Columns3,
+	type LucideIcon,
+	Plus,
+	Rows3,
+	Search,
+	Tag,
+	X,
+} from "lucide-react";
 import { type ReactNode, useDeferredValue, useMemo, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuTrigger,
+} from "#/components/ui/dropdown-menu";
 import { type IssueDefaults, useWorkspaceActions } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
 import { MOD_LABEL, useHotkeys } from "#/lib/hotkeys";
-import { issueKey, matchesQuery } from "#/lib/issues";
+import {
+	DUE_FILTER_LABELS,
+	DUE_FILTERS,
+	type DueFilter,
+	issueKey,
+	matchesDue,
+	matchesQuery,
+} from "#/lib/issues";
 import { useLabelsById, useMembersById, useTeamsById } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import type { IssueView } from "#/lib/views";
@@ -28,6 +51,8 @@ export function IssuesPage({
 	onViewChange,
 	labelFilter,
 	onLabelFilterChange,
+	dueFilter,
+	onDueFilterChange,
 	intro,
 }: {
 	title: string;
@@ -42,6 +67,8 @@ export function IssuesPage({
 	/** Show only issues with any of these labels. Ids that do not resolve are ignored. */
 	labelFilter: readonly string[] | undefined;
 	onLabelFilterChange: (labelIds: string[]) => void;
+	dueFilter: DueFilter | undefined;
+	onDueFilterChange: (due: DueFilter | undefined) => void;
 }) {
 	const actions = useWorkspaceActions();
 	const teams = useTeamsById();
@@ -68,10 +95,12 @@ export function IssuesPage({
 	const filtered = useMemo(() => {
 		const wanted = new Set(activeLabels);
 		const text = deferredQuery.trim();
-		if (!text && wanted.size === 0) return issues;
+		if (!text && wanted.size === 0 && !dueFilter) return issues;
+		const now = new Date();
 		return issues.filter(
 			(issue) =>
 				(wanted.size === 0 || issue.labelIds.some((id) => wanted.has(id))) &&
+				(!dueFilter || matchesDue(issue, dueFilter, now)) &&
 				(!text ||
 					matchesQuery(
 						text,
@@ -80,11 +109,11 @@ export function IssuesPage({
 						(issue.assigneeId && members.get(issue.assigneeId)?.name) || "",
 					)),
 		);
-	}, [issues, deferredQuery, activeLabels, teams, members]);
+	}, [issues, deferredQuery, activeLabels, dueFilter, teams, members]);
 
 	const text = query.trim();
 	const emptyState =
-		text || activeLabels.length > 0 ? (
+		text || activeLabels.length > 0 || dueFilter ? (
 			<Notice
 				title="No matching issues"
 				action={
@@ -93,6 +122,7 @@ export function IssuesPage({
 						onClick={() => {
 							setQuery("");
 							onLabelFilterChange([]);
+							onDueFilterChange(undefined);
 						}}
 					>
 						Clear filters
@@ -100,8 +130,8 @@ export function IssuesPage({
 				}
 			>
 				{text
-					? `Nothing here matches “${text}”${activeLabels.length > 0 ? " with these labels" : ""}.`
-					: "Nothing here has these labels."}
+					? `Nothing here matches “${text}” with these filters.`
+					: "Nothing here matches these filters."}
 			</Notice>
 		) : (
 			empty
@@ -113,7 +143,7 @@ export function IssuesPage({
 				<h1 className="truncate text-sm font-medium">{title}</h1>
 				{badge}
 				<span className="text-sm text-muted-foreground tabular-nums">{issues.length}</span>
-				<div className="ml-auto flex items-center gap-2">
+				<div className="ml-auto flex items-center gap-1.5 sm:gap-2">
 					<div className="relative">
 						<Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
 						<input
@@ -128,10 +158,11 @@ export function IssuesPage({
 							}}
 							placeholder="Filter issues"
 							aria-label="Filter issues"
-							className="h-8 w-32 rounded-md border bg-transparent pr-2 pl-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring lg:w-56"
+							className="h-8 w-20 rounded-md border bg-transparent pr-2 pl-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring sm:w-32 lg:w-56"
 						/>
 					</div>
 					<LabelFilter value={activeLabels} onChange={onLabelFilterChange} />
+					<DueDateFilter value={dueFilter} onChange={onDueFilterChange} />
 					<ViewSwitch view={view} onChange={onViewChange} />
 					<Button size="sm" onClick={() => actions.createIssue(defaults)}>
 						<Plus />
@@ -188,6 +219,57 @@ function LabelFilter({ value, onChange }: { value: string[]; onChange: (ids: str
 					className="size-8 rounded-l-none"
 					aria-label="Clear the label filter"
 					onClick={() => onChange([])}
+				>
+					<X />
+				</Button>
+			)}
+		</div>
+	);
+}
+
+function DueDateFilter({
+	value,
+	onChange,
+}: {
+	value: DueFilter | undefined;
+	onChange: (due: DueFilter | undefined) => void;
+}) {
+	const label = value ? DUE_FILTER_LABELS[value] : "Filter by due date";
+	return (
+		<div className="flex items-center">
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<Button
+						variant="outline"
+						size="sm"
+						className={cn("h-8 gap-1.5 px-2", value && "rounded-r-none border-r-0")}
+						aria-label={value ? `Due date: ${label}` : label}
+						title={label}
+					>
+						<CalendarClock className="size-3.5" />
+						<span className="hidden lg:inline">{value ? label : "Due"}</span>
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="end">
+					<DropdownMenuRadioGroup
+						value={value ?? ""}
+						onValueChange={(next) => onChange(DUE_FILTERS.find((due) => due === next))}
+					>
+						{DUE_FILTERS.map((due) => (
+							<DropdownMenuRadioItem key={due} value={due}>
+								{DUE_FILTER_LABELS[due]}
+							</DropdownMenuRadioItem>
+						))}
+					</DropdownMenuRadioGroup>
+				</DropdownMenuContent>
+			</DropdownMenu>
+			{value && (
+				<Button
+					variant="outline"
+					size="icon"
+					className="size-8 rounded-l-none"
+					aria-label="Clear the due date filter"
+					onClick={() => onChange(undefined)}
 				>
 					<X />
 				</Button>

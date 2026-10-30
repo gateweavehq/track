@@ -12,8 +12,9 @@ import { DropIndicator } from "./drop-indicator";
 import { LabelChips } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 import { AssigneePicker, PriorityPicker, StatusPicker } from "./pickers";
+import { DueDate, Estimate } from "./schedule";
 
-export type IssueField = "status" | "priority" | "assignee" | "project" | "labels";
+export type IssueField = "status" | "priority" | "assignee" | "project" | "labels" | "estimate";
 
 interface IssueRowProps {
 	issue: Issue;
@@ -97,6 +98,8 @@ export const IssueRow = memo(function IssueRow({
 				{issue.title}
 			</Link>
 			<LabelChips labelIds={issue.labelIds} max={2} className="hidden shrink-0 lg:flex" />
+			<Estimate estimate={issue.estimate} className="hidden sm:inline-flex" />
+			<DueDate issue={issue} />
 			<time
 				dateTime={new Date(issue.createdAt).toISOString()}
 				title={`Created ${formatDateTime(issue.createdAt)}`}

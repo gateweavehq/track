@@ -1,4 +1,5 @@
 import type { Issue, Project, ProjectStatus } from "@gateweave/track-protocol";
+import { today } from "./dates";
 
 /** The order projects are listed in: work in flight first, finished work last. */
 export const PROJECT_STATUS_ORDER = [
@@ -41,21 +42,6 @@ export function projectProgress(issues: Iterable<Pick<Issue, "status">>): Projec
 /** A whole percentage for a progress bar. A project with nothing to do yet is at zero. */
 export function progressPercent({ done, total }: ProjectProgress): number {
 	return total === 0 ? 0 : Math.round((done / total) * 100);
-}
-
-const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
-
-/** "Dec 31, 2026" for a `YYYY-MM-DD` date, read as a day on the calendar in any time zone. */
-export function formatTargetDate(date: string): string {
-	const [year, month, day] = date.split("-").map(Number);
-	if (!year || !month || !day) return date;
-	return dateFormat.format(new Date(year, month - 1, day));
-}
-
-/** The day `now` falls on, as `YYYY-MM-DD` in the viewer's time zone. */
-export function today(now = new Date()): string {
-	const pad = (value: number) => String(value).padStart(2, "0");
-	return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
 /** True when the target date has passed and the project is still open. */
