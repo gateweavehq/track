@@ -608,8 +608,8 @@ A webhook posts each change to a URL, such as an agent's trigger, so that a serv
 new issues without holding a socket open. Admins manage them on Settings › Webhooks: a URL, the
 events it wants (`issue.created`, `issue.updated`, `issue.deleted`, `comment.created`,
 `comment.updated`, `comment.deleted`, `proposal.created`, `proposal.updated`,
-`proposal.accepted`, `proposal.dismissed`, `relation.created`, `relation.deleted`), an optional team, and optionally the agent member it
-sets off. The payload types and input schemas are in `packages/protocol/src/webhooks.ts`; the rest
+`proposal.accepted`, `proposal.dismissed`, `relation.created`, `relation.deleted`), an
+optional team, and optionally the agent member it sets off. The payload types and input schemas are in `packages/protocol/src/webhooks.ts`; the rest
 is `packages/sync-server/src/webhooks.ts`.
 
 - **The workspace's Durable Object delivers them, from an outbox.** Mutation handlers add what
