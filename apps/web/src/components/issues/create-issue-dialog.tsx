@@ -40,7 +40,7 @@ export function CreateIssueDialog({
 	const [title, setTitle] = useState("");
 	const [description, setDescription] = useState("");
 	const [status, setStatus] = useState<IssueStatus>(defaults.status ?? "backlog");
-	const [priority, setPriority] = useState<IssuePriority>(0);
+	const [priority, setPriority] = useState<IssuePriority>(defaults.priority ?? 0);
 	const [assigneeId, setAssigneeId] = useState<string | null>(defaults.assigneeId ?? null);
 	// The default comes from the page on screen, whose project may be deleted by now.
 	const [projectId, setProjectId] = useState<string | null>(

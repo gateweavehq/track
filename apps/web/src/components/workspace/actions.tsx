@@ -27,6 +27,11 @@ type OpenDialog =
 	| { kind: "shortcuts" }
 	| null;
 
+/** The one value of a filter that has exactly one. */
+function only<T>(values: readonly T[] | undefined): T | undefined {
+	return values?.length === 1 ? values[0] : undefined;
+}
+
 /** Owns the workspace's dialogs and global shortcuts, and offers them to the rest of the UI. */
 export function WorkspaceActionsProvider({ children }: { children: ReactNode }) {
 	const [dialog, setDialog] = useState<OpenDialog>(null);
@@ -38,9 +43,16 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 	const routeTeamId = useTeamByKey(routeTeamKey)?.id;
 	// And to the project on screen, which only counts while it exists.
 	const routeProjectId = useProject(params.projectId ?? "")?.id;
-	// And they start with the labels the page is filtered by, so they show up on it. Parsed only
-	// when used, so the raw value keeps its identity between renders.
-	const routeLabels = useSearch({ strict: false }).labels;
+	// And they start with what the page is filtered by, so they show up on it: its labels, and a
+	// status, priority, assignee, project or team when it is filtered to just one. Parsed only when
+	// used, so the raw values keep their identity between renders.
+	const search = useSearch({ strict: false });
+	const routeLabels = search.labels;
+	const routeTeam = search.team;
+	const routeStatus = search.status;
+	const routePriority = search.priority;
+	const routeAssignee = search.assignee;
+	const routeProject = search.project;
 
 	const actions = useMemo<WorkspaceActions>(
 		() => ({
@@ -50,8 +62,19 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 						kind: "issue",
 						defaults: {
 							...defaults,
-							teamId: defaults.teamId ?? routeTeamId,
-							projectId: defaults.projectId === undefined ? routeProjectId : defaults.projectId,
+							teamId:
+								defaults.teamId ?? routeTeamId ?? only(issuePageSearch.shape.team.parse(routeTeam)),
+							status: defaults.status ?? only(issuePageSearch.shape.status.parse(routeStatus)),
+							priority:
+								defaults.priority ?? only(issuePageSearch.shape.priority.parse(routePriority)),
+							assigneeId:
+								defaults.assigneeId === undefined
+									? only(issuePageSearch.shape.assignee.parse(routeAssignee))
+									: defaults.assigneeId,
+							projectId:
+								defaults.projectId === undefined
+									? (routeProjectId ?? only(issuePageSearch.shape.project.parse(routeProject)))
+									: defaults.projectId,
 							labelIds: defaults.labelIds ?? issuePageSearch.shape.labels.parse(routeLabels),
 						},
 					});
@@ -69,7 +92,18 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 			openCommandPalette: () => setDialog({ kind: "palette" }),
 			showShortcuts: () => setDialog({ kind: "shortcuts" }),
 		}),
-		[hasTeams, routeTeamId, routeProjectId, routeLabels, admin],
+		[
+			hasTeams,
+			routeTeamId,
+			routeProjectId,
+			routeLabels,
+			routeStatus,
+			routePriority,
+			routeAssignee,
+			routeProject,
+			routeTeam,
+			admin,
+		],
 	);
 
 	const { loaded } = useSyncStatus();

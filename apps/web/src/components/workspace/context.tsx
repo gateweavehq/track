@@ -1,4 +1,9 @@
-import { type IssueStatus, isAdminRole, type MemberRole } from "@gateweave/track-protocol";
+import {
+	type IssuePriority,
+	type IssueStatus,
+	isAdminRole,
+	type MemberRole,
+} from "@gateweave/track-protocol";
 import { createContext, type ReactNode, useContext } from "react";
 import { useMembersById } from "#/lib/queries";
 
@@ -48,6 +53,7 @@ export function isAdmin(role: MemberRole): boolean {
 export interface IssueDefaults {
 	teamId?: string;
 	status?: IssueStatus;
+	priority?: IssuePriority;
 	assigneeId?: string | null;
 	projectId?: string | null;
 	labelIds?: string[];

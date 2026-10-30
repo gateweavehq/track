@@ -1,5 +1,6 @@
 import {
 	CLOSED_STATUSES,
+	type DueFilter,
 	type Issue,
 	type IssueStatus,
 	type Team,
@@ -134,8 +135,8 @@ export function isIssueOverdue(
 	);
 }
 
-export const DUE_FILTERS = ["overdue", "week", "none"] as const;
-export type DueFilter = (typeof DUE_FILTERS)[number];
+// Defined with the other filters in the protocol, since saved views store them.
+export { DUE_FILTERS, type DueFilter } from "@gateweave/track-protocol";
 
 export const DUE_FILTER_LABELS: Record<DueFilter, string> = {
 	overdue: "Overdue",

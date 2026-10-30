@@ -1,6 +1,7 @@
 import type { Project } from "@gateweave/track-protocol";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
+import { FILTER_KEYS } from "#/components/issues/filter-menu";
 import { IssuesPage } from "#/components/issues/issues-page";
 import { DeleteProjectButton, ProjectDetails } from "#/components/projects/project-detail";
 import { Button } from "#/components/ui/button";
@@ -8,7 +9,16 @@ import { useWorkspaceActions } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
 import { useProject, useProjectIssues } from "#/lib/queries";
 import { useDocumentTitle } from "#/lib/title";
-import { type IssuePageSearch, type IssueView, issuePageSearch, useIssueView } from "#/lib/views";
+import {
+	type IssuePageSearch,
+	type IssueView,
+	issuePageSearch,
+	useIssueView,
+	usePageFilters,
+} from "#/lib/views";
+
+// A project's page shows that project's issues.
+const PROJECT_FILTERS = FILTER_KEYS.filter((key) => key !== "projectIds");
 
 export const Route = createFileRoute("/$workspace/project/$projectId")({
 	validateSearch: issuePageSearch,
@@ -47,13 +57,18 @@ function ProjectIssues({ project }: { project: Project }) {
 	const search = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
 	const setSearch = useCallback(
-		(patch: IssuePageSearch) =>
-			void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true }),
+		(patch: IssuePageSearch | ((current: IssuePageSearch) => IssuePageSearch)) =>
+			void navigate({
+				// A function patch is applied to the search as it is then, not as this render saw it.
+				search: (prev) => ({ ...prev, ...(typeof patch === "function" ? patch(prev) : patch) }),
+				replace: true,
+			}),
 		[navigate],
 	);
 	const setUrlView = useCallback((view: IssueView) => setSearch({ view }), [setSearch]);
 	const scope = `project.${project.id}`;
 	const [view, setView] = useIssueView(scope, search.view, setUrlView);
+	const { filters, onFiltersChange } = usePageFilters(search, setSearch);
 
 	return (
 		<IssuesPage
@@ -80,12 +95,9 @@ function ProjectIssues({ project }: { project: Project }) {
 			defaults={{ projectId: project.id }}
 			view={view}
 			onViewChange={setView}
-			labelFilter={search.labels}
-			onLabelFilterChange={(labels) =>
-				setSearch({ labels: labels.length > 0 ? labels : undefined })
-			}
-			dueFilter={search.due}
-			onDueFilterChange={(due) => setSearch({ due })}
+			filters={filters}
+			onFiltersChange={onFiltersChange}
+			offeredFilters={PROJECT_FILTERS}
 			empty={
 				<Notice
 					title="No issues in this project"

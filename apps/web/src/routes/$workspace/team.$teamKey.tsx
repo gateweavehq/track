@@ -1,13 +1,23 @@
 import type { Team } from "@gateweave/track-protocol";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
+import { FILTER_KEYS } from "#/components/issues/filter-menu";
 import { IssuesPage } from "#/components/issues/issues-page";
 import { Button } from "#/components/ui/button";
 import { useWorkspaceActions } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
 import { useTeamByKey, useTeamIssues } from "#/lib/queries";
 import { useDocumentTitle } from "#/lib/title";
-import { type IssuePageSearch, type IssueView, issuePageSearch, useIssueView } from "#/lib/views";
+import {
+	type IssuePageSearch,
+	type IssueView,
+	issuePageSearch,
+	useIssueView,
+	usePageFilters,
+} from "#/lib/views";
+
+// A team's page shows that team's issues.
+const TEAM_FILTERS = FILTER_KEYS.filter((key) => key !== "teamIds");
 
 export const Route = createFileRoute("/$workspace/team/$teamKey")({
 	validateSearch: issuePageSearch,
@@ -45,13 +55,18 @@ function TeamIssues({ team }: { team: Team }) {
 	const search = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
 	const setSearch = useCallback(
-		(patch: IssuePageSearch) =>
-			void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true }),
+		(patch: IssuePageSearch | ((current: IssuePageSearch) => IssuePageSearch)) =>
+			void navigate({
+				// A function patch is applied to the search as it is then, not as this render saw it.
+				search: (prev) => ({ ...prev, ...(typeof patch === "function" ? patch(prev) : patch) }),
+				replace: true,
+			}),
 		[navigate],
 	);
 	const setUrlView = useCallback((view: IssueView) => setSearch({ view }), [setSearch]);
 	const scope = `team.${team.id}`;
 	const [view, setView] = useIssueView(scope, search.view, setUrlView);
+	const { filters, onFiltersChange } = usePageFilters(search, setSearch);
 
 	return (
 		<IssuesPage
@@ -66,12 +81,9 @@ function TeamIssues({ team }: { team: Team }) {
 			defaults={{ teamId: team.id }}
 			view={view}
 			onViewChange={setView}
-			labelFilter={search.labels}
-			onLabelFilterChange={(labels) =>
-				setSearch({ labels: labels.length > 0 ? labels : undefined })
-			}
-			dueFilter={search.due}
-			onDueFilterChange={(due) => setSearch({ due })}
+			filters={filters}
+			onFiltersChange={onFiltersChange}
+			offeredFilters={TEAM_FILTERS}
 			empty={
 				<Notice
 					title="No issues yet"

@@ -27,12 +27,14 @@ test("a due date and an estimate show on the list, and the due filter finds what
 	await expect(page.getByTitle("Estimate: 3 points")).toHaveCount(1);
 
 	// The filter keeps only overdue issues, in the URL, and clears.
-	await page.getByRole("button", { name: "Filter by due date" }).click();
-	await page.getByRole("menuitemradio", { name: "Overdue" }).click();
+	await page.getByRole("button", { name: "Filter", exact: true }).click();
+	await page.getByRole("option", { name: "Due date" }).click();
+	await page.getByRole("option", { name: "Overdue" }).click();
+	await page.keyboard.press("Escape");
 	await expect(page).toHaveURL(/due=overdue/);
 	await expect(issueRow(page, late)).toBeVisible();
 	await expect(issueRow(page, undated)).toBeHidden();
-	await page.getByRole("button", { name: "Clear the due date filter" }).click();
+	await page.getByRole("button", { name: "Remove the due date filter" }).click();
 	await expect(issueRow(page, undated)).toBeVisible();
 
 	// Clearing the date on the issue page takes it off the list.

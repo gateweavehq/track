@@ -561,6 +561,27 @@ comments in memory, caching each row's words for as long as the row object lives
 fixed field weights in place of bm25. A query that spells out an issue's key, such as `ENG-12`,
 puts that issue first.
 
+### Filters and layouts
+
+A page of issues (a team, a project, My issues) filters and lays out the local replica in the
+browser, so both are instant and work offline; the server is not asked.
+
+- Filters are `IssueFilters` (`packages/protocol/src/filters.ts`): status, priority, assignee,
+  project, labels, team and due date. Values of one property are alternatives and properties add
+  up, so "Todo or In Progress, and Urgent" is `statuses: ["todo", "in_progress"], priorities: [1]`.
+  `null` among assignees or projects means none. A page offers only the filters that narrow it
+  (a team's page has no team filter).
+- They live in the URL (`status`, `priority`, `assignee`, `project`, `labels`, `team`, `due`), so
+  a filtered page can be shared and survives a reload. Each key is parsed with the protocol's
+  schema, and a malformed one is dropped instead of failing the page. Ids that no longer resolve,
+  such as a deleted label, are dropped too, so an old link still shows issues.
+- An issue created on a filtered page takes each filter that has a single value (a status,
+  priority, assignee, project or team) and the labels filtered by, so it appears on the page it
+  was made from.
+- The layouts are a list, a board by status, a calendar by due date, a table and a timeline from
+  start to due date. A page remembers its last layout in the browser, and `view` in the URL
+  overrides it. The table renders only the rows near the screen, as a team can hold thousands.
+
 ### Webhooks
 
 A webhook posts each change to a URL, such as an agent's trigger, so that a service hears about
