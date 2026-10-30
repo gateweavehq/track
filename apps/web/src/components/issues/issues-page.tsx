@@ -2,6 +2,7 @@ import type { Issue } from "@gateweave/track-protocol";
 import {
 	CalendarClock,
 	CalendarDays,
+	ChartGantt,
 	Columns3,
 	type LucideIcon,
 	Plus,
@@ -39,6 +40,7 @@ import { IssueBoard } from "./issue-board";
 import { IssueCalendar } from "./issue-calendar";
 import { IssueList } from "./issue-list";
 import { IssueTable } from "./issue-table";
+import { IssueTimeline } from "./issue-timeline";
 import { LabelChips, LabelMenu } from "./labels";
 
 /**
@@ -90,7 +92,7 @@ export function IssuesPage({
 
 	useHotkeys({
 		"/": () => filterRef.current?.focus(),
-		// Toggles list and board only; from the calendar or the table it goes to the list.
+		// Toggles list and board only; from any other view it goes to the list.
 		"mod+b": () => onViewChange(view === "list" ? "board" : "list"),
 	});
 
@@ -187,6 +189,8 @@ export function IssuesPage({
 				<IssueCalendar issues={filtered} empty={emptyState} />
 			) : view === "table" ? (
 				<IssueTable key={scope} issues={filtered} empty={emptyState} scope={scope} />
+			) : view === "timeline" ? (
+				<IssueTimeline issues={filtered} empty={emptyState} />
 			) : (
 				<IssueList issues={filtered} defaults={defaults} empty={emptyState} />
 			)}
@@ -295,28 +299,64 @@ const VIEW_OPTIONS: { view: IssueView; label: string; icon: LucideIcon }[] = [
 	{ view: "board", label: "Board", icon: Columns3 },
 	{ view: "calendar", label: "Calendar", icon: CalendarDays },
 	{ view: "table", label: "Table", icon: Table2 },
+	{ view: "timeline", label: "Timeline", icon: ChartGantt },
 ];
 
+/**
+ * The layouts side by side, or on a phone, where five buttons crowd the header off the screen, one
+ * button showing the current layout that opens a menu of them.
+ */
 function ViewSwitch({ view, onChange }: { view: IssueView; onChange: (view: IssueView) => void }) {
+	const current = VIEW_OPTIONS.find((option) => option.view === view) ?? VIEW_OPTIONS[0];
 	return (
-		<fieldset className="flex rounded-md border sm:p-0.5">
-			<legend className="sr-only">View</legend>
-			{VIEW_OPTIONS.map((option) => (
-				<button
-					key={option.view}
-					type="button"
-					aria-pressed={view === option.view}
-					aria-label={option.label}
-					title={`${option.label} (${MOD_LABEL} B to switch)`}
-					onClick={() => onChange(option.view)}
-					className={cn(
-						"flex size-[22px] items-center justify-center rounded-sm sm:size-6 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-						view === option.view && "bg-accent text-foreground",
-					)}
-				>
-					<option.icon className="size-3.5" />
-				</button>
-			))}
-		</fieldset>
+		<>
+			<fieldset className="hidden rounded-md border p-0.5 sm:flex">
+				<legend className="sr-only">View</legend>
+				{VIEW_OPTIONS.map((option) => (
+					<button
+						key={option.view}
+						type="button"
+						aria-pressed={view === option.view}
+						aria-label={option.label}
+						title={`${option.label} (${MOD_LABEL} B to switch)`}
+						onClick={() => onChange(option.view)}
+						className={cn(
+							"flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+							view === option.view && "bg-accent text-foreground",
+						)}
+					>
+						<option.icon className="size-3.5" />
+					</button>
+				))}
+			</fieldset>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<Button
+						variant="outline"
+						size="icon"
+						className="size-8 sm:hidden"
+						aria-label={`View: ${current?.label}`}
+					>
+						{current && <current.icon className="size-3.5" />}
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="end">
+					<DropdownMenuRadioGroup
+						value={view}
+						onValueChange={(value) => {
+							const option = VIEW_OPTIONS.find((candidate) => candidate.view === value);
+							if (option) onChange(option.view);
+						}}
+					>
+						{VIEW_OPTIONS.map((option) => (
+							<DropdownMenuRadioItem key={option.view} value={option.view} className="gap-2">
+								<option.icon className="size-4 text-muted-foreground" />
+								{option.label}
+							</DropdownMenuRadioItem>
+						))}
+					</DropdownMenuRadioGroup>
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</>
 	);
 }

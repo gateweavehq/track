@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { z } from "zod";
 import { DUE_FILTERS } from "./issues";
 
-export const ISSUE_VIEWS = ["list", "board", "calendar", "table"] as const;
+export const ISSUE_VIEWS = ["list", "board", "calendar", "table", "timeline"] as const;
 export type IssueView = (typeof ISSUE_VIEWS)[number];
 
 /**

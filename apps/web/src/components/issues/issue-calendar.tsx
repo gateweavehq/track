@@ -40,7 +40,7 @@ function subscribeWide(notify: () => void) {
 	return () => query.removeEventListener("change", notify);
 }
 
-function useWide(): boolean {
+export function useWide(): boolean {
 	return useSyncExternalStore(
 		subscribeWide,
 		() => window.matchMedia(WIDE).matches,
