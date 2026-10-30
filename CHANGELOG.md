@@ -8,6 +8,17 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.6.0] - 2026-10-30
+
+Webhooks name each issue's labels. Updating a self-hosted copy needs no migration and no new
+setting.
+
+### Added
+
+- Webhooks: each issue in an issue, comment or proposal event carries `labels`, a list of
+  `{ id, name }` in the order of `labelIds`, with the names as of the event. A receiver can act on
+  a label by its name instead of looking up its id. `labelIds` is unchanged. ([#56])
+
 ## [0.5.0] - 2026-10-29
 
 Projects group issues from any team toward a goal, and what agents propose has a page of its own.
@@ -274,6 +285,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.6.0]: https://github.com/gateweavehq/track/releases/tag/v0.6.0
 [0.5.0]: https://github.com/gateweavehq/track/releases/tag/v0.5.0
 [0.4.0]: https://github.com/gateweavehq/track/releases/tag/v0.4.0
 [0.3.0]: https://github.com/gateweavehq/track/releases/tag/v0.3.0
@@ -323,3 +335,4 @@ The first pre-release.
 [#52]: https://github.com/gateweavehq/track/pull/52
 [#53]: https://github.com/gateweavehq/track/pull/53
 [#54]: https://github.com/gateweavehq/track/pull/54
+[#56]: https://github.com/gateweavehq/track/pull/56
