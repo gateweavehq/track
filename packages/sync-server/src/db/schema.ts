@@ -11,6 +11,7 @@ import {
 	MEMBER_ROLES,
 	PROJECT_STATUSES,
 	type ProposedChange,
+	RELATION_TYPES,
 	type WebhookDelivery,
 	type WebhookEventType,
 } from "@gateweave/track-protocol";
@@ -130,6 +131,30 @@ export const activities = sqliteTable(
 );
 
 /**
+ * Links between issues. Unlike most rows, a relation leaves no row behind: deleting it, or either of
+ * its issues, removes it, and the history of both issues keeps the record.
+ */
+export const relations = sqliteTable(
+	"relations",
+	{
+		id: text("id").primaryKey(),
+		type: text("type", { enum: RELATION_TYPES }).notNull(),
+		issueId: text("issue_id")
+			.notNull()
+			.references(() => issues.id),
+		relatedIssueId: text("related_issue_id")
+			.notNull()
+			.references(() => issues.id),
+		creatorId: text("creator_id").notNull(),
+		createdAt: integer("created_at").notNull(),
+	},
+	(table) => [
+		index("relations_issue_idx").on(table.issueId),
+		index("relations_related_issue_idx").on(table.relatedIssueId),
+	],
+);
+
+/**
  * Agents' proposals. Decided ones keep their row, as the record of who decided, but leave
  * clients. A deleted issue's proposals go with it, like its comments.
  */
@@ -245,6 +270,7 @@ export type ProjectRow = typeof projects.$inferSelect;
 export type CommentRow = typeof comments.$inferSelect;
 export type ActivityRow = typeof activities.$inferSelect;
 export type ProposalRow = typeof proposals.$inferSelect;
+export type RelationRow = typeof relations.$inferSelect;
 export type MemberRow = typeof members.$inferSelect;
 export type WebhookRow = typeof webhooks.$inferSelect;
 export type WebhookDeliveryRow = typeof webhookDeliveries.$inferSelect;

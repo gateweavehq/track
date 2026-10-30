@@ -5,7 +5,12 @@ import { Button } from "#/components/ui/button";
 import { type IssueDefaults, useWorkspaceActions } from "#/components/workspace/context";
 import { useHotkeys } from "#/lib/hotkeys";
 import { groupByStatus, type StatusGroup } from "#/lib/issues";
-import { useMembersById, useSubIssueProgress, useTeamsById } from "#/lib/queries";
+import {
+	useBlockedIssueIds,
+	useMembersById,
+	useSubIssueProgress,
+	useTeamsById,
+} from "#/lib/queries";
 import { markIssueListShown } from "#/lib/timing";
 import { cn } from "#/lib/utils";
 import { useIssueDropZone, useIssueMoves } from "./dnd";
@@ -31,6 +36,7 @@ export function IssueList({
 	const teams = useTeamsById();
 	const members = useMembersById();
 	const subIssues = useSubIssueProgress();
+	const blocked = useBlockedIssueIds();
 	const allGroups = useMemo(() => groupByStatus(issues), [issues]);
 	const groups = allGroups.filter((group) => group.issues.length > 0);
 	const moveIssue = useIssueMoves(allGroups);
@@ -131,6 +137,7 @@ export function IssueList({
 							team={teams.get(issue.teamId)}
 							assignee={issue.assigneeId ? members.get(issue.assigneeId) : undefined}
 							subIssues={subIssues.get(issue.id)}
+							blocked={blocked.has(issue.id)}
 							selected={issue.id === selectedId}
 							menu={menu?.issueId === issue.id ? menu.field : null}
 							onMenuChange={onMenuChange}

@@ -5,6 +5,7 @@ import {
 	ISSUE_STATUSES,
 	type Issue,
 	type IssuePriority,
+	type IssueRelation,
 	MAX_LABELS_PER_ISSUE,
 	MEMBER_ROLES,
 	type Member,
@@ -12,6 +13,9 @@ import {
 	mutationSchema,
 	PROJECT_STATUSES,
 	type Proposal,
+	RELATION_KINDS,
+	relationFrom,
+	relationOf,
 } from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import type {
@@ -52,6 +56,8 @@ export interface WorkspaceAccess {
 	comments(issueId: string): Promise<Comment[]>;
 	/** A live issue's open proposals, oldest first. */
 	proposals(issueId: string): Promise<Proposal[]>;
+	/** A live issue's relations, from either side, oldest first. */
+	relations(issueId: string): Promise<IssueRelation[]>;
 	lastSortOrder(): Promise<string | null>;
 	/** Applies a mutation as the user, through the same validation as the app's. */
 	mutate(mutation: MutationInput): Promise<MutateResult>;
@@ -92,6 +98,10 @@ const START_DATE_HELP = "The day work on it starts, as YYYY-MM-DD.";
 const PARENT_HELP = "The issue this one is part of: its key, such as ENG-42, in any team.";
 /** Sub-issues listed with an issue: an issue has few, and more than this is a list to search. */
 const MAX_SUB_ISSUES = 100;
+/** Relations get_issue lists at most. */
+const MAX_RELATIONS = 100;
+const RELATION_HELP =
+	'How the issue relates to the other one: it "blocks" it, is "blocked_by" it, is a "duplicate_of" it, is "duplicated_by" it, or is "related" to it.';
 const DUE_DATE_HELP = "The day it is due, as YYYY-MM-DD.";
 const ESTIMATE_HELP = "Its size in points, a whole number from 0 to 1000.";
 
@@ -117,6 +127,13 @@ const issueDetail = issueSummary.extend({
 	parent: z.string().nullable().describe("The key of the issue this one is part of."),
 	creator: z.string().nullable().describe("The creator's email."),
 	createdAt: z.string(),
+});
+const relationOutput = z.looseObject({
+	relation: z.string().describe(RELATION_HELP),
+	key: z.string().describe("The other issue's key."),
+	title: z.string(),
+	status: statusInput,
+	url: z.string(),
 });
 const commentOutput = z.looseObject({
 	author: z.string().nullable().describe("The author's email."),
@@ -160,6 +177,7 @@ type ProjectOutput = z.infer<typeof projectOutput>;
 type IssueSummary = z.infer<typeof issueSummary>;
 type IssueDetail = z.infer<typeof issueDetail>;
 type CommentOutput = z.infer<typeof commentOutput>;
+type RelationOutput = z.infer<typeof relationOutput>;
 type ProposalOutput = z.infer<typeof proposalOutput>;
 
 /** What agents are told about proposals, in the tool descriptions that make changes. */
@@ -279,10 +297,11 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Get issue",
 			description:
-				"Reads one issue, including its description, its sub-issues, its comments, oldest first, and the changes agents proposed that wait for a person.",
+				"Reads one issue, including its description, its sub-issues, its relations to other issues, its comments, oldest first, and the changes agents proposed that wait for a person.",
 			inputSchema: z.object({ workspace: workspaceInput, key: keyInput }),
 			outputSchema: issueDetail.extend({
 				subIssues: z.array(issueSummary),
+				relations: z.array(relationOutput),
 				comments: z.array(commentOutput),
 				proposals: z.array(openProposalOutput),
 			}),
@@ -293,14 +312,16 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				const workspace = await open(access, slug);
 				const directory = await workspace.directory();
 				const issue = await findIssue(workspace, key);
-				const [subIssues, comments, proposals] = await Promise.all([
+				const [subIssues, relations, comments, proposals] = await Promise.all([
 					workspace.issues({ parentId: issue.id, limit: MAX_SUB_ISSUES }),
+					relationViews(access, workspace, directory, issue.id),
 					workspace.comments(issue.id),
 					workspace.proposals(issue.id),
 				]);
 				return {
 					...(await detail(access, workspace, directory, issue)),
 					subIssues: subIssues.map((subIssue) => summarize(access, workspace, directory, subIssue)),
+					relations,
 					comments: comments.map((comment) => commentView(directory, comment)),
 					proposals: proposals.map((proposal) => ({
 						...proposalView(directory, proposal),
@@ -481,6 +502,77 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					directory,
 					proposed,
 				);
+			}),
+	);
+
+	server.registerTool(
+		"link_issues",
+		{
+			title: "Link issues",
+			description:
+				"Relates an issue to another, in any team: one blocks the other, duplicates it, or is related to it. Two issues have one relation at most, so this replaces the one they have. Returns the issue's relations.",
+			inputSchema: z.object({
+				workspace: workspaceInput,
+				key: keyInput,
+				relation: z.enum(RELATION_KINDS).describe(RELATION_HELP),
+				to: z.string().min(1).describe("The other issue's key, such as DES-7."),
+			}),
+			outputSchema: z.looseObject({ key: z.string(), relations: z.array(relationOutput) }),
+			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				const issue = await findIssue(workspace, input.key);
+				const other = await findIssue(workspace, input.to);
+				if (other.id === issue.id) throw new ToolError("An issue cannot be related to itself.");
+				await apply(workspace, {
+					name: "relation.create",
+					args: { id: uuidv7(), ...relationOf(input.relation, issue.id, other.id) },
+				});
+				const directory = await workspace.directory();
+				return {
+					key: issueKey(
+						directory.teams.find((team) => team.id === issue.teamId),
+						issue,
+					),
+					relations: await relationViews(access, workspace, directory, issue.id),
+				};
+			}),
+	);
+
+	server.registerTool(
+		"unlink_issues",
+		{
+			title: "Unlink issues",
+			description:
+				"Removes the relation between two issues, whatever it is. Returns the issue's relations.",
+			inputSchema: z.object({
+				workspace: workspaceInput,
+				key: keyInput,
+				from: z.string().min(1).describe("The other issue's key, such as DES-7."),
+			}),
+			outputSchema: z.looseObject({ key: z.string(), relations: z.array(relationOutput) }),
+			annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				const issue = await findIssue(workspace, input.key);
+				const other = await findIssue(workspace, input.from);
+				const relation = (await workspace.relations(issue.id)).find(
+					(relation) => relationFrom(relation, issue.id).otherId === other.id,
+				);
+				if (!relation) throw new ToolError(`${input.key} and ${input.from} are not related.`);
+				await apply(workspace, { name: "relation.delete", args: { id: relation.id } });
+				const directory = await workspace.directory();
+				return {
+					key: issueKey(
+						directory.teams.find((team) => team.id === issue.teamId),
+						issue,
+					),
+					relations: await relationViews(access, workspace, directory, issue.id),
+				};
 			}),
 	);
 
@@ -835,6 +927,26 @@ async function detail(
 		creator: emailOf(directory, issue.creatorId),
 		createdAt: new Date(issue.createdAt).toISOString(),
 	};
+}
+
+/** An issue's relations as the issue at the other end, with what each is from this side. */
+async function relationViews(
+	access: TrackAccess,
+	workspace: WorkspaceAccess,
+	directory: Directory,
+	issueId: string,
+): Promise<RelationOutput[]> {
+	const relations = (await workspace.relations(issueId)).slice(0, MAX_RELATIONS);
+	const views = await Promise.all(
+		relations.map(async (relation) => {
+			const { kind, otherId } = relationFrom(relation, issueId);
+			const other = await workspace.issue(otherId);
+			if (!other) return null;
+			const { key, title, status, url } = summarize(access, workspace, directory, other);
+			return { relation: kind, key, title, status, url };
+		}),
+	);
+	return views.filter((view) => view !== null);
 }
 
 /** An issue's detail, with what the call proposed when it proposed anything. */

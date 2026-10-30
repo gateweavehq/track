@@ -70,6 +70,14 @@ export function mergeActivity(
 			if (previous.type !== "label" || previous.labelId !== change.labelId)
 				return { kind: "append" };
 			return previous.added === change.added ? { kind: "skip" } : { kind: "remove" };
+		case "relation":
+			if (
+				previous.type !== "relation" ||
+				previous.kind !== change.kind ||
+				previous.issueId !== change.issueId
+			)
+				return { kind: "append" };
+			return previous.added === change.added ? { kind: "skip" } : { kind: "remove" };
 		case "title":
 			return previous.type === "title" ? retarget({ ...change, from: previous.from }) : append;
 		case "status":

@@ -2,6 +2,7 @@ import type {
 	Activity,
 	Comment,
 	Issue,
+	IssueRelation,
 	Label,
 	Member,
 	Project,
@@ -47,6 +48,7 @@ export interface ExportSource {
 	issues: Iterable<Issue>;
 	comments: Iterable<Comment>;
 	activities: Iterable<Activity>;
+	relations: Iterable<IssueRelation>;
 }
 
 /** The tables of a replica as an export source. Proposals are not exported. */
@@ -63,6 +65,7 @@ export function exportSourceFrom(
 		issues: state.issues.values(),
 		comments: state.comments.values(),
 		activities: state.activities.values(),
+		relations: state.relations.values(),
 	};
 }
 
@@ -75,6 +78,8 @@ interface Slice {
 	issues: Issue[];
 	comments: Comment[];
 	activities: Activity[];
+	/** Relations between two issues of the slice, so both ends are in the file. */
+	relations: IssueRelation[];
 	teamsById: Map<string, Team>;
 	membersById: Map<string, Member>;
 	labelsById: Map<string, Label>;
@@ -110,6 +115,9 @@ function sliceOf(source: ExportSource, teamId: string | null): Slice {
 			.sort((a, b) => a.createdAt - b.createdAt),
 		activities: [...source.activities]
 			.filter((activity) => issueIds.has(activity.issueId))
+			.sort((a, b) => a.createdAt - b.createdAt),
+		relations: [...source.relations]
+			.filter((relation) => issueIds.has(relation.issueId) && issueIds.has(relation.relatedIssueId))
 			.sort((a, b) => a.createdAt - b.createdAt),
 		teamsById,
 		membersById: new Map(members.map((member) => [member.id, member])),
@@ -207,6 +215,7 @@ export function workspaceToJson(
 			})),
 			comments: slice.comments,
 			activities: slice.activities,
+			relations: slice.relations,
 		},
 		null,
 		"\t",

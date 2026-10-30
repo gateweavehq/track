@@ -5,6 +5,7 @@ import type {
 	Entities,
 	EntityName,
 	Issue,
+	IssueRelation,
 	Label,
 	Member,
 	Project,
@@ -14,7 +15,7 @@ import type {
 import type { MutationInput } from "./mutations";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";
@@ -93,6 +94,8 @@ export interface Snapshot {
 	comments: Comment[];
 	activities: Activity[];
 	proposals: Proposal[];
+	/** Relations between live issues. */
+	relations: IssueRelation[];
 	members: Member[];
 }
 
@@ -105,5 +108,6 @@ export const SNAPSHOT_KEYS = {
 	comment: "comments",
 	activity: "activities",
 	proposal: "proposals",
+	relation: "relations",
 	member: "members",
 } as const satisfies { [E in EntityName]: Exclude<keyof Snapshot, "version"> };

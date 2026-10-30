@@ -2,6 +2,7 @@ import type {
 	Activity,
 	Comment,
 	Issue,
+	IssueRelation,
 	Label,
 	Member,
 	Project,
@@ -14,6 +15,7 @@ import { useCallback } from "react";
 import { compareIssues } from "./issues";
 import { compareLabels } from "./labels";
 import { compareProjects, type ProjectProgress, projectProgress } from "./projects";
+import { blockedIssueIds } from "./relations";
 
 // Selectors over the synced state. Each hook keeps its selector stable for the inputs it
 // depends on, so useQuery can skip work when unrelated parts of the state change.
@@ -311,6 +313,56 @@ function progressByIdEqual(
 /** Each parent's sub-issues done, out of all that are not canceled, by the parent's id. */
 export function useSubIssueProgress(): ReadonlyMap<string, ProjectProgress> {
 	return useQuery(selectSubIssueProgress, progressByIdEqual);
+}
+
+const relationGroups = new WeakMap<
+	ReadonlyMap<string, IssueRelation>,
+	ReadonlyMap<string, IssueRelation[]>
+>();
+
+/** Relations by issue id, each under both its issues, oldest first. */
+function relationsByIssue(
+	table: ReadonlyMap<string, IssueRelation>,
+): ReadonlyMap<string, IssueRelation[]> {
+	let groups = relationGroups.get(table);
+	if (!groups) {
+		const grouped = new Map<string, IssueRelation[]>();
+		const sorted = [...table.values()].sort((a, b) => a.createdAt - b.createdAt);
+		for (const relation of sorted) {
+			for (const issueId of [relation.issueId, relation.relatedIssueId]) {
+				const rows = grouped.get(issueId);
+				if (rows) rows.push(relation);
+				else grouped.set(issueId, [relation]);
+			}
+		}
+		groups = grouped;
+		relationGroups.set(table, groups);
+	}
+	return groups;
+}
+
+/** An issue's relations, from either side, oldest first. */
+export function useIssueRelations(issueId: string): IssueRelation[] {
+	return useQuery(
+		useCallback(
+			(state: SyncState) => relationsByIssue(state.relations).get(issueId) ?? NONE,
+			[issueId],
+		),
+		shallowEqual,
+	);
+}
+
+const selectBlocked = (state: SyncState) => blockedIssueIds(state.relations.values(), state.issues);
+
+function setEqual(a: ReadonlySet<string>, b: ReadonlySet<string>) {
+	if (a.size !== b.size) return false;
+	for (const id of a) if (!b.has(id)) return false;
+	return true;
+}
+
+/** Open issues that an open issue blocks. */
+export function useBlockedIssueIds(): ReadonlySet<string> {
+	return useQuery(selectBlocked, setEqual);
 }
 
 export function useIssue(teamId: string | undefined, number: number): Issue | undefined {

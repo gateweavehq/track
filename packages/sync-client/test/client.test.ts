@@ -323,6 +323,7 @@ describe("offline", () => {
 			comments: [],
 			activities: [],
 			proposals: [],
+			relations: [],
 			members: [],
 		});
 		const network = ws.network("alice");
@@ -433,6 +434,7 @@ function scriptedTransport(
 			comments: [],
 			activities: [],
 			proposals: [],
+			relations: [],
 			members: [],
 		}),
 		probe: async () => {},

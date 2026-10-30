@@ -66,6 +66,15 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			for (const proposal of [...draft.values("proposal")]) {
 				if (proposal.issueId === id) draft.delete("proposal", proposal.id);
 			}
+			// Its relations go, and its sub-issues stay as top-level issues.
+			for (const relation of [...draft.values("relation")]) {
+				if (relation.issueId === id || relation.relatedIssueId === id) {
+					draft.delete("relation", relation.id);
+				}
+			}
+			for (const child of [...draft.values("issue")]) {
+				if (child.parentId === id) draft.put("issue", { ...child, parentId: null, updatedAt: now });
+			}
 			draft.delete("issue", id);
 			return;
 		}
@@ -148,6 +157,33 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			const role = draft.get("member", userId)?.role;
 			if (comment.authorId !== userId && (role === undefined || !isAdminRole(role))) return;
 			draft.delete("comment", comment.id);
+			return;
+		}
+		case "relation.create": {
+			const { id, type, issueId, relatedIssueId } = mutation.args;
+			if (draft.get("relation", id) || issueId === relatedIssueId) return;
+			if (!draft.get("issue", issueId) || !draft.get("issue", relatedIssueId)) return;
+			// Two issues have one relation at most: the pair's current one is kept or replaced.
+			for (const existing of [...draft.values("relation")]) {
+				const pair =
+					(existing.issueId === issueId && existing.relatedIssueId === relatedIssueId) ||
+					(existing.issueId === relatedIssueId && existing.relatedIssueId === issueId);
+				if (!pair) continue;
+				if (existing.type === type && (type === "related" || existing.issueId === issueId)) return;
+				draft.delete("relation", existing.id);
+			}
+			draft.put("relation", {
+				id,
+				type,
+				issueId,
+				relatedIssueId,
+				creatorId: userId,
+				createdAt: now,
+			});
+			return;
+		}
+		case "relation.delete": {
+			draft.delete("relation", mutation.args.id);
 			return;
 		}
 		case "agent.update": {

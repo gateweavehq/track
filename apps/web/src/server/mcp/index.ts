@@ -150,6 +150,7 @@ function accessFor(
 				issueByKey: (teamKey, number) => stub.issueByKey(teamKey, number),
 				comments: (issueId) => stub.comments(issueId),
 				proposals: (issueId) => stub.proposals(issueId),
+				relations: (issueId) => stub.relations(issueId),
 				lastSortOrder: () => stub.lastSortOrder(),
 				mutate: (mutation: MutationInput) =>
 					stub.mutate(membership.profile, clientId, uuidv7(), mutation),

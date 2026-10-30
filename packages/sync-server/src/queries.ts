@@ -1,16 +1,26 @@
 import type {
 	Comment,
 	Issue,
+	IssueRelation,
 	IssueStatus,
 	Label,
 	Member,
 	Project,
 	Team,
 } from "@gateweave/track-protocol";
-import { and, asc, desc, eq, inArray, isNull, max, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
 import { issueSearch, issueSearchDocs, matchExpression, matches, RANK } from "./search";
-import { type Db, toComment, toIssue, toLabel, toMember, toProject, toTeam } from "./state";
+import {
+	type Db,
+	toComment,
+	toIssue,
+	toLabel,
+	toMember,
+	toProject,
+	toRelation,
+	toTeam,
+} from "./state";
 
 // Reads for server-side clients, which ask for a slice of the workspace instead of a replica.
 
@@ -144,6 +154,17 @@ export function findComments(db: Db, issueId: string): Comment[] {
 		.orderBy(asc(schema.comments.createdAt), asc(schema.comments.id))
 		.all()
 		.map(toComment);
+}
+
+/** A live issue's relations, oldest first, from either side. */
+export function findRelations(db: Db, issueId: string): IssueRelation[] {
+	return db
+		.select()
+		.from(schema.relations)
+		.where(or(eq(schema.relations.issueId, issueId), eq(schema.relations.relatedIssueId, issueId)))
+		.orderBy(asc(schema.relations.createdAt), asc(schema.relations.id))
+		.all()
+		.map(toRelation);
 }
 
 /** The largest sort order in use, so a new issue can go after every other one. */

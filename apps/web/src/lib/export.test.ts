@@ -94,6 +94,7 @@ function source(issues: Issue[], extra: Partial<ExportSource> = {}): ExportSourc
 		issues,
 		comments: [],
 		activities: [],
+		relations: [],
 		...extra,
 	};
 }
@@ -242,6 +243,16 @@ describe("workspaceToJson", () => {
 	const full = source(issues, {
 		comments: [comment("c1", "a"), comment("c2", "b")],
 		activities: [activity("x1", "a"), activity("x2", "b")],
+		relations: [
+			{
+				id: "r1",
+				type: "blocks",
+				issueId: "a",
+				relatedIssueId: "b",
+				creatorId: "u1",
+				createdAt: 1,
+			},
+		],
 	});
 
 	it("is a tab-indented document of the protocol's shapes", () => {
@@ -265,6 +276,7 @@ describe("workspaceToJson", () => {
 		expect(doc.issues[0]).toMatchObject({ id: "b", labelIds: ["l1"], status: "backlog" });
 		expect(doc.comments).toHaveLength(2);
 		expect(doc.activities).toHaveLength(2);
+		expect(doc.relations).toMatchObject([{ id: "r1", type: "blocks" }]);
 		expect(doc).not.toHaveProperty("proposals");
 	});
 
@@ -277,6 +289,8 @@ describe("workspaceToJson", () => {
 		expect(doc.issues.map((item: Issue) => item.id)).toEqual(["b"]);
 		expect(doc.comments.map((item: Comment) => item.id)).toEqual(["c2"]);
 		expect(doc.activities.map((item: Activity) => item.id)).toEqual(["x2"]);
+		// The relation reaches an issue of another team, which the file does not hold.
+		expect(doc.relations).toEqual([]);
 	});
 });
 

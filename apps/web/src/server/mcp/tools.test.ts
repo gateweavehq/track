@@ -1,6 +1,7 @@
 import type {
 	Comment,
 	Issue,
+	IssueRelation,
 	Label,
 	Member,
 	Mutation,
@@ -52,6 +53,7 @@ class FakeWorkspace implements WorkspaceAccess {
 	proposing = new Set<"status" | "assigneeId" | "labels" | "projectId">();
 	projects: Project[] = [];
 	proposals_: Proposal[] = [];
+	relations_: IssueRelation[] = [];
 	#version = 10;
 
 	async directory() {
@@ -83,6 +85,11 @@ class FakeWorkspace implements WorkspaceAccess {
 	}
 	async proposals(issueId: string) {
 		return this.proposals_.filter((proposal) => proposal.issueId === issueId);
+	}
+	async relations(issueId: string) {
+		return this.relations_.filter(
+			(relation) => relation.issueId === issueId || relation.relatedIssueId === issueId,
+		);
 	}
 	async lastSortOrder() {
 		return (
@@ -195,6 +202,18 @@ class FakeWorkspace implements WorkspaceAccess {
 			const project = this.projects.find((project) => project.id === mutation.args.id);
 			if (!project) return { ok: false, reason: "not_found", message: "Project not found" };
 			Object.assign(project, mutation.args.patch);
+		} else if (mutation.name === "relation.create") {
+			const { issueId, relatedIssueId } = mutation.args;
+			// One relation per pair, as on the server: a new one replaces it.
+			this.relations_ = this.relations_.filter(
+				(relation) =>
+					![relation.issueId, relation.relatedIssueId].every(
+						(id) => id === issueId || id === relatedIssueId,
+					),
+			);
+			this.relations_.push({ ...mutation.args, creatorId: me.id, createdAt: version });
+		} else if (mutation.name === "relation.delete") {
+			this.relations_ = this.relations_.filter((relation) => relation.id !== mutation.args.id);
 		} else if (mutation.name === "comment.create") {
 			const at = Date.UTC(2026, 9, 28);
 			this.comments_.push({ ...mutation.args, authorId: me.id, createdAt: at, updatedAt: at });
@@ -243,8 +262,10 @@ describe("Track MCP tools", () => {
 			"create_team",
 			"get_issue",
 			"get_workspace",
+			"link_issues",
 			"list_workspaces",
 			"search_issues",
+			"unlink_issues",
 			"update_issue",
 			"update_project",
 		]);
@@ -420,6 +441,57 @@ describe("Track MCP tools", () => {
 		expect(result.isError).toBe(true);
 		expect(result.content).toEqual([{ type: "text", text: "Issue ENG-99 not found." }]);
 		expect(workspace.mutations).toEqual([]);
+	});
+
+	it("links issues, reads relations from both sides, and unlinks them", async () => {
+		await created({ title: "API" });
+		await created({ title: "Mockups" });
+		const [api, mockups] = workspace.issues_;
+
+		const linked = await call("link_issues", {
+			workspace: "acme",
+			key: "ENG-1",
+			relation: "blocked_by",
+			to: "eng-2",
+		});
+		expect(linked.structuredContent).toEqual({
+			key: "ENG-1",
+			relations: [
+				{
+					relation: "blocked_by",
+					key: "ENG-2",
+					title: "Mockups",
+					status: "backlog",
+					url: "https://track.example.com/acme/issue/ENG-2",
+				},
+			],
+		});
+		// Blocked by is stored as the other issue blocking this one.
+		expect(workspace.mutations.at(-1)).toMatchObject({
+			name: "relation.create",
+			args: { type: "blocks", issueId: mockups?.id, relatedIssueId: api?.id },
+		});
+		const other = await call("get_issue", { workspace: "acme", key: "ENG-2" });
+		expect(other.structuredContent).toMatchObject({
+			relations: [{ relation: "blocks", key: "ENG-1" }],
+		});
+
+		const self = await call("link_issues", {
+			workspace: "acme",
+			key: "ENG-1",
+			relation: "related",
+			to: "ENG-1",
+		});
+		expect(self.isError).toBe(true);
+
+		const unlinked = await call("unlink_issues", {
+			workspace: "acme",
+			key: "ENG-2",
+			from: "ENG-1",
+		});
+		expect(unlinked.structuredContent).toEqual({ key: "ENG-2", relations: [] });
+		const again = await call("unlink_issues", { workspace: "acme", key: "ENG-2", from: "ENG-1" });
+		expect(again.content).toEqual([{ type: "text", text: "ENG-2 and ENG-1 are not related." }]);
 	});
 
 	it("refuses days that do not exist and estimates that are not whole points", async () => {
