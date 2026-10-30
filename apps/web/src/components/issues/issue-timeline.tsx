@@ -1,4 +1,4 @@
-import type { Issue, Team } from "@gateweave/track-protocol";
+import type { Issue, IssueStatus, Team } from "@gateweave/track-protocol";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { type PointerEvent, type ReactNode, useMemo, useRef, useState } from "react";
@@ -32,6 +32,44 @@ import { StatusIcon } from "./meta";
 /** Width of a day's column, and of the sticky column of issue labels, in pixels. */
 const DAY_WIDTH = 36;
 const LABEL_WIDTH = 224;
+
+interface BarTone {
+	fill: string;
+	/** Where the gradient of an open-ended bar starts. */
+	fade: string;
+	border: string;
+}
+
+/** A bar takes the color of its status, as the status icon does; overdue ones are red. */
+const BAR_TONES: Record<IssueStatus, BarTone> = {
+	backlog: {
+		fill: "bg-muted",
+		fade: "from-muted-foreground/20",
+		border: "border-muted-foreground/30",
+	},
+	todo: { fill: "bg-foreground/5", fade: "from-foreground/15", border: "border-foreground/25" },
+	in_progress: {
+		fill: "bg-amber-500/15",
+		fade: "from-amber-500/25",
+		border: "border-amber-500/50",
+	},
+	in_review: {
+		fill: "bg-emerald-500/15",
+		fade: "from-emerald-500/25",
+		border: "border-emerald-500/50",
+	},
+	done: { fill: "bg-indigo-500/10", fade: "from-indigo-500/20", border: "border-indigo-500/40" },
+	canceled: {
+		fill: "bg-muted",
+		fade: "from-muted-foreground/15",
+		border: "border-muted-foreground/25",
+	},
+};
+const OVERDUE_TONE: BarTone = {
+	fill: "bg-destructive/15",
+	fade: "from-destructive/25",
+	border: "border-destructive/50",
+};
 
 /** Pointer travel before a press on a bar becomes a drag, so that a click still opens the issue. */
 const DRAG_THRESHOLD = 3;
@@ -332,6 +370,7 @@ function Bar({ issue, issueLabel, start }: { issue: Issue; issueLabel: string; s
 	}
 
 	const { first, last, cutStart, cutEnd } = columns;
+	const tone = overdue ? OVERDUE_TONE : BAR_TONES[issue.status];
 	return (
 		// The pointer handlers are an extra for mouse and touch: keyboard and screen reader users
 		// reach the issue through the link inside, and change its dates on the issue page.
@@ -366,24 +405,26 @@ function Bar({ issue, issueLabel, start }: { issue: Issue; issueLabel: string; s
 				aria-label={label}
 				title={overdue ? `Overdue: ${issue.title}` : issue.title}
 				className={cn(
-					"flex h-full min-w-0 items-center gap-1 overflow-hidden border px-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring",
-					"rounded",
-					overdue ? "border-destructive/50 text-destructive" : "border-primary/40 text-foreground",
+					"flex h-full min-w-0 items-center gap-1 overflow-hidden rounded border px-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring",
+					tone.border,
+					overdue ? "text-destructive" : "text-foreground",
 					// An open-ended bar fades toward the side whose date is missing.
 					openEnded
-						? dates.startDate === null
-							? "bg-linear-to-l from-primary/25 to-transparent border-l-0 rounded-l-none"
-							: "bg-linear-to-r from-primary/25 to-transparent border-r-0 rounded-r-none"
-						: overdue
-							? "bg-destructive/15"
-							: "bg-primary/20",
-					openEnded && overdue && "from-destructive/25",
+						? cn(
+								tone.fade,
+								"to-transparent",
+								dates.startDate === null
+									? "bg-linear-to-l border-l-0 rounded-l-none"
+									: "bg-linear-to-r border-r-0 rounded-r-none",
+							)
+						: tone.fill,
 					cutStart && "rounded-l-none border-l-0",
 					cutEnd && "rounded-r-none border-r-0",
 				)}
 			>
 				<StatusIcon status={issue.status} className="size-3.5 shrink-0" />
-				<span className="truncate">{issue.title}</span>
+				{/* A day is too narrow for any of the title; the icon and the tooltip say enough. */}
+				{last > first && <span className="truncate">{issue.title}</span>}
 			</Link>
 			{!cutStart && (
 				<span
