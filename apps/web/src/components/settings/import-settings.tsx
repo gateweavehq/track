@@ -1,20 +1,25 @@
 import type { MutationInput } from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { FileUp, Upload } from "lucide-react";
-import { type ComponentType, useEffect, useId, useRef, useState } from "react";
+import { type ComponentType, type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
+import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { isAdmin, useMyRole } from "#/components/workspace/context";
 import { readCsvImport } from "#/lib/import/csv";
+import { parseRepository, readGitHubImport } from "#/lib/import/github";
+import { type LinearTeam, listLinearTeams, readLinearImport } from "#/lib/import/linear";
 import {
 	type ImportPlan,
 	type ImportProgress,
 	type ImportSource,
 	importTargetFrom,
 	planImport,
+	type ReadOptions,
 	runImport,
 } from "#/lib/import/plan";
 import { useTeams } from "#/lib/queries";
+import { cn } from "#/lib/utils";
 
 /** What a source's form hands over: the issues it read, and anything worth telling about them. */
 export interface LoadedImport {
@@ -26,10 +31,17 @@ export interface LoadedImport {
 interface ImportSourceOption {
 	id: string;
 	label: string;
-	Form: ComponentType<{ onLoaded: (loaded: LoadedImport) => void }>;
+	Form: ComponentType<SourceFormProps>;
 }
 
-const SOURCES: ImportSourceOption[] = [{ id: "csv", label: "CSV file", Form: CsvForm }];
+const SOURCES: ImportSourceOption[] = [
+	{ id: "github", label: "GitHub", Form: GitHubForm },
+	{ id: "linear", label: "Linear", Form: LinearForm },
+	{ id: "csv", label: "CSV file", Form: CsvForm },
+];
+
+const SELECT_CLASS =
+	"flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50 md:text-sm";
 
 type Step =
 	| { name: "choose" }
@@ -80,19 +92,21 @@ function ChooseSource({ onLoaded }: { onLoaded: (loaded: LoadedImport) => void }
 	return (
 		<div className="space-y-4">
 			{SOURCES.length > 1 && (
-				<fieldset className="flex flex-wrap gap-2">
+				<fieldset className="flex w-fit rounded-md border p-0.5">
 					<legend className="sr-only">Import from</legend>
 					{SOURCES.map((option) => (
-						<Button
+						<button
 							key={option.id}
 							type="button"
-							size="sm"
-							variant={option.id === source.id ? "secondary" : "outline"}
 							aria-pressed={option.id === source.id}
 							onClick={() => setSourceId(option.id)}
+							className={cn(
+								"h-7 rounded-sm px-3 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+								option.id === source.id && "bg-accent font-medium text-foreground",
+							)}
 						>
 							{option.label}
-						</Button>
+						</button>
 					))}
 				</fieldset>
 			)}
@@ -101,7 +115,240 @@ function ChooseSource({ onLoaded }: { onLoaded: (loaded: LoadedImport) => void }
 	);
 }
 
-function CsvForm({ onLoaded }: { onLoaded: (loaded: LoadedImport) => void }) {
+type SourceFormProps = { onLoaded: (loaded: LoadedImport) => void };
+
+/** Reading from another service: how far it got, why it failed, and a way to stop it. */
+function useRemoteRead(service: string) {
+	const [reading, setReading] = useState<{ issues: number; comments: number } | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const abort = useRef<AbortController | null>(null);
+	useEffect(() => () => abort.current?.abort(), []);
+
+	async function run<T>(read: (options: ReadOptions) => Promise<T>): Promise<T | null> {
+		abort.current?.abort();
+		const controller = new AbortController();
+		abort.current = controller;
+		setError(null);
+		setReading({ issues: 0, comments: 0 });
+		try {
+			return await read({ signal: controller.signal, onProgress: setReading });
+		} catch (caught) {
+			if (!controller.signal.aborted) {
+				// fetch rejects with a TypeError when the request never got an answer.
+				setError(
+					caught instanceof TypeError
+						? `Could not reach ${service}. Check the connection and try again.`
+						: caught instanceof Error
+							? caught.message
+							: String(caught),
+				);
+			}
+			return null;
+		} finally {
+			if (abort.current === controller) {
+				abort.current = null;
+				setReading(null);
+			}
+		}
+	}
+
+	return { reading, error, run, stop: () => abort.current?.abort() };
+}
+
+function ReadButton({
+	label,
+	reading,
+	onStop,
+}: {
+	label: string;
+	reading: { issues: number; comments: number } | null;
+	onStop: () => void;
+}) {
+	if (!reading) return <Button type="submit">{label}</Button>;
+	return (
+		<div className="flex flex-wrap items-center gap-3">
+			<p aria-live="polite" className="text-sm text-muted-foreground">
+				{reading.issues === 0 && reading.comments === 0
+					? "Reading…"
+					: `Read ${countOf(reading.issues, "issue")} and ${countOf(reading.comments, "comment")}…`}
+			</p>
+			<Button type="button" variant="outline" size="sm" onClick={onStop}>
+				Stop
+			</Button>
+		</div>
+	);
+}
+
+function FormError({ error }: { error: string | null }) {
+	if (!error) return null;
+	return (
+		<p role="alert" className="text-sm text-destructive">
+			{error}
+		</p>
+	);
+}
+
+function GitHubForm({ onLoaded }: SourceFormProps) {
+	const repositoryId = useId();
+	const tokenId = useId();
+	const [repository, setRepository] = useState("");
+	const [token, setToken] = useState("");
+	const [invalid, setInvalid] = useState(false);
+	const { reading, error, run, stop } = useRemoteRead("GitHub");
+
+	async function submit(event: FormEvent) {
+		event.preventDefault();
+		const parsed = parseRepository(repository);
+		setInvalid(!parsed);
+		if (!parsed) return;
+		const source = await run((options) => readGitHubImport(parsed, token, options));
+		if (!source) return;
+		onLoaded({
+			source,
+			notes:
+				source.pullRequests > 0
+					? [`${countOf(source.pullRequests, "pull request")} left out.`]
+					: [],
+		});
+	}
+
+	return (
+		<form onSubmit={(event) => void submit(event)} className="max-w-md space-y-4">
+			<div className="space-y-2">
+				<Label htmlFor={repositoryId}>Repository</Label>
+				<Input
+					id={repositoryId}
+					value={repository}
+					onChange={(event) => setRepository(event.target.value)}
+					placeholder="owner/name"
+					autoComplete="off"
+					spellCheck={false}
+					required
+					aria-invalid={invalid}
+					disabled={reading !== null}
+				/>
+				{invalid && (
+					<p className="text-sm text-destructive">
+						Enter the repository as owner/name, or paste a link to it.
+					</p>
+				)}
+			</div>
+			<div className="space-y-2">
+				<Label htmlFor={tokenId}>
+					Access token <span className="font-normal text-muted-foreground">(optional)</span>
+				</Label>
+				<Input
+					id={tokenId}
+					type="password"
+					value={token}
+					onChange={(event) => setToken(event.target.value)}
+					autoComplete="off"
+					spellCheck={false}
+					aria-describedby={`${tokenId}-help`}
+					disabled={reading !== null}
+				/>
+				<p id={`${tokenId}-help`} className="text-sm text-muted-foreground">
+					Needed for a private repository, and for a large one: without a token, GitHub allows 60
+					requests an hour, about 6,000 issues and comments. A fine-grained token that can read
+					issues is enough. It goes only to GitHub and is not saved.
+				</p>
+			</div>
+			<ReadButton label="Read issues" reading={reading} onStop={stop} />
+			<FormError error={error} />
+		</form>
+	);
+}
+
+function LinearForm({ onLoaded }: SourceFormProps) {
+	const keyId = useId();
+	const teamId = useId();
+	const [apiKey, setApiKey] = useState("");
+	const [teams, setTeams] = useState<LinearTeam[] | null>(null);
+	const [team, setTeam] = useState("");
+	const { reading, error, run, stop } = useRemoteRead("Linear");
+
+	async function submit(event: FormEvent) {
+		event.preventDefault();
+		if (!apiKey.trim()) return;
+		if (!teams) {
+			const found = await run((options) => listLinearTeams(apiKey, options));
+			if (found) {
+				setTeams(found);
+				setTeam(found[0]?.id ?? "");
+			}
+			return;
+		}
+		const chosen = teams.find((option) => option.id === team);
+		if (!chosen) return;
+		const source = await run((options) => readLinearImport(apiKey, chosen, options));
+		if (!source) return;
+		// Files uploaded to Linear are only served to people signed in to it.
+		const uploads = source.issues.some(
+			(issue) =>
+				issue.description?.includes("uploads.linear.app") ||
+				issue.comments.some((comment) => comment.body.includes("uploads.linear.app")),
+		);
+		onLoaded({
+			source,
+			notes: uploads
+				? [
+						"Images and files uploaded to Linear stay there as links, which open only when signed in to Linear.",
+					]
+				: [],
+		});
+	}
+
+	return (
+		<form onSubmit={(event) => void submit(event)} className="max-w-md space-y-4">
+			<div className="space-y-2">
+				<Label htmlFor={keyId}>API key</Label>
+				<Input
+					id={keyId}
+					type="password"
+					value={apiKey}
+					onChange={(event) => {
+						setApiKey(event.target.value);
+						setTeams(null);
+					}}
+					autoComplete="off"
+					spellCheck={false}
+					required
+					aria-describedby={`${keyId}-help`}
+					disabled={reading !== null}
+				/>
+				<p id={`${keyId}-help`} className="text-sm text-muted-foreground">
+					A personal API key, made in Linear's settings under Security &amp; access. It goes only to
+					Linear and is not saved.
+				</p>
+			</div>
+			{teams && teams.length === 0 && (
+				<p className="text-sm text-muted-foreground">This key sees no teams in Linear.</p>
+			)}
+			{teams && teams.length > 0 && (
+				<div className="space-y-2">
+					<Label htmlFor={teamId}>Linear team</Label>
+					<select
+						id={teamId}
+						value={team}
+						disabled={reading !== null}
+						onChange={(event) => setTeam(event.target.value)}
+						className={SELECT_CLASS}
+					>
+						{teams.map((option) => (
+							<option key={option.id} value={option.id}>
+								{option.name} ({option.key})
+							</option>
+						))}
+					</select>
+				</div>
+			)}
+			<ReadButton label={teams ? "Read issues" : "Connect"} reading={reading} onStop={stop} />
+			<FormError error={error} />
+		</form>
+	);
+}
+
+function CsvForm({ onLoaded }: SourceFormProps) {
 	const client = useSyncClient();
 	const inputId = useId();
 	const [error, setError] = useState<string | null>(null);
@@ -224,7 +471,7 @@ function ReviewAndRun({
 					value={teamId}
 					disabled={running}
 					onChange={(event) => setTeamId(event.target.value)}
-					className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50 md:text-sm"
+					className={SELECT_CLASS}
 				>
 					{teams.map((team) => (
 						<option key={team.id} value={team.id}>

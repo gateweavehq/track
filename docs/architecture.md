@@ -615,11 +615,13 @@ is `packages/sync-server/src/webhooks.ts`.
 ### Imports
 
 Issues come in from another tracker through the browser, as the same mutations people make. An
-importer (CSV today) only reads its source into a common shape in `apps/web/src/lib/import/`;
-`planImport` then matches labels and projects by name, creating the missing ones, and people by
-email, then name. It writes parents before their sub-issues and the oldest issues first, so
-numbers follow the source's order. Nothing on the server knows about imports, so validation,
-permissions and fan-out are the ordinary ones.
+importer only reads its source into a common shape in `apps/web/src/lib/import/`: a CSV file, a
+GitHub repository (REST) or a Linear team (GraphQL). Both APIs allow requests from browsers, so
+the person's token or API key goes from their browser to GitHub or Linear and never reaches the
+Worker, and nothing stores it. Then `planImport` matches labels and projects by name, creating
+the missing ones, and people by email, then name. It writes parents before their sub-issues and
+the oldest issues first, so numbers follow the source's order. Nothing on the server knows about
+imports, so validation, permissions and fan-out are the ordinary ones.
 
 - **Repeating an import is safe.** An imported issue's or comment's id is made from its id in
   the source (`import-` and a SHA-256 prefix), and the plan skips ids the workspace already has.
