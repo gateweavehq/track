@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { unstable_readConfig } from "wrangler";
+import { bucketCreateOutcome } from "./bucket.mjs";
 
 const require = createRequire(import.meta.url);
 // Wrangler runs from the repository root: wrangler.jsonc is there, and so is the build's pointer
@@ -79,8 +80,16 @@ function ensureBucket() {
 		ask(["r2", "bucket", "create", bucket.bucket_name]);
 		console.log(`Created the R2 bucket ${bucket.bucket_name} for attached files.`);
 	} catch (error) {
-		if (/already exists/.test(error.stderr ?? "")) return;
-		if (/enable R2|10042/.test(error.stderr ?? "")) {
+		const outcome = bucketCreateOutcome(error.stderr ?? "");
+		if (outcome === "exists") return;
+		if (outcome === "no-access") {
+			console.warn(
+				`This API token may not manage R2, so the bucket ${bucket.bucket_name} was not checked. ` +
+					"If it is missing, the deploy fails; create it, or give the token R2 access.",
+			);
+			return;
+		}
+		if (outcome === "r2-off") {
 			throw new Error(
 				"R2 is off in this Cloudflare account. Turn it on in the dashboard (R2 Object Storage), " +
 					"or delete the r2_buckets lines in wrangler.jsonc to run without attachments.",
