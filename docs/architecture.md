@@ -665,16 +665,22 @@ is `packages/sync-server/src/webhooks.ts`.
 ### Imports
 
 Issues come in from another tracker through the browser, as the same mutations people make. An
-importer only reads its source into a common shape in `apps/web/src/lib/import/`: a CSV file, a
-GitHub repository (REST) or a Linear team (GraphQL). Both APIs allow requests from browsers, so
+importer only reads its source into a common shape in `apps/web/src/lib/import/`: a CSV file,
+Track's own JSON export, a GitHub repository (REST) or a Linear team (GraphQL). Both APIs allow requests from browsers, so
 the person's token or API key goes from their browser to GitHub or Linear and never reaches the
 Worker, and nothing stores it. Then `planImport` matches labels and projects by name, creating
 the missing ones, and people by email, then name. It writes parents before their sub-issues and
 the oldest issues first, so numbers follow the source's order. Nothing on the server knows about
 imports, so validation, permissions and fan-out are the ordinary ones.
 
+- **A JSON export moves a workspace or a team** to another workspace, such as from a self-hosted
+  copy to Gateweave Cloud: issues with their comments, parents and relations, and labels and
+  projects with their colors and details. The import can keep the file's teams, matched by key
+  or created, instead of putting everything in one team. History stays behind, since activity
+  belongs to the people who made it. Relations are sent last, once both issues exist.
 - **Repeating an import is safe.** An imported issue's or comment's id is made from its id in
   the source (`import-` and a SHA-256 prefix), and the plan skips ids the workspace already has.
+  Relations from a JSON export are made the same way.
   A run that stopped part way is finished by running it again.
 - **Original dates are an admin's to keep.** `issue.create` and `comment.create` take an optional
   `createdAt`, which only owners and admins may send, and the server never lets it be later than

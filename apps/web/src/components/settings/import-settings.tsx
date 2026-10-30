@@ -8,6 +8,7 @@ import { Label } from "#/components/ui/label";
 import { isAdmin, useMyRole } from "#/components/workspace/context";
 import { readCsvImport } from "#/lib/import/csv";
 import { parseRepository, readGitHubImport } from "#/lib/import/github";
+import { readJsonImport } from "#/lib/import/json";
 import { type LinearTeam, listLinearTeams, readLinearImport } from "#/lib/import/linear";
 import {
 	type ImportPlan,
@@ -37,8 +38,11 @@ interface ImportSourceOption {
 const SOURCES: ImportSourceOption[] = [
 	{ id: "github", label: "GitHub", Form: GitHubForm },
 	{ id: "linear", label: "Linear", Form: LinearForm },
-	{ id: "csv", label: "CSV file", Form: CsvForm },
+	{ id: "file", label: "File", Form: FileForm },
 ];
+
+/** The "Into team" choice that keeps each issue in the team the source has it in. */
+const SOURCE_TEAMS = "source-teams";
 
 const SELECT_CLASS =
 	"flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50 md:text-sm";
@@ -59,8 +63,9 @@ export function ImportSettings() {
 					Import
 				</h2>
 				<p className="text-sm text-muted-foreground">
-					Bring issues from another tracker into a team, with their labels, comments and original
-					dates. Running an import again skips what it brought in before, so it is safe to repeat.
+					Bring issues from another tracker or another Track workspace, with their labels, comments
+					and original dates. Running an import again skips what it brought in before, so it is safe
+					to repeat.
 				</p>
 			</div>
 			{!admin ? (
@@ -348,7 +353,12 @@ function LinearForm({ onLoaded }: SourceFormProps) {
 	);
 }
 
-function CsvForm({ onLoaded }: SourceFormProps) {
+/** A JSON file is Track's own export; anything else is read as CSV. */
+function isJson(file: File, text: string): boolean {
+	return /\.json$/i.test(file.name) || /^\uFEFF?\s*\{/.test(text);
+}
+
+function FileForm({ onLoaded }: SourceFormProps) {
 	const client = useSyncClient();
 	const inputId = useId();
 	const [error, setError] = useState<string | null>(null);
@@ -356,8 +366,13 @@ function CsvForm({ onLoaded }: SourceFormProps) {
 	async function read(file: File) {
 		setError(null);
 		try {
+			const text = await file.text();
+			if (isJson(file, text)) {
+				onLoaded(readJsonImport(text));
+				return;
+			}
 			const labels = [...client.getState().labels.values()].map((label) => label.name);
-			const { source, ignored } = readCsvImport(await file.text(), labels);
+			const { source, ignored } = readCsvImport(text, labels);
 			onLoaded({
 				source,
 				notes: ignored.length > 0 ? [`Columns left out: ${ignored.join(", ")}.`] : [],
@@ -369,21 +384,22 @@ function CsvForm({ onLoaded }: SourceFormProps) {
 
 	return (
 		<div className="space-y-2">
-			<Label htmlFor={inputId}>CSV file</Label>
+			<Label htmlFor={inputId}>CSV or JSON file</Label>
 			<p className="text-sm text-muted-foreground">
-				One row per issue, with a title column. Track's own export reads back as it was; other files
-				are read by column names such as Status, Priority, Assignee, Labels and Due date.
+				Track's own exports read back as they were; JSON brings comments and relations too. Other
+				CSV files need one row per issue with a title column, and are read by column names such as
+				Status, Priority, Assignee, Labels and Due date.
 			</p>
 			<label
 				htmlFor={inputId}
 				className="flex max-w-md cursor-pointer items-center gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground hover:bg-accent focus-within:ring-1 focus-within:ring-ring"
 			>
 				<FileUp aria-hidden className="size-4" />
-				Choose a .csv file
+				Choose a .csv or .json file
 				<input
 					id={inputId}
 					type="file"
-					accept=".csv,text/csv"
+					accept=".csv,.json,text/csv,application/json"
 					className="sr-only"
 					onChange={(event) => {
 						const file = event.target.files?.[0];
@@ -414,6 +430,11 @@ function ReviewAndRun({
 	const teams = useTeams();
 	const selectId = useId();
 	const [teamId, setTeamId] = useState(teams[0]?.id ?? "");
+	// The teams the source keeps its issues in, such as a Track export's, offered as a choice.
+	const [sourceTeams] = useState(() => [
+		...new Set(loaded.source.issues.flatMap((issue) => (issue.team ? [issue.team.key] : []))),
+	]);
+	const [keepTeams, setKeepTeams] = useState(sourceTeams.length > 0);
 	const [plan, setPlan] = useState<ImportPlan | null>(null);
 	const [progress, setProgress] = useState<ImportProgress | null>(null);
 	const abort = useRef<AbortController | null>(null);
@@ -423,13 +444,15 @@ function ReviewAndRun({
 		if (!teamId) return;
 		let current = true;
 		setPlan(null);
-		void planImport(loaded.source, importTargetFrom(client.getState()), teamId).then((next) => {
+		void planImport(loaded.source, importTargetFrom(client.getState()), teamId, {
+			keepTeams,
+		}).then((next) => {
 			if (current) setPlan(next);
 		});
 		return () => {
 			current = false;
 		};
-	}, [client, loaded, teamId]);
+	}, [client, loaded, teamId, keepTeams]);
 
 	// Leaving the page stops sending; what was sent still reaches the server.
 	useEffect(() => () => abort.current?.abort(), []);
@@ -468,11 +491,18 @@ function ReviewAndRun({
 				<Label htmlFor={selectId}>Into team</Label>
 				<select
 					id={selectId}
-					value={teamId}
+					value={keepTeams ? SOURCE_TEAMS : teamId}
 					disabled={running}
-					onChange={(event) => setTeamId(event.target.value)}
+					onChange={(event) => {
+						const value = event.target.value;
+						setKeepTeams(value === SOURCE_TEAMS);
+						if (value !== SOURCE_TEAMS) setTeamId(value);
+					}}
 					className={SELECT_CLASS}
 				>
+					{sourceTeams.length > 0 && (
+						<option value={SOURCE_TEAMS}>Their own teams ({sourceTeams.join(", ")})</option>
+					)}
 					{teams.map((team) => (
 						<option key={team.id} value={team.id}>
 							{team.name} ({team.key})
@@ -532,6 +562,9 @@ function PlanSummary({ sourceName, plan }: { sourceName: string; plan: ImportPla
 				<p className="text-muted-foreground">
 					{countOf(plan.skipped, "item")} imported before will be skipped.
 				</p>
+			)}
+			{plan.newTeams.length > 0 && (
+				<p className="text-muted-foreground">New teams: {plan.newTeams.join(", ")}.</p>
 			)}
 			{plan.newLabels.length > 0 && (
 				<p className="text-muted-foreground">New labels: {plan.newLabels.join(", ")}.</p>
@@ -593,15 +626,24 @@ function describeMutation(mutation: MutationInput): string {
 			return `The label “${mutation.args.name}”`;
 		case "project.create":
 			return `The project “${mutation.args.name}”`;
+		case "team.create":
+			return `The team “${mutation.args.name}”`;
+		case "relation.create":
+			return "A relation";
 		default:
 			return mutation.name;
 	}
 }
 
-/** "3 issues", or "3 issues and 5 comments" when there are comments to bring in. */
+/** "3 issues", "3 issues and 5 comments", or "3 issues, 5 comments and 2 relations". */
 function contents(plan: ImportPlan): string {
-	const issues = countOf(plan.issues, "issue");
-	return plan.comments > 0 ? `${issues} and ${countOf(plan.comments, "comment")}` : issues;
+	const parts = [
+		countOf(plan.issues, "issue"),
+		plan.comments > 0 && countOf(plan.comments, "comment"),
+		plan.relations > 0 && countOf(plan.relations, "relation"),
+	].filter((part) => typeof part === "string");
+	const last = parts.pop() ?? "";
+	return parts.length > 0 ? `${parts.join(", ")} and ${last}` : last;
 }
 
 function countOf(count: number, noun: string): string {
