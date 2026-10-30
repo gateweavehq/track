@@ -10,7 +10,7 @@ import { MARK_ISSUE_LIST_SHOWN } from "../src/lib/timing";
 import { BUDGETS, ISSUES, RUNS } from "./budgets";
 
 const SLUG = "load";
-const PORT = 4711;
+const PORT = Number(process.env.TRACK_E2E_PORT) || 4711;
 
 // One worker (see the config) times the runs one at a time, so nothing else competes for the CPU.
 

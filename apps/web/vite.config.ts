@@ -23,7 +23,7 @@ const OPTIONAL_SECRETS = [
 ];
 
 /** Where the end-to-end tests reach the app (see e2e/server.mjs). */
-const E2E_ORIGIN = "http://localhost:4711";
+const E2E_ORIGIN = `http://localhost:${Number(process.env.TRACK_E2E_PORT) || 4711}`;
 
 export default defineConfig(({ command }) => ({
 	resolve: { tsconfigPaths: true },
