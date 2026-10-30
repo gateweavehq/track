@@ -1,16 +1,19 @@
 import { useCallback, useState } from "react";
 import { z } from "zod";
+import { DUE_FILTERS } from "./issues";
 
 export const ISSUE_VIEWS = ["list", "board"] as const;
 export type IssueView = (typeof ISSUE_VIEWS)[number];
 
 /**
- * Search params for a page of issues: its view, and the labels it is filtered by (issues with any
- * of them). Malformed values are dropped rather than failing the page, since links get mangled.
+ * Search params for a page of issues: its view, the labels it is filtered by (issues with any of
+ * them) and its due-date filter. Malformed values are dropped rather than failing the page, since
+ * links get mangled.
  */
 export const issuePageSearch = z.object({
 	view: z.enum(ISSUE_VIEWS).optional().catch(undefined),
 	labels: z.array(z.string().min(1).max(64)).max(50).optional().catch(undefined),
+	due: z.enum(DUE_FILTERS).optional().catch(undefined),
 });
 export type IssuePageSearch = z.infer<typeof issuePageSearch>;
 

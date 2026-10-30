@@ -30,3 +30,45 @@ export function formatShortDate(time: number): string {
 export function formatDateTime(time: number): string {
 	return long.format(time);
 }
+
+// Calendar days (`YYYY-MM-DD`), such as due dates: a day on the calendar, the same in every time
+// zone, unlike the instants above. ISO days compare correctly as text.
+
+const day = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
+
+/** "Dec 31, 2026" for a calendar day. */
+export function formatDay(date: string): string {
+	const parsed = parseDay(date);
+	return parsed ? day.format(parsed) : date;
+}
+
+/** "Dec 31" for lists, with the year when it is not this year's. */
+export function formatShortDay(date: string, now = new Date()): string {
+	const parsed = parseDay(date);
+	if (!parsed) return date;
+	return parsed.getFullYear() === now.getFullYear() ? short.format(parsed) : day.format(parsed);
+}
+
+/** The day `now` falls on, as `YYYY-MM-DD` in the viewer's time zone. */
+export function today(now = new Date()): string {
+	return toDay(now);
+}
+
+/** The calendar day `days` after `date`. */
+export function addDays(date: string, days: number): string {
+	const parsed = parseDay(date);
+	if (!parsed) return date;
+	parsed.setDate(parsed.getDate() + days);
+	return toDay(parsed);
+}
+
+function parseDay(date: string): Date | null {
+	const [year, month, dayOfMonth] = date.split("-").map(Number);
+	if (!year || !month || !dayOfMonth) return null;
+	return new Date(year, month - 1, dayOfMonth);
+}
+
+function toDay(date: Date): string {
+	const pad = (value: number) => String(value).padStart(2, "0");
+	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}

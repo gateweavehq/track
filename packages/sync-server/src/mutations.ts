@@ -296,7 +296,10 @@ function updateIssue(
 
 type IssuePatch = MutationArgs<"issue.update">["patch"];
 
-/** A patch field as a proposal. Manual ordering is never proposed. */
+/**
+ * A patch field as a proposal. Manual ordering is never proposed, and neither are dates and
+ * estimates: they are planning, which people correct by editing, not a decision about the work.
+ */
 function proposedChange(field: keyof IssuePatch, value: never): ProposedChange | null {
 	switch (field) {
 		case "title":
@@ -311,6 +314,9 @@ function proposedChange(field: keyof IssuePatch, value: never): ProposedChange |
 			return { type: "assignee", to: value };
 		case "projectId":
 			return { type: "project", to: value };
+		case "startDate":
+		case "dueDate":
+		case "estimate":
 		case "sortOrder":
 			return null;
 	}
@@ -330,6 +336,15 @@ function issueChanges(before: schema.IssueRow, patch: Partial<schema.IssueRow>):
 	}
 	if (patch.projectId !== undefined) {
 		changes.push({ type: "project", from: before.projectId, to: patch.projectId });
+	}
+	if (patch.startDate !== undefined) {
+		changes.push({ type: "startDate", from: before.startDate, to: patch.startDate });
+	}
+	if (patch.dueDate !== undefined) {
+		changes.push({ type: "dueDate", from: before.dueDate, to: patch.dueDate });
+	}
+	if (patch.estimate !== undefined) {
+		changes.push({ type: "estimate", from: before.estimate, to: patch.estimate });
 	}
 	if (patch.title !== undefined)
 		changes.push({ type: "title", from: before.title, to: patch.title });

@@ -250,6 +250,38 @@ describe("delivery", () => {
 		expect(data && "updatedFrom" in data && Object.keys(data.updatedFrom)).toEqual(["status"]);
 	});
 
+	it("sends an issue's dates and estimate, and what an update changed of them", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await createHook(workspace, { events: ["issue.created", "issue.updated"] });
+
+		await mutate(workspace, owner, {
+			name: "issue.create",
+			args: {
+				id: "issue-1",
+				teamId: "team-eng",
+				title: "Launch",
+				sortOrder: "a0",
+				dueDate: "2026-11-20",
+				estimate: 3,
+			},
+		});
+		await mutate(workspace, owner, {
+			name: "issue.update",
+			args: { id: "issue-1", baseVersion: 0, patch: { dueDate: null, startDate: "2026-11-02" } },
+		});
+		await deliver(workspace);
+
+		const sent = payloads(received);
+		expect(sent.map((payload) => payload.data)).toMatchObject([
+			{ issue: { startDate: null, dueDate: "2026-11-20", estimate: 3 } },
+			{
+				issue: { startDate: "2026-11-02", dueDate: null, estimate: 3 },
+				updatedFrom: { startDate: null, dueDate: "2026-11-20" },
+			},
+		]);
+	});
+
 	it("names an issue's labels in labelIds order, and reads each name for each event", async () => {
 		const received = receiver();
 		const workspace = await workspaceWithTeams();

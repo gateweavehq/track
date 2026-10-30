@@ -37,6 +37,8 @@ function MyIssuesPage() {
 			onLabelFilterChange={(labels) =>
 				setSearch({ labels: labels.length > 0 ? labels : undefined })
 			}
+			dueFilter={search.due}
+			onDueFilterChange={(due) => setSearch({ due })}
 			empty={
 				<Notice title="Nothing assigned to you">
 					Issues assigned to you, in every team, show up here.

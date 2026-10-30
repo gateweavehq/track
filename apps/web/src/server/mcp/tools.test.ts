@@ -359,6 +359,52 @@ describe("Track MCP tools", () => {
 		});
 	});
 
+	it("sets and clears an issue's dates and estimate", async () => {
+		const issue = await created({
+			title: "Launch",
+			start_date: "2026-11-02",
+			due_date: "2026-11-20",
+			estimate: 5,
+		});
+		expect(issue).toMatchObject({ startDate: "2026-11-02", dueDate: "2026-11-20", estimate: 5 });
+
+		const result = await call("update_issue", {
+			workspace: "acme",
+			key: "ENG-1",
+			due_date: null,
+			estimate: 0,
+		});
+
+		expect(result.structuredContent).toMatchObject({
+			startDate: "2026-11-02",
+			dueDate: null,
+			estimate: 0,
+		});
+		expect(workspace.mutations.at(-1)).toMatchObject({
+			name: "issue.update",
+			args: { patch: { dueDate: null, estimate: 0 } },
+		});
+		expect((await created({ title: "Bare" })).dueDate).toBeNull();
+	});
+
+	it("refuses days that do not exist and estimates that are not whole points", async () => {
+		const day = await call("create_issue", {
+			workspace: "acme",
+			team: "ENG",
+			title: "Nope",
+			due_date: "2026-02-30",
+		});
+		const size = await call("create_issue", {
+			workspace: "acme",
+			team: "ENG",
+			title: "Nope",
+			estimate: 1.5,
+		});
+		expect(day.isError).toBe(true);
+		expect(size.isError).toBe(true);
+		expect(workspace.mutations).toEqual([]);
+	});
+
 	it("reports conflicts and rejections as tool errors", async () => {
 		await created({ title: "Contested" });
 		workspace.nextResult = { ok: false, reason: "conflict", message: "Conflict" };

@@ -21,6 +21,9 @@ const issue: Issue = {
 	priority: 0,
 	assigneeId: null,
 	projectId: null,
+	startDate: null,
+	dueDate: null,
+	estimate: null,
 	creatorId: "alice",
 	labelIds: [],
 	sortOrder: "a0",
@@ -102,6 +105,24 @@ describe("Replica", () => {
 		expect(r.snapshot().issues[0]?.status).toBe("backlog");
 	});
 
+	it("predicts dates and estimates, and clearing them", () => {
+		const r = replica();
+		r.addPending(
+			pending("m1", {
+				name: "issue.update",
+				args: { id: "i1", baseVersion: 2, patch: { dueDate: "2026-11-20", estimate: 3 } },
+			}),
+		);
+		expect(r.getState().issues.get("i1")).toMatchObject({ dueDate: "2026-11-20", estimate: 3 });
+		r.addPending(
+			pending("m2", {
+				name: "issue.update",
+				args: { id: "i1", baseVersion: 2, patch: { dueDate: null } },
+			}),
+		);
+		expect(r.getState().issues.get("i1")).toMatchObject({ dueDate: null, estimate: 3 });
+	});
+
 	it("rebases pending mutations over newer server state", () => {
 		const r = replica();
 		r.addPending(
@@ -138,6 +159,9 @@ describe("Replica", () => {
 				priority: 0,
 				assigneeId: null,
 				projectId: null,
+				startDate: null,
+				dueDate: null,
+				estimate: null,
 				labelIds: [],
 				sortOrder: "a1",
 			},
@@ -216,6 +240,9 @@ describe("Replica", () => {
 					priority: 0,
 					assigneeId: null,
 					projectId: null,
+					startDate: null,
+					dueDate: null,
+					estimate: null,
 					labelIds: ["unknown"],
 					sortOrder: "a1",
 				},
@@ -500,6 +527,9 @@ describe("Replica", () => {
 						priority: 0,
 						assigneeId: null,
 						projectId: "p1",
+						startDate: null,
+						dueDate: null,
+						estimate: null,
 						labelIds: [],
 						sortOrder: "a1",
 					},
@@ -528,6 +558,9 @@ describe("Replica", () => {
 						priority: 0,
 						assigneeId: null,
 						projectId: "unknown",
+						startDate: null,
+						dueDate: null,
+						estimate: null,
 						labelIds: [],
 						sortOrder: "a1",
 					},

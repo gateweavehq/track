@@ -4,7 +4,8 @@ import { MemberAvatar } from "#/components/members/member-avatar";
 import { Button } from "#/components/ui/button";
 import { useWorkspace, useWorkspaceActions } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
-import { formatTargetDate, isOverdue, progressPercent } from "#/lib/projects";
+import { formatDay } from "#/lib/dates";
+import { isOverdue, progressPercent } from "#/lib/projects";
 import { type ProjectSummary, useMembersById, useProjects } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import { PROJECT_STATUS_META, ProjectStatusIcon } from "./meta";
@@ -77,7 +78,7 @@ function ProjectRow({ summary: { project, issues, progress } }: { summary: Proje
 				)}
 				title={overdue ? "Past its target date" : undefined}
 			>
-				{project.targetDate ? formatTargetDate(project.targetDate) : ""}
+				{project.targetDate ? formatDay(project.targetDate) : ""}
 			</span>
 			<div
 				className="flex w-28 shrink-0 items-center gap-2 text-xs text-muted-foreground sm:w-36"

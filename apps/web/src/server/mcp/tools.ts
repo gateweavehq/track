@@ -1,5 +1,7 @@
 import {
 	type Comment,
+	calendarDate,
+	estimate,
 	ISSUE_STATUSES,
 	type Issue,
 	type IssuePriority,
@@ -85,10 +87,10 @@ const projectStatusInput = z.enum(PROJECT_STATUSES);
 const LEAD_HELP = "The project's lead: \"me\", or a person's email or id, from get_workspace.";
 const leadInput = z.string().min(1).describe(LEAD_HELP);
 const TARGET_DATE_HELP = "The day it should be done by, as YYYY-MM-DD.";
-const targetDateInput = z
-	.string()
-	.regex(/^\d{4}-\d{2}-\d{2}$/, "A date like 2026-03-31")
-	.describe(TARGET_DATE_HELP);
+const targetDateInput = calendarDate.describe(TARGET_DATE_HELP);
+const START_DATE_HELP = "The day work on it starts, as YYYY-MM-DD.";
+const DUE_DATE_HELP = "The day it is due, as YYYY-MM-DD.";
+const ESTIMATE_HELP = "Its size in points, a whole number from 0 to 1000.";
 
 // Outputs are loose objects. Clients keep a tool's output schema from when they connected and
 // validate results against it, so with a strict schema every field added later would fail their
@@ -101,6 +103,9 @@ const issueSummary = z.looseObject({
 	assignee: z.string().nullable().describe("The assignee's email."),
 	labels: z.array(z.string()).describe("Label names."),
 	project: z.string().nullable().describe("The project's name."),
+	startDate: z.string().nullable().describe("YYYY-MM-DD."),
+	dueDate: z.string().nullable().describe("YYYY-MM-DD."),
+	estimate: z.number().nullable().describe("Points."),
 	url: z.string(),
 	updatedAt: z.string(),
 });
@@ -311,6 +316,9 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				assignee: assigneeInput.optional(),
 				project: projectInput.optional(),
 				labels: labelsInput.optional(),
+				start_date: calendarDate.optional().describe(START_DATE_HELP),
+				due_date: calendarDate.optional().describe(DUE_DATE_HELP),
+				estimate: estimate.optional().describe(ESTIMATE_HELP),
 			}),
 			outputSchema: issueDetail.extend({ proposed: proposedOutput }),
 			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
@@ -335,6 +343,9 @@ export function createTrackServer(access: TrackAccess): McpServer {
 								: resolveAssignee(directory, workspace.me, input.assignee),
 						projectId: input.project === undefined ? null : projectId(directory, input.project),
 						labelIds: (input.labels ?? []).map((name) => labelId(directory, name)),
+						startDate: input.start_date ?? null,
+						dueDate: input.due_date ?? null,
+						estimate: input.estimate ?? null,
 						sortOrder: generateKeyBetween(await workspace.lastSortOrder(), null),
 					},
 				});
@@ -350,7 +361,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"update_issue",
 		{
 			title: "Update issue",
-			description: `Changes an issue's title, description, status, priority, assignee, project or labels. Fields you leave out stay as they are. ${PROPOSALS_NOTE}`,
+			description: `Changes an issue's title, description, status, priority, assignee, project, labels, dates or estimate. Fields you leave out stay as they are. ${PROPOSALS_NOTE}`,
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				key: keyInput,
@@ -370,6 +381,18 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					.describe("Moves the issue to this project. Null takes it out of its project."),
 				add_labels: labelsInput.optional(),
 				remove_labels: labelsInput.optional(),
+				start_date: calendarDate
+					.nullable()
+					.optional()
+					.describe(START_DATE_HELP + " Null clears it."),
+				due_date: calendarDate
+					.nullable()
+					.optional()
+					.describe(DUE_DATE_HELP + " Null clears it."),
+				estimate: estimate
+					.nullable()
+					.optional()
+					.describe(ESTIMATE_HELP + " Null clears it."),
 			}),
 			outputSchema: issueDetail.extend({ proposed: proposedOutput }),
 			annotations: {
@@ -397,6 +420,9 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					...(input.project !== undefined && {
 						projectId: input.project === null ? null : projectId(directory, input.project),
 					}),
+					...(input.start_date !== undefined && { startDate: input.start_date }),
+					...(input.due_date !== undefined && { dueDate: input.due_date }),
+					...(input.estimate !== undefined && { estimate: input.estimate }),
 				};
 				const added = (input.add_labels ?? []).map((name) => labelId(directory, name));
 				const removed = (input.remove_labels ?? []).map((name) => labelId(directory, name));
@@ -766,6 +792,9 @@ function summarize(
 			.map((id) => directory.labels.find((label) => label.id === id)?.name)
 			.filter((name) => name !== undefined),
 		project: directory.projects.find((project) => project.id === issue.projectId)?.name ?? null,
+		startDate: issue.startDate,
+		dueDate: issue.dueDate,
+		estimate: issue.estimate,
 		url: `${access.origin}/${encodeURIComponent(workspace.slug)}/issue/${key}`,
 		updatedAt: new Date(issue.updatedAt).toISOString(),
 	};

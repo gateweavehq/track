@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
 	BOARD_STATUS_ORDER,
 	compareIssues,
+	estimateLabel,
 	groupByStatus,
+	isIssueOverdue,
 	issueKey,
 	LIST_STATUS_ORDER,
+	matchesDue,
 	matchesQuery,
 	parseIssueKey,
 	planMove,
@@ -24,6 +27,9 @@ function issue(overrides: Partial<Issue>): Issue {
 		priority: 0,
 		assigneeId: null,
 		projectId: null,
+		startDate: null,
+		dueDate: null,
+		estimate: null,
 		labelIds: [],
 		creatorId: "user",
 		sortOrder: "a0",
@@ -169,5 +175,41 @@ describe("matchesQuery", () => {
 
 	it("matches everything when the query is blank", () => {
 		expect(matchesQuery("   ", "anything")).toBe(true);
+	});
+});
+
+describe("due dates and estimates", () => {
+	const now = new Date(2026, 10, 30, 12, 0);
+
+	it("calls an open issue overdue the day after its due date", () => {
+		expect(isIssueOverdue(issue({ dueDate: "2026-11-29", status: "todo" }), now)).toBe(true);
+		expect(isIssueOverdue(issue({ dueDate: "2026-11-30", status: "todo" }), now)).toBe(false);
+		expect(isIssueOverdue(issue({ dueDate: null, status: "todo" }), now)).toBe(false);
+	});
+
+	it("never calls a done or canceled issue overdue", () => {
+		expect(isIssueOverdue(issue({ dueDate: "2026-01-01", status: "done" }), now)).toBe(false);
+		expect(isIssueOverdue(issue({ dueDate: "2026-01-01", status: "canceled" }), now)).toBe(false);
+	});
+
+	it("filters by due date", () => {
+		const open = (dueDate: string | null) => issue({ dueDate, status: "in_progress" });
+		expect(matchesDue(open("2026-11-29"), "overdue", now)).toBe(true);
+		expect(matchesDue(open("2026-11-30"), "overdue", now)).toBe(false);
+
+		expect(matchesDue(open("2026-11-30"), "week", now)).toBe(true);
+		expect(matchesDue(open("2026-12-06"), "week", now)).toBe(true);
+		expect(matchesDue(open("2026-12-07"), "week", now)).toBe(false);
+		expect(matchesDue(open("2026-11-29"), "week", now)).toBe(false);
+		expect(matchesDue(issue({ dueDate: "2026-12-01", status: "done" }), "week", now)).toBe(false);
+
+		expect(matchesDue(open(null), "none", now)).toBe(true);
+		expect(matchesDue(open("2026-12-01"), "none", now)).toBe(false);
+	});
+
+	it("labels estimates in points", () => {
+		expect(estimateLabel(1)).toBe("1 point");
+		expect(estimateLabel(0)).toBe("0 points");
+		expect(estimateLabel(8)).toBe("8 points");
 	});
 });
