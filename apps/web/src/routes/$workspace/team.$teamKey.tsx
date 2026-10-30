@@ -50,10 +50,12 @@ function TeamIssues({ team }: { team: Team }) {
 		[navigate],
 	);
 	const setUrlView = useCallback((view: IssueView) => setSearch({ view }), [setSearch]);
-	const [view, setView] = useIssueView(`team.${team.id}`, search.view, setUrlView);
+	const scope = `team.${team.id}`;
+	const [view, setView] = useIssueView(scope, search.view, setUrlView);
 
 	return (
 		<IssuesPage
+			scope={scope}
 			title={team.name}
 			badge={
 				<span className="rounded border px-1.5 font-mono text-xs text-muted-foreground">

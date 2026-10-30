@@ -7,6 +7,7 @@ import {
 	Plus,
 	Rows3,
 	Search,
+	Table2,
 	Tag,
 	X,
 } from "lucide-react";
@@ -37,6 +38,7 @@ import { useDragAutoScroll } from "./dnd";
 import { IssueBoard } from "./issue-board";
 import { IssueCalendar } from "./issue-calendar";
 import { IssueList } from "./issue-list";
+import { IssueTable } from "./issue-table";
 import { LabelChips, LabelMenu } from "./labels";
 
 /**
@@ -56,11 +58,14 @@ export function IssuesPage({
 	dueFilter,
 	onDueFilterChange,
 	intro,
+	scope,
 }: {
 	title: string;
 	badge?: ReactNode;
 	/** Shown between the header and the issues, such as a project's details. */
 	intro?: ReactNode;
+	/** What the page remembers its view and table columns by; the scope `useIssueView` takes. */
+	scope: string;
 	issues: Issue[];
 	defaults: IssueDefaults;
 	empty: ReactNode;
@@ -85,7 +90,7 @@ export function IssuesPage({
 
 	useHotkeys({
 		"/": () => filterRef.current?.focus(),
-		// Toggles list and board only; from the calendar it goes to the list.
+		// Toggles list and board only; from the calendar or the table it goes to the list.
 		"mod+b": () => onViewChange(view === "list" ? "board" : "list"),
 	});
 
@@ -180,6 +185,8 @@ export function IssuesPage({
 				</div>
 			) : view === "calendar" ? (
 				<IssueCalendar issues={filtered} empty={emptyState} />
+			) : view === "table" ? (
+				<IssueTable key={scope} issues={filtered} empty={emptyState} scope={scope} />
 			) : (
 				<IssueList issues={filtered} defaults={defaults} empty={emptyState} />
 			)}
@@ -287,11 +294,12 @@ const VIEW_OPTIONS: { view: IssueView; label: string; icon: LucideIcon }[] = [
 	{ view: "list", label: "List", icon: Rows3 },
 	{ view: "board", label: "Board", icon: Columns3 },
 	{ view: "calendar", label: "Calendar", icon: CalendarDays },
+	{ view: "table", label: "Table", icon: Table2 },
 ];
 
 function ViewSwitch({ view, onChange }: { view: IssueView; onChange: (view: IssueView) => void }) {
 	return (
-		<fieldset className="flex rounded-md border p-0.5">
+		<fieldset className="flex rounded-md border sm:p-0.5">
 			<legend className="sr-only">View</legend>
 			{VIEW_OPTIONS.map((option) => (
 				<button
@@ -302,7 +310,7 @@ function ViewSwitch({ view, onChange }: { view: IssueView; onChange: (view: Issu
 					title={`${option.label} (${MOD_LABEL} B to switch)`}
 					onClick={() => onChange(option.view)}
 					className={cn(
-						"flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+						"flex size-[22px] items-center justify-center rounded-sm sm:size-6 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
 						view === option.view && "bg-accent text-foreground",
 					)}
 				>

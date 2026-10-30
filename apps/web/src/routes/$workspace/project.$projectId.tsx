@@ -52,10 +52,12 @@ function ProjectIssues({ project }: { project: Project }) {
 		[navigate],
 	);
 	const setUrlView = useCallback((view: IssueView) => setSearch({ view }), [setSearch]);
-	const [view, setView] = useIssueView(`project.${project.id}`, search.view, setUrlView);
+	const scope = `project.${project.id}`;
+	const [view, setView] = useIssueView(scope, search.view, setUrlView);
 
 	return (
 		<IssuesPage
+			scope={scope}
 			title={project.name}
 			badge={
 				<Link

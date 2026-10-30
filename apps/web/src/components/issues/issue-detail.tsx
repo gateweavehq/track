@@ -1,8 +1,8 @@
-import { calendarDate, type Issue, type Team } from "@gateweave/track-protocol";
+import type { Issue, Team } from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link, useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
-import { ChevronRight, Gauge, Layers, ListTree, Pencil, Trash, X } from "lucide-react";
-import { type ReactNode, type Ref, useCallback, useEffect, useRef, useState } from "react";
+import { ChevronRight, Gauge, Layers, ListTree, Pencil, Trash } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Markdown } from "#/components/markdown";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { ProjectStatusIcon } from "#/components/projects/meta";
@@ -15,7 +15,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "#/components/ui/dialog";
-import { Input } from "#/components/ui/input";
 import { useWorkspace } from "#/components/workspace/context";
 import { formatDateTime, formatRelative } from "#/lib/dates";
 import { useHotkeys } from "#/lib/hotkeys";
@@ -24,6 +23,7 @@ import { send, useUpdateIssue } from "#/lib/mutations";
 import { useIssueById, useMembersById, useProject, useTeamsById } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import { AttachButton, useAttachFiles } from "./attach-files";
+import { DateField } from "./date-field";
 import { IssueActivity } from "./issue-activity";
 import { ParentPicker } from "./issue-picker";
 import { IssueProposals } from "./issue-proposals";
@@ -318,63 +318,6 @@ function PropertyButton({
 		>
 			{children}
 		</Button>
-	);
-}
-
-/**
- * A calendar day picked with the browser's own date input, and a button that clears it. `min` and
- * `max` keep a start date before its due date in the picker, though neither is enforced.
- */
-function DateField({
-	label,
-	value,
-	onChange,
-	min,
-	max,
-	overdue = false,
-	inputRef,
-}: {
-	label: string;
-	value: string | null;
-	onChange: (value: string | null) => void;
-	min?: string | null;
-	max?: string | null;
-	overdue?: boolean;
-	inputRef?: Ref<HTMLInputElement>;
-}) {
-	return (
-		<div className="flex items-center gap-1">
-			<Input
-				ref={inputRef}
-				type="date"
-				value={value ?? ""}
-				min={min ?? undefined}
-				max={max ?? undefined}
-				onChange={(event) => {
-					const next = event.target.value;
-					// While a year is being typed the input can hold one the protocol would refuse.
-					if (next === "") onChange(null);
-					else if (calendarDate.safeParse(next).success && next !== value) onChange(next);
-				}}
-				aria-label={label}
-				className={cn(
-					"h-8 min-w-0 flex-1 border-transparent px-2 shadow-none hover:bg-accent focus-visible:bg-transparent",
-					!value && "text-muted-foreground",
-					overdue && "text-destructive",
-				)}
-			/>
-			{value && (
-				<Button
-					variant="ghost"
-					size="icon"
-					className="size-8 shrink-0"
-					aria-label={`Clear the ${label.toLowerCase()}`}
-					onClick={() => onChange(null)}
-				>
-					<X />
-				</Button>
-			)}
-		</div>
 	);
 }
 
