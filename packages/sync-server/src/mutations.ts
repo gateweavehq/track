@@ -412,13 +412,13 @@ function deleteIssue(db: Db, changes: ChangeSet, args: MutationArgs<"issue.delet
 		eq(schema.relations.issueId, issue.id),
 		eq(schema.relations.relatedIssueId, issue.id),
 	);
-	const relations = db
-		.select({ id: schema.relations.id })
-		.from(schema.relations)
-		.where(linked)
-		.all();
+	const relations = db.select().from(schema.relations).where(linked).all();
 	db.delete(schema.relations).where(linked).run();
-	for (const relation of relations) changes.delete("relation", relation.id);
+	for (const relation of relations) {
+		changes.delete("relation", relation.id);
+		// An issue this one blocked is now unblocked, which a trigger should hear.
+		changes.events.push({ type: "relation.deleted", relation });
+	}
 
 	const comments = db
 		.select({ id: schema.comments.id })
@@ -759,6 +759,7 @@ function createRelation(
 	};
 	db.insert(schema.relations).values(row).run();
 	changes.put("relation", toRelation(row));
+	changes.events.push({ type: "relation.created", relation: row });
 	recordRelation(db, changes, actor, row, true);
 }
 
@@ -789,6 +790,7 @@ function relationBetween(db: Db, a: string, b: string) {
 function removeRelation(db: Db, changes: ChangeSet, actor: Actor, relation: schema.RelationRow) {
 	db.delete(schema.relations).where(eq(schema.relations.id, relation.id)).run();
 	changes.delete("relation", relation.id);
+	changes.events.push({ type: "relation.deleted", relation });
 	recordRelation(db, changes, actor, relation, false);
 }
 

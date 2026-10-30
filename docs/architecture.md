@@ -608,7 +608,7 @@ A webhook posts each change to a URL, such as an agent's trigger, so that a serv
 new issues without holding a socket open. Admins manage them on Settings › Webhooks: a URL, the
 events it wants (`issue.created`, `issue.updated`, `issue.deleted`, `comment.created`,
 `comment.updated`, `comment.deleted`, `proposal.created`, `proposal.updated`,
-`proposal.accepted`, `proposal.dismissed`), an optional team, and optionally the agent member it
+`proposal.accepted`, `proposal.dismissed`, `relation.created`, `relation.deleted`), an optional team, and optionally the agent member it
 sets off. The payload types and input schemas are in `packages/protocol/src/webhooks.ts`; the rest
 is `packages/sync-server/src/webhooks.ts`.
 
@@ -641,6 +641,15 @@ is `packages/sync-server/src/webhooks.ts`.
   proposal still sends the `issue.updated` of its change. Deleting an issue discards its open
   proposals without a decision and sends no proposal event: `issue.deleted` covers it. New
   webhooks do not subscribe to proposal events by default.
+- **Relation events** (`relation.created`, `relation.deleted`) carry `issue` and `relatedIssue`,
+  both with key, URL and labels, and the `relation` (`id`, `type`, `issueId`, `relatedIssueId`,
+  `creatorId`, `createdAt`). `issue` is the relation's `issueId` side: the blocker of a `blocks`
+  relation, the duplicate of a `duplicate` one. A webhook limited to a team hears of a relation
+  when either issue is in that team. Making another relation between the same two issues sends
+  `relation.deleted` for the old one, then `relation.created`; making the one they already
+  have sends nothing. Deleting an issue sends `relation.deleted` for each of its relations, with
+  the person who deleted it as the actor, before its own `issue.deleted`, so an issue that it
+  blocked is heard to be unblocked. New webhooks do not subscribe to relation events by default.
 - **Retries.** A delivery that gets no 2xx answer (a redirect counts as a failure) is retried
   after 5 seconds, 5 minutes, 30 minutes, 2, 5 and 10 hours, then marked failed. Settings show
   each webhook's latest deliveries, and finished ones are kept for seven days.

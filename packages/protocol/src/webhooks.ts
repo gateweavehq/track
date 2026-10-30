@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Comment, Issue, Proposal } from "./domain";
+import type { Comment, Issue, IssueRelation, Proposal } from "./domain";
 
 /**
  * Webhooks tell other services, such as an agent's trigger, about changes as they happen. Each
@@ -17,6 +17,8 @@ export const WEBHOOK_EVENTS = [
 	"proposal.updated",
 	"proposal.accepted",
 	"proposal.dismissed",
+	"relation.created",
+	"relation.deleted",
 ] as const;
 export type WebhookEventType = (typeof WEBHOOK_EVENTS)[number];
 
@@ -148,6 +150,14 @@ export type WebhookPayload =
 				decidedBy: WebhookActor;
 				/** When it was decided, in milliseconds since the epoch. */
 				decidedAt: number;
+			}
+	  >
+	| Envelope<
+			"relation.created" | "relation.deleted",
+			Change & {
+				/** The issue at the other end. `issue` is the relation's `issueId` side, such as the blocker. */
+				relatedIssue: WebhookIssue;
+				relation: IssueRelation;
 			}
 	  >
 	| Envelope<typeof WEBHOOK_TEST_EVENT, { workspace: WebhookWorkspace; webhookId: string }>;
