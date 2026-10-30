@@ -8,6 +8,7 @@ import {
 	startWorkspace,
 	syncBadge,
 	unique,
+	waitForHydration,
 } from "./helpers";
 
 // A spreadsheet from another tracker: its own column names, a parent named by key, and dates.
@@ -100,6 +101,7 @@ test("a workspace's JSON export moves into another workspace with comments, rela
 
 	// A second workspace, whose only team is not Engineering.
 	await page.goto("/");
+	await waitForHydration(page);
 	const target = await createWorkspace(page);
 	await createFirstTeam(page, target.slug, "CORE");
 	await page.goto(`/${target.slug}/settings/import`);
