@@ -32,6 +32,7 @@ import { Route as WorkspaceSettingsMembersRouteImport } from './routes/$workspac
 import { Route as WorkspaceSettingsTeamsRouteImport } from './routes/$workspace/settings.teams'
 import { Route as WorkspaceSettingsWebhooksRouteImport } from './routes/$workspace/settings.webhooks'
 import { Route as WorkspaceTeamTeamKeyRouteImport } from './routes/$workspace/team.$teamKey'
+import { Route as WorkspaceViewViewIdRouteImport } from './routes/$workspace/view.$viewId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -152,6 +153,11 @@ const WorkspaceTeamTeamKeyRoute = WorkspaceTeamTeamKeyRouteImport.update({
   path: '/team/$teamKey',
   getParentRoute: () => WorkspaceRoute,
 } as any)
+const WorkspaceViewViewIdRoute = WorkspaceViewViewIdRouteImport.update({
+  id: '/view/$viewId',
+  path: '/view/$viewId',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -181,6 +187,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
   '/$workspace/settings/webhooks': typeof WorkspaceSettingsWebhooksRoute
   '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
+  '/$workspace/view/$viewId': typeof WorkspaceViewViewIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$workspace/settings/': typeof WorkspaceSettingsIndexRoute
 }
@@ -205,6 +212,7 @@ export interface FileRoutesByTo {
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
   '/$workspace/settings/webhooks': typeof WorkspaceSettingsWebhooksRoute
   '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
+  '/$workspace/view/$viewId': typeof WorkspaceViewViewIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$workspace/settings': typeof WorkspaceSettingsIndexRoute
 }
@@ -232,6 +240,7 @@ export interface FileRoutesById {
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
   '/$workspace/settings/webhooks': typeof WorkspaceSettingsWebhooksRoute
   '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
+  '/$workspace/view/$viewId': typeof WorkspaceViewViewIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$workspace/settings/': typeof WorkspaceSettingsIndexRoute
 }
@@ -260,6 +269,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings/teams'
     | '/$workspace/settings/webhooks'
     | '/$workspace/team/$teamKey'
+    | '/$workspace/view/$viewId'
     | '/api/auth/$'
     | '/$workspace/settings/'
   fileRoutesByTo: FileRoutesByTo
@@ -284,6 +294,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings/teams'
     | '/$workspace/settings/webhooks'
     | '/$workspace/team/$teamKey'
+    | '/$workspace/view/$viewId'
     | '/api/auth/$'
     | '/$workspace/settings'
   id:
@@ -310,6 +321,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings/teams'
     | '/$workspace/settings/webhooks'
     | '/$workspace/team/$teamKey'
+    | '/$workspace/view/$viewId'
     | '/api/auth/$'
     | '/$workspace/settings/'
   fileRoutesById: FileRoutesById
@@ -488,6 +500,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceTeamTeamKeyRouteImport
       parentRoute: typeof WorkspaceRoute
     }
+    '/$workspace/view/$viewId': {
+      id: '/$workspace/view/$viewId'
+      path: '/view/$viewId'
+      fullPath: '/$workspace/view/$viewId'
+      preLoaderRoute: typeof WorkspaceViewViewIdRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -532,6 +551,7 @@ interface WorkspaceRouteChildren {
   WorkspaceIssueIssueKeyRoute: typeof WorkspaceIssueIssueKeyRoute
   WorkspaceProjectProjectIdRoute: typeof WorkspaceProjectProjectIdRoute
   WorkspaceTeamTeamKeyRoute: typeof WorkspaceTeamTeamKeyRoute
+  WorkspaceViewViewIdRoute: typeof WorkspaceViewViewIdRoute
 }
 
 const WorkspaceRouteChildren: WorkspaceRouteChildren = {
@@ -543,6 +563,7 @@ const WorkspaceRouteChildren: WorkspaceRouteChildren = {
   WorkspaceIssueIssueKeyRoute: WorkspaceIssueIssueKeyRoute,
   WorkspaceProjectProjectIdRoute: WorkspaceProjectProjectIdRoute,
   WorkspaceTeamTeamKeyRoute: WorkspaceTeamTeamKeyRoute,
+  WorkspaceViewViewIdRoute: WorkspaceViewViewIdRoute,
 }
 
 const WorkspaceRouteWithChildren = WorkspaceRoute._addFileChildren(

@@ -64,6 +64,12 @@ export interface WorkspaceActions {
 	createIssue: (defaults?: IssueDefaults) => void;
 	createTeam: () => void;
 	createProject: () => void;
+	/**
+	 * What new issues start with while a page of issues is on screen, unless a caller says
+	 * otherwise; null when the page goes. The page sets it, so the shortcut, the command palette
+	 * and the sidebar's button make issues that show up on it.
+	 */
+	setPageDefaults: (defaults: IssueDefaults | null) => void;
 	openCommandPalette: () => void;
 	showShortcuts: () => void;
 }

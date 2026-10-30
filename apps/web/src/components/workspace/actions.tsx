@@ -1,6 +1,6 @@
 import { useSyncStatus } from "@gateweave/track-sync-client/react";
-import { useParams, useSearch } from "@tanstack/react-router";
-import { type ReactNode, useMemo, useState } from "react";
+import { useParams } from "@tanstack/react-router";
+import { type ReactNode, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CreateIssueDialog } from "#/components/issues/create-issue-dialog";
 import { CreateProjectDialog } from "#/components/projects/create-project-dialog";
@@ -8,7 +8,6 @@ import { CreateTeamDialog } from "#/components/teams/create-team-dialog";
 import { useHotkeys } from "#/lib/hotkeys";
 import { parseIssueKey } from "#/lib/issues";
 import { useProject, useTeamByKey, useTeams } from "#/lib/queries";
-import { issuePageSearch } from "#/lib/views";
 import { CommandPalette } from "./command-palette";
 import {
 	type IssueDefaults,
@@ -27,11 +26,6 @@ type OpenDialog =
 	| { kind: "shortcuts" }
 	| null;
 
-/** The one value of a filter that has exactly one. */
-function only<T>(values: readonly T[] | undefined): T | undefined {
-	return values?.length === 1 ? values[0] : undefined;
-}
-
 /** Owns the workspace's dialogs and global shortcuts, and offers them to the rest of the UI. */
 export function WorkspaceActionsProvider({ children }: { children: ReactNode }) {
 	const [dialog, setDialog] = useState<OpenDialog>(null);
@@ -43,39 +37,27 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 	const routeTeamId = useTeamByKey(routeTeamKey)?.id;
 	// And to the project on screen, which only counts while it exists.
 	const routeProjectId = useProject(params.projectId ?? "")?.id;
-	// And they start with what the page is filtered by, so they show up on it: its labels, and a
-	// status, priority, assignee, project or team when it is filtered to just one. Parsed only when
-	// used, so the raw values keep their identity between renders.
-	const search = useSearch({ strict: false });
-	const routeLabels = search.labels;
-	const routeTeam = search.team;
-	const routeStatus = search.status;
-	const routePriority = search.priority;
-	const routeAssignee = search.assignee;
-	const routeProject = search.project;
+	// And they start with what the page of issues on screen asks for, such as what it is filtered
+	// by, so they show up on it. A ref: a page changing its filters need not rebuild the actions.
+	const pageDefaults = useRef<IssueDefaults | null>(null);
 
 	const actions = useMemo<WorkspaceActions>(
 		() => ({
 			createIssue: (defaults = {}) => {
 				if (hasTeams) {
+					const page = pageDefaults.current ?? {};
+					// `null` is a choice (no assignee, no project), so only `undefined` falls through.
+					const first = <T,>(...values: (T | undefined)[]) =>
+						values.find((value) => value !== undefined);
 					setDialog({
 						kind: "issue",
 						defaults: {
-							...defaults,
-							teamId:
-								defaults.teamId ?? routeTeamId ?? only(issuePageSearch.shape.team.parse(routeTeam)),
-							status: defaults.status ?? only(issuePageSearch.shape.status.parse(routeStatus)),
-							priority:
-								defaults.priority ?? only(issuePageSearch.shape.priority.parse(routePriority)),
-							assigneeId:
-								defaults.assigneeId === undefined
-									? only(issuePageSearch.shape.assignee.parse(routeAssignee))
-									: defaults.assigneeId,
-							projectId:
-								defaults.projectId === undefined
-									? (routeProjectId ?? only(issuePageSearch.shape.project.parse(routeProject)))
-									: defaults.projectId,
-							labelIds: defaults.labelIds ?? issuePageSearch.shape.labels.parse(routeLabels),
+							teamId: first(defaults.teamId, page.teamId, routeTeamId),
+							status: first(defaults.status, page.status),
+							priority: first(defaults.priority, page.priority),
+							assigneeId: first(defaults.assigneeId, page.assigneeId),
+							projectId: first(defaults.projectId, page.projectId, routeProjectId),
+							labelIds: first(defaults.labelIds, page.labelIds),
 						},
 					});
 				} else if (admin) {
@@ -89,21 +71,13 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 			createTeam: () => admin && setDialog({ kind: "team" }),
 			// Any person can make a project; the server refuses agents, which never use this UI.
 			createProject: () => setDialog({ kind: "project" }),
+			setPageDefaults: (defaults) => {
+				pageDefaults.current = defaults;
+			},
 			openCommandPalette: () => setDialog({ kind: "palette" }),
 			showShortcuts: () => setDialog({ kind: "shortcuts" }),
 		}),
-		[
-			hasTeams,
-			routeTeamId,
-			routeProjectId,
-			routeLabels,
-			routeStatus,
-			routePriority,
-			routeAssignee,
-			routeProject,
-			routeTeam,
-			admin,
-		],
+		[hasTeams, routeTeamId, routeProjectId, admin],
 	);
 
 	const { loaded } = useSyncStatus();

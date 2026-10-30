@@ -2,11 +2,13 @@ import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
 	ArrowLeftRight,
+	Bookmark,
 	Bot,
 	ChevronDown,
 	Inbox,
 	Keyboard,
 	Layers,
+	Lock,
 	LogOut,
 	Menu,
 	Plus,
@@ -29,7 +31,7 @@ import {
 import { Kbd } from "#/components/ui/kbd";
 import { authClient } from "#/lib/auth-client";
 import { MOD_LABEL } from "#/lib/hotkeys";
-import { useMembersById, useProposalCount, useTeams } from "#/lib/queries";
+import { useMembersById, useProposalCount, useSavedViews, useTeams } from "#/lib/queries";
 import { forgetEverything } from "#/lib/replica";
 import { cn } from "#/lib/utils";
 import { isAdmin, useMyRole, useWorkspace, useWorkspaceActions } from "./context";
@@ -92,6 +94,7 @@ function Sidebar() {
 	const { slug, userId } = useWorkspace();
 	const actions = useWorkspaceActions();
 	const teams = useTeams();
+	const views = useSavedViews(userId);
 	const proposalCount = useProposalCount();
 	const me = useMembersById().get(userId);
 	const admin = isAdmin(useMyRole());
@@ -166,39 +169,70 @@ function Sidebar() {
 				</Link>
 			</div>
 
-			<nav aria-label="Teams" className="mt-6 min-h-0 flex-1 overflow-y-auto px-2">
-				<div className="flex h-7 items-center justify-between px-2">
-					<h2 className="text-xs font-medium text-muted-foreground">Teams</h2>
-					{admin && (
-						<Button
-							variant="ghost"
-							size="icon"
-							className="size-6"
-							aria-label="Create team"
-							onClick={actions.createTeam}
-						>
-							<Plus />
-						</Button>
-					)}
-				</div>
-				<ul className="space-y-0.5">
-					{teams.map((team) => (
-						<li key={team.id}>
-							<Link
-								to="/$workspace/team/$teamKey"
-								params={{ workspace: slug, teamKey: team.key }}
-								className={navLink}
-								activeProps={{ className: activeNavLink }}
+			<div className="mt-6 min-h-0 flex-1 space-y-6 overflow-y-auto px-2">
+				{views.length > 0 && (
+					<nav aria-label="Views">
+						<h2 className="flex h-7 items-center px-2 text-xs font-medium text-muted-foreground">
+							Views
+						</h2>
+						<ul className="space-y-0.5">
+							{views.map((view) => (
+								<li key={view.id}>
+									<Link
+										to="/$workspace/view/$viewId"
+										params={{ workspace: slug, viewId: view.id }}
+										className={navLink}
+										activeProps={{ className: activeNavLink }}
+									>
+										<Bookmark className="size-4 shrink-0 text-muted-foreground" />
+										<span className="truncate">{view.name}</span>
+										{view.ownerId !== null && (
+											<Lock
+												role="img"
+												aria-label="Personal"
+												className="ml-auto size-3 shrink-0 text-muted-foreground"
+											/>
+										)}
+									</Link>
+								</li>
+							))}
+						</ul>
+					</nav>
+				)}
+				<nav aria-label="Teams">
+					<div className="flex h-7 items-center justify-between px-2">
+						<h2 className="text-xs font-medium text-muted-foreground">Teams</h2>
+						{admin && (
+							<Button
+								variant="ghost"
+								size="icon"
+								className="size-6"
+								aria-label="Create team"
+								onClick={actions.createTeam}
 							>
-								<span className="w-9 shrink-0 font-mono text-xs text-muted-foreground">
-									{team.key}
-								</span>
-								<span className="truncate">{team.name}</span>
-							</Link>
-						</li>
-					))}
-				</ul>
-			</nav>
+								<Plus />
+							</Button>
+						)}
+					</div>
+					<ul className="space-y-0.5">
+						{teams.map((team) => (
+							<li key={team.id}>
+								<Link
+									to="/$workspace/team/$teamKey"
+									params={{ workspace: slug, teamKey: team.key }}
+									className={navLink}
+									activeProps={{ className: activeNavLink }}
+								>
+									<span className="w-9 shrink-0 font-mono text-xs text-muted-foreground">
+										{team.key}
+									</span>
+									<span className="truncate">{team.name}</span>
+								</Link>
+							</li>
+						))}
+					</ul>
+				</nav>
+			</div>
 
 			<div className="flex items-center gap-2 border-t p-3">
 				<MemberAvatar member={me} className="size-6" />
