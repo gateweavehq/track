@@ -1,21 +1,65 @@
-import { useCallback, useState } from "react";
+import { type IssueFilters, issueFilters } from "@gateweave/track-protocol";
+import { useCallback, useMemo, useState } from "react";
 import { z } from "zod";
-import { DUE_FILTERS } from "./issues";
+import { compactFilters, type FiltersUpdate } from "./filters";
 
 export const ISSUE_VIEWS = ["list", "board", "calendar", "table", "timeline"] as const;
 export type IssueView = (typeof ISSUE_VIEWS)[number];
 
 /**
- * Search params for a page of issues: its view, the labels it is filtered by (issues with any of
- * them) and its due-date filter. Malformed values are dropped rather than failing the page, since
- * links get mangled.
+ * Search params for a page of issues: its view and its filters (see `IssueFilters`), under short
+ * names. Malformed values are dropped rather than failing the page, since links get mangled.
  */
 export const issuePageSearch = z.object({
 	view: z.enum(ISSUE_VIEWS).optional().catch(undefined),
-	labels: z.array(z.string().min(1).max(64)).max(50).optional().catch(undefined),
-	due: z.enum(DUE_FILTERS).optional().catch(undefined),
+	team: issueFilters.shape.teamIds.catch(undefined),
+	status: issueFilters.shape.statuses.catch(undefined),
+	priority: issueFilters.shape.priorities.catch(undefined),
+	assignee: issueFilters.shape.assigneeIds.catch(undefined),
+	project: issueFilters.shape.projectIds.catch(undefined),
+	labels: issueFilters.shape.labelIds.catch(undefined),
+	due: issueFilters.shape.due.catch(undefined),
 });
 export type IssuePageSearch = z.infer<typeof issuePageSearch>;
+
+export function filtersFromSearch(search: IssuePageSearch): IssueFilters {
+	return compactFilters({
+		teamIds: search.team,
+		statuses: search.status,
+		priorities: search.priority,
+		assigneeIds: search.assignee,
+		projectIds: search.project,
+		labelIds: search.labels,
+		due: search.due,
+	});
+}
+
+/** The search params for filters, every one named so that merging them clears the rest. */
+export function searchFromFilters(filters: IssueFilters): Omit<IssuePageSearch, "view"> {
+	return {
+		team: filters.teamIds,
+		status: filters.statuses,
+		priority: filters.priorities,
+		assignee: filters.assigneeIds,
+		project: filters.projectIds,
+		labels: filters.labelIds,
+		due: filters.due,
+	};
+}
+
+/** A page's filters, read from its search params and written back to them. */
+export function usePageFilters(
+	search: IssuePageSearch,
+	setSearch: (patch: IssuePageSearch | ((current: IssuePageSearch) => IssuePageSearch)) => void,
+): { filters: IssueFilters; onFiltersChange: (update: FiltersUpdate) => void } {
+	const filters = useMemo(() => filtersFromSearch(search), [search]);
+	const onFiltersChange = useCallback(
+		(update: FiltersUpdate) =>
+			setSearch((current) => searchFromFilters(update(filtersFromSearch(current)))),
+		[setSearch],
+	);
+	return { filters, onFiltersChange };
+}
 
 const storageKey = (scope: string) => `track.view.${scope}`;
 
