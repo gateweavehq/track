@@ -8,6 +8,7 @@ import {
 	type Member,
 	type MutationInput,
 	mutationSchema,
+	PROJECT_STATUSES,
 	type Proposal,
 } from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
@@ -78,6 +79,16 @@ const assigneeInput = z
 	.string()
 	.min(1)
 	.describe('"me", "none", or a member\'s email or id, from get_workspace.');
+const projectNameInput = z.string().trim().min(1).max(64);
+const projectDescriptionInput = z.string().max(100_000).describe("Markdown.");
+const projectStatusInput = z.enum(PROJECT_STATUSES);
+const LEAD_HELP = "The project's lead: \"me\", or a person's email or id, from get_workspace.";
+const leadInput = z.string().min(1).describe(LEAD_HELP);
+const TARGET_DATE_HELP = "The day it should be done by, as YYYY-MM-DD.";
+const targetDateInput = z
+	.string()
+	.regex(/^\d{4}-\d{2}-\d{2}$/, "A date like 2026-03-31")
+	.describe(TARGET_DATE_HELP);
 
 // Outputs are loose objects. Clients keep a tool's output schema from when they connected and
 // validate results against it, so with a strict schema every field added later would fail their
@@ -128,6 +139,15 @@ const proposedOutput = z
 	.describe(
 		"Changes you proposed instead of making, because an admin set you to propose that kind of change. They wait for a person to accept them, and are not applied yet.",
 	);
+const projectOutput = z.looseObject({
+	id: z.string(),
+	name: z.string(),
+	description: z.string().nullable().describe("Markdown."),
+	status: z.string(),
+	lead: z.string().nullable().describe("The lead's email."),
+	targetDate: z.string().nullable().describe("YYYY-MM-DD."),
+});
+type ProjectOutput = z.infer<typeof projectOutput>;
 type IssueSummary = z.infer<typeof issueSummary>;
 type IssueDetail = z.infer<typeof issueDetail>;
 type CommentOutput = z.infer<typeof commentOutput>;
@@ -525,7 +545,113 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			}),
 	);
 
+	server.registerTool(
+		"create_project",
+		{
+			title: "Create project",
+			description:
+				"Creates a project, a goal that groups issues across teams. Put issues in it with create_issue or update_issue. Only people can create projects, not agent members.",
+			inputSchema: z.object({
+				workspace: workspaceInput,
+				name: projectNameInput,
+				description: projectDescriptionInput.optional(),
+				status: projectStatusInput.default("planned"),
+				lead: leadInput.optional(),
+				target_date: targetDateInput.optional(),
+			}),
+			outputSchema: projectOutput,
+			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				const id = uuidv7();
+				await apply(workspace, {
+					name: "project.create",
+					args: {
+						id,
+						name: input.name,
+						description: input.description?.trim() ? input.description : null,
+						status: input.status,
+						leadId:
+							input.lead === undefined
+								? null
+								: resolveAssignee(await workspace.directory(), workspace.me, input.lead),
+						targetDate: input.target_date ?? null,
+					},
+				});
+				return projectView(await workspace.directory(), id);
+			}),
+	);
+
+	server.registerTool(
+		"update_project",
+		{
+			title: "Update project",
+			description:
+				"Changes a project's name, description, status, lead or target date. Fields you leave out stay as they are. Only people can change projects, not agent members.",
+			inputSchema: z.object({
+				workspace: workspaceInput,
+				project: projectInput,
+				name: projectNameInput.optional(),
+				description: projectDescriptionInput
+					.nullable()
+					.optional()
+					.describe("Markdown. Null clears it."),
+				status: projectStatusInput.optional(),
+				lead: leadInput.nullable().optional().describe(`${LEAD_HELP} Null or "none" clears it.`),
+				target_date: targetDateInput
+					.nullable()
+					.optional()
+					.describe(`${TARGET_DATE_HELP} Null clears it.`),
+			}),
+			outputSchema: projectOutput,
+			annotations: {
+				readOnlyHint: false,
+				destructiveHint: false,
+				idempotentHint: true,
+				openWorldHint: false,
+			},
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				const directory = await workspace.directory();
+				const id = projectId(directory, input.project);
+				const patch = {
+					...(input.name !== undefined && { name: input.name }),
+					...(input.description !== undefined && {
+						description: input.description?.trim() ? input.description : null,
+					}),
+					...(input.status !== undefined && { status: input.status }),
+					...(input.lead !== undefined && {
+						leadId:
+							input.lead === null ? null : resolveAssignee(directory, workspace.me, input.lead),
+					}),
+					...(input.target_date !== undefined && { targetDate: input.target_date }),
+				};
+				if (Object.keys(patch).length === 0) throw new ToolError("Nothing to change.");
+				await apply(workspace, { name: "project.update", args: { id, patch } });
+				return projectView(await workspace.directory(), id);
+			}),
+	);
+
 	return server;
+}
+
+/** A project as the tools describe it, read back after a change. */
+function projectView(directory: Directory, id: string): ProjectOutput {
+	const project = directory.projects.find((project) => project.id === id);
+	// Only a concurrent delete gets here.
+	if (!project) throw new ToolError("The project was deleted.");
+	return {
+		id: project.id,
+		name: project.name,
+		description: project.description,
+		status: project.status,
+		lead: emailOf(directory, project.leadId),
+		targetDate: project.targetDate,
+	};
 }
 
 /** Runs a tool body, returning its result as structured content or its failure as a tool error. */

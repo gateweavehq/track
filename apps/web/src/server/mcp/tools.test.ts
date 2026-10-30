@@ -112,6 +112,24 @@ class FakeWorkspace implements WorkspaceAccess {
 				};
 			}
 		}
+		// The rules the server applies to projects: people only, and a person leads.
+		if (mutation.name === "project.create" || mutation.name === "project.update") {
+			if (this.me.role === "agent") {
+				return {
+					ok: false,
+					reason: "forbidden",
+					message:
+						mutation.name === "project.create"
+							? "Agents cannot create projects"
+							: "Agents cannot change projects",
+				};
+			}
+			const leadId =
+				mutation.name === "project.create" ? mutation.args.leadId : mutation.args.patch.leadId;
+			if (leadId !== undefined && leadId !== null && leadId !== me.id && leadId !== sam.id) {
+				return { ok: false, reason: "invalid", message: "Lead is not a person in this workspace" };
+			}
+		}
 		const version = ++this.#version;
 		const proposed: Proposal[] = [];
 		const propose = (issueId: string, change: Proposal["change"]) => {
@@ -170,6 +188,12 @@ class FakeWorkspace implements WorkspaceAccess {
 			this.labels.push({ ...mutation.args, createdAt: 0, updatedAt: 0 });
 		} else if (mutation.name === "team.create") {
 			this.teams.push({ ...mutation.args, createdAt: 0, updatedAt: 0 });
+		} else if (mutation.name === "project.create") {
+			this.projects.push({ ...mutation.args, createdAt: 0, updatedAt: 0 });
+		} else if (mutation.name === "project.update") {
+			const project = this.projects.find((project) => project.id === mutation.args.id);
+			if (!project) return { ok: false, reason: "not_found", message: "Project not found" };
+			Object.assign(project, mutation.args.patch);
 		} else if (mutation.name === "comment.create") {
 			const at = Date.UTC(2026, 9, 28);
 			this.comments_.push({ ...mutation.args, authorId: me.id, createdAt: at, updatedAt: at });
@@ -214,12 +238,14 @@ describe("Track MCP tools", () => {
 			"add_comment",
 			"create_issue",
 			"create_label",
+			"create_project",
 			"create_team",
 			"get_issue",
 			"get_workspace",
 			"list_workspaces",
 			"search_issues",
 			"update_issue",
+			"update_project",
 		]);
 	});
 
@@ -611,9 +637,128 @@ describe("Track MCP tools", () => {
 		expect(workspace.mutations.map((m) => m.name)).toEqual(["issue.create"]);
 	});
 
-	it("offers no way to create a project", async () => {
-		const { tools } = await client.listTools();
-		expect(tools.map((tool) => tool.name).filter((name) => name.includes("project"))).toEqual([]);
+	it("creates a project with a lead and a target date, and defaults the rest", async () => {
+		const full = await call("create_project", {
+			workspace: "acme",
+			name: "  Public launch  ",
+			description: "Ship it",
+			status: "started",
+			lead: "SAM@example.com",
+			target_date: "2026-12-01",
+		});
+		const bare = await call("create_project", { workspace: "acme", name: "Docs", lead: "me" });
+
+		expect(full.structuredContent).toMatchObject({
+			name: "Public launch",
+			description: "Ship it",
+			status: "started",
+			lead: "sam@example.com",
+			targetDate: "2026-12-01",
+		});
+		expect(bare.structuredContent).toMatchObject({
+			name: "Docs",
+			description: null,
+			status: "planned",
+			lead: "maya@example.com",
+			targetDate: null,
+		});
+		expect(workspace.mutations.map((m) => m.name)).toEqual(["project.create", "project.create"]);
+		expect((await call("get_workspace", { workspace: "acme" })).structuredContent).toMatchObject({
+			projects: [
+				{ name: "Public launch", status: "started" },
+				{ name: "Docs", status: "planned" },
+			],
+		});
+	});
+
+	it("updates a project found by name, clearing the target date and changing the lead", async () => {
+		await call("create_project", {
+			workspace: "acme",
+			name: "Public launch",
+			lead: "me",
+			target_date: "2026-12-01",
+		});
+
+		const result = await call("update_project", {
+			workspace: "acme",
+			project: "PUBLIC LAUNCH",
+			status: "paused",
+			lead: "sam@example.com",
+			target_date: null,
+		});
+		const cleared = await call("update_project", {
+			workspace: "acme",
+			project: workspace.projects[0]?.id,
+			lead: null,
+			description: "Later",
+		});
+
+		expect(result.structuredContent).toMatchObject({
+			name: "Public launch",
+			status: "paused",
+			lead: "sam@example.com",
+			targetDate: null,
+		});
+		expect(cleared.structuredContent).toMatchObject({
+			status: "paused",
+			lead: null,
+			description: "Later",
+		});
+		expect(workspace.mutations.at(-2)).toEqual({
+			name: "project.update",
+			args: {
+				id: workspace.projects[0]?.id,
+				patch: { status: "paused", leadId: sam.id, targetDate: null },
+			},
+		});
+	});
+
+	it("refuses an unknown project, a bad date and an empty update without writing", async () => {
+		await call("create_project", { workspace: "acme", name: "Docs" });
+
+		const unknown = await call("update_project", {
+			workspace: "acme",
+			project: "Launch",
+			status: "started",
+		});
+		const empty = await call("update_project", { workspace: "acme", project: "Docs" });
+		const date = await call("update_project", {
+			workspace: "acme",
+			project: "Docs",
+			target_date: "2026-02-30",
+		});
+
+		expect(unknown.content).toEqual([
+			{ type: "text", text: 'No project "Launch". Projects: Docs. See get_workspace.' },
+		]);
+		expect(empty.isError).toBe(true);
+		expect(date.isError).toBe(true);
+		expect(workspace.mutations.map((m) => m.name)).toEqual(["project.create"]);
+	});
+
+	it("passes on the server's refusal when an agent member creates or changes a project", async () => {
+		workspace.me = { ...me, role: "agent" };
+		const created = await call("create_project", { workspace: "acme", name: "Docs" });
+		workspace.projects.push({
+			id: "p-docs",
+			name: "Docs",
+			description: null,
+			status: "planned",
+			leadId: null,
+			targetDate: null,
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		const updated = await call("update_project", {
+			workspace: "acme",
+			project: "Docs",
+			status: "started",
+		});
+
+		expect(created.isError).toBe(true);
+		expect(created.content).toEqual([{ type: "text", text: "Agents cannot create projects" }]);
+		expect(updated.content).toEqual([{ type: "text", text: "Agents cannot change projects" }]);
+		expect(workspace.projects.map((project) => project.status)).toEqual(["planned"]);
 	});
 
 	it("says when an agent proposed a project instead of setting it", async () => {

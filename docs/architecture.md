@@ -220,7 +220,10 @@ does, and then reads or mutates through the Durable Object's RPC (see
 [Server-side clients](#server-side-clients)). A workspace the caller does not belong to is
 reported as not found. The tools themselves live in `apps/web/src/server/mcp/tools.ts`. Agents
 read an issue's comments with `get_issue` and write one with `add_comment`, as the person. An
-agent sets up a fresh workspace's teams with `create_team`, which only admins may use.
+agent sets up a fresh workspace's teams with `create_team`, which only admins may use. It makes
+and changes projects with `create_project` and `update_project`, which go through the same
+mutations as the app, so the server's rules apply: an agent member cannot, and a lead must be a
+person.
 
 Tokens must name one canonical URL, so the endpoint, and the authorization server, exist only
 when `BETTER_AUTH_URL` pins the base URL. Without it `/mcp` answers `404`.
