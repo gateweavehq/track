@@ -28,6 +28,7 @@ export const CSV_COLUMNS = [
 	"Assignee",
 	"Creator",
 	"Project",
+	"Parent",
 	"Labels",
 	"Start date",
 	"Due date",
@@ -78,13 +79,16 @@ interface Slice {
 	membersById: Map<string, Member>;
 	labelsById: Map<string, Label>;
 	projectsById: Map<string, Project>;
+	/** Every issue, whatever the slice, so a parent in another team still has its key. */
+	issuesById: Map<string, Issue>;
 }
 
 function sliceOf(source: ExportSource, teamId: string | null): Slice {
 	const teams = [...source.teams].sort((a, b) => a.key.localeCompare(b.key));
 	const teamsById = new Map(teams.map((team) => [team.id, team]));
 	const rank = new Map(teams.map((team, index) => [team.id, index]));
-	const issues = [...source.issues]
+	const all = [...source.issues];
+	const issues = all
 		.filter((issue) => teamId === null || issue.teamId === teamId)
 		.sort(
 			(a, b) =>
@@ -111,6 +115,7 @@ function sliceOf(source: ExportSource, teamId: string | null): Slice {
 		membersById: new Map(members.map((member) => [member.id, member])),
 		labelsById: new Map(labels.map((label) => [label.id, label])),
 		projectsById: new Map(projects.map((project) => [project.id, project])),
+		issuesById: new Map(all.map((issue) => [issue.id, issue])),
 	};
 }
 
@@ -150,6 +155,7 @@ export function issuesToCsv(source: ExportSource, teamId: string | null = null):
 			emailOf(slice, issue.assigneeId),
 			emailOf(slice, issue.creatorId),
 			(issue.projectId && slice.projectsById.get(issue.projectId)?.name) || "",
+			parentKey(slice, issue.parentId),
 			issue.labelIds
 				.map((id) => slice.labelsById.get(id)?.name)
 				.filter((name): name is string => name !== undefined)
@@ -162,6 +168,11 @@ export function issuesToCsv(source: ExportSource, teamId: string | null = null):
 		]);
 	}
 	return BYTE_ORDER_MARK + rows.map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
+}
+
+function parentKey(slice: Slice, id: string | null): string {
+	const parent = id ? slice.issuesById.get(id) : undefined;
+	return parent ? issueKey(slice.teamsById.get(parent.teamId), parent) : "";
 }
 
 function emailOf(slice: Slice, id: string | null): string {

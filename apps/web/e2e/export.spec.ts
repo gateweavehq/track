@@ -25,7 +25,7 @@ test("a member exports the workspace's issues as CSV and JSON from settings", as
 	expect(text.startsWith("﻿")).toBe(true);
 	const lines = text.slice(1).split("\r\n");
 	expect(lines[0]).toBe(
-		"Key,Title,Description,Team,Status,Priority,Assignee,Creator,Project,Labels,Start date,Due date,Estimate,Created,Updated",
+		"Key,Title,Description,Team,Status,Priority,Assignee,Creator,Project,Parent,Labels,Start date,Due date,Estimate,Created,Updated",
 	);
 	expect(lines[1]).toContain(
 		`ENG-1,"${title}","First line\nSecond line",Engineering,Backlog,No priority,`,

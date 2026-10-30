@@ -55,6 +55,7 @@ function issue(overrides: Partial<Issue> & Pick<Issue, "id" | "teamId" | "number
 		assigneeId: null,
 		creatorId: "u1",
 		projectId: null,
+		parentId: null,
 		startDate: null,
 		dueDate: null,
 		estimate: null,
@@ -111,11 +112,11 @@ describe("issuesToCsv", () => {
 		const csv = issuesToCsv(source([issue({ id: "i1", teamId: "t1", number: 1 })]));
 		expect(csv.startsWith("﻿")).toBe(true);
 		expect(csv.slice(1).split("\r\n")[0]).toBe(
-			"Key,Title,Description,Team,Status,Priority,Assignee,Creator,Project,Labels,Start date,Due date,Estimate,Created,Updated",
+			"Key,Title,Description,Team,Status,Priority,Assignee,Creator,Project,Parent,Labels,Start date,Due date,Estimate,Created,Updated",
 		);
 		expect(csv.endsWith("\r\n")).toBe(true);
 		expect(csv).not.toMatch(/[^\r]\n/);
-		expect(CSV_COLUMNS).toHaveLength(15);
+		expect(CSV_COLUMNS).toHaveLength(16);
 	});
 
 	it("writes words for status and priority, emails for people, names for project and labels", () => {
@@ -131,15 +132,18 @@ describe("issuesToCsv", () => {
 					assigneeId: "u2",
 					creatorId: "u1",
 					projectId: "p1",
+					parentId: "i0",
 					labelIds: ["l1", "l2"],
 					startDate: "2026-11-01",
 					dueDate: "2026-11-15",
 					estimate: 5,
 				}),
+				// The parent is in another team, and still has its key.
+				issue({ id: "i0", teamId: "t2", number: 3 }),
 			]),
 		);
 		expect(csv.replace(/^﻿/, "").split("\r\n")[1]).toBe(
-			'ENG-7,Fix login,,Engineering,In Progress,High,bot@example.test,ada@example.test,Launch,"Bug, UI, web",2026-11-01,2026-11-15,5,2026-10-30T12:30:00.000Z,2026-10-30T12:30:01.000Z',
+			'ENG-7,Fix login,,Engineering,In Progress,High,bot@example.test,ada@example.test,Launch,OPS-3,"Bug, UI, web",2026-11-01,2026-11-15,5,2026-10-30T12:30:00.000Z,2026-10-30T12:30:01.000Z',
 		);
 	});
 
@@ -153,6 +157,7 @@ describe("issuesToCsv", () => {
 			"No priority",
 			"",
 			"ada@example.test",
+			"",
 			"",
 			"",
 			"",
