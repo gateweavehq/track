@@ -48,7 +48,9 @@ export type ChangeEvent =
 	  }
 	| { type: "proposal.created" | "proposal.updated"; proposal: schema.ProposalRow }
 	// The row as decided: it carries who decided it and when.
-	| { type: "proposal.accepted" | "proposal.dismissed"; proposal: schema.ProposalRow };
+	| { type: "proposal.accepted" | "proposal.dismissed"; proposal: schema.ProposalRow }
+	// The row as it was. Also removed, one by one, when either of its issues is deleted.
+	| { type: "relation.created" | "relation.deleted"; relation: schema.RelationRow };
 
 /** How long a receiver has to answer. */
 export const DELIVERY_TIMEOUT_MS = 10_000;
@@ -115,7 +117,7 @@ export function queueDeliveries(
 		if (!built) continue;
 		for (const webhook of webhooks) {
 			if (!webhook.events.includes(event.type)) continue;
-			if (webhook.teamId !== null && webhook.teamId !== built.teamId) continue;
+			if (webhook.teamId !== null && !built.teamIds.includes(webhook.teamId)) continue;
 			// An agent's own changes would set it off again.
 			if (webhook.agentId === actor.userId) continue;
 			insertDelivery(db, webhook.id, event.type, built.body, now);
@@ -168,11 +170,13 @@ class Payloads {
 		this.#timestamp = new Date(now).toISOString();
 	}
 
-	build(event: ChangeEvent): { teamId: string; body: string } | undefined {
-		const issueRow =
-			"issue" in event
-				? event.issue
-				: this.#issue("comment" in event ? event.comment.issueId : event.proposal.issueId);
+	/** `teamIds` are the teams whose webhooks hear it: a relation can join two teams' issues. */
+	build(event: ChangeEvent): { teamIds: string[]; body: string } | undefined {
+		let issueRow: schema.IssueRow | undefined;
+		if ("issue" in event) issueRow = event.issue;
+		else if ("comment" in event) issueRow = this.#issue(event.comment.issueId);
+		else if ("proposal" in event) issueRow = this.#issue(event.proposal.issueId);
+		else issueRow = this.#issue(event.relation.issueId);
 		if (!issueRow) return undefined;
 		const issue = this.#webhookIssue(issueRow);
 		const change = {
@@ -183,7 +187,18 @@ class Payloads {
 		};
 
 		let payload: WebhookPayload;
-		if (event.type === "issue.updated") {
+		let teamIds = [issueRow.teamId];
+		if ("relation" in event) {
+			// A deleted issue keeps its row, so a relation removed along with it still resolves.
+			const related = this.#issue(event.relation.relatedIssueId);
+			if (!related) return undefined;
+			teamIds = [...new Set([issueRow.teamId, related.teamId])];
+			payload = {
+				type: event.type,
+				timestamp: this.#timestamp,
+				data: { ...change, relatedIssue: this.#webhookIssue(related), relation: event.relation },
+			};
+		} else if (event.type === "issue.updated") {
 			const from = updatedFrom(toIssue(event.previous), toIssue(event.issue));
 			// Only the manual order changed, which is not worth telling anyone.
 			if (Object.keys(from).length === 0) return undefined;
@@ -218,7 +233,7 @@ class Payloads {
 		} else {
 			payload = { type: event.type, timestamp: this.#timestamp, data: change };
 		}
-		return { teamId: issueRow.teamId, body: JSON.stringify(payload) };
+		return { teamIds, body: JSON.stringify(payload) };
 	}
 
 	#issue(id: string) {

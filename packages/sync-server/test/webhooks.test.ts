@@ -813,6 +813,157 @@ describe("proposals", () => {
 	});
 });
 
+describe("relations", () => {
+	const RELATION_EVENTS: WebhookInput["events"] = ["relation.created", "relation.deleted"];
+
+	const relate = (
+		workspace: Workspace,
+		id: string,
+		type: "blocks" | "duplicate" | "related",
+		issueId: string,
+		relatedIssueId: string,
+	) =>
+		mutate(workspace, alice, {
+			name: "relation.create",
+			args: { id, type, issueId, relatedIssueId },
+		});
+
+	async function relatingWorkspace() {
+		const workspace = await workspaceWithTeams();
+		await createIssue(workspace, owner, "issue-1");
+		await createIssue(workspace, owner, "issue-2");
+		return workspace;
+	}
+
+	const relationId = (payload: WebhookPayload) =>
+		"relation" in payload.data ? payload.data.relation.id : undefined;
+	const types = (received: Received[]) => payloads(received).map((payload) => payload.type);
+
+	it("tells of a relation added and removed, with both issues", async () => {
+		const received = receiver();
+		const workspace = await relatingWorkspace();
+		await createHook(workspace, { events: RELATION_EVENTS });
+
+		await relate(workspace, "rel-1", "blocks", "issue-1", "issue-2");
+		await mutate(workspace, alice, { name: "relation.delete", args: { id: "rel-1" } });
+		await deliver(workspace);
+
+		const [created, deleted] = payloads(received);
+		expect(types(received)).toEqual(["relation.created", "relation.deleted"]);
+		expect(created).toMatchObject({
+			data: {
+				actor: { id: alice.id, type: "person" },
+				issue: { id: "issue-1", key: "ENG-1" },
+				relatedIssue: { id: "issue-2", key: "ENG-2", url: "https://track.test/acme/issue/ENG-2" },
+				relation: { id: "rel-1", type: "blocks", issueId: "issue-1", relatedIssueId: "issue-2" },
+			},
+		});
+		expect(deleted).toMatchObject({
+			data: {
+				issue: { id: "issue-1" },
+				relatedIssue: { id: "issue-2" },
+				relation: { id: "rel-1", type: "blocks" },
+			},
+		});
+	});
+
+	it("tells of the relation a new one replaces, and says nothing when nothing changed", async () => {
+		const received = receiver();
+		const workspace = await relatingWorkspace();
+		await createHook(workspace, { events: RELATION_EVENTS });
+
+		await relate(workspace, "rel-1", "blocks", "issue-1", "issue-2");
+		await relate(workspace, "rel-2", "blocks", "issue-1", "issue-2");
+		await relate(workspace, "rel-3", "duplicate", "issue-1", "issue-2");
+		await deliver(workspace);
+
+		expect(payloads(received).map((payload) => [payload.type, relationId(payload)])).toEqual([
+			["relation.created", "rel-1"],
+			["relation.deleted", "rel-1"],
+			["relation.created", "rel-3"],
+		]);
+	});
+
+	it("tells of a deleted issue's relations, so what it blocked is unblocked", async () => {
+		const received = receiver();
+		const workspace = await relatingWorkspace();
+		await createIssue(workspace, owner, "issue-3");
+		await relate(workspace, "rel-1", "blocks", "issue-1", "issue-2");
+		await relate(workspace, "rel-2", "related", "issue-3", "issue-1");
+		await createHook(workspace, { events: [...RELATION_EVENTS, "issue.deleted"] });
+
+		await mutate(workspace, owner, { name: "issue.delete", args: { id: "issue-1" } });
+		await deliver(workspace);
+
+		expect(types(received).sort()).toEqual([
+			"issue.deleted",
+			"relation.deleted",
+			"relation.deleted",
+		]);
+		const deleted = payloads(received).filter((payload) => payload.type === "relation.deleted");
+		expect(deleted).toMatchObject([
+			{
+				data: {
+					actor: { id: owner.id },
+					relation: { id: "rel-1" },
+					relatedIssue: { id: "issue-2" },
+				},
+			},
+			{
+				data: {
+					relation: { id: "rel-2" },
+					issue: { id: "issue-3" },
+					relatedIssue: { id: "issue-1" },
+				},
+			},
+		]);
+	});
+
+	it("reaches a team's webhook from either end of a relation", async () => {
+		const received = receiver();
+		const workspace = await relatingWorkspace();
+		await createIssue(workspace, owner, "ops-1", "team-ops");
+		await createIssue(workspace, owner, "ops-2", "team-ops");
+		await createHook(workspace, { events: RELATION_EVENTS, teamId: "team-eng" });
+
+		await relate(workspace, "rel-1", "blocks", "issue-1", "ops-1");
+		await relate(workspace, "rel-2", "blocks", "ops-1", "issue-2");
+		await relate(workspace, "rel-3", "blocks", "ops-1", "ops-2");
+		await deliver(workspace);
+
+		expect(payloads(received).map((payload) => relationId(payload))).toEqual(["rel-1", "rel-2"]);
+	});
+
+	it("sends an agent's webhook what people did to relations, not its own", async () => {
+		const received = receiver();
+		const workspace = await relatingWorkspace();
+		await workspace.syncMember(triage);
+		await createHook(workspace, { events: RELATION_EVENTS, agentId: triage.id });
+
+		await mutate(workspace, triage, {
+			name: "relation.create",
+			args: { id: "rel-1", type: "related", issueId: "issue-1", relatedIssueId: "issue-2" },
+		});
+		await mutate(workspace, alice, { name: "relation.delete", args: { id: "rel-1" } });
+		await deliver(workspace);
+
+		expect(payloads(received)).toMatchObject([
+			{ type: "relation.deleted", data: { actor: { id: alice.id } } },
+		]);
+	});
+
+	it("subscribes to relation events only when asked", async () => {
+		const received = receiver();
+		const workspace = await relatingWorkspace();
+		await createHook(workspace);
+
+		await relate(workspace, "rel-1", "blocks", "issue-1", "issue-2");
+		await deliver(workspace);
+
+		expect(received).toHaveLength(0);
+	});
+});
+
 describe("management", () => {
 	it("is for admins only", async () => {
 		const workspace = await workspaceWithTeams();

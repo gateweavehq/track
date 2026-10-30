@@ -49,6 +49,8 @@ const EVENT_LABELS: Record<WebhookEventType, string> = {
 	"proposal.updated": "Proposal changed",
 	"proposal.accepted": "Proposal accepted",
 	"proposal.dismissed": "Proposal dismissed",
+	"relation.created": "Relation added",
+	"relation.deleted": "Relation removed",
 };
 
 /** A secret just made, shown once. */
