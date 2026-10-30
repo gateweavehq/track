@@ -25,12 +25,21 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 		case "team.create": {
 			const { id, key, name } = mutation.args;
 			if (draft.get("team", id)) return;
-			draft.put("team", { id, key, name, createdAt: now, updatedAt: now });
+			draft.put("team", { id, key, name, cycles: null, createdAt: now, updatedAt: now });
 			return;
 		}
 		case "team.update": {
 			const team = draft.get("team", mutation.args.id);
-			if (team) draft.put("team", { ...team, ...mutation.args.patch, updatedAt: now });
+			if (!team) return;
+			// The cycles themselves are the server's to date, make and remove.
+			const { cycles, ...patch } = mutation.args.patch;
+			const settings = cycles && { weeks: cycles.weeks, timeZone: cycles.timeZone };
+			draft.put("team", {
+				...team,
+				...patch,
+				...(cycles === undefined ? {} : { cycles: settings }),
+				updatedAt: now,
+			});
 			return;
 		}
 		case "issue.create": {
@@ -38,6 +47,7 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			if (draft.get("issue", args.id) || !draft.get("team", args.teamId)) return;
 			if (args.labelIds.some((labelId) => !draft.get("label", labelId))) return;
 			if (args.projectId !== null && !draft.get("project", args.projectId)) return;
+			if (args.cycleId !== null && !isJoinable(draft, args.cycleId, args.teamId)) return;
 			draft.put("issue", {
 				...args,
 				labelIds: [...new Set(args.labelIds)],
@@ -54,7 +64,11 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			const { id, patch } = mutation.args;
 			const issue = draft.get("issue", id);
 			if (patch.projectId && !draft.get("project", patch.projectId)) return;
-			if (issue) draft.put("issue", { ...issue, ...patch, updatedAt: now });
+			if (!issue) return;
+			if (patch.cycleId && patch.cycleId !== issue.cycleId) {
+				if (!isJoinable(draft, patch.cycleId, issue.teamId)) return;
+			}
+			draft.put("issue", { ...issue, ...patch, updatedAt: now });
 			return;
 		}
 		case "issue.delete": {
@@ -140,6 +154,11 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 					draft.put("issue", { ...issue, projectId: null, updatedAt: now });
 			}
 			draft.delete("project", id);
+			return;
+		}
+		case "cycle.update": {
+			const cycle = draft.get("cycle", mutation.args.id);
+			if (cycle) draft.put("cycle", { ...cycle, ...mutation.args.patch, updatedAt: now });
 			return;
 		}
 		case "comment.create": {
@@ -277,6 +296,12 @@ function withChange(draft: Draft, issue: Issue, change: ProposedChange, now: num
 			return { ...issue, labelIds: [...issue.labelIds, change.labelId], updatedAt: now };
 		}
 	}
+}
+
+/** The server's rule: an issue joins a cycle of its own team that has not completed. */
+function isJoinable(draft: Draft, cycleId: string, teamId: string): boolean {
+	const cycle = draft.get("cycle", cycleId);
+	return cycle !== undefined && cycle.teamId === teamId && cycle.completedAt === null;
 }
 
 function isAgent(draft: Draft, userId: string): boolean {

@@ -1,6 +1,7 @@
 import type {
 	Activity,
 	Comment,
+	Cycle,
 	Issue,
 	IssueRelation,
 	Label,
@@ -29,6 +30,8 @@ export const toIssue = ({ fieldStamps: _, deletedAt: __, ...issue }: schema.Issu
 export const toLabel = ({ deletedAt: _, ...label }: schema.LabelRow): Label => label;
 
 export const toProject = ({ deletedAt: _, ...project }: schema.ProjectRow): Project => project;
+
+export const toCycle = (cycle: schema.CycleRow): Cycle => cycle;
 
 export const toComment = ({ deletedAt: _, ...comment }: schema.CommentRow): Comment => comment;
 
@@ -73,6 +76,12 @@ export function readSnapshot(db: Db): Snapshot {
 			.orderBy(asc(schema.projects.createdAt), asc(schema.projects.id))
 			.all()
 			.map(toProject),
+		cycles: db
+			.select()
+			.from(schema.cycles)
+			.orderBy(asc(schema.cycles.teamId), asc(schema.cycles.number))
+			.all()
+			.map(toCycle),
 		comments: db
 			.select(getTableColumns(schema.comments))
 			.from(schema.comments)

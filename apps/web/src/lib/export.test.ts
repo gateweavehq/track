@@ -16,8 +16,22 @@ import {
 	workspaceToJson,
 } from "./export";
 
-const eng: Team = { id: "t1", key: "ENG", name: "Engineering", createdAt: 1, updatedAt: 1 };
-const ops: Team = { id: "t2", key: "OPS", name: "Operations", createdAt: 1, updatedAt: 1 };
+const eng: Team = {
+	id: "t1",
+	key: "ENG",
+	name: "Engineering",
+	cycles: null,
+	createdAt: 1,
+	updatedAt: 1,
+};
+const ops: Team = {
+	id: "t2",
+	key: "OPS",
+	name: "Operations",
+	cycles: null,
+	createdAt: 1,
+	updatedAt: 1,
+};
 
 const ada: Member = {
 	id: "u1",
@@ -55,6 +69,7 @@ function issue(overrides: Partial<Issue> & Pick<Issue, "id" | "teamId" | "number
 		assigneeId: null,
 		creatorId: "u1",
 		projectId: null,
+		cycleId: null,
 		parentId: null,
 		startDate: null,
 		dueDate: null,
@@ -133,6 +148,7 @@ describe("issuesToCsv", () => {
 					assigneeId: "u2",
 					creatorId: "u1",
 					projectId: "p1",
+					cycleId: null,
 					parentId: "i0",
 					labelIds: ["l1", "l2"],
 					startDate: "2026-11-01",

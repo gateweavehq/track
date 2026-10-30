@@ -26,6 +26,7 @@ interface ReplicaSchema extends DBSchema {
 	issue: { key: string; value: Entities["issue"] };
 	label: { key: string; value: Entities["label"] };
 	project: { key: string; value: Entities["project"] };
+	cycle: { key: string; value: Entities["cycle"] };
 	comment: { key: string; value: Entities["comment"] };
 	activity: { key: string; value: Entities["activity"] };
 	proposal: { key: string; value: Entities["proposal"] };
@@ -104,6 +105,7 @@ class IdbPersistence implements Persistence {
 			issues,
 			labels,
 			projects,
+			cycles,
 			comments,
 			activities,
 			proposals,
@@ -117,6 +119,7 @@ class IdbPersistence implements Persistence {
 			tx.objectStore("issue").getAll(),
 			tx.objectStore("label").getAll(),
 			tx.objectStore("project").getAll(),
+			tx.objectStore("cycle").getAll(),
 			tx.objectStore("comment").getAll(),
 			tx.objectStore("activity").getAll(),
 			tx.objectStore("proposal").getAll(),
@@ -137,6 +140,7 @@ class IdbPersistence implements Persistence {
 							issues,
 							labels,
 							projects,
+							cycles,
 							comments,
 							activities,
 							proposals,
@@ -155,6 +159,7 @@ class IdbPersistence implements Persistence {
 			issue: snapshot.issues,
 			label: snapshot.labels,
 			project: snapshot.projects,
+			cycle: snapshot.cycles,
 			comment: snapshot.comments,
 			activity: snapshot.activities,
 			proposal: snapshot.proposals,

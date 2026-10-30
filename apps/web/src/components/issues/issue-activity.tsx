@@ -6,6 +6,7 @@ import type {
 	Label,
 	RelationKind,
 } from "@gateweave/track-protocol";
+import { SYSTEM_ACTOR_ID } from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import {
@@ -15,6 +16,7 @@ import {
 	Ellipsis,
 	FileText,
 	Gauge,
+	IterationCcw,
 	Layers,
 	ListTree,
 	type LucideIcon,
@@ -37,11 +39,13 @@ import { Kbd } from "#/components/ui/kbd";
 import { Textarea } from "#/components/ui/textarea";
 import { ConfirmDialog } from "#/components/workspace/confirm-dialog";
 import { isAdmin, useMyRole, useWorkspace } from "#/components/workspace/context";
+import { cycleName } from "#/lib/cycles";
 import { formatDateTime, formatDay, formatRelative } from "#/lib/dates";
 import { MOD_LABEL } from "#/lib/hotkeys";
 import { estimateLabel, issueKey } from "#/lib/issues";
 import { send } from "#/lib/mutations";
 import {
+	useCyclesById,
 	useIssueActivity,
 	useIssueComments,
 	useIssuesById,
@@ -127,14 +131,28 @@ function HistoryItem({
 	const projects = useProjectsById();
 	const issues = useIssuesById();
 	const teams = useTeamsById();
-	const name = (id: string | null) => (id ? (members.get(id)?.name ?? "Someone") : "nobody");
+	const cycles = useCyclesById();
+	const name = (id: string | null) => {
+		if (id === SYSTEM_ACTOR_ID) return "Track";
+		return id ? (members.get(id)?.name ?? "Someone") : "nobody";
+	};
 	const projectName = (id: string | null) =>
 		id ? (projects.get(id)?.name ?? "a deleted project") : "no project";
+	const cycleTitle = (id: string | null) => {
+		const cycle = id ? cycles.get(id) : undefined;
+		return cycle ? cycleName(cycle) : "a removed cycle";
+	};
 	const issueName = (id: string | null) => {
 		const issue = id ? issues.get(id) : undefined;
 		return issue ? `${issueKey(teams.get(issue.teamId), issue)} ${issue.title}` : "a deleted issue";
 	};
-	const { icon, text } = describe(change, actorId, name, labels, projectName, issueName);
+	const { icon, text } = describe(change, actorId, {
+		name,
+		labels,
+		projectName,
+		cycleTitle,
+		issueName,
+	});
 
 	return (
 		<div className="flex items-start gap-2 px-1 text-xs text-muted-foreground">
@@ -151,13 +169,19 @@ function HistoryItem({
 	);
 }
 
+/** How history names what entries refer to by id. */
+interface Names {
+	name: (id: string | null) => string;
+	labels: ReadonlyMap<string, Label>;
+	projectName: (id: string | null) => string;
+	cycleTitle: (id: string | null) => string;
+	issueName: (id: string | null) => string;
+}
+
 function describe(
 	change: ActivityChange | null,
 	actorId: string,
-	name: (id: string | null) => string,
-	labels: ReadonlyMap<string, Label>,
-	projectName: (id: string | null) => string,
-	issueName: (id: string | null) => string,
+	{ name, labels, projectName, cycleTitle, issueName }: Names,
 ): { icon: ReactNode; text: ReactNode } {
 	const plain = (Icon: LucideIcon, text: ReactNode) => ({
 		icon: <Icon className="size-3.5" />,
@@ -223,6 +247,23 @@ function describe(
 					<>
 						moved the issue from {projectName(change.from)} to{" "}
 						<Strong>{projectName(change.to)}</Strong>
+					</>
+				),
+			);
+		case "cycle":
+			if (change.to === null) {
+				return plain(IterationCcw, <>removed the issue from {cycleTitle(change.from)}</>);
+			}
+			return plain(
+				IterationCcw,
+				change.from === null ? (
+					<>
+						added the issue to <Strong>{cycleTitle(change.to)}</Strong>
+					</>
+				) : (
+					<>
+						moved the issue from {cycleTitle(change.from)} to{" "}
+						<Strong>{cycleTitle(change.to)}</Strong>
 					</>
 				),
 			);

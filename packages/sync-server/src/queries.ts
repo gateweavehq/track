@@ -1,5 +1,6 @@
 import type {
 	Comment,
+	Cycle,
 	Issue,
 	IssueRelation,
 	IssueStatus,
@@ -14,6 +15,7 @@ import { issueSearch, issueSearchDocs, matchExpression, matches, RANK } from "./
 import {
 	type Db,
 	toComment,
+	toCycle,
 	toIssue,
 	toLabel,
 	toMember,
@@ -31,6 +33,8 @@ export interface IssueQuery {
 	assigneeId?: string | null | undefined;
 	/** Only issues in this project. */
 	projectId?: string | undefined;
+	/** Only issues in any of these cycles. */
+	cycleIds?: readonly string[] | undefined;
 	/** Only the sub-issues of this issue. */
 	parentId?: string | undefined;
 	/** Only issues with this label. */
@@ -49,6 +53,8 @@ export interface Directory {
 	teams: Team[];
 	labels: Label[];
 	projects: Project[];
+	/** Every team's cycles, in order. */
+	cycles: Cycle[];
 	members: Member[];
 }
 
@@ -69,6 +75,12 @@ export function readDirectory(db: Db): Directory {
 			.orderBy(schema.projects.name)
 			.all()
 			.map(toProject),
+		cycles: db
+			.select()
+			.from(schema.cycles)
+			.orderBy(schema.cycles.teamId, schema.cycles.number)
+			.all()
+			.map(toCycle),
 		members: db.select().from(schema.members).orderBy(schema.members.name).all().map(toMember),
 	};
 }
@@ -83,6 +95,11 @@ export function findIssues(db: Db, query: IssueQuery): Issue[] {
 		filters.push(eq(schema.issues.assigneeId, query.assigneeId));
 	}
 	if (query.projectId !== undefined) filters.push(eq(schema.issues.projectId, query.projectId));
+	if (query.cycleIds !== undefined) {
+		filters.push(
+			query.cycleIds.length > 0 ? inArray(schema.issues.cycleId, [...query.cycleIds]) : sql`0`,
+		);
+	}
 	if (query.parentId !== undefined) filters.push(eq(schema.issues.parentId, query.parentId));
 	if (query.labelId !== undefined) {
 		filters.push(

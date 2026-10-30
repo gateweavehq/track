@@ -5,6 +5,7 @@
 import {
 	type ActivityChange,
 	type AgentChangeKind,
+	type CycleSettings,
 	ENTITY_NAMES,
 	ISSUE_LAYOUTS,
 	ISSUE_STATUSES,
@@ -30,6 +31,7 @@ export const teams = sqliteTable("teams", {
 	id: text("id").primaryKey(),
 	key: text("key").notNull().unique(),
 	name: text("name").notNull(),
+	cycles: text("cycles", { mode: "json" }).$type<CycleSettings>(),
 	issueCounter: integer("issue_counter").notNull().default(0),
 	createdAt: integer("created_at").notNull(),
 	updatedAt: integer("updated_at").notNull(),
@@ -49,6 +51,7 @@ export const issues = sqliteTable(
 		priority: integer("priority").$type<IssuePriority>().notNull(),
 		assigneeId: text("assignee_id"),
 		projectId: text("project_id"),
+		cycleId: text("cycle_id"),
 		parentId: text("parent_id"),
 		startDate: text("start_date"),
 		dueDate: text("due_date"),
@@ -68,6 +71,7 @@ export const issues = sqliteTable(
 	(table) => [
 		uniqueIndex("issues_team_number_idx").on(table.teamId, table.number),
 		index("issues_project_idx").on(table.projectId),
+		index("issues_cycle_idx").on(table.cycleId),
 		index("issues_parent_idx").on(table.parentId),
 	],
 );
@@ -94,6 +98,28 @@ export const projects = sqliteTable("projects", {
 	updatedAt: integer("updated_at").notNull(),
 	deletedAt: integer("deleted_at"),
 });
+
+/**
+ * Teams' cycles, which the server schedules. Completed cycles stay. One that never started is
+ * deleted when its team turns cycles off, leaving no row, like a relation.
+ */
+export const cycles = sqliteTable(
+	"cycles",
+	{
+		id: text("id").primaryKey(),
+		teamId: text("team_id")
+			.notNull()
+			.references(() => teams.id),
+		number: integer("number").notNull(),
+		name: text("name"),
+		startsOn: text("starts_on").notNull(),
+		endsOn: text("ends_on").notNull(),
+		completedAt: integer("completed_at"),
+		createdAt: integer("created_at").notNull(),
+		updatedAt: integer("updated_at").notNull(),
+	},
+	(table) => [uniqueIndex("cycles_team_number_idx").on(table.teamId, table.number)],
+);
 
 /** Deleted comments keep their row, like issues. A deleted issue's comments go with it. */
 export const comments = sqliteTable(
@@ -281,6 +307,7 @@ export type TeamRow = typeof teams.$inferSelect;
 export type IssueRow = typeof issues.$inferSelect;
 export type LabelRow = typeof labels.$inferSelect;
 export type ProjectRow = typeof projects.$inferSelect;
+export type CycleRow = typeof cycles.$inferSelect;
 export type CommentRow = typeof comments.$inferSelect;
 export type ActivityRow = typeof activities.$inferSelect;
 export type ProposalRow = typeof proposals.$inferSelect;

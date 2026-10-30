@@ -20,6 +20,7 @@ import {
 } from "#/components/ui/dropdown-menu";
 import { type IssueDefaults, useWorkspaceActions } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
+import { relativeCycles } from "#/lib/cycles";
 import {
 	activeFilters,
 	defaultsFromFilters,
@@ -29,7 +30,13 @@ import {
 } from "#/lib/filters";
 import { MOD_LABEL, useHotkeys } from "#/lib/hotkeys";
 import { issueKey, matchesQuery } from "#/lib/issues";
-import { useLabelsById, useMembersById, useProjectsById, useTeamsById } from "#/lib/queries";
+import {
+	useCyclesById,
+	useLabelsById,
+	useMembersById,
+	useProjectsById,
+	useTeamsById,
+} from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import type { IssueView } from "#/lib/views";
 import { useDragAutoScroll } from "./dnd";
@@ -84,6 +91,7 @@ export function IssuesPage({
 	const members = useMembersById();
 	const labels = useLabelsById();
 	const projects = useProjectsById();
+	const cycles = useCyclesById();
 	const [query, setQuery] = useState("");
 	const deferredQuery = useDeferredValue(query);
 	const filterRef = useRef<HTMLInputElement>(null);
@@ -99,8 +107,8 @@ export function IssuesPage({
 
 	// A shared link or a saved view can name labels, people or projects that have gone since.
 	const active = useMemo(
-		() => activeFilters(filters, { teams, members, projects, labels }),
-		[filters, teams, members, projects, labels],
+		() => activeFilters(filters, { teams, members, projects, cycles, labels }),
+		[filters, teams, members, projects, cycles, labels],
 	);
 	const filtering = hasFilters(active);
 	// New issues pass the filters, so they show up here; what the page itself says comes first.
@@ -118,9 +126,10 @@ export function IssuesPage({
 		const text = deferredQuery.trim();
 		if (!text && !filtering) return issues;
 		const now = new Date();
+		const relative = relativeCycles(cycles.values(), teams, now.getTime());
 		return issues.filter(
 			(issue) =>
-				matchesFilters(issue, active, now) &&
+				matchesFilters(issue, active, now, relative) &&
 				(!text ||
 					matchesQuery(
 						text,
@@ -129,7 +138,7 @@ export function IssuesPage({
 						(issue.assigneeId && members.get(issue.assigneeId)?.name) || "",
 					)),
 		);
-	}, [issues, deferredQuery, active, filtering, teams, members]);
+	}, [issues, deferredQuery, active, filtering, teams, members, cycles]);
 
 	const text = query.trim();
 	const emptyState =

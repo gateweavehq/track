@@ -1,4 +1,5 @@
 import type {
+	Cycle,
 	Issue,
 	Member,
 	Op,
@@ -10,7 +11,14 @@ import type {
 import { describe, expect, it } from "vitest";
 import { type PendingMutation, Replica } from "../src/store";
 
-const team: Team = { id: "t1", key: "ENG", name: "Engineering", createdAt: 1, updatedAt: 1 };
+const team: Team = {
+	id: "t1",
+	key: "ENG",
+	name: "Engineering",
+	cycles: null,
+	createdAt: 1,
+	updatedAt: 1,
+};
 const issue: Issue = {
 	id: "i1",
 	teamId: "t1",
@@ -21,6 +29,7 @@ const issue: Issue = {
 	priority: 0,
 	assigneeId: null,
 	projectId: null,
+	cycleId: null,
 	parentId: null,
 	startDate: null,
 	dueDate: null,
@@ -38,6 +47,7 @@ const snapshot: Snapshot = {
 	issues: [issue],
 	labels: [],
 	projects: [],
+	cycles: [],
 	comments: [],
 	activities: [],
 	proposals: [],
@@ -367,6 +377,7 @@ describe("Replica", () => {
 				priority: 0,
 				assigneeId: null,
 				projectId: null,
+				cycleId: null,
 				parentId: null,
 				startDate: null,
 				dueDate: null,
@@ -449,6 +460,7 @@ describe("Replica", () => {
 					priority: 0,
 					assigneeId: null,
 					projectId: null,
+					cycleId: null,
 					parentId: null,
 					startDate: null,
 					dueDate: null,
@@ -606,6 +618,77 @@ describe("Replica", () => {
 		expect(r.getState().members.get("bot")?.proposes).toEqual(["status", "labels"]);
 	});
 
+	describe("cycles", () => {
+		const cycle = (id: string, fields: Partial<Cycle> = {}): Cycle => ({
+			id,
+			teamId: "t1",
+			number: 1,
+			name: null,
+			startsOn: "2026-11-02",
+			endsOn: "2026-11-15",
+			completedAt: null,
+			createdAt: 3,
+			updatedAt: 3,
+			...fields,
+		});
+		const putCycle = (version: number, data: Cycle): Op => ({
+			version,
+			entity: "cycle",
+			id: data.id,
+			op: "put",
+			data,
+		});
+		const move = (id: string, cycleId: string | null) =>
+			pending(id, { name: "issue.update", args: { id: "i1", baseVersion: 2, patch: { cycleId } } });
+
+		it("keeps a team's cycle settings without the start day, which only the server uses", () => {
+			const r = replica();
+			r.addPending(
+				pending("m1", {
+					name: "team.update",
+					args: {
+						id: "t1",
+						patch: { cycles: { weeks: 2, timeZone: "Europe/Istanbul", startsOn: "2026-11-02" } },
+					},
+				}),
+			);
+			expect(r.getState().teams.get("t1")?.cycles).toEqual({
+				weeks: 2,
+				timeZone: "Europe/Istanbul",
+			});
+			r.addPending(
+				pending("m2", { name: "team.update", args: { id: "t1", patch: { cycles: null } } }),
+			);
+			expect(r.getState().teams.get("t1")?.cycles).toBeNull();
+		});
+
+		it("predicts an issue joining a cycle of its team that has not completed, and no other", () => {
+			const r = replica();
+			r.applyOps([
+				putCycle(3, cycle("c1")),
+				putCycle(4, cycle("c0", { number: 0, completedAt: 3 })),
+				putCycle(5, cycle("ops-1", { teamId: "t2" })),
+			]);
+			r.addPending(move("m1", "c0"), move("m2", "ops-1"), move("m3", "missing"));
+			expect(r.getState().issues.get("i1")?.cycleId).toBeNull();
+
+			r.addPending(move("m4", "c1"));
+			expect(r.getState().issues.get("i1")?.cycleId).toBe("c1");
+			r.addPending(move("m5", null));
+			expect(r.getState().issues.get("i1")?.cycleId).toBeNull();
+		});
+
+		it("predicts naming a cycle", () => {
+			const r = replica();
+			r.applyOps([putCycle(3, cycle("c1"))]);
+			r.addPending(
+				pending("m1", { name: "cycle.update", args: { id: "c1", patch: { name: "Launch" } } }),
+			);
+			expect(r.getState().cycles.get("c1")?.name).toBe("Launch");
+			expect(r.snapshot().cycles[0]?.name).toBeNull();
+		});
+	});
+
 	describe("projects", () => {
 		const person = (id: string, role: Member["role"]): Member => ({
 			id,
@@ -737,6 +820,7 @@ describe("Replica", () => {
 						priority: 0,
 						assigneeId: null,
 						projectId: "p1",
+						cycleId: null,
 						parentId: null,
 						startDate: null,
 						dueDate: null,
@@ -769,6 +853,7 @@ describe("Replica", () => {
 						priority: 0,
 						assigneeId: null,
 						projectId: "unknown",
+						cycleId: null,
 						parentId: null,
 						startDate: null,
 						dueDate: null,

@@ -2303,6 +2303,10 @@ describe("search", () => {
 		if (!search) throw new Error("No search migration");
 		await runInDurableObject(workspace, async (_, state) => {
 			const db = drizzle(state.storage, { schema });
+			db.run(sql`drop index issues_cycle_idx`);
+			db.run(sql`alter table issues drop column cycle_id`);
+			db.run(sql`alter table teams drop column cycles`);
+			db.run(sql`drop table cycles`);
 			db.run(sql`drop table views`);
 			db.run(sql`drop table relations`);
 			db.run(sql`drop index issues_project_idx`);

@@ -53,11 +53,48 @@ export type AgentChangeKind = (typeof AGENT_CHANGE_KINDS)[number];
 /** Statuses that close an issue, which the `close` kind of change covers. */
 export const CLOSED_STATUSES: readonly IssueStatus[] = ["done", "canceled"];
 
+/**
+ * The actor of the changes the server makes on its own, such as moving a completed cycle's
+ * unfinished issues to the next one. It is never a member's id.
+ */
+export const SYSTEM_ACTOR_ID = "system";
+
 export interface Team {
 	id: string;
 	/** Short uppercase prefix for issue identifiers, e.g. `ENG` in `ENG-42`. */
 	key: string;
 	name: string;
+	/** How the team's cycles run, or null when the team does not work in cycles. */
+	cycles: CycleSettings | null;
+	createdAt: number;
+	updatedAt: number;
+}
+
+export interface CycleSettings {
+	/** How long each cycle is, from 1 to 4 weeks. */
+	weeks: number;
+	/** The IANA time zone, such as `Europe/Istanbul`, whose midnights start and end the cycles. */
+	timeZone: string;
+}
+
+/**
+ * A time box for a team's issues. The server schedules cycles ahead, and completes each one once
+ * its last day is over, moving its unfinished issues to the next. Days are `YYYY-MM-DD` in the
+ * team's time zone.
+ */
+export interface Cycle {
+	id: string;
+	teamId: string;
+	/** Sequential per team. */
+	number: number;
+	/** A name people gave it. Without one, it is called "Cycle" and its number. */
+	name: string | null;
+	/** Its first day. */
+	startsOn: string;
+	/** Its last day. */
+	endsOn: string;
+	/** When the server completed it. Issues join only cycles that have not completed. */
+	completedAt: number | null;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -75,6 +112,8 @@ export interface Issue {
 	creatorId: string;
 	/** The project the issue belongs to, if any. */
 	projectId: string | null;
+	/** The cycle of its team that the issue is planned for, if any. */
+	cycleId: string | null;
 	/** The issue this one is part of, in any team of the workspace. Parents never form a cycle. */
 	parentId: string | null;
 	/** When work should start: `YYYY-MM-DD`, a calendar day with no time zone. */
@@ -212,6 +251,7 @@ export type ActivityChange =
 	| { type: "priority"; from: IssuePriority; to: IssuePriority }
 	| { type: "assignee"; from: string | null; to: string | null }
 	| { type: "project"; from: string | null; to: string | null }
+	| { type: "cycle"; from: string | null; to: string | null }
 	| { type: "parent"; from: string | null; to: string | null }
 	| { type: "startDate"; from: string | null; to: string | null }
 	| { type: "dueDate"; from: string | null; to: string | null }
@@ -307,6 +347,7 @@ export interface Entities {
 	issue: Issue;
 	label: Label;
 	project: Project;
+	cycle: Cycle;
 	comment: Comment;
 	activity: Activity;
 	proposal: Proposal;
@@ -320,6 +361,7 @@ export const ENTITY_NAMES = [
 	"issue",
 	"label",
 	"project",
+	"cycle",
 	"comment",
 	"activity",
 	"proposal",

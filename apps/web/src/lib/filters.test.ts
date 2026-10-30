@@ -21,6 +21,7 @@ const base: Issue = {
 	assigneeId: "u1",
 	creatorId: "u1",
 	projectId: null,
+	cycleId: null,
 	parentId: null,
 	startDate: null,
 	dueDate: null,
@@ -40,6 +41,7 @@ const targets = {
 		["bug", {}],
 		["docs", {}],
 	]),
+	cycles: new Map([["c1", {}]]),
 };
 
 describe("activeFilters", () => {
@@ -73,6 +75,21 @@ describe("matchesFilters", () => {
 		expect(matchesFilters(base, { projectIds: [null] })).toBe(true);
 		expect(matchesFilters(base, { assigneeIds: [null] })).toBe(false);
 		expect(matchesFilters({ ...base, assigneeId: null }, { assigneeIds: [null, "u2"] })).toBe(true);
+	});
+
+	it("finds issues in cycles, by id, by where the cycle stands, or without one", () => {
+		const inCycle = { ...base, cycleId: "c1" };
+		const relative = { current: new Set(["c1"]), next: new Set(["c2"]) };
+		expect(matchesFilters(inCycle, { cycles: ["c1"] })).toBe(true);
+		expect(matchesFilters(inCycle, { cycles: ["current"] }, new Date(), relative)).toBe(true);
+		expect(matchesFilters(inCycle, { cycles: ["next"] }, new Date(), relative)).toBe(false);
+		expect(matchesFilters(base, { cycles: [null] })).toBe(true);
+		expect(matchesFilters(base, { cycles: ["current"] }, new Date(), relative)).toBe(false);
+		expect(activeFilters({ cycles: ["gone", "current", null, "c1"] }, targets)).toEqual({
+			cycles: ["current", null, "c1"],
+		});
+		expect(defaultsFromFilters({ cycles: ["c1"] }).cycleId).toBe("c1");
+		expect(defaultsFromFilters({ cycles: ["current"] }).cycleId).toBeUndefined();
 	});
 
 	it("applies the due-date filter in the viewer's day", () => {
