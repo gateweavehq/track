@@ -1086,6 +1086,61 @@ describe("projects", () => {
 	});
 });
 
+describe("imports", () => {
+	it("keeps the original dates an admin imports, and no later than now", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		const opened = Date.UTC(2024, 2, 1, 9, 30);
+		const answered = Date.UTC(2024, 2, 2, 17, 0);
+
+		await admin.apply({
+			name: "issue.create",
+			args: {
+				id: "imported",
+				teamId: TEAM_ID,
+				title: "From GitHub",
+				sortOrder: "a0",
+				createdAt: opened,
+			},
+		});
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "imported-comment", issueId: "imported", body: "Seen", createdAt: answered },
+		});
+		const future = Date.now() + 365 * 24 * 60 * 60 * 1000;
+		await admin.apply({
+			name: "issue.create",
+			args: {
+				id: "skewed",
+				teamId: TEAM_ID,
+				title: "Clock skew",
+				sortOrder: "a1",
+				createdAt: future,
+			},
+		});
+
+		const imported = await issueOf(admin, "imported");
+		expect(imported.createdAt).toBe(opened);
+		expect(imported.updatedAt).toBeGreaterThan(opened);
+		expect((await issueOf(admin, "skewed")).createdAt).toBeLessThanOrEqual(Date.now());
+		expect((await snapshotOf(workspace)).comments).toMatchObject([
+			{ id: "imported-comment", createdAt: answered },
+		]);
+
+		// Only admins import; anyone else gets the time they write.
+		const byMember = await member.mutate({
+			name: "issue.create",
+			args: { id: "backdated", teamId: TEAM_ID, title: "Old", sortOrder: "a2", createdAt: opened },
+		});
+		const commentByMember = await member.mutate({
+			name: "comment.create",
+			args: { id: "backdated-comment", issueId: "imported", body: "Old", createdAt: answered },
+		});
+		expect(byMember).toMatchObject({ type: "reject", reason: "forbidden" });
+		expect(commentByMember).toMatchObject({ type: "reject", reason: "forbidden" });
+	});
+});
+
 describe("comments", () => {
 	async function comment(client: TestClient, id: string, issueId: string, body = "Looks good") {
 		return client.apply({ name: "comment.create", args: { id, issueId, body } });

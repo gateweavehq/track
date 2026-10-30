@@ -42,7 +42,7 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 				number: nextIssueNumber(draft, args.teamId),
 				creatorId: userId,
 				version: 0,
-				createdAt: now,
+				createdAt: Math.min(args.createdAt ?? now, now),
 				updatedAt: now,
 			});
 			return;
@@ -142,7 +142,8 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 		case "comment.create": {
 			const { id, issueId, body } = mutation.args;
 			if (draft.get("comment", id) || !draft.get("issue", issueId)) return;
-			draft.put("comment", { id, issueId, body, authorId: userId, createdAt: now, updatedAt: now });
+			const createdAt = Math.min(mutation.args.createdAt ?? now, now);
+			draft.put("comment", { id, issueId, body, authorId: userId, createdAt, updatedAt: now });
 			return;
 		}
 		case "comment.update": {
