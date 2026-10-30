@@ -13,8 +13,14 @@ import { useHotkeys } from "#/lib/hotkeys";
 import { BOARD_STATUS_ORDER, groupByStatus, issueKey, type StatusGroup } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
 import type { ProjectProgress } from "#/lib/projects";
-import { useMembersById, useSubIssueProgress, useTeamsById } from "#/lib/queries";
+import {
+	useBlockedIssueIds,
+	useMembersById,
+	useSubIssueProgress,
+	useTeamsById,
+} from "#/lib/queries";
 import { cn } from "#/lib/utils";
+import { BlockedMark } from "./blocked-mark";
 import { useDragAutoScroll, useDraggableIssue, useIssueDropZone, useIssueMoves } from "./dnd";
 import { DropIndicator } from "./drop-indicator";
 import { type IssueField, RowButton } from "./issue-row";
@@ -46,6 +52,7 @@ export function IssueBoard({
 	const teams = useTeamsById();
 	const members = useMembersById();
 	const subIssues = useSubIssueProgress();
+	const blocked = useBlockedIssueIds();
 	const columns = useMemo(() => groupByStatus(issues, BOARD_STATUS_ORDER), [issues]);
 	const moveIssue = useIssueMoves(columns);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -155,6 +162,7 @@ export function IssueBoard({
 							team={teams.get(issue.teamId)}
 							assignee={issue.assigneeId ? members.get(issue.assigneeId) : undefined}
 							subIssues={subIssues.get(issue.id)}
+							blocked={blocked.has(issue.id)}
 							selected={issue.id === selectedId}
 							menu={menu?.issueId === issue.id ? menu.field : null}
 							onMenuChange={onMenuChange}
@@ -223,6 +231,7 @@ interface IssueCardProps {
 	team: Team | undefined;
 	assignee: Member | undefined;
 	subIssues: ProjectProgress | undefined;
+	blocked: boolean;
 	selected: boolean;
 	menu: IssueField | null;
 	onMenuChange: (issueId: string, menu: IssueField | null) => void;
@@ -236,6 +245,7 @@ const IssueCard = memo(function IssueCard({
 	team,
 	assignee,
 	subIssues,
+	blocked,
 	selected,
 	menu,
 	onMenuChange,
@@ -309,6 +319,7 @@ const IssueCard = memo(function IssueCard({
 				</PriorityPicker>
 				<LabelChips labelIds={issue.labelIds} max={3} />
 				<div className="ml-auto flex shrink-0 items-center gap-1.5 pl-1">
+					<BlockedMark blocked={blocked} />
 					<SubIssueCount progress={subIssues} />
 					<DueDate issue={issue} />
 					<Estimate estimate={issue.estimate} />

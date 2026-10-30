@@ -5,6 +5,7 @@ import {
 	ISSUE_STATUSES,
 	MAX_LABELS_PER_ISSUE,
 	PROJECT_STATUSES,
+	RELATION_TYPES,
 } from "./domain";
 
 /** Client-generated ids. UUIDv7 is recommended so ids sort by creation time. */
@@ -165,6 +166,21 @@ export const mutationSchema = z.discriminatedUnion("name", [
 	}),
 	z.object({
 		name: z.literal("comment.delete"),
+		args: z.object({ id }),
+	}),
+	// Any member relates issues, agents included, and nothing about it is proposed. A relation
+	// between two issues that already have one replaces it.
+	z.object({
+		name: z.literal("relation.create"),
+		args: z.object({
+			id,
+			type: z.enum(RELATION_TYPES),
+			issueId: id,
+			relatedIssueId: id,
+		}),
+	}),
+	z.object({
+		name: z.literal("relation.delete"),
 		args: z.object({ id }),
 	}),
 	// Admins only. Agents themselves are made in settings, like people's memberships.

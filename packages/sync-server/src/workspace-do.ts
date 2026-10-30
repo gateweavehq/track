@@ -6,6 +6,7 @@ import {
 	type HelloMessage,
 	ISSUE_STATUSES,
 	type Issue,
+	type IssueRelation,
 	isAdminRole,
 	MEMBER_ROLES,
 	mutationSchema,
@@ -36,6 +37,7 @@ import {
 	findIssueById,
 	findIssueByKey,
 	findIssues,
+	findRelations,
 	type IssueQuery,
 	lastSortOrder,
 	MAX_QUERY_LIMIT,
@@ -182,6 +184,11 @@ export class WorkspaceDO extends DurableObject {
 
 	comments(issueId: string): Comment[] {
 		return findComments(this.#db, shortId.parse(issueId));
+	}
+
+	/** An issue's relations, from either side. */
+	relations(issueId: string): IssueRelation[] {
+		return findRelations(this.#db, shortId.parse(issueId));
 	}
 
 	/** An issue's open proposals, oldest first. */

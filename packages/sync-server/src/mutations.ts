@@ -6,8 +6,9 @@ import {
 	type Mutation,
 	type MutationArgs,
 	type ProposedChange,
+	relationFrom,
 } from "@gateweave/track-protocol";
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { recordActivity } from "./activity";
 import * as schema from "./db/schema";
 import { ChangeSet, type WriteResult } from "./log";
@@ -29,6 +30,7 @@ import {
 	toLabel,
 	toMember,
 	toProject,
+	toRelation,
 	toTeam,
 } from "./state";
 import { queueDeliveries } from "./webhooks";
@@ -110,6 +112,12 @@ export function applyMutation(
 			break;
 		case "comment.delete":
 			deleteComment(db, changes, actor, mutation.args);
+			break;
+		case "relation.create":
+			createRelation(db, changes, actor, mutation.args);
+			break;
+		case "relation.delete":
+			deleteRelation(db, changes, actor, mutation.args);
 			break;
 		case "agent.update":
 			updateAgent(db, changes, actor, mutation.args);
@@ -386,6 +394,19 @@ function deleteIssue(db: Db, changes: ChangeSet, args: MutationArgs<"issue.delet
 			changes.events.push({ type: "issue.updated", issue: row, previous: child });
 		}
 	}
+
+	// Its relations go, leaving the other issues' history as it is.
+	const linked = or(
+		eq(schema.relations.issueId, issue.id),
+		eq(schema.relations.relatedIssueId, issue.id),
+	);
+	const relations = db
+		.select({ id: schema.relations.id })
+		.from(schema.relations)
+		.where(linked)
+		.all();
+	db.delete(schema.relations).where(linked).run();
+	for (const relation of relations) changes.delete("relation", relation.id);
 
 	const comments = db
 		.select({ id: schema.comments.id })
@@ -689,6 +710,95 @@ function deleteComment(
 	indexIssue(db, comment.issueId);
 	changes.delete("comment", comment.id);
 	changes.events.push({ type: "comment.deleted", comment });
+}
+
+/**
+ * Relates two live issues, in any teams. Two issues have at most one relation, so a new one
+ * between them replaces the one they had, and making the one they have does nothing.
+ */
+function createRelation(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"relation.create">,
+) {
+	if (args.issueId === args.relatedIssueId) {
+		throw new MutationRejected("invalid", "An issue cannot be related to itself");
+	}
+	if (!findLiveIssue(db, args.issueId) || !findLiveIssue(db, args.relatedIssueId)) {
+		throw new MutationRejected("not_found", "Issue not found");
+	}
+	if (db.select().from(schema.relations).where(eq(schema.relations.id, args.id)).get()) {
+		throw new MutationRejected("invalid", "Relation id already exists");
+	}
+
+	const existing = relationBetween(db, args.issueId, args.relatedIssueId);
+	if (existing) {
+		const same =
+			existing.type === args.type && (args.type === "related" || existing.issueId === args.issueId);
+		if (same) return;
+		removeRelation(db, changes, actor, existing);
+	}
+
+	const row: schema.RelationRow = {
+		...args,
+		creatorId: actor.member.userId,
+		createdAt: changes.now,
+	};
+	db.insert(schema.relations).values(row).run();
+	changes.put("relation", toRelation(row));
+	recordRelation(db, changes, actor, row, true);
+}
+
+function deleteRelation(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"relation.delete">,
+) {
+	const relation = db.select().from(schema.relations).where(eq(schema.relations.id, args.id)).get();
+	if (!relation) throw new MutationRejected("not_found", "Relation not found");
+	removeRelation(db, changes, actor, relation);
+}
+
+function relationBetween(db: Db, a: string, b: string) {
+	return db
+		.select()
+		.from(schema.relations)
+		.where(
+			or(
+				and(eq(schema.relations.issueId, a), eq(schema.relations.relatedIssueId, b)),
+				and(eq(schema.relations.issueId, b), eq(schema.relations.relatedIssueId, a)),
+			),
+		)
+		.get();
+}
+
+function removeRelation(db: Db, changes: ChangeSet, actor: Actor, relation: schema.RelationRow) {
+	db.delete(schema.relations).where(eq(schema.relations.id, relation.id)).run();
+	changes.delete("relation", relation.id);
+	recordRelation(db, changes, actor, relation, false);
+}
+
+/** Writes a relation into the history of both its issues, each from its own side. */
+function recordRelation(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	relation: schema.RelationRow,
+	added: boolean,
+) {
+	for (const issueId of [relation.issueId, relation.relatedIssueId]) {
+		const issue = findLiveIssue(db, issueId);
+		if (!issue) continue;
+		const { kind, otherId } = relationFrom(relation, issueId);
+		recordActivity(db, changes, issue, actor.member.userId, {
+			type: "relation",
+			kind,
+			issueId: otherId,
+			added,
+		});
+	}
 }
 
 /** Sets what an agent proposes instead of making. Its open proposals stay as they are. */

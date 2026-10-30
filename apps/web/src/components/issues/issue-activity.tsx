@@ -1,4 +1,11 @@
-import type { Activity, ActivityChange, Comment, Issue, Label } from "@gateweave/track-protocol";
+import type {
+	Activity,
+	ActivityChange,
+	Comment,
+	Issue,
+	Label,
+	RelationKind,
+} from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import {
@@ -42,6 +49,7 @@ import {
 	useProjectsById,
 	useTeamsById,
 } from "#/lib/queries";
+import { RELATION_META } from "#/lib/relations";
 import { LabelChip } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 
@@ -251,6 +259,11 @@ function describe(
 					</>
 				),
 			);
+		case "relation":
+			return plain(
+				RELATION_META[change.kind].icon,
+				relationText(change.kind, change.added, <Strong>{issueName(change.issueId)}</Strong>),
+			);
 		case "startDate":
 			return plain(CalendarDays, dateText("start date", change.from, change.to));
 		case "dueDate":
@@ -270,6 +283,37 @@ function describe(
 					</>
 				),
 			);
+	}
+}
+
+function relationText(kind: RelationKind, added: boolean, other: ReactNode): ReactNode {
+	switch (kind) {
+		case "blocks":
+			return added ? (
+				<>marked the issue as blocking {other}</>
+			) : (
+				<>marked the issue as no longer blocking {other}</>
+			);
+		case "blocked_by":
+			return added ? (
+				<>marked the issue as blocked by {other}</>
+			) : (
+				<>marked the issue as no longer blocked by {other}</>
+			);
+		case "duplicate_of":
+			return added ? (
+				<>marked the issue as a duplicate of {other}</>
+			) : (
+				<>marked the issue as not a duplicate of {other}</>
+			);
+		case "duplicated_by":
+			return added ? (
+				<>marked {other} as a duplicate of this issue</>
+			) : (
+				<>marked {other} as not a duplicate of this issue</>
+			);
+		case "related":
+			return added ? <>related the issue to {other}</> : <>removed the relation to {other}</>;
 	}
 }
 

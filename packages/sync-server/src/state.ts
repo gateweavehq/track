@@ -2,6 +2,7 @@ import type {
 	Activity,
 	Comment,
 	Issue,
+	IssueRelation,
 	Label,
 	Member,
 	Project,
@@ -38,6 +39,8 @@ export const toProposal = ({
 	decidedAt: ___,
 	...proposal
 }: schema.ProposalRow): Proposal => proposal;
+
+export const toRelation = (relation: schema.RelationRow): IssueRelation => relation;
 
 export const toMember = ({ userId, ...member }: schema.MemberRow): Member => ({
 	id: userId,
@@ -92,6 +95,13 @@ export function readSnapshot(db: Db): Snapshot {
 			.orderBy(asc(schema.proposals.createdAt), asc(schema.proposals.id))
 			.all()
 			.map(toProposal),
+		// Deleting an issue removes its relations, so every one that is left joins live issues.
+		relations: db
+			.select()
+			.from(schema.relations)
+			.orderBy(asc(schema.relations.createdAt), asc(schema.relations.id))
+			.all()
+			.map(toRelation),
 		members: db.select().from(schema.members).all().map(toMember),
 	};
 }

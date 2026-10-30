@@ -8,6 +8,7 @@ import { issueKey } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
 import type { ProjectProgress } from "#/lib/projects";
 import { cn } from "#/lib/utils";
+import { BlockedMark } from "./blocked-mark";
 import { useDraggableIssue } from "./dnd";
 import { DropIndicator } from "./drop-indicator";
 import { LabelChips } from "./labels";
@@ -31,6 +32,8 @@ interface IssueRowProps {
 	assignee: Member | undefined;
 	/** Its sub-issues' progress, if it has any. */
 	subIssues: ProjectProgress | undefined;
+	/** Whether an open issue blocks it. */
+	blocked: boolean;
 	selected: boolean;
 	/** The property menu open on this row, if any. */
 	menu: IssueField | null;
@@ -49,6 +52,7 @@ export const IssueRow = memo(function IssueRow({
 	team,
 	assignee,
 	subIssues,
+	blocked,
 	selected,
 	menu,
 	onMenuChange,
@@ -110,6 +114,7 @@ export const IssueRow = memo(function IssueRow({
 				{issue.title}
 			</Link>
 			<LabelChips labelIds={issue.labelIds} max={2} className="hidden shrink-0 lg:flex" />
+			<BlockedMark blocked={blocked} />
 			<SubIssueCount progress={subIssues} className="hidden sm:inline-flex" />
 			<Estimate estimate={issue.estimate} className="hidden sm:inline-flex" />
 			<DueDate issue={issue} />

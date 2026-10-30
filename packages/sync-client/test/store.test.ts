@@ -41,6 +41,7 @@ const snapshot: Snapshot = {
 	comments: [],
 	activities: [],
 	proposals: [],
+	relations: [],
 	members: [],
 };
 
@@ -135,6 +136,71 @@ describe("Replica", () => {
 		expect(r.getState().issues.get("i1")?.parentId).toBe("i0");
 		r.removePending("m1");
 		expect(r.getState().issues.get("i1")?.parentId).toBeNull();
+	});
+
+	it("predicts relations, one per pair, and replacing the pair's", () => {
+		const r = new Replica("alice");
+		const other: Issue = { ...issue, id: "i2", number: 2 };
+		r.reset({ ...snapshot, issues: [issue, other] });
+		const relate = (id: string, type: "blocks" | "related", from: string, to: string) =>
+			pending(id, {
+				name: "relation.create",
+				args: { id, type, issueId: from, relatedIssueId: to },
+			});
+
+		r.addPending(relate("m1", "blocks", "i1", "i2"));
+		expect([...r.getState().relations.values()]).toEqual([
+			{
+				id: "m1",
+				type: "blocks",
+				issueId: "i1",
+				relatedIssueId: "i2",
+				creatorId: "alice",
+				createdAt: 100,
+			},
+		]);
+		r.addPending(relate("m2", "blocks", "i1", "i2"));
+		r.addPending(relate("m3", "related", "i2", "i1"));
+		expect([...r.getState().relations.keys()]).toEqual(["m3"]);
+		r.addPending(relate("m4", "related", "i1", "i1"));
+		r.addPending(relate("m5", "related", "i1", "i9"));
+		expect([...r.getState().relations.keys()]).toEqual(["m3"]);
+
+		r.addPending(pending("m6", { name: "relation.delete", args: { id: "m3" } }));
+		expect(r.getState().relations.size).toBe(0);
+	});
+
+	it("predicts deleting an issue takes its relations and frees its sub-issues", () => {
+		const r = new Replica("alice");
+		const child: Issue = { ...issue, id: "i2", number: 2, parentId: "i1" };
+		const other: Issue = { ...issue, id: "i3", number: 3 };
+		r.reset({
+			...snapshot,
+			issues: [issue, child, other],
+			relations: [
+				{
+					id: "r1",
+					type: "blocks",
+					issueId: "i3",
+					relatedIssueId: "i1",
+					creatorId: "alice",
+					createdAt: 1,
+				},
+				{
+					id: "r2",
+					type: "related",
+					issueId: "i2",
+					relatedIssueId: "i3",
+					creatorId: "alice",
+					createdAt: 1,
+				},
+			],
+		});
+
+		r.addPending(pending("m1", { name: "issue.delete", args: { id: "i1" } }));
+
+		expect([...r.getState().relations.keys()]).toEqual(["r2"]);
+		expect(r.getState().issues.get("i2")?.parentId).toBeNull();
 	});
 
 	it("rebases pending mutations over newer server state", () => {

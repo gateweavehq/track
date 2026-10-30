@@ -392,6 +392,34 @@ a field that adds one in the parent's team. Lists and boards show a parent's pro
 `parent` with `create_issue` and `update_issue`, read an issue's sub-issues with `get_issue`,
 and find them with `search_issues`.
 
+### Relations
+
+Issues in any teams can be related: one blocks another, is a duplicate of it, or is related to it.
+A relation is an entity of its own (`IssueRelation`), not a field of either issue, made with
+`relation.create` and removed with `relation.delete`. `blocks` and `duplicate` read from
+`issueId` to `relatedIssueId`; `related` has no direction. `relationFrom` and `relationOf` in
+`packages/protocol` turn a relation into what it is from one issue's side (`blocked_by`,
+`duplicated_by`, …) and back.
+
+- **One relation per pair of issues.** A new relation between two issues replaces the one they
+  have, so marking a related issue as a duplicate needs no removal first, and making the relation
+  they already have does nothing. The server finds the pair's relation inside the mutation's
+  transaction, and the client predicts the same.
+- **Both issues must be live**, and distinct. Deleting an issue removes its relations: one delete
+  op each, before the issue's own, and no history on the other issues. Relations leave no row
+  behind, unlike most entities: the history keeps the record.
+- **History on both sides.** Each issue gets an entry from its own side (`blocks` on one,
+  `blocked_by` on the other). A relation added and removed by the same person within the merge
+  window leaves nothing, as a label toggled back does.
+- **Open to every member, agents included, and never proposed.** No webhook events yet.
+- **"Blocked" is not stored.** Lists and boards mark an open issue that an open issue blocks,
+  computed from the local copy. An open issue marked as a duplicate offers "Close as duplicate",
+  which cancels it; marking it does not close it by itself.
+
+The issue page lists relations by kind under the sub-issues, with a menu that adds one (the kind,
+then the issue) and a button on each that removes it. Agents read relations with `get_issue`,
+and add and remove them with `link_issues` and `unlink_issues`.
+
 ### Dates and estimates
 
 An issue can have a start date and a due date (`startDate`, `dueDate`: `YYYY-MM-DD`, checked to
@@ -442,8 +470,8 @@ People stay in control of agents: for each agent member, an admin chooses which 
 to an issue it only proposes (`agent.update`, kept in the member's `proposes` in the Durable
 Object). The kinds are the title, the description, the status, closing (a status of done or
 canceled, which `status` includes), the priority, the assignee, the project and labels.
-Creating issues, setting parents, dates and estimates, commenting, and managing labels and
-projects are never proposed. An agent proposes nothing until an admin says so.
+Creating issues, setting parents, dates and estimates, relating issues, commenting, and managing
+labels and projects are never proposed. An agent proposes nothing until an admin says so.
 
 - **The server splits the agent's mutation.** `applyMutation` makes the fields its `proposes`
   does not cover and turns the rest into proposals (`proposals.ts`), in the same transaction.

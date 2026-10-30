@@ -4,6 +4,7 @@ import {
 	type AgentChangeKind,
 	CloseCode,
 	type Issue,
+	type IssueRelation,
 	MAX_LABELS_PER_ISSUE,
 	type MutationInput,
 	PING,
@@ -451,6 +452,100 @@ describe("issues", () => {
 		});
 		expect(update).toMatchObject({ type: "reject", reason: "not_found" });
 		expect((await snapshotOf(workspace)).issues).toEqual([]);
+	});
+});
+
+describe("relations", () => {
+	function relate(
+		client: TestClient,
+		id: string,
+		type: IssueRelation["type"],
+		issueId: string,
+		relatedIssueId: string,
+	) {
+		return client.mutate({ name: "relation.create", args: { id, type, issueId, relatedIssueId } });
+	}
+
+	async function relationsOf(workspace: Workspace) {
+		const { relations } = await snapshotOf(workspace);
+		return relations.map(({ id, type, issueId, relatedIssueId }) => ({
+			id,
+			type,
+			issueId,
+			relatedIssueId,
+		}));
+	}
+
+	it("relates issues in any team, one relation per pair, which a new one replaces", async () => {
+		const { workspace, admin } = await withTeam();
+		await admin.apply({
+			name: "team.create",
+			args: { id: "team-des", key: "DES", name: "Design" },
+		});
+		const api = await createIssue(admin, "issue-1", "API");
+		await admin.apply({
+			name: "issue.create",
+			args: { id: "issue-2", teamId: "team-des", title: "Mockups", sortOrder: "a1" },
+		});
+		const mockups = await issueOf(admin, "issue-2");
+
+		expect(await relate(admin, "rel-1", "blocks", mockups.id, api.id)).toMatchObject({
+			type: "ack",
+		});
+		expect(await relationsOf(workspace)).toEqual([
+			{ id: "rel-1", type: "blocks", issueId: mockups.id, relatedIssueId: api.id },
+		]);
+		expect((await snapshotOf(workspace)).relations[0]).toMatchObject({ creatorId: owner.id });
+
+		expect(await relate(admin, "rel-x", "related", api.id, api.id)).toMatchObject({
+			type: "reject",
+			reason: "invalid",
+		});
+		expect(await relate(admin, "rel-x", "related", api.id, "issue-nope")).toMatchObject({
+			type: "reject",
+			reason: "not_found",
+		});
+		expect(await relate(admin, "rel-1", "related", api.id, mockups.id)).toMatchObject({
+			type: "reject",
+			reason: "invalid",
+		});
+
+		// The relation the pair already has is a no-op; another kind takes its place.
+		expect(await relate(admin, "rel-2", "blocks", mockups.id, api.id)).toMatchObject({
+			type: "ack",
+		});
+		expect((await relationsOf(workspace)).map(({ id }) => id)).toEqual(["rel-1"]);
+		await relate(admin, "rel-3", "blocks", api.id, mockups.id);
+		expect(await relationsOf(workspace)).toEqual([
+			{ id: "rel-3", type: "blocks", issueId: api.id, relatedIssueId: mockups.id },
+		]);
+		expect((await workspace.relations(mockups.id)).map(({ id }) => id)).toEqual(["rel-3"]);
+
+		expect(await admin.mutate({ name: "relation.delete", args: { id: "rel-3" } })).toMatchObject({
+			type: "ack",
+		});
+		expect(await relationsOf(workspace)).toEqual([]);
+		expect(await admin.mutate({ name: "relation.delete", args: { id: "rel-3" } })).toMatchObject({
+			type: "reject",
+			reason: "not_found",
+		});
+	});
+
+	it("removes an issue's relations when it is deleted", async () => {
+		const { workspace, admin } = await withTeam();
+		const viewer = await TestClient.live(workspace, alice);
+		const blocker = await createIssue(admin, "issue-1", "Blocker");
+		const blocked = await createIssue(admin, "issue-2", "Blocked");
+		await relate(admin, "rel-1", "blocks", blocker.id, blocked.id);
+		await viewer.op((op) => op.entity === "relation" && op.id === "rel-1");
+
+		await admin.apply({ name: "issue.delete", args: { id: blocker.id } });
+
+		const gone = await viewer.op((op) => op.entity === "relation" && op.op === "delete");
+		const deleted = await viewer.op((op) => op.entity === "issue" && op.op === "delete");
+		expect(gone.version).toBeLessThan(deleted.version);
+		expect(await relationsOf(workspace)).toEqual([]);
+		expect(await workspace.relations(blocked.id)).toEqual([]);
 	});
 });
 
@@ -1191,6 +1286,53 @@ describe("activity", () => {
 		]);
 	});
 
+	it("records a relation on both issues, each from its own side", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		const a = await createIssue(admin, "issue-1", "A");
+		const b = await createIssue(admin, "issue-2", "B");
+		const relate = (client: TestClient, id: string, type: IssueRelation["type"]) =>
+			client.apply({
+				name: "relation.create",
+				args: { id, type, issueId: a.id, relatedIssueId: b.id },
+			});
+
+		await relate(member, "rel-1", "duplicate");
+		expect(await historyOf(workspace, a.id)).toEqual([
+			{
+				actorId: alice.id,
+				change: { type: "relation", kind: "duplicate_of", issueId: b.id, added: true },
+			},
+		]);
+		expect(await historyOf(workspace, b.id)).toEqual([
+			{
+				actorId: alice.id,
+				change: { type: "relation", kind: "duplicated_by", issueId: a.id, added: true },
+			},
+		]);
+
+		// Changing your mind straight away leaves only where you ended up.
+		await relate(member, "rel-2", "blocks");
+		expect(await historyOf(workspace, b.id)).toEqual([
+			{
+				actorId: alice.id,
+				change: { type: "relation", kind: "blocked_by", issueId: a.id, added: true },
+			},
+		]);
+		await member.apply({ name: "relation.delete", args: { id: "rel-2" } });
+		expect(await historyOf(workspace, a.id)).toEqual([]);
+
+		// Someone else removing it is a change of its own.
+		await relate(member, "rel-3", "related");
+		await admin.apply({ name: "relation.delete", args: { id: "rel-3" } });
+		expect(
+			(await historyOf(workspace, b.id)).map(({ actorId, change }) => [actorId, change]),
+		).toEqual([
+			[alice.id, { type: "relation", kind: "related", issueId: a.id, added: true }],
+			[owner.id, { type: "relation", kind: "related", issueId: a.id, added: false }],
+		]);
+	});
+
 	it("records dates and estimates, merging quick changes", async () => {
 		const { workspace, admin } = await withTeam();
 		const issue = await createIssue(admin, "issue-1");
@@ -1567,6 +1709,21 @@ describe("proposals", () => {
 		});
 	});
 
+	it("relates an agent's issues at once, whatever it is set to propose", async () => {
+		const { workspace, admin, issue, asTriage } = await withAgent([...AGENT_CHANGE_KINDS]);
+		const other = await createIssue(admin, "issue-other", "Other");
+
+		const result = await asTriage({
+			name: "relation.create",
+			args: { id: "rel-1", type: "blocks", issueId: issue.id, relatedIssueId: other.id },
+		});
+
+		expect(proposed(result)).toEqual([]);
+		expect(await workspace.relations(issue.id)).toMatchObject([
+			{ id: "rel-1", creatorId: triage.id },
+		]);
+	});
+
 	it("proposes only closing when that is what it is set to propose", async () => {
 		const { workspace, issue, setStatus } = await withAgent(["close"]);
 
@@ -1937,6 +2094,7 @@ describe("search", () => {
 		if (!search) throw new Error("No search migration");
 		await runInDurableObject(workspace, async (_, state) => {
 			const db = drizzle(state.storage, { schema });
+			db.run(sql`drop table relations`);
 			db.run(sql`drop index issues_project_idx`);
 			db.run(sql`alter table issues drop column project_id`);
 			db.run(sql`drop table projects`);

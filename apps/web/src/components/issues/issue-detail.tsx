@@ -35,6 +35,7 @@ import {
 	ProjectPicker,
 	StatusPicker,
 } from "./pickers";
+import { Relations } from "./relations";
 import { SubIssues } from "./sub-issues";
 
 export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
@@ -119,7 +120,11 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 					)}
 					<TitleField issue={issue} />
 					<DescriptionField issue={issue} />
-					<SubIssues issue={issue} />
+					{/* Empty, each is a button, and the two sit side by side. */}
+					<div className="flex flex-wrap items-start gap-x-2 gap-y-4 [&>section]:basis-full">
+						<SubIssues issue={issue} />
+						<Relations issue={issue} />
+					</div>
 					<IssueProposals issue={issue} />
 					<IssueActivity issue={issue} />
 				</article>

@@ -7,6 +7,7 @@ import m0005 from "./0005_agent_proposals.sql";
 import m0006 from "./0006_projects.sql";
 import m0007 from "./0007_issue_dates.sql";
 import m0008 from "./0008_issue_parent.sql";
+import m0009 from "./0009_issue_relations.sql";
 import journal from "./meta/_journal.json";
 
 export default {
@@ -21,5 +22,6 @@ export default {
 		m0006,
 		m0007,
 		m0008,
+		m0009,
 	},
 };

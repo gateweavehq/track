@@ -132,6 +132,74 @@ export interface Comment {
 }
 
 /**
+ * How two issues relate. `blocks` reads from `issueId` to `relatedIssueId`: the first blocks the
+ * second. `duplicate` means `issueId` is a duplicate of `relatedIssueId`. `related` has no
+ * direction.
+ */
+export const RELATION_TYPES = ["blocks", "duplicate", "related"] as const;
+export type RelationType = (typeof RELATION_TYPES)[number];
+
+/** A relation as seen from one of its two issues. */
+export const RELATION_KINDS = [
+	"blocks",
+	"blocked_by",
+	"duplicate_of",
+	"duplicated_by",
+	"related",
+] as const;
+export type RelationKind = (typeof RELATION_KINDS)[number];
+
+/**
+ * A link between two live issues of the workspace, in any teams. Two issues have at most one
+ * relation: making another replaces it. A relation goes when either issue is deleted.
+ */
+export interface IssueRelation {
+	id: string;
+	type: RelationType;
+	issueId: string;
+	relatedIssueId: string;
+	creatorId: string;
+	createdAt: number;
+}
+
+/** What `relation` is from `issueId`'s side, and the issue at its other end. */
+export function relationFrom(
+	relation: IssueRelation,
+	issueId: string,
+): { kind: RelationKind; otherId: string } {
+	const outgoing = relation.issueId === issueId;
+	const otherId = outgoing ? relation.relatedIssueId : relation.issueId;
+	switch (relation.type) {
+		case "blocks":
+			return { kind: outgoing ? "blocks" : "blocked_by", otherId };
+		case "duplicate":
+			return { kind: outgoing ? "duplicate_of" : "duplicated_by", otherId };
+		case "related":
+			return { kind: "related", otherId };
+	}
+}
+
+/** The relation that makes `issueId` relate to `otherId` as `kind` says. */
+export function relationOf(
+	kind: RelationKind,
+	issueId: string,
+	otherId: string,
+): Pick<IssueRelation, "type" | "issueId" | "relatedIssueId"> {
+	switch (kind) {
+		case "blocks":
+			return { type: "blocks", issueId, relatedIssueId: otherId };
+		case "blocked_by":
+			return { type: "blocks", issueId: otherId, relatedIssueId: issueId };
+		case "duplicate_of":
+			return { type: "duplicate", issueId, relatedIssueId: otherId };
+		case "duplicated_by":
+			return { type: "duplicate", issueId: otherId, relatedIssueId: issueId };
+		case "related":
+			return { type: "related", issueId, relatedIssueId: otherId };
+	}
+}
+
+/**
  * What an activity entry records. Members and labels are referenced by id. Creation is not an
  * entry: an issue's `creatorId` and `createdAt` already say it.
  */
@@ -146,7 +214,9 @@ export type ActivityChange =
 	| { type: "startDate"; from: string | null; to: string | null }
 	| { type: "dueDate"; from: string | null; to: string | null }
 	| { type: "estimate"; from: number | null; to: number | null }
-	| { type: "label"; labelId: string; added: boolean };
+	| { type: "label"; labelId: string; added: boolean }
+	/** Recorded on both issues, each from its own side. */
+	| { type: "relation"; kind: RelationKind; issueId: string; added: boolean };
 
 /**
  * An entry in an issue's history. The server writes these as a side effect of issue mutations;
@@ -214,6 +284,7 @@ export interface Entities {
 	comment: Comment;
 	activity: Activity;
 	proposal: Proposal;
+	relation: IssueRelation;
 	member: Member;
 }
 export type EntityName = keyof Entities;
@@ -225,5 +296,6 @@ export const ENTITY_NAMES = [
 	"comment",
 	"activity",
 	"proposal",
+	"relation",
 	"member",
 ] as const satisfies readonly EntityName[];
