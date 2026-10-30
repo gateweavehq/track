@@ -125,6 +125,9 @@ deployment, the `demo` environment in `wrangler.jsonc`. You do not need it: it i
 
 **Command line:** `git pull`, `pnpm install`, `pnpm run deploy`.
 
+From a version without attachments, the next deploy creates the R2 bucket, so R2 must be on in
+the account first (see the top of this page).
+
 **Button:** your copy does not follow this repository on its own. Pull new releases into it and
 push; Workers Builds deploys the push and applies the migrations:
 
