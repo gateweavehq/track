@@ -69,6 +69,13 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 
 ## After launch
 
+- **Switching kit**: what someone moving from another tracker needs on their first day.
+  - A guided start: a new workspace can begin with a team and issues that show Track by doing.
+  - Import from Linear, GitHub Issues and CSV, and export to CSV and JSON.
+  - Markdown in descriptions and comments, with images and attachments.
+  - Sub-issues and relations (blocks, duplicate of, related).
+  - Start dates, due dates and estimates.
+  - Saved views, and table, calendar and timeline layouts.
 - Notifications and an inbox.
 - Cycles: time-boxed sprints for the issues of a team, next to projects.
 - GitHub integration: link pull requests and close issues from commits.

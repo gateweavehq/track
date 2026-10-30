@@ -1,6 +1,7 @@
 import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Button } from "#/components/ui/button";
+import { Checkbox } from "#/components/ui/checkbox";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { authClient } from "#/lib/auth-client";
@@ -8,6 +9,7 @@ import { lastWorkspace, withOfflineFallback } from "#/lib/offline";
 import { forgetEverything } from "#/lib/replica";
 import { getHome } from "#/lib/session";
 import { slugify, slugProblem } from "#/lib/slug";
+import { startGuidedTeam } from "#/lib/workspace";
 
 export const Route = createFileRoute("/")({
 	beforeLoad: async () => {
@@ -86,6 +88,7 @@ function CreateWorkspace() {
 	const [name, setName] = useState("");
 	const [slug, setSlug] = useState("");
 	const [slugEdited, setSlugEdited] = useState(false);
+	const [guided, setGuided] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [pending, setPending] = useState(false);
 	const effectiveSlug = slugEdited ? slug : slugify(name);
@@ -99,11 +102,21 @@ function CreateWorkspace() {
 		}
 		setPending(true);
 		const result = await authClient.organization.create({ name, slug: effectiveSlug });
-		setPending(false);
 		if (result.error) {
+			setPending(false);
 			setError(result.error.message ?? "Could not create the workspace");
 			return;
 		}
+		if (guided) {
+			// The workspace exists either way. Without its guided team it opens on "Create your first
+			// team", which offers the guided start again.
+			const started = await startGuidedTeam({ data: effectiveSlug }).catch((cause: unknown) => ({
+				ok: false as const,
+				message: String(cause),
+			}));
+			if (!started.ok) console.warn("Guided start failed:", started.message);
+		}
+		setPending(false);
 		await router.navigate({ to: "/$workspace", params: { workspace: effectiveSlug } });
 	}
 
@@ -132,6 +145,17 @@ function CreateWorkspace() {
 					placeholder="acme"
 					required
 				/>
+			</div>
+			<div className="flex items-start gap-2">
+				<Checkbox
+					id="workspace-guided"
+					checked={guided}
+					onCheckedChange={(checked) => setGuided(checked === true)}
+					className="mt-0.5"
+				/>
+				<Label htmlFor="workspace-guided" className="text-sm font-normal leading-snug">
+					Start with a team and a few issues that show you around
+				</Label>
 			</div>
 			{error && (
 				<p role="alert" className="text-sm text-destructive">

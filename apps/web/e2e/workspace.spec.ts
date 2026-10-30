@@ -8,6 +8,7 @@ import {
 	signUp,
 	startWorkspace,
 	syncBadge,
+	teamUrl,
 	unique,
 	waitForHydration,
 } from "./helpers";
@@ -21,6 +22,22 @@ test("sign up, create a workspace and a team, and file the first issue", async (
 	await createIssue(page, title);
 	await expect(issueRow(page, title)).toBeVisible();
 	await expect(syncBadge(page)).toHaveText("Live");
+});
+
+test("a new workspace can start with a guided team and its issues", async ({ page }) => {
+	await signUp(page);
+	await createWorkspace(page, { guided: true });
+	await expect(issueRow(page, "Welcome to Track")).toBeVisible();
+	await expect(issueRow(page, "Press C to create an issue")).toBeVisible();
+	await expect(syncBadge(page)).toHaveText("Live");
+});
+
+test("an empty workspace offers the guided team on its first-team page", async ({ page }) => {
+	await signUp(page);
+	const { slug } = await createWorkspace(page);
+	await page.getByRole("button", { name: "Start with a guided team" }).click();
+	await expect(page).toHaveURL(teamUrl(slug));
+	await expect(issueRow(page, "Welcome to Track")).toBeVisible();
 });
 
 test("an edit in one tab appears in another without a reload", async ({ page, context }) => {

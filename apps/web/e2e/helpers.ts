@@ -42,15 +42,34 @@ export async function signUp(page: Page, person: Person = newPerson()): Promise<
 	return person;
 }
 
-/** Creates a workspace from `/` and waits for the "first team" screen. Returns its slug. */
-export async function createWorkspace(page: Page): Promise<{ name: string; slug: string }> {
+/** The label of the new-workspace form's checkbox for the guided team. */
+export const GUIDED_START = "Start with a team and a few issues that show you around";
+
+/** A team's issue list in the workspace with this slug, whatever the team's key. */
+export function teamUrl(slug: string): RegExp {
+	return new RegExp(`/${slug}/team/[A-Z][A-Z0-9]*$`);
+}
+
+/**
+ * Creates a workspace from `/`. Most tests want it empty and wait for the "first team" screen; with
+ * `guided`, it starts with the guided team, and this waits for that team's issue list.
+ */
+export async function createWorkspace(
+	page: Page,
+	{ guided = false } = {},
+): Promise<{ name: string; slug: string }> {
 	const slug = unique("ws");
 	const name = `Workspace ${slug}`;
 	await page.getByLabel("Name").fill(name);
 	await page.getByLabel("URL").fill(slug);
+	await page.getByLabel(GUIDED_START).setChecked(guided);
 	await page.getByRole("button", { name: "Create workspace" }).click();
-	await expect(page).toHaveURL(`/${slug}`);
-	await expect(page.getByRole("heading", { name: "Create your first team" })).toBeVisible();
+	if (guided) {
+		await expect(page).toHaveURL(teamUrl(slug));
+	} else {
+		await expect(page).toHaveURL(`/${slug}`);
+		await expect(page.getByRole("heading", { name: "Create your first team" })).toBeVisible();
+	}
 	return { name, slug };
 }
 
