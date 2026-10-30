@@ -1,8 +1,9 @@
-import type { Issue } from "@gateweave/track-protocol";
+import type { Issue, IssueFilters } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import {
 	activeFilters,
 	compactFilters,
+	defaultsFromFilters,
 	hasFilters,
 	matchesFilters,
 	sameFilters,
@@ -103,5 +104,33 @@ describe("comparing and changing filters", () => {
 		expect(toggleValue(["todo"], "done")).toEqual(["todo", "done"]);
 		expect(toggleValue(["todo"], "todo")).toBeUndefined();
 		expect(toggleValue<string | null>([null, "u1"], null)).toEqual(["u1"]);
+	});
+});
+
+describe("defaultsFromFilters", () => {
+	it("starts a new issue with each value a filter pins, so it passes the filters", () => {
+		const filters: IssueFilters = {
+			teamIds: ["t1"],
+			statuses: ["todo", "in_progress"],
+			priorities: [1],
+			assigneeIds: [null],
+			labelIds: ["bug", "ui"],
+		};
+		const defaults = defaultsFromFilters(filters);
+		expect(defaults).toEqual({
+			teamId: "t1",
+			status: undefined,
+			priority: 1,
+			assigneeId: null,
+			projectId: undefined,
+			labelIds: ["bug", "ui"],
+		});
+		// What the filters leave open, such as the status here, takes any value that passes them.
+		const issue: Issue = { ...base, ...defaults, status: "todo", projectId: null };
+		expect(matchesFilters(issue, filters)).toBe(true);
+	});
+
+	it("leaves everything open without filters", () => {
+		expect(Object.values(defaultsFromFilters({})).every((value) => value === undefined)).toBe(true);
 	});
 });

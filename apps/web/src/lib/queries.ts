@@ -7,6 +7,7 @@ import type {
 	Member,
 	Project,
 	Proposal,
+	SavedView,
 	Team,
 } from "@gateweave/track-protocol";
 import type { SyncState } from "@gateweave/track-sync-client";
@@ -16,6 +17,7 @@ import { compareIssues } from "./issues";
 import { compareLabels } from "./labels";
 import { compareProjects, type ProjectProgress, projectProgress } from "./projects";
 import { blockedIssueIds } from "./relations";
+import { compareViews, isViewVisible } from "./saved-views";
 
 // Selectors over the synced state. Each hook keeps its selector stable for the inputs it
 // depends on, so useQuery can skip work when unrelated parts of the state change.
@@ -377,4 +379,21 @@ export function useIssue(teamId: string | undefined, number: number): Issue | un
 			[teamId, number],
 		),
 	);
+}
+
+/** The saved views a member sees: every shared one and their own, shared first, by name. */
+export function useSavedViews(userId: string): SavedView[] {
+	return useQuery(
+		useCallback(
+			(state: SyncState) =>
+				[...state.views.values()].filter((view) => isViewVisible(view, userId)).sort(compareViews),
+			[userId],
+		),
+		shallowEqual,
+	);
+}
+
+/** A saved view by id, if it exists; whether the member may see it is the caller's to check. */
+export function useSavedView(id: string): SavedView | undefined {
+	return useQuery(useCallback((state: SyncState) => state.views.get(id), [id]));
 }

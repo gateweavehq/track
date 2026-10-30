@@ -4,8 +4,10 @@ import { useCallback } from "react";
 import { FILTER_KEYS } from "#/components/issues/filter-menu";
 import { IssuesPage } from "#/components/issues/issues-page";
 import { Button } from "#/components/ui/button";
+import { SaveViewButton } from "#/components/views/view-controls";
 import { useWorkspaceActions } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
+import { hasFilters } from "#/lib/filters";
 import { useTeamByKey, useTeamIssues } from "#/lib/queries";
 import { useDocumentTitle } from "#/lib/title";
 import {
@@ -84,6 +86,12 @@ function TeamIssues({ team }: { team: Team }) {
 			filters={filters}
 			onFiltersChange={onFiltersChange}
 			offeredFilters={TEAM_FILTERS}
+			filterActions={
+				// A view shows issues from the whole workspace, so it keeps the team as a filter.
+				hasFilters(filters) && (
+					<SaveViewButton filters={{ ...filters, teamIds: [team.id] }} layout={view} />
+				)
+			}
 			empty={
 				<Notice
 					title="No issues yet"

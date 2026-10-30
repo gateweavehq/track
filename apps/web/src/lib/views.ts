@@ -1,10 +1,16 @@
-import { type IssueFilters, issueFilters } from "@gateweave/track-protocol";
+import {
+	ISSUE_LAYOUTS,
+	type IssueFilters,
+	type IssueLayout,
+	issueFilters,
+} from "@gateweave/track-protocol";
 import { useCallback, useMemo, useState } from "react";
 import { z } from "zod";
 import { compactFilters, type FiltersUpdate } from "./filters";
 
-export const ISSUE_VIEWS = ["list", "board", "calendar", "table", "timeline"] as const;
-export type IssueView = (typeof ISSUE_VIEWS)[number];
+// The protocol names them, because a saved view keeps one.
+export const ISSUE_VIEWS = ISSUE_LAYOUTS;
+export type IssueView = IssueLayout;
 
 /**
  * Search params for a page of issues: its view and its filters (see `IssueFilters`), under short

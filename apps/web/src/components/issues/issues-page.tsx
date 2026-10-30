@@ -9,7 +9,7 @@ import {
 	Search,
 	Table2,
 } from "lucide-react";
-import { type ReactNode, useDeferredValue, useMemo, useRef, useState } from "react";
+import { type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {
 	DropdownMenu,
@@ -20,7 +20,13 @@ import {
 } from "#/components/ui/dropdown-menu";
 import { type IssueDefaults, useWorkspaceActions } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
-import { activeFilters, type FiltersUpdate, hasFilters, matchesFilters } from "#/lib/filters";
+import {
+	activeFilters,
+	defaultsFromFilters,
+	type FiltersUpdate,
+	hasFilters,
+	matchesFilters,
+} from "#/lib/filters";
 import { MOD_LABEL, useHotkeys } from "#/lib/hotkeys";
 import { issueKey, matchesQuery } from "#/lib/issues";
 import { useLabelsById, useMembersById, useProjectsById, useTeamsById } from "#/lib/queries";
@@ -97,6 +103,16 @@ export function IssuesPage({
 		[filters, teams, members, projects, labels],
 	);
 	const filtering = hasFilters(active);
+	// New issues pass the filters, so they show up here; what the page itself says comes first.
+	const issueDefaults = useMemo(
+		() => ({ ...defaultsFromFilters(active), ...defaults }),
+		[active, defaults],
+	);
+	const { setPageDefaults } = actions;
+	useEffect(() => {
+		setPageDefaults(issueDefaults);
+		return () => setPageDefaults(null);
+	}, [setPageDefaults, issueDefaults]);
 
 	const filtered = useMemo(() => {
 		const text = deferredQuery.trim();
@@ -172,7 +188,7 @@ export function IssuesPage({
 						</div>
 						<FilterMenu filters={active} onChange={onFiltersChange} offered={offeredFilters} />
 						<ViewSwitch view={view} onChange={onViewChange} />
-						<Button size="sm" onClick={() => actions.createIssue(defaults)}>
+						<Button size="sm" onClick={() => actions.createIssue(issueDefaults)}>
 							<Plus />
 							<span className="hidden sm:inline">New issue</span>
 						</Button>
@@ -187,7 +203,7 @@ export function IssuesPage({
 			{intro}
 			{view === "board" ? (
 				<div className="min-h-0 flex-1">
-					<IssueBoard issues={filtered} defaults={defaults} empty={emptyState} />
+					<IssueBoard issues={filtered} defaults={issueDefaults} empty={emptyState} />
 				</div>
 			) : view === "calendar" ? (
 				<IssueCalendar issues={filtered} empty={emptyState} />
@@ -196,7 +212,7 @@ export function IssuesPage({
 			) : view === "timeline" ? (
 				<IssueTimeline issues={filtered} empty={emptyState} />
 			) : (
-				<IssueList issues={filtered} defaults={defaults} empty={emptyState} />
+				<IssueList issues={filtered} defaults={issueDefaults} empty={emptyState} />
 			)}
 		</div>
 	);

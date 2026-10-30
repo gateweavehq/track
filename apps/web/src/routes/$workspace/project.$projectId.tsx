@@ -5,8 +5,10 @@ import { FILTER_KEYS } from "#/components/issues/filter-menu";
 import { IssuesPage } from "#/components/issues/issues-page";
 import { DeleteProjectButton, ProjectDetails } from "#/components/projects/project-detail";
 import { Button } from "#/components/ui/button";
+import { SaveViewButton } from "#/components/views/view-controls";
 import { useWorkspaceActions } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
+import { hasFilters } from "#/lib/filters";
 import { useProject, useProjectIssues } from "#/lib/queries";
 import { useDocumentTitle } from "#/lib/title";
 import {
@@ -98,6 +100,12 @@ function ProjectIssues({ project }: { project: Project }) {
 			filters={filters}
 			onFiltersChange={onFiltersChange}
 			offeredFilters={PROJECT_FILTERS}
+			filterActions={
+				// A view shows issues from the whole workspace, so it keeps the project as a filter.
+				hasFilters(filters) && (
+					<SaveViewButton filters={{ ...filters, projectIds: [project.id] }} layout={view} />
+				)
+			}
 			empty={
 				<Notice
 					title="No issues in this project"

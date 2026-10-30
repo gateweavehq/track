@@ -30,6 +30,7 @@ interface ReplicaSchema extends DBSchema {
 	activity: { key: string; value: Entities["activity"] };
 	proposal: { key: string; value: Entities["proposal"] };
 	relation: { key: string; value: Entities["relation"] };
+	view: { key: string; value: Entities["view"] };
 	member: { key: string; value: Entities["member"] };
 	pending: { key: number; value: PendingMutation & { seq?: number }; indexes: { id: string } };
 }
@@ -107,6 +108,7 @@ class IdbPersistence implements Persistence {
 			activities,
 			proposals,
 			relations,
+			views,
 			members,
 			pending,
 		] = await Promise.all([
@@ -119,6 +121,7 @@ class IdbPersistence implements Persistence {
 			tx.objectStore("activity").getAll(),
 			tx.objectStore("proposal").getAll(),
 			tx.objectStore("relation").getAll(),
+			tx.objectStore("view").getAll(),
 			tx.objectStore("member").getAll(),
 			tx.objectStore("pending").getAll(),
 		]);
@@ -138,6 +141,7 @@ class IdbPersistence implements Persistence {
 							activities,
 							proposals,
 							relations,
+							views,
 							members,
 						},
 			pending: pending.map(({ seq: _, ...mutation }) => mutation),
@@ -155,6 +159,7 @@ class IdbPersistence implements Persistence {
 			activity: snapshot.activities,
 			proposal: snapshot.proposals,
 			relation: snapshot.relations,
+			view: snapshot.views,
 			member: snapshot.members,
 		};
 		await Promise.all([

@@ -26,7 +26,7 @@ flowchart LR
   Files --> R2[("R2<br/>attached files")]
   Auth -- "membership hooks (RPC)" --> DO
   subgraph DO["WorkspaceDO (one per workspace)"]
-    SQLite[("SQLite<br/>teams, issues, labels,<br/>projects, comments, activity,<br/>members, oplog")]
+    SQLite[("SQLite<br/>teams, issues, labels,<br/>projects, comments, activity,<br/>views, members, oplog")]
   end
 ```
 
@@ -63,6 +63,7 @@ different protocol versions in production. It also gives self-hosters one thing 
 | OAuth clients, grants, signing keys | D1           | Better Auth MCP plugin             |
 | Agent members' keys (hashed)        | D1           | Track's agent members plugin       |
 | Teams, issues, labels, projects     | Workspace DO | `sync-server`                      |
+| Saved views                         | Workspace DO | `sync-server`                      |
 | Comments on issues                  | Workspace DO | `sync-server`                      |
 | Issue activity (history)            | Workspace DO | `sync-server`, from issue writes   |
 | Webhooks, their secrets, deliveries | Workspace DO | `sync-server`, managed by admins   |
@@ -276,7 +277,8 @@ A client's entire sync state is the highest version it has applied.
 ### Connecting
 
 1. `GET /api/sync/:slug/snapshot` returns
-   `{ version, teams, issues, labels, projects, comments, activities, proposals, members }`,
+   `{ version, teams, issues, labels, projects, comments, activities, proposals, relations, views,
+   members }`,
    leaving out the comments, activity and proposals of deleted issues, and deleted projects. It is served over HTTP so it can be compressed and fetched in
    parallel with the socket.
 2. The client opens the socket and sends `hello { protocol, clientId, since: snapshot.version }`.
@@ -577,10 +579,28 @@ browser, so both are instant and work offline; the server is not asked.
   such as a deleted label, are dropped too, so an old link still shows issues.
 - An issue created on a filtered page takes each filter that has a single value (a status,
   priority, assignee, project or team) and the labels filtered by, so it appears on the page it
-  was made from.
+  was made from. The page registers these defaults with the workspace's actions, so the page's
+  button, the C shortcut and the command palette agree.
 - The layouts are a list, a board by status, a calendar by due date, a table and a timeline from
   start to due date. A page remembers its last layout in the browser, and `view` in the URL
   overrides it. The table renders only the rows near the screen, as a team can hold thousands.
+
+### Saved views
+
+A saved view (`SavedView` in `packages/protocol/src/domain.ts`) is filters and a layout under
+a name, listed in the sidebar and opened at `/$workspace/view/$viewId`. Views are entities of
+the workspace, synced like the rest (`view.create`, `view.update`, `view.delete`), so they work
+offline and show up in other browsers at once.
+
+- A view shows issues from the whole workspace, so saving one from a team's page, a project's or
+  My issues keeps that scope as a filter.
+- On a view's page, changes to its filters or layout stay in the page, not in the URL, until
+  they are saved into the view or as a new one; the view's link always opens the view as saved.
+- A shared view (`ownerId` null) is the workspace's: its creator and admins may change or delete
+  it. A personal view is its owner's alone, and only they see it in the app. Personal views are
+  a way to keep the sidebar tidy, not a secret: like every entity, they are in each member's
+  replica.
+- The Durable Object caps a workspace at `MAX_VIEWS` views.
 
 ### Webhooks
 

@@ -118,3 +118,28 @@ export function isPicked(filters: IssueFilters, key: IssueFilterKey, value: unkn
 	const values: readonly unknown[] | undefined = filters[key];
 	return values?.includes(value) ?? false;
 }
+
+/**
+ * What a new issue takes from filters so that it passes them: every property with one value, and
+ * the labels. Properties the filters leave open are undefined.
+ */
+export function defaultsFromFilters(filters: IssueFilters): {
+	teamId?: string;
+	status?: Issue["status"];
+	priority?: Issue["priority"];
+	assigneeId?: string | null;
+	projectId?: string | null;
+	labelIds?: string[];
+} {
+	const only = <T>(values: readonly T[] | undefined) =>
+		values?.length === 1 ? values[0] : undefined;
+	return {
+		teamId: only(filters.teamIds),
+		status: only(filters.statuses),
+		priority: only(filters.priorities),
+		assigneeId: only(filters.assigneeIds),
+		projectId: only(filters.projectIds),
+		// Any one label passes a label filter; all of them do no harm and say what was meant.
+		labelIds: filters.labelIds ? [...filters.labelIds] : undefined,
+	};
+}

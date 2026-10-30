@@ -2,8 +2,10 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { FILTER_KEYS } from "#/components/issues/filter-menu";
 import { IssuesPage } from "#/components/issues/issues-page";
+import { SaveViewButton } from "#/components/views/view-controls";
 import { useWorkspace } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
+import { hasFilters } from "#/lib/filters";
 import { useAssignedIssues } from "#/lib/queries";
 import { useDocumentTitle } from "#/lib/title";
 import {
@@ -53,6 +55,12 @@ function MyIssuesPage() {
 			filters={filters}
 			onFiltersChange={onFiltersChange}
 			offeredFilters={MY_FILTERS}
+			filterActions={
+				// A view shows issues from the whole workspace, so it keeps the assignee as a filter.
+				hasFilters(filters) && (
+					<SaveViewButton filters={{ ...filters, assigneeIds: [userId] }} layout={view} />
+				)
+			}
 			empty={
 				<Notice title="Nothing assigned to you">
 					Issues assigned to you, in every team, show up here.
