@@ -114,3 +114,34 @@ test("on a phone the table scrolls inside itself, not the page", async ({ page }
 	expect(overflow.page).toBeLessThanOrEqual(0);
 	expect(overflow.table).toBeGreaterThan(0);
 });
+
+test("a long table renders the rows near the screen, and scrolls to the end", async ({ page }) => {
+	const { slug } = await startWorkspace(page);
+	// A CSV import is the quick way to many issues.
+	const titles = Array.from({ length: 150 }, (_, index) => `Bulk issue ${String(index + 1).padStart(3, "0")}`);
+	await page.goto(`/${slug}/settings/import`);
+	await page.getByRole("button", { name: "CSV file" }).click();
+	await page.locator('input[type="file"]').setInputFiles({
+		name: "bulk.csv",
+		mimeType: "text/csv",
+		buffer: Buffer.from(["Title", ...titles, ""].join("\r\n")),
+	});
+	await page.getByRole("button", { name: "Import 150 issues" }).click();
+	await expect(page.getByRole("status")).toHaveText("Imported 150 issues.");
+
+	await page.goto(`/${slug}/team/ENG?view=table`);
+	const table = page.getByRole("table");
+	await expect(table).toHaveAttribute("aria-rowcount", "151");
+	await expect(rowOf(page, titles[0] ?? "")).toBeVisible();
+	const rendered = await page.getByRole("row").count();
+	expect(rendered).toBeGreaterThan(10);
+	expect(rendered).toBeLessThan(100);
+
+	// The last row is reached by scrolling, and announces its place among all of them.
+	await page.mouse.move(400, 400);
+	await page.mouse.wheel(0, 150 * 40);
+	const last = rowOf(page, titles[149] ?? "");
+	await expect(last).toBeVisible();
+	await expect(last).toHaveAttribute("aria-rowindex", "151");
+	await expect(rowOf(page, titles[0] ?? "")).toHaveCount(0);
+});

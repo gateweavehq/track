@@ -1,7 +1,17 @@
 import type { Issue, Member, Project, Team } from "@gateweave/track-protocol";
 import { Link } from "@tanstack/react-router";
 import { ArrowDown, ArrowUp, ListRestart, SlidersHorizontal } from "lucide-react";
-import { forwardRef, memo, type ReactNode, useMemo, useState } from "react";
+import {
+	type CSSProperties,
+	forwardRef,
+	memo,
+	type ReactNode,
+	type RefObject,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { ProjectStatusIcon } from "#/components/projects/meta";
 import { Button } from "#/components/ui/button";
@@ -41,14 +51,37 @@ import {
 } from "./pickers";
 import { Estimate } from "./schedule";
 
-/** The ID column is as wide as the longest key a team can have, so Title can stick beside it. */
-const ID_WIDTH = "w-[5.5rem] min-w-[5.5rem]";
-const TITLE_OFFSET = "sm:left-[5.5rem]";
+/**
+ * The least each column takes, at least as wide as anything its cells show. Only the rows on
+ * screen are rendered, so a column sized by its content would change width while scrolling. The
+ * ID column is as wide as the longest key in the table (`--id-width`), so Title can stick beside it.
+ */
+const COLUMN_WIDTH: Record<TableColumn, string> = {
+	id: "w-(--id-width) min-w-(--id-width)",
+	title: "",
+	status: "min-w-36",
+	priority: "min-w-32",
+	assignee: "min-w-52",
+	project: "min-w-52",
+	labels: "min-w-52",
+	estimate: "min-w-24",
+	startDate: "min-w-48",
+	dueDate: "min-w-48",
+	created: "min-w-28",
+	updated: "min-w-28",
+};
+const TITLE_OFFSET = "sm:left-(--id-width)";
+
+/** Every row is this tall (`h-10`), which is what lets the table render only the rows on screen. */
+const ROW_HEIGHT = 40;
+/** Rows rendered beyond each edge of the screen, so fast scrolling does not show blank space. */
+const OVERSCAN = 15;
 
 /**
  * Issues as a table: a column per property, each editable in place, sorted by clicking a header.
  * It scrolls sideways inside its own container, with the ID and Title columns staying put. The
- * chosen columns are remembered per page (`scope`); the sort is not.
+ * chosen columns are remembered per page (`scope`); the sort is not. Only the rows near the screen
+ * are in the page, so a table of thousands opens and sorts as quickly as one of a few dozen.
  */
 export function IssueTable({
 	issues,
@@ -69,6 +102,16 @@ export function IssueTable({
 		() => sortIssues(issues, sort, { teams, members, projects }),
 		[issues, sort, teams, members, projects],
 	);
+	const body = useRef<HTMLTableSectionElement>(null);
+	const [first, last] = useRowsOnScreen(rows.length, body);
+	// Keys are monospaced, at most about half a rem a character, plus the cell's padding.
+	const idWidth = useMemo(() => {
+		const longest = Math.max(
+			0,
+			...rows.map((issue) => issueKey(teams.get(issue.teamId), issue).length),
+		);
+		return `${longest / 2 + 1.5}rem`;
+	}, [rows, teams]);
 
 	if (issues.length === 0) return empty;
 
@@ -84,9 +127,13 @@ export function IssueTable({
 				<ColumnsMenu shown={shown} onToggle={toggle} />
 			</div>
 			<div className="min-w-0 flex-1 overflow-x-auto border-t">
-				<table className="w-max min-w-full border-separate border-spacing-0 text-sm">
+				<table
+					aria-rowcount={rows.length + 1}
+					style={{ "--id-width": idWidth } as CSSProperties}
+					className="w-max min-w-full border-separate border-spacing-0 text-sm"
+				>
 					<thead>
-						<tr>
+						<tr aria-rowindex={1}>
 							{shown.map((column) => (
 								<HeaderCell
 									key={column}
@@ -97,10 +144,12 @@ export function IssueTable({
 							))}
 						</tr>
 					</thead>
-					<tbody>
-						{rows.map((issue) => (
+					<tbody ref={body}>
+						<Spacer rows={first} columns={shown.length} />
+						{rows.slice(first, last).map((issue, index) => (
 							<TableRow
 								key={issue.id}
+								index={first + index}
 								issue={issue}
 								team={teams.get(issue.teamId)}
 								assignee={issue.assigneeId ? members.get(issue.assigneeId) : undefined}
@@ -108,11 +157,70 @@ export function IssueTable({
 								columns={shown}
 							/>
 						))}
+						<Spacer rows={rows.length - last} columns={shown.length} />
 					</tbody>
 				</table>
 			</div>
 		</div>
 	);
+}
+
+/** Stands in for rows that are off screen, so the table keeps its height and scroll position. */
+function Spacer({ rows, columns }: { rows: number; columns: number }) {
+	if (rows <= 0) return null;
+	return (
+		<tr aria-hidden>
+			<td colSpan={columns} className="p-0" style={{ height: rows * ROW_HEIGHT }} />
+		</tr>
+	);
+}
+
+/**
+ * The range of rows `[first, last)` near the visible part of the table body, following the
+ * scrolling ancestor (the page) as it scrolls or resizes.
+ */
+function useRowsOnScreen(count: number, body: RefObject<HTMLTableSectionElement | null>) {
+	const [range, setRange] = useState<readonly [number, number]>(() => [0, Math.min(count, 50)]);
+	useLayoutEffect(() => {
+		const element = body.current;
+		if (!element) {
+			setRange([0, Math.min(count, 50)]);
+			return;
+		}
+		const scroller = scrollParent(element);
+		const update = () => {
+			const top = element.getBoundingClientRect().top;
+			const view = scroller?.getBoundingClientRect() ?? { top: 0, bottom: window.innerHeight };
+			const first = clamp(Math.floor((view.top - top) / ROW_HEIGHT) - OVERSCAN, count);
+			const last = clamp(Math.ceil((view.bottom - top) / ROW_HEIGHT) + OVERSCAN, count);
+			setRange((current) =>
+				current[0] === first && current[1] === last ? current : [first, Math.max(first, last)],
+			);
+		};
+		update();
+		const target = scroller ?? window;
+		target.addEventListener("scroll", update, { passive: true });
+		const resize = new ResizeObserver(update);
+		resize.observe(scroller ?? document.documentElement);
+		return () => {
+			target.removeEventListener("scroll", update);
+			resize.disconnect();
+		};
+	}, [count, body]);
+	return range;
+}
+
+function clamp(row: number, count: number) {
+	return Math.min(Math.max(row, 0), count);
+}
+
+/** The nearest ancestor that scrolls vertically, or none when the document itself scrolls. */
+function scrollParent(element: HTMLElement): HTMLElement | null {
+	for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+		const { overflowY } = getComputedStyle(parent);
+		if (overflowY === "auto" || overflowY === "scroll") return parent;
+	}
+	return null;
 }
 
 function ColumnsMenu({
@@ -149,9 +257,9 @@ function ColumnsMenu({
 	);
 }
 
-/** Header cells share this; the first two stick to the left edge while the table scrolls. */
+/** Header and body cells share this; the first two stick to the left edge while the table scrolls. */
 function cellEdge(column: TableColumn): string {
-	if (column === "id") return cn("sticky left-0 z-10", ID_WIDTH);
+	if (column === "id") return "sticky left-0 z-10";
 	if (column === "title") return cn("sm:sticky sm:z-10", TITLE_OFFSET);
 	return "";
 }
@@ -173,6 +281,7 @@ function HeaderCell({
 			aria-sort={sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined}
 			className={cn(
 				"h-9 whitespace-nowrap border-b bg-background px-2 text-left text-xs font-medium text-muted-foreground first:pl-3 sm:first:pl-4",
+				COLUMN_WIDTH[column],
 				cellEdge(column),
 			)}
 		>
@@ -195,12 +304,15 @@ function HeaderCell({
 }
 
 const TableRow = memo(function TableRow({
+	index,
 	issue,
 	team,
 	assignee,
 	project,
 	columns,
 }: {
+	/** Its place in the sorted rows, for assistive technology, which sees only those rendered. */
+	index: number;
 	issue: Issue;
 	team: Team | undefined;
 	assignee: Member | undefined;
@@ -314,22 +426,26 @@ const TableRow = memo(function TableRow({
 				);
 			case "startDate":
 				return (
-					<DateField
-						label="Start date"
-						value={issue.startDate}
-						max={issue.dueDate}
-						onChange={(startDate) => update(issue, { startDate })}
-					/>
+					<div className="w-44">
+						<DateField
+							label="Start date"
+							value={issue.startDate}
+							max={issue.dueDate}
+							onChange={(startDate) => update(issue, { startDate })}
+						/>
+					</div>
 				);
 			case "dueDate":
 				return (
-					<DateField
-						label="Due date"
-						value={issue.dueDate}
-						min={issue.startDate}
-						overdue={isIssueOverdue(issue)}
-						onChange={(dueDate) => update(issue, { dueDate })}
-					/>
+					<div className="w-44">
+						<DateField
+							label="Due date"
+							value={issue.dueDate}
+							min={issue.startDate}
+							overdue={isIssueOverdue(issue)}
+							onChange={(dueDate) => update(issue, { dueDate })}
+						/>
+					</div>
 				);
 			case "created":
 				return <Timestamp time={issue.createdAt} verb="Created" />;
@@ -339,7 +455,7 @@ const TableRow = memo(function TableRow({
 	};
 
 	return (
-		<tr className="group hover:bg-muted/60">
+		<tr aria-rowindex={index + 2} className="group hover:bg-muted/60">
 			{columns.map((column) => (
 				<td
 					key={column}
