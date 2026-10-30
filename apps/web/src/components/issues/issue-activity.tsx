@@ -23,7 +23,8 @@ import {
 	Tag,
 	UserRound,
 } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useMemo, useRef, useState } from "react";
+import { Markdown } from "#/components/markdown";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { Button } from "#/components/ui/button";
 import {
@@ -50,6 +51,7 @@ import {
 	useTeamsById,
 } from "#/lib/queries";
 import { RELATION_META } from "#/lib/relations";
+import { AttachButton, useAttachFiles } from "./attach-files";
 import { LabelChip } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 
@@ -418,9 +420,7 @@ function CommentItem({ comment }: { comment: Comment }) {
 					}}
 				/>
 			) : (
-				<p className="mt-1.5 text-sm leading-relaxed break-words whitespace-pre-wrap">
-					{comment.body}
-				</p>
+				<Markdown source={comment.body} className="mt-1.5" />
 			)}
 			{confirmDelete && (
 				<ConfirmDialog
@@ -471,6 +471,8 @@ function CommentForm({
 	onCancel?: () => void;
 }) {
 	const [body, setBody] = useState(initial);
+	const textarea = useRef<HTMLTextAreaElement>(null);
+	const files = useAttachFiles(textarea, setBody);
 	const empty = !body.trim();
 
 	function submit() {
@@ -486,6 +488,7 @@ function CommentForm({
 			}}
 		>
 			<Textarea
+				ref={textarea}
 				value={body}
 				onChange={(event) => setBody(event.target.value)}
 				onKeyDown={(event) => {
@@ -498,6 +501,7 @@ function CommentForm({
 						else event.currentTarget.blur();
 					}
 				}}
+				{...files?.handlers}
 				aria-label={label}
 				placeholder={placeholder}
 				autoFocus={autoFocus}
@@ -505,10 +509,13 @@ function CommentForm({
 				className="field-sizing-content min-h-20 resize-none"
 			/>
 			<div className="flex items-center justify-end gap-2">
-				<span className="mr-auto hidden items-center gap-1 text-xs text-muted-foreground sm:flex">
-					<Kbd>{MOD_LABEL}</Kbd>
-					<Kbd>Enter</Kbd>
-				</span>
+				<div className="mr-auto flex items-center gap-2 text-xs text-muted-foreground">
+					{files && <AttachButton label="Attach files to the comment" onFiles={files.attach} />}
+					<span className="hidden items-center gap-1 sm:flex">
+						<Kbd>{MOD_LABEL}</Kbd>
+						<Kbd>Enter</Kbd>
+					</span>
+				</div>
 				{onCancel && (
 					<Button type="button" variant="ghost" size="sm" onClick={onCancel}>
 						Cancel

@@ -1,6 +1,7 @@
 import handler from "@tanstack/react-start/server-entry";
 import { getAuth } from "./server/auth";
 import { demoEnabled } from "./server/demo/mode";
+import { handleFileRequest, isFileRequest } from "./server/files";
 import { handleMcpRequest, isMcpRequest } from "./server/mcp";
 import { handleSyncRequest, isSyncRequest } from "./server/sync";
 
@@ -17,6 +18,8 @@ export default {
 		// Sync is handled before TanStack Start so WebSocket upgrade responses pass through untouched.
 		if (isSyncRequest(url)) return handleSyncRequest(request);
 		if (isMcpRequest(url)) return handleMcpRequest(request);
+		// Uploads stream to R2 as they arrive, without TanStack Start reading the body first.
+		if (isFileRequest(url)) return handleFileRequest(request);
 		if (OAUTH_DISCOVERY.test(url.pathname)) return getAuth().handler(request);
 		return handler.fetch(request);
 	},

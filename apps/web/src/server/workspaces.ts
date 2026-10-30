@@ -17,6 +17,21 @@ export function workspaceStub(workspaceId: string) {
 	return env.WORKSPACE.getByName(workspaceId);
 }
 
+/**
+ * Deletes every file attached in a workspace. Its files share a prefix in the bucket, so they go
+ * a page of keys at a time.
+ */
+export async function deleteWorkspaceFiles(workspaceId: string) {
+	const bucket = env.FILES;
+	if (!bucket) return;
+	let cursor: string | undefined;
+	do {
+		const page = await bucket.list({ prefix: `${workspaceId}/`, cursor, limit: 1000 });
+		if (page.objects.length > 0) await bucket.delete(page.objects.map((object) => object.key));
+		cursor = page.truncated ? page.cursor : undefined;
+	} while (cursor);
+}
+
 /** Resolves a workspace slug to the caller's membership, or null if they are not a member. */
 export async function findMembership(
 	db: Database,
@@ -25,6 +40,20 @@ export async function findMembership(
 ): Promise<Membership | null> {
 	const row = await membershipQuery(db)
 		.where(and(eq(schema.organization.slug, slug), eq(schema.member.userId, userId)))
+		.get();
+	return row
+		? { workspaceId: row.workspaceId, workspaceName: row.workspaceName, profile: toProfile(row) }
+		: null;
+}
+
+/** As `findMembership`, by the workspace's id, which links to attached files carry. */
+export async function findMembershipById(
+	db: Database,
+	workspaceId: string,
+	userId: string,
+): Promise<Membership | null> {
+	const row = await membershipQuery(db)
+		.where(and(eq(schema.member.organizationId, workspaceId), eq(schema.member.userId, userId)))
 		.get();
 	return row
 		? { workspaceId: row.workspaceId, workspaceName: row.workspaceName, profile: toProfile(row) }

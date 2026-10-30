@@ -3,7 +3,12 @@ import { createDb } from "../db";
 import { demoEnabled } from "../demo/mode";
 import { mailer } from "../email";
 import { authRateLimits } from "../rate-limit";
-import { syncMembership, syncUserEverywhere, workspaceStub } from "../workspaces";
+import {
+	deleteWorkspaceFiles,
+	syncMembership,
+	syncUserEverywhere,
+	workspaceStub,
+} from "../workspaces";
 import { createAuth } from "./config";
 
 export const db = createDb(env.DB);
@@ -49,8 +54,12 @@ function buildAuth() {
 		onMembershipChange: (workspaceId, userId) =>
 			logFailure(syncMembership(db, workspaceId, userId), "membership sync"),
 		onUserUpdated: (userId) => logFailure(syncUserEverywhere(db, userId), "profile sync"),
-		onWorkspaceDeleted: (workspaceId) =>
-			logFailure(workspaceStub(workspaceId).destroy(), "workspace deletion"),
+		onWorkspaceDeleted: async (workspaceId) => {
+			// Nobody can reach the files once the membership is gone, so the deletion need not hold
+			// up the response, however many there are.
+			waitUntil(logFailure(deleteWorkspaceFiles(workspaceId), "deleting a workspace's files"));
+			await logFailure(workspaceStub(workspaceId).destroy(), "workspace deletion");
+		},
 		onWorkspaceRenamed: (workspaceId, slug) =>
 			logFailure(workspaceStub(workspaceId).relink(slug), "workspace rename"),
 		demo: demoEnabled(),

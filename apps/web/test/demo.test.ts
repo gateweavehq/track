@@ -131,6 +131,23 @@ describe("on the demo deployment", () => {
 		expect((await snapshot(track, first.slug, "")).status).toBeGreaterThanOrEqual(400);
 	});
 
+	it("keeps no attached files", async () => {
+		const visitor = await startVisitor(track, "203.0.113.9");
+		const workspace = await track.db
+			.prepare("select id from organization where slug = ?")
+			.bind(visitor.slug)
+			.first<{ id: string }>();
+		const upload = await track.fetch(
+			`${origin}/api/files/${workspace?.id}/${crypto.randomUUID()}/notes.txt`,
+			{
+				method: "PUT",
+				headers: { origin, cookie: visitor.cookie, "content-type": "text/plain" },
+				body: "Anyone can open a demo, so nobody may store files in one.",
+			},
+		);
+		expect(upload.status).toBe(403);
+	});
+
 	it("refuses to create or sign in to accounts over HTTP", async () => {
 		const attempt = (path: string, body: object) =>
 			track.fetch(`${origin}/api/auth${path}`, {
