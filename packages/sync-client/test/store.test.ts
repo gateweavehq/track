@@ -107,6 +107,36 @@ describe("Replica", () => {
 		expect(r.snapshot().issues[0]?.status).toBe("backlog");
 	});
 
+	it("predicts the original dates of an import, and no later than the mutation", () => {
+		const r = replica();
+		const now = Date.UTC(2026, 9, 30);
+		const opened = Date.UTC(2024, 2, 1);
+		r.addPending({
+			id: "m1",
+			createdAt: now,
+			mutation: {
+				name: "issue.create",
+				args: { ...issue, id: "i2", labelIds: [], createdAt: opened },
+			},
+		});
+		r.addPending({
+			id: "m2",
+			createdAt: now,
+			mutation: {
+				name: "comment.create",
+				args: { id: "c1", issueId: "i2", body: "Old", createdAt: opened },
+			},
+		});
+		r.addPending({
+			id: "m3",
+			createdAt: now,
+			mutation: { name: "issue.create", args: { ...issue, id: "i3", createdAt: now + 1000 } },
+		});
+		expect(r.getState().issues.get("i2")).toMatchObject({ createdAt: opened, updatedAt: now });
+		expect(r.getState().comments.get("c1")).toMatchObject({ createdAt: opened });
+		expect(r.getState().issues.get("i3")?.createdAt).toBe(now);
+	});
+
 	it("predicts dates and estimates, and clearing them", () => {
 		const r = replica();
 		r.addPending(

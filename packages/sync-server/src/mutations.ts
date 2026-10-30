@@ -176,6 +176,7 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 	if (db.select().from(schema.issues).where(eq(schema.issues.id, args.id)).get()) {
 		throw new MutationRejected("invalid", "Issue id already exists");
 	}
+	const createdAt = importedTime(actor, changes, args.createdAt);
 	assertAssignable(db, args.assigneeId);
 	assertProjectLive(db, args.projectId);
 	assertParent(db, args.id, args.parentId);
@@ -222,7 +223,7 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		version: changes.nextVersion,
 		// Fields without a stamp were last written at creation, which every client has seen.
 		fieldStamps: {},
-		createdAt: changes.now,
+		createdAt,
 		updatedAt: changes.now,
 		deletedAt: null,
 	};
@@ -653,7 +654,7 @@ function createComment(
 	const row: schema.CommentRow = {
 		...args,
 		authorId: actor.member.userId,
-		createdAt: changes.now,
+		createdAt: importedTime(actor, changes, args.createdAt),
 		updatedAt: changes.now,
 		deletedAt: null,
 	};
@@ -863,6 +864,16 @@ function dismissProposal(
 		throw new MutationRejected("not_found", "That proposal was already accepted or dismissed");
 	}
 	decide(db, changes, proposal, "dismissed", actor.member.userId);
+}
+
+/**
+ * The creation time an import asks for, or now. Only admins import, and nothing is dated after
+ * the server's clock, so a client's skew cannot put an issue in the future.
+ */
+function importedTime(actor: Actor, changes: ChangeSet, requested: number | undefined): number {
+	if (requested === undefined) return changes.now;
+	requireAdmin(actor, "Only admins can import with original dates");
+	return Math.min(requested, changes.now);
 }
 
 function requireAdmin(actor: Actor, message: string) {

@@ -34,6 +34,15 @@ export const calendarDate = z
 /** Points. Teams pick their own scale; 0 is a valid size, for work too small to count. */
 export const estimate = z.number().int().min(0).max(1000);
 const commentBody = z.string().trim().min(1).max(100_000);
+/**
+ * When an issue or comment was first written, in the tracker it is imported from (epoch ms).
+ * Only admins may set it, and the server keeps it no later than its own clock.
+ */
+const importedCreatedAt = z
+	.number()
+	.int()
+	.min(Date.UTC(2000, 0, 1))
+	.optional();
 
 const nonEmpty = (patch: object) => Object.keys(patch).length > 0;
 
@@ -66,6 +75,7 @@ export const mutationSchema = z.discriminatedUnion("name", [
 			estimate: estimate.nullable().default(null),
 			labelIds: z.array(id).max(MAX_LABELS_PER_ISSUE).default([]),
 			sortOrder,
+			createdAt: importedCreatedAt,
 		}),
 	}),
 	z.object({
@@ -157,7 +167,7 @@ export const mutationSchema = z.discriminatedUnion("name", [
 	}),
 	z.object({
 		name: z.literal("comment.create"),
-		args: z.object({ id, issueId: id, body: commentBody }),
+		args: z.object({ id, issueId: id, body: commentBody, createdAt: importedCreatedAt }),
 	}),
 	// Only the author edits a comment, so there is no one to conflict with: the last edit wins.
 	z.object({

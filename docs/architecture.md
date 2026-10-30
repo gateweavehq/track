@@ -612,6 +612,28 @@ is `packages/sync-server/src/webhooks.ts`.
   Management is admin-only twice over: the gateway checks membership in D1, and the object
   refuses a verified member who is not an admin. The public demo sends no webhooks.
 
+### Imports
+
+Issues come in from another tracker through the browser, as the same mutations people make. An
+importer (CSV today) only reads its source into a common shape in `apps/web/src/lib/import/`;
+`planImport` then matches labels and projects by name, creating the missing ones, and people by
+email, then name. It writes parents before their sub-issues and the oldest issues first, so
+numbers follow the source's order. Nothing on the server knows about imports, so validation,
+permissions and fan-out are the ordinary ones.
+
+- **Repeating an import is safe.** An imported issue's or comment's id is made from its id in
+  the source (`import-` and a SHA-256 prefix), and the plan skips ids the workspace already has.
+  A run that stopped part way is finished by running it again.
+- **Original dates are an admin's to keep.** `issue.create` and `comment.create` take an optional
+  `createdAt`, which only owners and admins may send, and the server never lets it be later than
+  the mutation. Everyone else's items are created now, as before.
+- **Where the item came from stays in its text.** Imported issues and comments belong to the
+  importer, so a link to the source, an assignee with no matching member and a comment's original
+  author are noted in the Markdown.
+- **The importer keeps a window of mutations in flight**, about forty, because every pending
+  mutation is replayed on each change from the server. Closing the page stops the import; what
+  was sent still lands.
+
 ### Compaction
 
 The alarm compacts the oplog every six hours. Ops are dropped only when they are both older than
