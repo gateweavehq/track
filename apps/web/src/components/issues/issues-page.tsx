@@ -2,6 +2,7 @@ import type { Issue } from "@gateweave/track-protocol";
 import {
 	CalendarClock,
 	CalendarDays,
+	ChartGantt,
 	Columns3,
 	type LucideIcon,
 	Plus,
@@ -39,6 +40,7 @@ import { IssueBoard } from "./issue-board";
 import { IssueCalendar } from "./issue-calendar";
 import { IssueList } from "./issue-list";
 import { IssueTable } from "./issue-table";
+import { IssueTimeline } from "./issue-timeline";
 import { LabelChips, LabelMenu } from "./labels";
 
 /**
@@ -187,6 +189,8 @@ export function IssuesPage({
 				<IssueCalendar issues={filtered} empty={emptyState} />
 			) : view === "table" ? (
 				<IssueTable key={scope} issues={filtered} empty={emptyState} scope={scope} />
+			) : view === "timeline" ? (
+				<IssueTimeline issues={filtered} empty={emptyState} />
 			) : (
 				<IssueList issues={filtered} defaults={defaults} empty={emptyState} />
 			)}
@@ -295,6 +299,7 @@ const VIEW_OPTIONS: { view: IssueView; label: string; icon: LucideIcon }[] = [
 	{ view: "board", label: "Board", icon: Columns3 },
 	{ view: "calendar", label: "Calendar", icon: CalendarDays },
 	{ view: "table", label: "Table", icon: Table2 },
+	{ view: "timeline", label: "Timeline", icon: ChartGantt },
 ];
 
 function ViewSwitch({ view, onChange }: { view: IssueView; onChange: (view: IssueView) => void }) {
