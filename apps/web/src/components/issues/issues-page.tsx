@@ -1,6 +1,7 @@
 import type { Issue } from "@gateweave/track-protocol";
 import {
 	CalendarClock,
+	CalendarDays,
 	Columns3,
 	type LucideIcon,
 	Plus,
@@ -34,6 +35,7 @@ import { cn } from "#/lib/utils";
 import type { IssueView } from "#/lib/views";
 import { useDragAutoScroll } from "./dnd";
 import { IssueBoard } from "./issue-board";
+import { IssueCalendar } from "./issue-calendar";
 import { IssueList } from "./issue-list";
 import { LabelChips, LabelMenu } from "./labels";
 
@@ -78,11 +80,12 @@ export function IssuesPage({
 	const deferredQuery = useDeferredValue(query);
 	const filterRef = useRef<HTMLInputElement>(null);
 	const pageRef = useRef<HTMLDivElement>(null);
-	// A board scrolls inside its columns; a list scrolls the page.
-	useDragAutoScroll(pageRef, view === "list");
+	// A board scrolls inside its columns; a list or a calendar scrolls the page.
+	useDragAutoScroll(pageRef, view !== "board");
 
 	useHotkeys({
 		"/": () => filterRef.current?.focus(),
+		// Toggles list and board only; from the calendar it goes to the list.
 		"mod+b": () => onViewChange(view === "list" ? "board" : "list"),
 	});
 
@@ -158,7 +161,7 @@ export function IssuesPage({
 							}}
 							placeholder="Filter issues"
 							aria-label="Filter issues"
-							className="h-8 w-20 rounded-md border bg-transparent pr-2 pl-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring sm:w-32 lg:w-56"
+							className="h-8 w-14 rounded-md border bg-transparent pr-2 pl-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring sm:w-32 lg:w-56"
 						/>
 					</div>
 					<LabelFilter value={activeLabels} onChange={onLabelFilterChange} />
@@ -175,6 +178,8 @@ export function IssuesPage({
 				<div className="min-h-0 flex-1">
 					<IssueBoard issues={filtered} defaults={defaults} empty={emptyState} />
 				</div>
+			) : view === "calendar" ? (
+				<IssueCalendar issues={filtered} empty={emptyState} />
 			) : (
 				<IssueList issues={filtered} defaults={defaults} empty={emptyState} />
 			)}
@@ -281,6 +286,7 @@ function DueDateFilter({
 const VIEW_OPTIONS: { view: IssueView; label: string; icon: LucideIcon }[] = [
 	{ view: "list", label: "List", icon: Rows3 },
 	{ view: "board", label: "Board", icon: Columns3 },
+	{ view: "calendar", label: "Calendar", icon: CalendarDays },
 ];
 
 function ViewSwitch({ view, onChange }: { view: IssueView; onChange: (view: IssueView) => void }) {
