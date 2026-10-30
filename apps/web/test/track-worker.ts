@@ -142,7 +142,11 @@ export async function startTrack(
 							? { TRACK_DEMO: "1" }
 							: { EMAIL_FROM: `${EMAIL_FROM.name} <${EMAIL_FROM.email}>` }),
 					},
-					...(!demo && { serviceBindings: { EMAIL: "outbox" } }),
+					// Nor any bucket for attached files.
+					...(!demo && {
+						serviceBindings: { EMAIL: "outbox" },
+						r2Buckets: { FILES: "track-files" },
+					}),
 					d1Databases: { DB: "track-test" },
 					// Every copy uses the first one's Durable Objects.
 					durableObjects: {
@@ -238,6 +242,14 @@ export async function startTrack(
 		async emails(): Promise<SentEmail[]> {
 			const response = await mf.dispatchFetch("http://outbox.test/");
 			return (await response.json()) as SentEmail[];
+		},
+		/** The keys in the bucket of attached files that start with `prefix`. */
+		async fileKeys(prefix: string): Promise<string[]> {
+			// Miniflare's bucket type mangles list() outside the Workers types; this is all we use.
+			const bucket = (await mf.getR2Bucket("FILES", names[0])) as unknown as {
+				list(options: { prefix: string }): Promise<{ objects: { key: string }[] }>;
+			};
+			return (await bucket.list({ prefix })).objects.map((object) => object.key);
 		},
 		/** Runs the Worker's Cron Trigger once, as Cloudflare would. */
 		async runScheduled() {

@@ -1,8 +1,14 @@
 # Self-hosting
 
 Track runs on your own Cloudflare account as one Worker, with a D1 database for accounts and the
-list of workspaces, and a Durable Object for each workspace. A free Cloudflare account is enough
-to start. Email to any address needs the Workers Paid plan; Track works without email.
+list of workspaces, a Durable Object for each workspace, and an R2 bucket for attached files. A
+free Cloudflare account is enough to start. Email to any address needs the Workers Paid plan;
+Track works without email.
+
+R2 has a free tier, but it is turned on once per account, in the dashboard under R2 Object
+Storage, before anything can use it. To run without attachments instead, delete the
+`r2_buckets` lines from `wrangler.jsonc` before deploying; uploads then answer that they are not
+set up.
 
 There are two ways to deploy: the button, which also sets up deploys on every push, or the
 command line.
@@ -15,7 +21,7 @@ The button copies this repository to your GitHub or GitLab account and connects 
 Workers Builds, so every push to its main branch deploys. On the form:
 
 - **Project name** names the Worker. It answers on `<project name>.<your subdomain>.workers.dev`.
-- **D1 database**: choose **Create new**.
+- **D1 database** and **R2 bucket**: choose **Create new**.
 - **BETTER_AUTH_SECRET** signs sessions. Use a long random string, for example from
   `openssl rand -base64 32`, and keep it secret. Changing it later signs everyone out.
 - Leave the build and deploy commands as they are. The deploy command applies the database
@@ -47,7 +53,7 @@ pnpm run deploy
 its database are named `gateweave-track`; to use other names, change `name` and `database_name`
 in `wrangler.jsonc` before the first deploy.
 
-The first deploy creates the D1 database and the Durable Object namespace, generates
+The first deploy creates the D1 database, the R2 bucket and the Durable Object namespace, generates
 `BETTER_AUTH_SECRET` (it is never shown), then applies the migrations. Every later
 `pnpm run deploy` builds, applies new migrations, and only then deploys.
 

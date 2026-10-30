@@ -15,12 +15,15 @@ flowchart LR
     Auth["Better Auth<br/>/api/auth/*"]
     Gateway["Sync gateway<br/>/api/sync/:slug/*"]
     Mcp["MCP gateway<br/>/mcp"]
+    Files["File gateway<br/>/api/files/*"]
   end
   Auth --> D1[("D1<br/>users, sessions,<br/>workspaces, members,<br/>OAuth clients, agent keys")]
   Gateway -- "checks session + membership" --> D1
   Gateway -- "RPC / WebSocket" --> DO
   Mcp -- "checks token + membership" --> D1
   Mcp -- "RPC" --> DO
+  Files -- "checks session + membership" --> D1
+  Files --> R2[("R2<br/>attached files")]
   Auth -- "membership hooks (RPC)" --> DO
   subgraph DO["WorkspaceDO (one per workspace)"]
     SQLite[("SQLite<br/>teams, issues, labels,<br/>projects, comments, activity,<br/>members, oplog")]
@@ -35,6 +38,7 @@ Everything ships as **one Worker**:
 - **D1** stores identity and the workspace directory.
 - **One Durable Object per workspace** (`WorkspaceDO`, in `packages/sync-server`) stores that
   workspace's content in its own SQLite database and fans changes out to connected clients.
+- **R2** keeps the files attached to descriptions and comments.
 
 A single deployable means one `wrangler deploy`, and the client and the sync server can never run
 different protocol versions in production. It also gives self-hosters one thing to set up.
@@ -63,6 +67,7 @@ different protocol versions in production. It also gives self-hosters one thing 
 | Issue activity (history)            | Workspace DO | `sync-server`, from issue writes   |
 | Webhooks, their secrets, deliveries | Workspace DO | `sync-server`, managed by admins   |
 | Member replica (name, avatar, role) | Workspace DO | Pushed from D1 by membership hooks |
+| Attached files                      | R2           | The file gateway                   |
 
 The DO keeps a replica of membership for two reasons: it authorizes writes (for example, only
 admins manage teams) and clients need member names to render assignees. Better Auth hooks push
@@ -463,6 +468,38 @@ removed. To keep the history readable:
 Deleting an issue sends delete ops for its comments, activity and proposals ahead of the issue's
 own, so clients drop them together. Deleting a label records nothing, and entries about it read
 as "a deleted label".
+
+### Markdown and attached files
+
+Descriptions and comments are Markdown, GitHub's flavor (tables, task lists, strikethrough),
+rendered by react-markdown with remark-gfm in a chunk of its own that issue pages load. HTML in
+the text shows as text and links keep only safe protocols. Links to other sites open in a new tab
+with `noreferrer`. Only files attached in the workspace show as images: an image from anywhere
+else is a link, because loading it would tell its host who read the issue and when. Task lists
+show as written; ticking one is editing the text.
+
+Files live in R2, not in the Durable Object, under `<workspaceId>/<fileId>/<name>`, and the text
+links them by the app's path to them, `/api/files/<workspaceId>/<fileId>/<name>`. There is no
+table of files: the link is the reference, so a file's name and type travel with it, and a
+workspace's files are one prefix in the bucket.
+
+- **The browser makes the link first.** It picks the file's id (a random UUID), puts the link in
+  the text at the caret, and uploads behind it with `PUT`, so typing goes on while a large file
+  uploads. A failed upload says so and leaves the link to remove. Offline, nothing is attached;
+  an outbox for uploads is still to come.
+- **The file gateway** (`apps/web/src/server/files.ts`) runs before TanStack Start, as the sync
+  gateway does, so uploads stream to R2 unread. It takes the session, checks membership in D1 by
+  the workspace id in the path, and answers non-members with the same 404 as a missing file.
+  Uploads must come from the app's origin, name a length up to 25 MB, and use a name the browser
+  cleaned (`attachmentName` in `apps/web/src/lib/attachments.ts`), so the key has no path
+  tricks. An id in use is refused, so a file never changes under its link.
+- **A file never runs as a page of the app.** Images (not SVG), audio, video and plain text are
+  served inline; everything else as `application/octet-stream` to download. Every response is
+  `nosniff`, sandboxed by its Content-Security-Policy and same-origin only. Files cache in the
+  browser for a year, privately: a link always means the same bytes.
+- **Deleting a workspace deletes its files**, after the response, a page of keys at a time.
+  There is no quota yet, and a file stays when the text that linked it changes. The demo has no
+  bucket and refuses uploads.
 
 ### Proposals
 

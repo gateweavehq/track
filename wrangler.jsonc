@@ -27,6 +27,9 @@
 	// Email through Cloudflare Email Service. Nothing is sent until EMAIL_FROM names a sender on a
 	// domain onboarded to Email Sending; without it, Track runs with email off.
 	"send_email": [{ "name": "EMAIL" }],
+	// Files attached to descriptions and comments. The bucket is created on first deploy; without
+	// this binding Track runs with attachments off.
+	"r2_buckets": [{ "binding": "FILES", "bucket_name": "gateweave-track-files" }],
 	// Optional: GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, BETTER_AUTH_URL, EMAIL_FROM
 	// (see src/server/env.d.ts).
 	"secrets": { "required": ["BETTER_AUTH_SECRET"] },
@@ -49,6 +52,7 @@
 				]
 			},
 			"send_email": [{ "name": "EMAIL" }],
+			"r2_buckets": [{ "binding": "FILES", "bucket_name": "gateweave-track-files-staging" }],
 			"secrets": { "required": ["BETTER_AUTH_SECRET"] }
 		},
 		// Gateweave's public demo. Every visitor gets a private sandbox workspace, deleted after a
@@ -74,7 +78,7 @@
 					{ "name": "RATE_LIMITER", "class_name": "RateLimiter" }
 				]
 			},
-			// No send_email binding: the demo sends no email.
+			// No send_email or R2 binding: the demo sends no email and keeps no files.
 			"secrets": { "required": ["BETTER_AUTH_SECRET"] }
 		}
 	}

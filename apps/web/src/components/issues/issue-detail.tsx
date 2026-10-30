@@ -1,8 +1,9 @@
 import { calendarDate, type Issue, type Team } from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link, useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
-import { ChevronRight, Gauge, Layers, ListTree, Trash, X } from "lucide-react";
+import { ChevronRight, Gauge, Layers, ListTree, Pencil, Trash, X } from "lucide-react";
 import { type ReactNode, type Ref, useCallback, useEffect, useRef, useState } from "react";
+import { Markdown } from "#/components/markdown";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { ProjectStatusIcon } from "#/components/projects/meta";
 import { Button } from "#/components/ui/button";
@@ -22,6 +23,7 @@ import { estimateLabel, isIssueOverdue, issueKey } from "#/lib/issues";
 import { send, useUpdateIssue } from "#/lib/mutations";
 import { useIssueById, useMembersById, useProject, useTeamsById } from "#/lib/queries";
 import { cn } from "#/lib/utils";
+import { AttachButton, useAttachFiles } from "./attach-files";
 import { IssueActivity } from "./issue-activity";
 import { ParentPicker } from "./issue-picker";
 import { IssueProposals } from "./issue-proposals";
@@ -480,19 +482,82 @@ function DescriptionField({ issue }: { issue: Issue }) {
 		1000,
 	);
 
+	const [editing, setEditing] = useState(false);
+	const textarea = useRef<HTMLTextAreaElement>(null);
+	const files = useAttachFiles(textarea, (next) => {
+		field.start();
+		field.change(next);
+	});
+
+	// Opening the editor from the rendered text puts the caret at its end.
+	useEffect(() => {
+		const element = textarea.current;
+		if (!editing || !element || document.activeElement === element) return;
+		element.focus();
+		element.setSelectionRange(element.value.length, element.value.length);
+	}, [editing]);
+
+	if (!editing && field.value.trim()) {
+		return (
+			<div className="group/description relative">
+				{/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: a click in the text is a shortcut; the edit button is the way for keyboards */}
+				<div
+					className="cursor-text pr-8"
+					onClick={(event) => {
+						// Links do what links do, and selecting text is not asking to edit it.
+						if (event.target instanceof Element && event.target.closest("a, input")) return;
+						if (window.getSelection()?.toString()) return;
+						setEditing(true);
+					}}
+				>
+					<Markdown source={field.value} />
+				</div>
+				<Button
+					variant="ghost"
+					size="icon"
+					aria-label="Edit description"
+					title="Edit description"
+					className="absolute top-0 right-0 size-7 text-muted-foreground opacity-0 group-hover/description:opacity-100 focus-visible:opacity-100"
+					onClick={() => setEditing(true)}
+				>
+					<Pencil />
+				</Button>
+			</div>
+		);
+	}
+
 	return (
-		<textarea
-			value={field.value}
-			onFocus={field.start}
-			onChange={(event) => field.change(event.target.value)}
-			onBlur={field.finish}
-			onKeyDown={(event) => {
-				if (event.key === "Escape") event.currentTarget.blur();
-			}}
-			placeholder="Add a description…"
-			aria-label="Description"
-			className="field-sizing-content min-h-40 w-full resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
-		/>
+		<div>
+			<textarea
+				ref={textarea}
+				value={field.value}
+				onFocus={() => {
+					field.start();
+					setEditing(true);
+				}}
+				onChange={(event) => field.change(event.target.value)}
+				onBlur={() => {
+					// The window losing focus, to the file picker or another app, is not leaving the
+					// field. Focus comes back here with the window; the draft saves meanwhile.
+					if (!document.hasFocus()) return;
+					field.finish();
+					setEditing(false);
+				}}
+				onKeyDown={(event) => {
+					if (event.key === "Escape") event.currentTarget.blur();
+				}}
+				{...files?.handlers}
+				placeholder="Add a description…"
+				aria-label="Description"
+				className="field-sizing-content min-h-40 w-full resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
+			/>
+			{editing && (
+				<div className="flex items-center gap-1 text-xs text-muted-foreground">
+					{files && <AttachButton label="Attach files to the description" onFiles={files.attach} />}
+					<span>Markdown{files && ". Paste or drop files to attach them"}.</span>
+				</div>
+			)}
+		</div>
 	);
 }
 
