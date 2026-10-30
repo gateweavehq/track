@@ -42,6 +42,21 @@ export function formatDay(date: string): string {
 	return parsed ? day.format(parsed) : date;
 }
 
+const full = new Intl.DateTimeFormat(undefined, { dateStyle: "full" });
+const weekday = new Intl.DateTimeFormat(undefined, { weekday: "short" });
+
+/** "Thursday, December 31, 2026", for labels. */
+export function formatFullDay(date: string): string {
+	const parsed = parseDay(date);
+	return parsed ? full.format(parsed) : date;
+}
+
+/** "Thu", for a column heading. */
+export function formatWeekday(date: string): string {
+	const parsed = parseDay(date);
+	return parsed ? weekday.format(parsed) : date;
+}
+
 /** "Dec 31" for lists, with the year when it is not this year's. */
 export function formatShortDay(date: string, now = new Date()): string {
 	const parsed = parseDay(date);
@@ -62,13 +77,15 @@ export function addDays(date: string, days: number): string {
 	return toDay(parsed);
 }
 
-function parseDay(date: string): Date | null {
+/** A calendar day as a local-midnight `Date`, or null if it is malformed. */
+export function parseDay(date: string): Date | null {
 	const [year, month, dayOfMonth] = date.split("-").map(Number);
 	if (!year || !month || !dayOfMonth) return null;
 	return new Date(year, month - 1, dayOfMonth);
 }
 
-function toDay(date: Date): string {
+/** The `YYYY-MM-DD` of a local `Date`. */
+export function toDay(date: Date): string {
 	const pad = (value: number) => String(value).padStart(2, "0");
 	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }

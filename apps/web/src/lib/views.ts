@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { z } from "zod";
 import { DUE_FILTERS } from "./issues";
 
-export const ISSUE_VIEWS = ["list", "board"] as const;
+export const ISSUE_VIEWS = ["list", "board", "calendar"] as const;
 export type IssueView = (typeof ISSUE_VIEWS)[number];
 
 /**
@@ -22,7 +22,7 @@ const storageKey = (scope: string) => `track.view.${scope}`;
 function readView(scope: string): IssueView | null {
 	try {
 		const value = localStorage.getItem(storageKey(scope));
-		return value === "list" || value === "board" ? value : null;
+		return ISSUE_VIEWS.find((view) => view === value) ?? null;
 	} catch {
 		// Storage can be unavailable, for example in a locked-down private window.
 		return null;
