@@ -1,5 +1,5 @@
 import type { IssuePriority, IssueStatus } from "@gateweave/track-protocol";
-import type { ImportedIssue, ImportSource } from "./plan";
+import type { ImportedIssue, ImportedPerson, ImportSource } from "./plan";
 
 // Issues from a CSV file: Track's own export, read back by its headers, or a spreadsheet from
 // elsewhere whose columns go by common names. One row is one issue; there are no comments.
@@ -118,7 +118,7 @@ export function readCsvImport(text: string, knownLabels: readonly string[] = [])
 			status: toStatus(cell(row, "status")),
 			priority: toPriority(cell(row, "priority")),
 			labels: splitLabels(cell(row, "labels"), known),
-			assignee: cell(row, "assignee") || null,
+			assignee: toPerson(cell(row, "assignee")),
 			project: cell(row, "project") || null,
 			parentSourceId: cell(row, "parent") || null,
 			startDate: toDay(cell(row, "startDate")),
@@ -137,6 +137,12 @@ export function readCsvImport(text: string, knownLabels: readonly string[] = [])
 		}
 	}
 	return { source: { name: "CSV", issues }, ignored };
+}
+
+/** An assignee column holds an email or a name. */
+function toPerson(value: string): ImportedPerson | null {
+	if (!value) return null;
+	return { name: value, email: value.includes("@") ? value : null };
 }
 
 /** Track's export puts a quote before text a spreadsheet would run as a formula. */

@@ -15,6 +15,7 @@ test("an admin imports issues from a CSV file, and importing it again skips them
 	const { slug } = await startWorkspace(page);
 	await page.goto(`/${slug}/settings/import`);
 	const chooseFile = async () => {
+		await page.getByRole("button", { name: "CSV file" }).click();
 		await page.locator('input[type="file"]').setInputFiles({
 			name: "old-tracker.csv",
 			mimeType: "text/csv",
@@ -61,6 +62,7 @@ test("an admin imports issues from a CSV file, and importing it again skips them
 test("a CSV file without titles is explained, not imported", async ({ page }) => {
 	const { slug } = await startWorkspace(page);
 	await page.goto(`/${slug}/settings/import`);
+	await page.getByRole("button", { name: "CSV file" }).click();
 	await page.locator('input[type="file"]').setInputFiles({
 		name: "keys.csv",
 		mimeType: "text/csv",
@@ -69,4 +71,124 @@ test("a CSV file without titles is explained, not imported", async ({ page }) =>
 	await expect(page.getByRole("alert")).toHaveText(
 		'The file needs a column of titles, named "Title", "Summary" or "Name".',
 	);
+});
+
+// GitHub and Linear are stood in for at the browser's edge, so the tests need neither, nor a token.
+test("an admin imports a GitHub repository's issues and comments", async ({ page }) => {
+	const { slug } = await startWorkspace(page);
+	const asked: (string | null)[] = [];
+	await page.context().route("https://api.github.com/**", async (route) => {
+		const url = new URL(route.request().url());
+		asked.push(route.request().headers().authorization ?? null);
+		const answers: Record<string, unknown> = {
+			"/repos/acme/api": { id: 42, full_name: "acme/api" },
+			"/repos/acme/api/issues": [
+				{
+					number: 1,
+					title: "Crash on save",
+					body: "Saving a **large** file crashes.",
+					state: "open",
+					labels: [{ name: "bug", color: "d73a4a" }],
+					assignee: { login: "octocat" },
+					milestone: null,
+					created_at: "2024-05-01T09:00:00Z",
+					html_url: "https://github.com/acme/api/issues/1",
+					comments: 1,
+				},
+				{ number: 2, title: "Add retries", pull_request: {}, comments: 0 },
+			],
+			"/repos/acme/api/issues/comments": [
+				{
+					id: 9,
+					issue_url: "https://api.github.com/repos/acme/api/issues/1",
+					body: "Same here.",
+					user: { login: "hubot" },
+					created_at: "2024-05-02T09:00:00Z",
+				},
+			],
+		};
+		const body = answers[url.pathname];
+		await route.fulfill(
+			body
+				? { json: body, headers: { "Access-Control-Allow-Origin": "*" } }
+				: { status: 404, json: {}, headers: { "Access-Control-Allow-Origin": "*" } },
+		);
+	});
+
+	await page.goto(`/${slug}/settings/import`);
+	await page.getByLabel("Repository").fill("https://github.com/acme/api");
+	await page.getByLabel("Access token").fill("ghp_test");
+	await page.getByRole("button", { name: "Read issues" }).click();
+	await expect(page.getByText("From GitHub: 1 issue and 1 comment.")).toBeVisible();
+	await expect(page.getByText("1 pull request left out.")).toBeVisible();
+	expect(asked.every((authorization) => authorization === "Bearer ghp_test")).toBe(true);
+	await page.getByRole("button", { name: "Import 1 issue" }).click();
+	await expect(page.getByRole("status")).toHaveText("Imported 1 issue and 1 comment.");
+
+	await page.goto(`/${slug}/issue/ENG-1`);
+	await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue("Crash on save");
+	await expect(page.getByRole("link", { name: "acme/api#1" })).toHaveAttribute(
+		"href",
+		"https://github.com/acme/api/issues/1",
+	);
+	await expect(page.getByText("Assigned in GitHub to octocat.")).toBeVisible();
+	await expect(page.getByText("hubot wrote in GitHub:")).toBeVisible();
+	await expect(page.getByText("Same here.")).toBeVisible();
+});
+
+test("an admin picks a Linear team and imports its issues", async ({ page }) => {
+	const { slug } = await startWorkspace(page);
+	await page.context().route("https://api.linear.app/graphql", async (route) => {
+		const { query } = route.request().postDataJSON() as { query: string };
+		const operation = /query (\w+)/.exec(query)?.[1];
+		const list = (nodes: unknown[]) => ({
+			nodes,
+			pageInfo: { hasNextPage: false, endCursor: null },
+		});
+		const data =
+			operation === "Teams"
+				? { teams: list([{ id: "t-ops", key: "OPS", name: "Operations" }]) }
+				: operation === "Issues"
+					? {
+							issues: list([
+								{
+									id: "a",
+									identifier: "OPS-7",
+									title: "Rotate the keys",
+									description: "Every quarter.",
+									priority: 2,
+									estimate: 3,
+									dueDate: "2024-07-01",
+									createdAt: "2024-06-01T09:00:00.000Z",
+									url: "https://linear.app/acme/issue/OPS-7",
+									state: { name: "In Review", type: "started" },
+									assignee: null,
+									project: { name: "Security" },
+									parent: null,
+									labels: { nodes: [{ name: "Chore", color: "#5e6ad2" }] },
+								},
+							]),
+						}
+					: { comments: list([]) };
+		await route.fulfill({ json: { data }, headers: { "Access-Control-Allow-Origin": "*" } });
+	});
+
+	await page.goto(`/${slug}/settings/import`);
+	await page.getByRole("button", { name: "Linear" }).click();
+	await page.getByLabel("API key").fill("lin_api_test");
+	await page.getByRole("button", { name: "Connect" }).click();
+	await expect(page.getByLabel("Linear team")).toHaveValue("t-ops");
+	await page.getByRole("button", { name: "Read issues" }).click();
+	await expect(page.getByText("From Linear: 1 issue.")).toBeVisible();
+	await expect(page.getByText("New labels: Chore.")).toBeVisible();
+	await expect(page.getByText("New projects: Security.")).toBeVisible();
+	await page.getByRole("button", { name: "Import 1 issue" }).click();
+	await expect(page.getByRole("status")).toHaveText("Imported 1 issue.");
+
+	await page.goto(`/${slug}/issue/ENG-1`);
+	await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue("Rotate the keys");
+	const properties = page.getByRole("complementary", { name: "Properties" });
+	await expect(properties.getByRole("button", { name: /^In Review/ })).toBeVisible();
+	await expect(properties.getByRole("button", { name: /^High/ })).toBeVisible();
+	await expect(page.getByRole("link", { name: "OPS-7" })).toBeVisible();
 });

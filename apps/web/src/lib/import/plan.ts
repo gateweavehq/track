@@ -41,7 +41,7 @@ export interface ImportedIssue {
 	/** Label names. Missing labels are created. */
 	labels: string[];
 	/** Matched to a member by email, then by name. Unmatched, the name is kept in the text. */
-	assignee: string | null;
+	assignee: ImportedPerson | null;
 	/** A project's name. Missing projects are created. */
 	project: string | null;
 	/** The `sourceId` of the parent, when the parent is in the same import. */
@@ -58,12 +58,26 @@ export interface ImportedIssue {
 	comments: ImportedComment[];
 }
 
+export interface ImportedPerson {
+	/** A name or a username, as the source shows it. */
+	name: string;
+	email: string | null;
+}
+
 export interface ImportedComment {
 	sourceId: string;
 	body: string;
 	/** Who wrote it in the source. The comment is the importer's, so the text says so. */
 	author: string | null;
 	createdAt: number | null;
+}
+
+/** What an importer that reads from another service's API takes, besides the source. */
+export interface ReadOptions {
+	/** Stands in for the global `fetch` in tests. */
+	fetch?: typeof fetch;
+	signal?: AbortSignal;
+	onProgress?: (read: { issues: number; comments: number }) => void;
 }
 
 /** The part of a workspace an import reads, to match names and skip what is there. */
@@ -178,7 +192,11 @@ export async function planImport(
 					id,
 					teamId,
 					title: oneLine(issue.title) || "Untitled",
-					description: describe(issue, source.name, assignee ? null : issue.assignee),
+					description: describe(
+						issue,
+						source.name,
+						assignee ? null : (issue.assignee?.name ?? null),
+					),
 					status: issue.status,
 					priority: issue.priority,
 					assigneeId: assignee?.id ?? null,
@@ -250,11 +268,12 @@ function lastSortOrder(issues: Iterable<Issue>): string | null {
 	return last;
 }
 
-function findMember(members: readonly Member[], who: string): Member | null {
-	const folded = who.trim().toLowerCase();
+function findMember(members: readonly Member[], person: ImportedPerson): Member | null {
+	const email = person.email?.trim().toLowerCase();
+	const name = person.name.trim().toLowerCase();
 	return (
-		members.find((member) => member.email.toLowerCase() === folded) ??
-		members.find((member) => member.name.toLowerCase() === folded) ??
+		(email ? members.find((member) => member.email.toLowerCase() === email) : undefined) ??
+		members.find((member) => member.name.toLowerCase() === name) ??
 		null
 	);
 }

@@ -35,7 +35,7 @@ describe("readCsvImport", () => {
 				labels: ["auth; bug"],
 				estimate: 5,
 				dueDate: "2026-11-20",
-				assignee: "ada@example.test",
+				assignee: { name: "ada@example.test", email: "ada@example.test" },
 			},
 		]);
 	});
@@ -148,7 +148,7 @@ describe("a Track export read back", () => {
 				description: "Line one\nLine, two",
 				status: "in_review",
 				priority: 1,
-				assignee: "ada@example.test",
+				assignee: { email: "ada@example.test" },
 				labels: ["Bug", "UI, web"],
 				dueDate: "2026-11-20",
 				estimate: 3,

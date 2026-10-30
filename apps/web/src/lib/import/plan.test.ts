@@ -88,7 +88,7 @@ describe("planImport", () => {
 				title: "  Crash   on\nsave ",
 				description: "It crashes.",
 				labels: ["bug", "Needs triage", "needs triage"],
-				assignee: "octocat",
+				assignee: { name: "octocat", email: null },
 				project: "launch",
 				createdAt: Date.UTC(2024, 0, 2),
 				url: "https://github.com/acme/api/issues/2",
@@ -108,7 +108,7 @@ describe("planImport", () => {
 			imported({
 				sourceId: "github:1#1",
 				title: "Epic",
-				assignee: "ADA@example.test",
+				assignee: { name: "Ada", email: "ADA@example.test" },
 				project: "Roadmap",
 				createdAt: Date.UTC(2024, 0, 1),
 				dueDate: "2024-02-30",
