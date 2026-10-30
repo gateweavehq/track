@@ -1,7 +1,7 @@
 import type { Issue, Team } from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link, useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
-import { ChevronRight, Gauge, Layers, ListTree, Pencil, Trash, X } from "lucide-react";
+import { ChevronRight, Gauge, Layers, ListTree, Pencil, Trash } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Markdown } from "#/components/markdown";
 import { MemberAvatar } from "#/components/members/member-avatar";
@@ -15,7 +15,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "#/components/ui/dialog";
-import { Input } from "#/components/ui/input";
 import { useWorkspace } from "#/components/workspace/context";
 import { formatDateTime, formatRelative } from "#/lib/dates";
 import { useHotkeys } from "#/lib/hotkeys";

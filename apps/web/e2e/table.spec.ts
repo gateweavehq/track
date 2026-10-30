@@ -118,7 +118,10 @@ test("on a phone the table scrolls inside itself, not the page", async ({ page }
 test("a long table renders the rows near the screen, and scrolls to the end", async ({ page }) => {
 	const { slug } = await startWorkspace(page);
 	// A CSV import is the quick way to many issues.
-	const titles = Array.from({ length: 150 }, (_, index) => `Bulk issue ${String(index + 1).padStart(3, "0")}`);
+	const titles = Array.from(
+		{ length: 150 },
+		(_, index) => `Bulk issue ${String(index + 1).padStart(3, "0")}`,
+	);
 	await page.goto(`/${slug}/settings/import`);
 	await page.getByRole("button", { name: "CSV file" }).click();
 	await page.locator('input[type="file"]').setInputFiles({
