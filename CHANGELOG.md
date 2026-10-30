@@ -8,6 +8,59 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.7.0] - 2026-10-30
+
+Everything a team moving from another tracker needs on its first day: dates and estimates,
+sub-issues and relations, Markdown with attached files, filters and saved views, calendar, table
+and timeline layouts, and imports from CSV, GitHub and Linear. Updating a self-hosted copy applies
+migrations in each workspace's database, which run on their own; there is no D1 migration this
+time. Attached files need R2: turn it on in the Cloudflare dashboard before updating, and
+`pnpm run deploy` creates the bucket, or delete the `r2_buckets` lines from `wrangler.jsonc` to
+run without attachments. ([#68], [#69])
+
+### Added
+
+- Start dates, due dates and estimates in points on issues. Lists and boards show the due date,
+  in red once an open issue is overdue, and the issue page sets them (D and E). MCP's
+  `create_issue` and `update_issue` take `start_date`, `due_date` and `estimate`. ([#63])
+- Sub-issues: an issue can have a parent in any team, shown above its title, and lists its
+  sub-issues with their progress under the description. Deleting a parent keeps its sub-issues as
+  top-level issues. MCP takes and returns `parent`, and `get_issue` returns `subIssues`. ([#64])
+- Relations between issues in any teams: blocks, duplicate of and related. The issue page lists
+  them by kind, lists and boards mark a blocked issue, and an open duplicate offers "Close as
+  duplicate". MCP has `link_issues` and `unlink_issues`. Relations send no webhook events yet.
+  ([#66])
+- Descriptions and comments are GitHub-flavored Markdown, and files of up to 25 MB can be pasted,
+  dropped or picked into them. Files are kept in R2 and served only to members of the workspace.
+  Images from other sites show as links, so opening an issue tells no one who read it. ([#68])
+- Three more layouts for pages of issues: a calendar by due date, where dragging an issue to a day
+  sets its due date ([#67]); a table with a column per property, editing in place, sorting and a
+  choice of columns ([#73]); and a timeline from start to due date, where dragging a bar moves its
+  dates ([#74]).
+- One Filter menu for status, priority, assignee, project, labels, team and due date. The filters
+  in force show as chips and live in the URL, and an issue created on a filtered page takes them,
+  so it shows up there. ([#75])
+- Saved views: filters and a layout under a name in the sidebar, shared with the workspace or
+  personal. Changes on a view's page are saved into it or as a new view. Personal views are hidden
+  from others in the app but, like everything in a workspace, are in each member's local copy.
+  ([#76])
+- Import issues in Settings > Import from a CSV file (Track's own export, or another tracker's by
+  common column names), from GitHub Issues or from Linear, with their original creation dates. A
+  GitHub token or Linear key goes from the browser to GitHub or Linear only. Running an import
+  again skips what it already brought in. ([#70], [#71])
+- Export a workspace or one team as CSV or JSON, in Settings > Export or from the command palette.
+  ([#65])
+- A new workspace starts with a team and a few issues that show you around, unless that box is
+  unticked, and an empty workspace offers the same. ([#61])
+- MCP: `create_project` and `update_project`. ([#62])
+
+### Changed
+
+- The sync protocol is at version 10, for the new fields and entities. Open tabs fetch their
+  workspace again after the update. ([#63], [#64], [#66], [#76])
+- `issue.create` and `comment.create` take an optional `createdAt`, which only admins may send and
+  the server clamps to now. ([#70])
+
 ## [0.6.0] - 2026-10-30
 
 Webhooks name each issue's labels. Updating a self-hosted copy needs no migration and no new
@@ -285,6 +338,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.7.0]: https://github.com/gateweavehq/track/releases/tag/v0.7.0
 [0.6.0]: https://github.com/gateweavehq/track/releases/tag/v0.6.0
 [0.5.0]: https://github.com/gateweavehq/track/releases/tag/v0.5.0
 [0.4.0]: https://github.com/gateweavehq/track/releases/tag/v0.4.0
@@ -336,3 +390,18 @@ The first pre-release.
 [#53]: https://github.com/gateweavehq/track/pull/53
 [#54]: https://github.com/gateweavehq/track/pull/54
 [#56]: https://github.com/gateweavehq/track/pull/56
+[#61]: https://github.com/gateweavehq/track/pull/61
+[#62]: https://github.com/gateweavehq/track/pull/62
+[#63]: https://github.com/gateweavehq/track/pull/63
+[#64]: https://github.com/gateweavehq/track/pull/64
+[#65]: https://github.com/gateweavehq/track/pull/65
+[#66]: https://github.com/gateweavehq/track/pull/66
+[#67]: https://github.com/gateweavehq/track/pull/67
+[#68]: https://github.com/gateweavehq/track/pull/68
+[#69]: https://github.com/gateweavehq/track/pull/69
+[#70]: https://github.com/gateweavehq/track/pull/70
+[#71]: https://github.com/gateweavehq/track/pull/71
+[#73]: https://github.com/gateweavehq/track/pull/73
+[#74]: https://github.com/gateweavehq/track/pull/74
+[#75]: https://github.com/gateweavehq/track/pull/75
+[#76]: https://github.com/gateweavehq/track/pull/76
