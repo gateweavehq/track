@@ -32,6 +32,8 @@ Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
   join as members of their own, with a key.
 - **Webhooks.** Each change can be posted to a URL of yours as it happens, signed per
   [Standard Webhooks](https://www.standardwebhooks.com) and retried while the receiver is down.
+- **Your data is yours.** Export a workspace or one team as CSV or JSON from Settings, Export. It
+  is built in the browser from its local copy, so it works offline.
 
 ## Tech stack
 
