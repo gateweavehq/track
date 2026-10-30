@@ -64,6 +64,8 @@ function target(issues: Issue[] = [], comments: Comment[] = []): ImportTarget {
 	return {
 		issues: new Map(issues.map((issue) => [issue.id, issue])),
 		comments: new Map(comments.map((comment) => [comment.id, comment])),
+		relations: new Map(),
+		teams: [],
 		labels: [bug],
 		projects: [launch],
 		members: [ada],

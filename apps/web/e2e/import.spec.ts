@@ -1,5 +1,15 @@
+import { readFile } from "node:fs/promises";
 import { expect, test } from "./fixtures";
-import { startWorkspace, syncBadge } from "./helpers";
+import {
+	createFirstTeam,
+	createIssue,
+	createWorkspace,
+	issueRow,
+	startWorkspace,
+	syncBadge,
+	unique,
+	waitForHydration,
+} from "./helpers";
 
 // A spreadsheet from another tracker: its own column names, a parent named by key, and dates.
 const CSV = [
@@ -15,7 +25,7 @@ test("an admin imports issues from a CSV file, and importing it again skips them
 	const { slug } = await startWorkspace(page);
 	await page.goto(`/${slug}/settings/import`);
 	const chooseFile = async () => {
-		await page.getByRole("button", { name: "CSV file" }).click();
+		await page.getByRole("button", { name: "File", exact: true }).click();
 		await page.locator('input[type="file"]').setInputFiles({
 			name: "old-tracker.csv",
 			mimeType: "text/csv",
@@ -59,10 +69,71 @@ test("an admin imports issues from a CSV file, and importing it again skips them
 	await expect(page.getByRole("button", { name: "Import", exact: true })).toBeDisabled();
 });
 
+test("a workspace's JSON export moves into another workspace with comments, relations and teams", async ({
+	page,
+}) => {
+	const { name } = await startWorkspace(page);
+	const api = unique("Ship the API");
+	const mockups = unique("Draw the mockups");
+	await createIssue(page, api);
+	await createIssue(page, mockups);
+	await expect(issueRow(page, mockups)).toBeVisible();
+
+	// The API waits for the mockups, and has a comment.
+	await page.getByRole("link", { name: api }).click();
+	await page.getByRole("button", { name: "Add relation" }).click();
+	await page.getByRole("option", { name: "Blocked by…" }).click();
+	await page.getByPlaceholder("Find the issue that blocks it…").fill(mockups);
+	await page.getByRole("option", { name: mockups }).click();
+	await page.getByRole("textbox", { name: "Comment", exact: true }).fill("Waiting on design.");
+	await page.getByRole("button", { name: "Comment", exact: true }).click();
+	await expect(page.getByRole("article", { name: /^Comment by/ })).toBeVisible();
+	await expect(syncBadge(page)).toHaveText("Live");
+
+	await page.getByRole("link", { name: "Settings" }).first().click();
+	await page
+		.getByRole("navigation", { name: "Settings" })
+		.getByRole("link", { name: "Export" })
+		.click();
+	const download = page.waitForEvent("download");
+	await page.getByRole("button", { name: "Export JSON" }).click();
+	const json = await readFile(await (await download).path(), "utf8");
+
+	// A second workspace, whose only team is not Engineering.
+	await page.goto("/");
+	await waitForHydration(page);
+	const target = await createWorkspace(page);
+	await createFirstTeam(page, target.slug, "CORE");
+	await page.goto(`/${target.slug}/settings/import`);
+	await page.getByRole("button", { name: "File", exact: true }).click();
+	await page.locator('input[type="file"]').setInputFiles({
+		name: "export.json",
+		mimeType: "application/json",
+		buffer: Buffer.from(json),
+	});
+	await expect(page.getByText(`From ${name}: 2 issues, 1 comment and 1 relation.`)).toBeVisible();
+	await expect(page.getByLabel("Into team")).toHaveValue("source-teams");
+	await expect(page.getByText("New teams: Engineering (ENG).")).toBeVisible();
+	await page.getByRole("button", { name: "Import 2 issues" }).click();
+	await expect(page.getByRole("status")).toHaveText("Imported 2 issues, 1 comment and 1 relation.");
+	await expect(syncBadge(page)).toHaveText("Live");
+
+	// The issues keep their team and their order, the comment says who wrote it, and the API is
+	// still blocked by the mockups.
+	await page.goto(`/${target.slug}/issue/ENG-1`);
+	await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue(api);
+	await expect(page.getByRole("list", { name: "Blocked by" }).getByRole("link")).toHaveText(
+		new RegExp(mockups),
+	);
+	const comment = page.getByRole("article", { name: /^Comment by/ });
+	await expect(comment).toContainText(`wrote in ${name}:`);
+	await expect(comment).toContainText("Waiting on design.");
+});
+
 test("a CSV file without titles is explained, not imported", async ({ page }) => {
 	const { slug } = await startWorkspace(page);
 	await page.goto(`/${slug}/settings/import`);
-	await page.getByRole("button", { name: "CSV file" }).click();
+	await page.getByRole("button", { name: "File", exact: true }).click();
 	await page.locator('input[type="file"]').setInputFiles({
 		name: "keys.csv",
 		mimeType: "text/csv",

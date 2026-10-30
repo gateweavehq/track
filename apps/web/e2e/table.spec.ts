@@ -127,7 +127,7 @@ test("a long table renders the rows near the screen, and scrolls to the end", as
 		(_, index) => `Bulk issue ${String(index + 1).padStart(3, "0")}`,
 	);
 	await page.goto(`/${slug}/settings/import`);
-	await page.getByRole("button", { name: "CSV file" }).click();
+	await page.getByRole("button", { name: "File", exact: true }).click();
 	await page.locator('input[type="file"]').setInputFiles({
 		name: "bulk.csv",
 		mimeType: "text/csv",

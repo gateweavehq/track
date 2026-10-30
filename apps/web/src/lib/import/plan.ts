@@ -3,18 +3,23 @@ import {
 	calendarDate,
 	type Issue,
 	type IssuePriority,
+	type IssueRelation,
 	type IssueStatus,
 	type Label,
 	MAX_LABELS_PER_ISSUE,
 	type Member,
 	type MutationInput,
+	mutationSchema,
 	type Project,
+	type ProjectStatus,
+	type RelationType,
+	type Team,
 } from "@gateweave/track-protocol";
 import type { SyncState } from "@gateweave/track-sync-client";
 import { generateKeyBetween } from "fractional-indexing";
 import { defaultLabelColor, findLabelByName } from "#/lib/labels";
 
-// Importing issues from another tracker. Each importer (CSV, GitHub, Linear) reads its source
+// Importing issues from another tracker. Each importer (CSV, JSON, GitHub, Linear) reads its source
 // into an `ImportSource`; everything after that is shared here: matching labels, projects and
 // people, and turning the source into the same mutations people make, sent at a pace the sync
 // client keeps up with. Nothing new on the server but the original dates an admin may keep.
@@ -26,6 +31,10 @@ export interface ImportSource {
 	issues: ImportedIssue[];
 	/** Colors for labels the source names (`#rrggbb`), where it has them, by name in any case. */
 	labelColors?: ReadonlyMap<string, string>;
+	/** What the source says about the projects its issues name, for those that get created. */
+	projects?: ImportedProject[];
+	/** Relations between issues of this import. */
+	relations?: ImportedRelation[];
 }
 
 export interface ImportedIssue {
@@ -46,6 +55,11 @@ export interface ImportedIssue {
 	project: string | null;
 	/** The `sourceId` of the parent, when the parent is in the same import. */
 	parentSourceId: string | null;
+	/**
+	 * The team the source keeps the issue in, where it has teams. Used when the import keeps the
+	 * source's teams: matched by key, else created.
+	 */
+	team?: { key: string; name: string } | null;
 	startDate: string | null;
 	dueDate: string | null;
 	estimate: number | null;
@@ -62,6 +76,22 @@ export interface ImportedPerson {
 	/** A name or a username, as the source shows it. */
 	name: string;
 	email: string | null;
+}
+
+export interface ImportedProject {
+	name: string;
+	description: string | null;
+	status: ProjectStatus;
+	lead: ImportedPerson | null;
+	targetDate: string | null;
+}
+
+export interface ImportedRelation {
+	sourceId: string;
+	type: RelationType;
+	/** The `sourceId`s of the two issues, in the order `IssueRelation` keeps them. */
+	issueSourceId: string;
+	relatedIssueSourceId: string;
 }
 
 export interface ImportedComment {
@@ -84,6 +114,8 @@ export interface ReadOptions {
 export interface ImportTarget {
 	issues: ReadonlyMap<string, Issue>;
 	comments: ReadonlyMap<string, Comment>;
+	relations: ReadonlyMap<string, IssueRelation>;
+	teams: Iterable<Team>;
 	labels: Iterable<Label>;
 	projects: Iterable<Project>;
 	members: Iterable<Member>;
@@ -93,6 +125,8 @@ export function importTargetFrom(state: SyncState): ImportTarget {
 	return {
 		issues: state.issues,
 		comments: state.comments,
+		relations: state.relations,
+		teams: state.teams.values(),
 		labels: state.labels.values(),
 		projects: state.projects.values(),
 		members: state.members.values(),
@@ -100,14 +134,27 @@ export function importTargetFrom(state: SyncState): ImportTarget {
 }
 
 export interface ImportPlan {
-	/** In the order they must be sent: labels and projects, then each issue and its comments. */
+	/**
+	 * In the order they must be sent: each issue after the team, labels and project it needs and
+	 * after its parent, followed by its comments; then the relations between them.
+	 */
 	mutations: MutationInput[];
 	issues: number;
 	comments: number;
-	/** Issues and comments an earlier run imported. */
+	relations: number;
+	/** Issues, comments and relations an earlier run imported. */
 	skipped: number;
+	newTeams: string[];
 	newLabels: string[];
 	newProjects: string[];
+}
+
+export interface ImportOptions {
+	/**
+	 * Puts each issue in the team the source keeps it in, matched by key or created, instead of
+	 * the one team. Issues the source puts in no team still go to that one.
+	 */
+	keepTeams?: boolean;
 }
 
 /** The id an imported item gets in Track: the same for the same source item, every time. */
@@ -122,14 +169,37 @@ export async function planImport(
 	source: ImportSource,
 	target: ImportTarget,
 	teamId: string,
+	{ keepTeams = false }: ImportOptions = {},
 ): Promise<ImportPlan> {
 	const mutations: MutationInput[] = [];
+	const teams = [...target.teams];
 	const labels = [...target.labels];
 	const projects = [...target.projects];
 	// Someone who left the workspace cannot be assigned.
 	const members = [...target.members].filter((member) => member.removedAt === null);
+	const newTeams: string[] = [];
 	const newLabels: string[] = [];
 	const newProjects: string[] = [];
+
+	const teamIds = new Map<string, string>();
+	const teamFor = (issue: ImportedIssue) => {
+		if (!keepTeams || !issue.team) return teamId;
+		const key = issue.team.key.trim().toUpperCase();
+		const known = teamIds.get(key) ?? teams.find((team) => team.key.toUpperCase() === key)?.id;
+		if (known) {
+			teamIds.set(key, known);
+			return known;
+		}
+		const id = crypto.randomUUID();
+		const name = issue.team.name.trim().slice(0, 64) || key;
+		const create: MutationInput = { name: "team.create", args: { id, key, name } };
+		// A key the server would refuse sends the issue to the one team instead.
+		if (!mutationSchema.safeParse(create).success) return teamId;
+		mutations.push(create);
+		newTeams.push(`${name} (${key})`);
+		teamIds.set(key, id);
+		return id;
+	};
 
 	const colors = new Map(
 		[...(source.labelColors ?? [])].map(([name, color]) => [name.trim().toLowerCase(), color]),
@@ -165,7 +235,19 @@ export async function planImport(
 		}
 		const id = crypto.randomUUID();
 		const trimmed = name.trim().slice(0, 64);
-		mutations.push({ name: "project.create", args: { id, name: trimmed } });
+		const about = source.projects?.find((project) => project.name.trim().toLowerCase() === folded);
+		const lead = about?.lead ? findMember(members, about.lead) : null;
+		mutations.push({
+			name: "project.create",
+			args: {
+				id,
+				name: trimmed,
+				description: about?.description?.trim().slice(0, 100_000) || null,
+				status: about?.status ?? "planned",
+				leadId: lead?.id ?? null,
+				targetDate: validDate(about?.targetDate ?? null),
+			},
+		});
 		newProjects.push(trimmed);
 		projectIds.set(folded, id);
 		return id;
@@ -176,6 +258,7 @@ export async function planImport(
 
 	let issues = 0;
 	let comments = 0;
+	let relations = 0;
 	let skipped = 0;
 	let sortOrder = lastSortOrder(target.issues.values());
 	for (const issue of inImportOrder(source.issues)) {
@@ -190,7 +273,7 @@ export async function planImport(
 				name: "issue.create",
 				args: {
 					id,
-					teamId,
+					teamId: teamFor(issue),
 					title: oneLine(issue.title) || "Untitled",
 					description: describe(
 						issue,
@@ -235,7 +318,32 @@ export async function planImport(
 			comments++;
 		}
 	}
-	return { mutations, issues, comments, skipped, newLabels, newProjects };
+	// Last, so both issues of each exist.
+	for (const relation of source.relations ?? []) {
+		const issueId = ids.get(relation.issueSourceId);
+		const relatedIssueId = ids.get(relation.relatedIssueSourceId);
+		if (!issueId || !relatedIssueId || issueId === relatedIssueId) continue;
+		const id = await importId(relation.sourceId);
+		if (target.relations.has(id)) {
+			skipped++;
+			continue;
+		}
+		mutations.push({
+			name: "relation.create",
+			args: { id, type: relation.type, issueId, relatedIssueId },
+		});
+		relations++;
+	}
+	return {
+		mutations,
+		issues,
+		comments,
+		relations,
+		skipped,
+		newTeams,
+		newLabels,
+		newProjects,
+	};
 }
 
 /**
