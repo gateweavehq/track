@@ -23,11 +23,13 @@ function MyIssuesPage() {
 		[navigate],
 	);
 	const setUrlView = useCallback((view: IssueView) => setSearch({ view }), [setSearch]);
-	const [view, setView] = useIssueView(`mine.${workspaceId}`, search.view, setUrlView);
+	const scope = `mine.${workspaceId}`;
+	const [view, setView] = useIssueView(scope, search.view, setUrlView);
 	useDocumentTitle("My issues");
 
 	return (
 		<IssuesPage
+			scope={scope}
 			title="My issues"
 			issues={issues}
 			defaults={{ assigneeId: userId }}

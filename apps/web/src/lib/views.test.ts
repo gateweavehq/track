@@ -15,7 +15,7 @@ describe("issuePageSearch", () => {
 
 	it("drops malformed values instead of failing the page", () => {
 		expect(
-			issuePageSearch.parse({ view: "table", labels: "label-bug", due: "soon", other: "kept out" }),
+			issuePageSearch.parse({ view: "gantt", labels: "label-bug", due: "soon", other: "kept out" }),
 		).toEqual({ view: undefined, labels: undefined, due: undefined });
 		expect(issuePageSearch.parse({ labels: [42] }).labels).toBeUndefined();
 		expect(issuePageSearch.parse({ labels: Array(51).fill("label") }).labels).toBeUndefined();
