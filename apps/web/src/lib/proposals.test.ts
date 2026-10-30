@@ -13,6 +13,7 @@ function issue(id: string, updatedAt: number): Issue {
 		priority: 0,
 		assigneeId: null,
 		projectId: null,
+		parentId: null,
 		startDate: null,
 		dueDate: null,
 		estimate: null,

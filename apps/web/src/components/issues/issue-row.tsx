@@ -6,6 +6,7 @@ import { useWorkspace } from "#/components/workspace/context";
 import { formatDateTime, formatShortDate } from "#/lib/dates";
 import { issueKey } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
+import type { ProjectProgress } from "#/lib/projects";
 import { cn } from "#/lib/utils";
 import { useDraggableIssue } from "./dnd";
 import { DropIndicator } from "./drop-indicator";
@@ -13,13 +14,23 @@ import { LabelChips } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 import { AssigneePicker, PriorityPicker, StatusPicker } from "./pickers";
 import { DueDate, Estimate } from "./schedule";
+import { SubIssueCount } from "./sub-issue-count";
 
-export type IssueField = "status" | "priority" | "assignee" | "project" | "labels" | "estimate";
+export type IssueField =
+	| "status"
+	| "priority"
+	| "assignee"
+	| "project"
+	| "parent"
+	| "labels"
+	| "estimate";
 
 interface IssueRowProps {
 	issue: Issue;
 	team: Team | undefined;
 	assignee: Member | undefined;
+	/** Its sub-issues' progress, if it has any. */
+	subIssues: ProjectProgress | undefined;
 	selected: boolean;
 	/** The property menu open on this row, if any. */
 	menu: IssueField | null;
@@ -37,6 +48,7 @@ export const IssueRow = memo(function IssueRow({
 	issue,
 	team,
 	assignee,
+	subIssues,
 	selected,
 	menu,
 	onMenuChange,
@@ -98,6 +110,7 @@ export const IssueRow = memo(function IssueRow({
 				{issue.title}
 			</Link>
 			<LabelChips labelIds={issue.labelIds} max={2} className="hidden shrink-0 lg:flex" />
+			<SubIssueCount progress={subIssues} className="hidden sm:inline-flex" />
 			<Estimate estimate={issue.estimate} className="hidden sm:inline-flex" />
 			<DueDate issue={issue} />
 			<time

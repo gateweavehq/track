@@ -9,6 +9,7 @@ import {
 	FileText,
 	Gauge,
 	Layers,
+	ListTree,
 	type LucideIcon,
 	Pencil,
 	Plus,
@@ -30,14 +31,16 @@ import { ConfirmDialog } from "#/components/workspace/confirm-dialog";
 import { isAdmin, useMyRole, useWorkspace } from "#/components/workspace/context";
 import { formatDateTime, formatDay, formatRelative } from "#/lib/dates";
 import { MOD_LABEL } from "#/lib/hotkeys";
-import { estimateLabel } from "#/lib/issues";
+import { estimateLabel, issueKey } from "#/lib/issues";
 import { send } from "#/lib/mutations";
 import {
 	useIssueActivity,
 	useIssueComments,
+	useIssuesById,
 	useLabelsById,
 	useMembersById,
 	useProjectsById,
+	useTeamsById,
 } from "#/lib/queries";
 import { LabelChip } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
@@ -112,10 +115,16 @@ function HistoryItem({
 	const members = useMembersById();
 	const labels = useLabelsById();
 	const projects = useProjectsById();
+	const issues = useIssuesById();
+	const teams = useTeamsById();
 	const name = (id: string | null) => (id ? (members.get(id)?.name ?? "Someone") : "nobody");
 	const projectName = (id: string | null) =>
 		id ? (projects.get(id)?.name ?? "a deleted project") : "no project";
-	const { icon, text } = describe(change, actorId, name, labels, projectName);
+	const issueName = (id: string | null) => {
+		const issue = id ? issues.get(id) : undefined;
+		return issue ? `${issueKey(teams.get(issue.teamId), issue)} ${issue.title}` : "a deleted issue";
+	};
+	const { icon, text } = describe(change, actorId, name, labels, projectName, issueName);
 
 	return (
 		<div className="flex items-start gap-2 px-1 text-xs text-muted-foreground">
@@ -138,6 +147,7 @@ function describe(
 	name: (id: string | null) => string,
 	labels: ReadonlyMap<string, Label>,
 	projectName: (id: string | null) => string,
+	issueName: (id: string | null) => string,
 ): { icon: ReactNode; text: ReactNode } {
 	const plain = (Icon: LucideIcon, text: ReactNode) => ({
 		icon: <Icon className="size-3.5" />,
@@ -225,6 +235,22 @@ function describe(
 				</span>,
 			);
 		}
+		case "parent":
+			if (change.to === null) {
+				return plain(ListTree, <>removed the issue from {issueName(change.from)}</>);
+			}
+			return plain(
+				ListTree,
+				change.from === null ? (
+					<>
+						made the issue a sub-issue of <Strong>{issueName(change.to)}</Strong>
+					</>
+				) : (
+					<>
+						moved the issue from {issueName(change.from)} to <Strong>{issueName(change.to)}</Strong>
+					</>
+				),
+			);
 		case "startDate":
 			return plain(CalendarDays, dateText("start date", change.from, change.to));
 		case "dueDate":

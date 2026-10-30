@@ -369,6 +369,29 @@ The Projects page (`/$workspace/projects`) lists them with their lead, target da
 and a project's page (`/$workspace/project/$projectId`) edits its fields above the project's
 issues, shown with the same list and board as a team's.
 
+### Sub-issues
+
+An issue can be part of another, its parent (`parentId`), in any team of the workspace, so large
+work breaks down into pieces that different teams own. The parent is an ordinary field of the
+issue patch, with per-field conflict detection, and each change is recorded in the issue's
+history.
+
+- **No loops.** `issue.create` and `issue.update` refuse a parent that is the issue itself, or
+  is under it at any depth (`invalid`), and one that is missing or deleted (`not_found`). The
+  check walks up from the new parent inside the mutation's transaction, so two people making
+  issues each other's parents at the same moment cannot both succeed.
+- **Deleting a parent keeps its sub-issues**, as top-level issues: one issue op each, before the
+  parent's own delete op, and no history, as deleting a project does. So every issue's ancestors
+  are live.
+- **Never proposed.** Like dates and estimates, an agent member sets a parent directly.
+- **Progress is not stored.** The UI counts the sub-issues that are done, out of all that are not
+  canceled, from the local copy, as it does for projects.
+
+The issue page shows the parent above the title and lists sub-issues under the description, with
+a field that adds one in the parent's team. Lists and boards show a parent's progress. Agents set
+`parent` with `create_issue` and `update_issue`, read an issue's sub-issues with `get_issue`,
+and find them with `search_issues`.
+
 ### Dates and estimates
 
 An issue can have a start date and a due date (`startDate`, `dueDate`: `YYYY-MM-DD`, checked to
@@ -398,8 +421,8 @@ admin can delete it.
 Activity, an issue's history, is written by the server as a side effect of issue mutations and
 never by clients. It cannot be forged, needs no prediction, and arrives in the same delta as the
 change it describes. Each entry is one person changing one field: status, priority, assignee,
-title, description, project, start date, due date, estimate, or a label added or removed. To keep
-the history readable:
+title, description, project, parent, start date, due date, estimate, or a label added or
+removed. To keep the history readable:
 
 - Changes by the same person to the same field within five minutes merge into their latest
   entry, keeping the first `from` and the newest `to`. Putting a field back where it started
@@ -419,8 +442,8 @@ People stay in control of agents: for each agent member, an admin chooses which 
 to an issue it only proposes (`agent.update`, kept in the member's `proposes` in the Durable
 Object). The kinds are the title, the description, the status, closing (a status of done or
 canceled, which `status` includes), the priority, the assignee, the project and labels.
-Creating issues, setting dates and estimates, commenting, and managing labels and projects are
-never proposed. An agent proposes nothing until an admin says so.
+Creating issues, setting parents, dates and estimates, commenting, and managing labels and
+projects are never proposed. An agent proposes nothing until an admin says so.
 
 - **The server splits the agent's mutation.** `applyMutation` makes the fields its `proposes`
   does not cover and turns the rest into proposals (`proposals.ts`), in the same transaction.

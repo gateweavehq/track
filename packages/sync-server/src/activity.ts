@@ -80,6 +80,8 @@ export function mergeActivity(
 			return previous.type === "assignee" ? retarget({ ...change, from: previous.from }) : append;
 		case "project":
 			return previous.type === "project" ? retarget({ ...change, from: previous.from }) : append;
+		case "parent":
+			return previous.type === "parent" ? retarget({ ...change, from: previous.from }) : append;
 		case "startDate":
 			return previous.type === "startDate" ? retarget({ ...change, from: previous.from }) : append;
 		case "dueDate":

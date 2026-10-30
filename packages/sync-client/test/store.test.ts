@@ -21,6 +21,7 @@ const issue: Issue = {
 	priority: 0,
 	assigneeId: null,
 	projectId: null,
+	parentId: null,
 	startDate: null,
 	dueDate: null,
 	estimate: null,
@@ -123,6 +124,19 @@ describe("Replica", () => {
 		expect(r.getState().issues.get("i1")).toMatchObject({ dueDate: null, estimate: 3 });
 	});
 
+	it("predicts a new parent, and taking it away", () => {
+		const r = replica();
+		r.addPending(
+			pending("m1", {
+				name: "issue.update",
+				args: { id: "i1", baseVersion: 2, patch: { parentId: "i0" } },
+			}),
+		);
+		expect(r.getState().issues.get("i1")?.parentId).toBe("i0");
+		r.removePending("m1");
+		expect(r.getState().issues.get("i1")?.parentId).toBeNull();
+	});
+
 	it("rebases pending mutations over newer server state", () => {
 		const r = replica();
 		r.addPending(
@@ -159,6 +173,7 @@ describe("Replica", () => {
 				priority: 0,
 				assigneeId: null,
 				projectId: null,
+				parentId: null,
 				startDate: null,
 				dueDate: null,
 				estimate: null,
@@ -240,6 +255,7 @@ describe("Replica", () => {
 					priority: 0,
 					assigneeId: null,
 					projectId: null,
+					parentId: null,
 					startDate: null,
 					dueDate: null,
 					estimate: null,
@@ -527,6 +543,7 @@ describe("Replica", () => {
 						priority: 0,
 						assigneeId: null,
 						projectId: "p1",
+						parentId: null,
 						startDate: null,
 						dueDate: null,
 						estimate: null,
@@ -558,6 +575,7 @@ describe("Replica", () => {
 						priority: 0,
 						assigneeId: null,
 						projectId: "unknown",
+						parentId: null,
 						startDate: null,
 						dueDate: null,
 						estimate: null,

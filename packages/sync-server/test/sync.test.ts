@@ -343,6 +343,97 @@ describe("issues", () => {
 		});
 	});
 
+	it("puts an issue under a parent in any team, and refuses loops", async () => {
+		const { workspace, admin } = await withTeam();
+		await admin.apply({
+			name: "team.create",
+			args: { id: "team-des", key: "DES", name: "Design" },
+		});
+		const launch = await createIssue(admin, "issue-1", "Launch");
+		await admin.apply({
+			name: "issue.create",
+			args: {
+				id: "issue-2",
+				teamId: "team-des",
+				title: "Logo",
+				sortOrder: "a1",
+				parentId: launch.id,
+			},
+		});
+		const logo = await issueOf(admin, "issue-2");
+		await admin.apply({
+			name: "issue.create",
+			args: { id: "issue-3", teamId: TEAM_ID, title: "Sketch", sortOrder: "a2", parentId: logo.id },
+		});
+		const parentOf = (id: string, parentId: string | null) =>
+			admin.mutate({
+				name: "issue.update",
+				args: { id, baseVersion: 0, patch: { parentId } },
+			});
+
+		expect(logo.parentId).toBe(launch.id);
+		expect(await parentOf(launch.id, launch.id)).toMatchObject({
+			type: "reject",
+			reason: "invalid",
+		});
+		expect(await parentOf(launch.id, logo.id)).toMatchObject({ type: "reject", reason: "invalid" });
+		expect(await parentOf(launch.id, "issue-3")).toMatchObject({
+			type: "reject",
+			reason: "invalid",
+		});
+		expect(await parentOf(launch.id, "issue-nope")).toMatchObject({ reason: "not_found" });
+		expect(
+			await admin.mutate({
+				name: "issue.create",
+				args: {
+					id: "issue-4",
+					teamId: TEAM_ID,
+					title: "x",
+					sortOrder: "a3",
+					parentId: "issue-nope",
+				},
+			}),
+		).toMatchObject({ type: "reject", reason: "not_found" });
+		expect((await workspace.issues({ parentId: launch.id, limit: 10 })).map((i) => i.id)).toEqual([
+			"issue-2",
+		]);
+
+		// Moving a sub-issue up the tree is fine, and so is making it top-level.
+		expect(await parentOf("issue-3", launch.id)).toMatchObject({ type: "ack" });
+		expect(await parentOf("issue-3", null)).toMatchObject({ type: "ack" });
+		expect((await issueOf(admin, "issue-3")).parentId).toBeNull();
+	});
+
+	it("keeps sub-issues when their parent is deleted, as top-level issues", async () => {
+		const { workspace, admin } = await withTeam();
+		const viewer = await TestClient.live(workspace, alice);
+		const parent = await createIssue(admin, "issue-1", "Launch");
+		await admin.apply({
+			name: "issue.create",
+			args: { id: "issue-2", teamId: TEAM_ID, title: "Post", sortOrder: "a1", parentId: parent.id },
+		});
+		await viewer.op((op) => op.entity === "issue" && op.id === "issue-2");
+
+		await admin.apply({ name: "issue.delete", args: { id: parent.id } });
+
+		const freed = await viewer.op(
+			(op) =>
+				op.entity === "issue" &&
+				op.id === "issue-2" &&
+				op.op === "put" &&
+				op.data.parentId === null,
+		);
+		const deleted = await viewer.op((op) => op.entity === "issue" && op.op === "delete");
+		expect(freed.version).toBeLessThan(deleted.version);
+		expect(await workspace.issue("issue-2")).toMatchObject({ parentId: null });
+		expect(
+			await admin.mutate({
+				name: "issue.update",
+				args: { id: "issue-2", baseVersion: 0, patch: { parentId: parent.id } },
+			}),
+		).toMatchObject({ type: "reject", reason: "not_found" });
+	});
+
 	it("broadcasts deletes and treats deleted issues as gone", async () => {
 		const { workspace, admin } = await withTeam();
 		const viewer = await TestClient.live(workspace, alice);
@@ -1088,6 +1179,18 @@ describe("activity", () => {
 		]);
 	});
 
+	it("records a change of parent", async () => {
+		const { workspace, admin } = await withTeam();
+		const parent = await createIssue(admin, "issue-1", "Launch");
+		const issue = await createIssue(admin, "issue-2", "Post");
+
+		await update(admin, issue.id, { parentId: parent.id });
+
+		expect(await historyOf(workspace, issue.id)).toEqual([
+			{ actorId: owner.id, change: { type: "parent", from: null, to: parent.id } },
+		]);
+	});
+
 	it("records dates and estimates, merging quick changes", async () => {
 		const { workspace, admin } = await withTeam();
 		const issue = await createIssue(admin, "issue-1");
@@ -1442,20 +1545,22 @@ describe("proposals", () => {
 		await admin.op((op) => op.entity === "proposal" && op.op === "put");
 	});
 
-	it("makes an agent's dates and estimates at once, whatever it is set to propose", async () => {
-		const { workspace, issue, asTriage } = await withAgent([...AGENT_CHANGE_KINDS]);
+	it("makes an agent's parent, dates and estimates at once, whatever it is set to propose", async () => {
+		const { workspace, admin, issue, asTriage } = await withAgent([...AGENT_CHANGE_KINDS]);
+		const parent = await createIssue(admin, "issue-parent", "Launch");
 
 		const result = await asTriage({
 			name: "issue.update",
 			args: {
 				id: issue.id,
 				baseVersion: issue.version,
-				patch: { startDate: "2026-11-02", dueDate: "2026-11-20", estimate: 8 },
+				patch: { parentId: parent.id, startDate: "2026-11-02", dueDate: "2026-11-20", estimate: 8 },
 			},
 		});
 
 		expect(proposed(result)).toEqual([]);
 		expect(await workspace.issue(issue.id)).toMatchObject({
+			parentId: parent.id,
 			startDate: "2026-11-02",
 			dueDate: "2026-11-20",
 			estimate: 8,
@@ -1845,6 +1950,8 @@ describe("search", () => {
 			db.run(sql`alter table issues drop column start_date`);
 			db.run(sql`alter table issues drop column due_date`);
 			db.run(sql`alter table issues drop column estimate`);
+			db.run(sql`drop index issues_parent_idx`);
+			db.run(sql`alter table issues drop column parent_id`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${search.when}`);
 			await migrate(db, migrations);
 		});

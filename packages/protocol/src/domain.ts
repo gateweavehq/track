@@ -73,6 +73,8 @@ export interface Issue {
 	creatorId: string;
 	/** The project the issue belongs to, if any. */
 	projectId: string | null;
+	/** The issue this one is part of, in any team of the workspace. Parents never form a cycle. */
+	parentId: string | null;
 	/** When work should start: `YYYY-MM-DD`, a calendar day with no time zone. */
 	startDate: string | null;
 	/** When it should be done: `YYYY-MM-DD`, a calendar day with no time zone. */
@@ -140,6 +142,7 @@ export type ActivityChange =
 	| { type: "priority"; from: IssuePriority; to: IssuePriority }
 	| { type: "assignee"; from: string | null; to: string | null }
 	| { type: "project"; from: string | null; to: string | null }
+	| { type: "parent"; from: string | null; to: string | null }
 	| { type: "startDate"; from: string | null; to: string | null }
 	| { type: "dueDate"; from: string | null; to: string | null }
 	| { type: "estimate"; from: number | null; to: number | null }
