@@ -6,6 +6,7 @@ import {
 	type Issue,
 	type IssueRelation,
 	MAX_LABELS_PER_ISSUE,
+	MAX_VIEWS,
 	type MutationInput,
 	PING,
 	PONG,
@@ -546,6 +547,159 @@ describe("relations", () => {
 		expect(gone.version).toBeLessThan(deleted.version);
 		expect(await relationsOf(workspace)).toEqual([]);
 		expect(await workspace.relations(blocked.id)).toEqual([]);
+	});
+});
+
+describe("views", () => {
+	const urgentTodo = { statuses: ["todo" as const], priorities: [1 as const] };
+
+	function createView(client: TestClient, id: string, personal = false, name = "Urgent work") {
+		return client.mutate({
+			name: "view.create",
+			args: { id, name, personal, layout: "board", filters: urgentTodo },
+		});
+	}
+
+	async function viewsOf(workspace: Workspace) {
+		const { views } = await snapshotOf(workspace);
+		return views.map(({ id, name, ownerId, creatorId }) => ({ id, name, ownerId, creatorId }));
+	}
+
+	it("saves shared and personal views, which reach every member", async () => {
+		const workspace = freshWorkspace();
+		const author = await TestClient.live(workspace, alice);
+		const other = await TestClient.live(workspace, bob);
+
+		expect(await createView(author, "view-shared")).toMatchObject({ type: "ack" });
+		expect(await createView(author, "view-mine", true, "  Mine  ")).toMatchObject({ type: "ack" });
+		expect(await viewsOf(workspace)).toEqual([
+			{ id: "view-shared", name: "Urgent work", ownerId: null, creatorId: alice.id },
+			{ id: "view-mine", name: "Mine", ownerId: alice.id, creatorId: alice.id },
+		]);
+		expect((await snapshotOf(workspace)).views[0]).toMatchObject({
+			layout: "board",
+			filters: urgentTodo,
+		});
+		// Personal views are hidden in the app, not secret: every replica holds them.
+		const received = await other.op((op) => op.entity === "view" && op.id === "view-mine");
+		expect(received).toMatchObject({ op: "put", data: { ownerId: alice.id } });
+
+		expect(await createView(author, "view-shared")).toMatchObject({
+			type: "reject",
+			reason: "invalid",
+		});
+		expect(
+			await author.mutate({
+				name: "view.create",
+				args: {
+					id: "view-bad",
+					name: "Bad",
+					layout: "board",
+					filters: { statuses: ["nope"] },
+				} as never,
+			}),
+		).toMatchObject({ type: "reject", reason: "invalid" });
+	});
+
+	it("lets the creator and admins change a shared view, and only the owner a personal one", async () => {
+		const workspace = freshWorkspace();
+		const admin = await TestClient.live(workspace, owner);
+		const author = await TestClient.live(workspace, alice);
+		const other = await TestClient.live(workspace, bob);
+		await createView(author, "view-shared");
+		await createView(author, "view-mine", true);
+		const rename = (client: TestClient, id: string, name: string) =>
+			client.mutate({ name: "view.update", args: { id, patch: { name } } });
+
+		expect(await rename(other, "view-shared", "Bob's now")).toMatchObject({
+			type: "reject",
+			reason: "forbidden",
+		});
+		expect(await rename(admin, "view-mine", "Olivia's now")).toMatchObject({
+			type: "reject",
+			reason: "forbidden",
+		});
+		expect(await other.mutate({ name: "view.delete", args: { id: "view-mine" } })).toMatchObject({
+			type: "reject",
+			reason: "forbidden",
+		});
+		expect(await rename(other, "view-nope", "Nothing")).toMatchObject({
+			type: "reject",
+			reason: "not_found",
+		});
+
+		expect(await rename(admin, "view-shared", "Triage")).toMatchObject({ type: "ack" });
+		expect(
+			await author.mutate({
+				name: "view.update",
+				args: { id: "view-shared", patch: { layout: "table", filters: {} } },
+			}),
+		).toMatchObject({ type: "ack" });
+		expect((await snapshotOf(workspace)).views[0]).toMatchObject({
+			name: "Triage",
+			layout: "table",
+			filters: {},
+		});
+
+		// Sharing a personal view hands it to the workspace; making a shared one personal takes it.
+		await author.apply({
+			name: "view.update",
+			args: { id: "view-mine", patch: { personal: false } },
+		});
+		await admin.apply({
+			name: "view.update",
+			args: { id: "view-shared", patch: { personal: true } },
+		});
+		expect(await viewsOf(workspace)).toEqual([
+			{ id: "view-shared", name: "Triage", ownerId: owner.id, creatorId: alice.id },
+			{ id: "view-mine", name: "Urgent work", ownerId: null, creatorId: alice.id },
+		]);
+		expect(await rename(author, "view-shared", "Mine again")).toMatchObject({
+			type: "reject",
+			reason: "forbidden",
+		});
+
+		expect(await admin.mutate({ name: "view.delete", args: { id: "view-mine" } })).toMatchObject({
+			type: "ack",
+		});
+		const deleted = await other.op((op) => op.entity === "view" && op.op === "delete");
+		expect(deleted).toMatchObject({ id: "view-mine" });
+		expect((await viewsOf(workspace)).map(({ id }) => id)).toEqual(["view-shared"]);
+		expect(await admin.mutate({ name: "view.delete", args: { id: "view-mine" } })).toMatchObject({
+			type: "reject",
+			reason: "not_found",
+		});
+	});
+
+	it("holds at most MAX_VIEWS views", async () => {
+		const workspace = freshWorkspace();
+		const author = await TestClient.live(workspace, alice);
+		await createView(author, "view-0");
+		await runInDurableObject(workspace, (_, state) => {
+			const db = drizzle(state.storage, { schema });
+			for (let i = 1; i < MAX_VIEWS; i++) {
+				db.insert(schema.views)
+					.values({
+						id: `view-${i}`,
+						name: `View ${i}`,
+						ownerId: null,
+						layout: "list",
+						filters: {},
+						creatorId: alice.id,
+						createdAt: i,
+						updatedAt: i,
+					})
+					.run();
+			}
+		});
+		expect(await createView(author, "view-more")).toMatchObject({
+			type: "reject",
+			reason: "invalid",
+		});
+		expect(await author.mutate({ name: "view.delete", args: { id: "view-0" } })).toMatchObject({
+			type: "ack",
+		});
+		expect(await createView(author, "view-more")).toMatchObject({ type: "ack" });
 	});
 });
 

@@ -3,7 +3,10 @@ import {
 	type Issue,
 	isAdminRole,
 	MAX_LABELS_PER_ISSUE,
+	MAX_VIEWS,
+	type MemberRole,
 	type ProposedChange,
+	type SavedView,
 } from "@gateweave/track-protocol";
 import type { Draft, PendingMutation } from "./store";
 
@@ -187,6 +190,38 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			draft.delete("relation", mutation.args.id);
 			return;
 		}
+		case "view.create": {
+			const { personal, ...view } = mutation.args;
+			if (draft.get("view", view.id)) return;
+			if ([...draft.values("view")].length >= MAX_VIEWS) return;
+			draft.put("view", {
+				...view,
+				ownerId: personal ? userId : null,
+				creatorId: userId,
+				createdAt: now,
+				updatedAt: now,
+			});
+			return;
+		}
+		case "view.update": {
+			const view = draft.get("view", mutation.args.id);
+			if (!view || !canEditView(view, userId, draft.get("member", userId)?.role)) return;
+			const { personal, ...patch } = mutation.args.patch;
+			draft.put("view", {
+				...view,
+				...patch,
+				...(personal === undefined ? {} : { ownerId: personal ? userId : null }),
+				updatedAt: now,
+			});
+			return;
+		}
+		case "view.delete": {
+			const view = draft.get("view", mutation.args.id);
+			if (view && canEditView(view, userId, draft.get("member", userId)?.role)) {
+				draft.delete("view", view.id);
+			}
+			return;
+		}
 		case "agent.update": {
 			const { id, patch } = mutation.args;
 			const role = draft.get("member", userId)?.role;
@@ -265,4 +300,10 @@ function nextIssueNumber(draft: Draft, teamId: string): number {
 		if (issue.teamId === teamId && issue.number > max) max = issue.number;
 	}
 	return max + 1;
+}
+
+/** The server's rule: a personal view is its owner's; a shared one its creator's and admins'. */
+function canEditView(view: SavedView, userId: string, role: MemberRole | undefined): boolean {
+	if (view.ownerId !== null) return view.ownerId === userId;
+	return view.creatorId === userId || (role !== undefined && isAdminRole(role));
 }

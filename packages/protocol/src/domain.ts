@@ -3,6 +3,8 @@
  * Server-only bookkeeping (field versions, soft-delete markers) never leaves the server.
  */
 
+import type { IssueFilters } from "./filters";
+
 export const ISSUE_STATUSES = [
 	"backlog",
 	"todo",
@@ -276,6 +278,30 @@ export interface Member {
 	removedAt: number | null;
 }
 
+/** The ways a page of issues lays them out. */
+export const ISSUE_LAYOUTS = ["list", "board", "calendar", "table", "timeline"] as const;
+export type IssueLayout = (typeof ISSUE_LAYOUTS)[number];
+
+/** Saved views a workspace holds at most, shared and personal together. */
+export const MAX_VIEWS = 500;
+
+/**
+ * Filters and a layout under a name, for issues across the workspace. A shared view is the
+ * workspace's: its creator and admins change it. A personal one is its owner's alone to change
+ * and to see in the app, though, like every row, it reaches every member's replica.
+ */
+export interface SavedView {
+	id: string;
+	name: string;
+	/** The member a personal view belongs to; null for a shared one. */
+	ownerId: string | null;
+	layout: IssueLayout;
+	filters: IssueFilters;
+	creatorId: string;
+	createdAt: number;
+	updatedAt: number;
+}
+
 export interface Entities {
 	team: Team;
 	issue: Issue;
@@ -285,6 +311,7 @@ export interface Entities {
 	activity: Activity;
 	proposal: Proposal;
 	relation: IssueRelation;
+	view: SavedView;
 	member: Member;
 }
 export type EntityName = keyof Entities;
@@ -297,5 +324,6 @@ export const ENTITY_NAMES = [
 	"activity",
 	"proposal",
 	"relation",
+	"view",
 	"member",
 ] as const satisfies readonly EntityName[];

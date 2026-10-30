@@ -3,6 +3,7 @@ import {
 	AGENT_CHANGE_KINDS,
 	isAdminRole,
 	MAX_LABELS_PER_ISSUE,
+	MAX_VIEWS,
 	type Mutation,
 	type MutationArgs,
 	type ProposedChange,
@@ -32,6 +33,7 @@ import {
 	toProject,
 	toRelation,
 	toTeam,
+	toView,
 } from "./state";
 import { queueDeliveries } from "./webhooks";
 
@@ -118,6 +120,15 @@ export function applyMutation(
 			break;
 		case "relation.delete":
 			deleteRelation(db, changes, actor, mutation.args);
+			break;
+		case "view.create":
+			createView(db, changes, actor, mutation.args);
+			break;
+		case "view.update":
+			updateView(db, changes, actor, mutation.args);
+			break;
+		case "view.delete":
+			deleteView(db, changes, actor, mutation.args);
 			break;
 		case "agent.update":
 			updateAgent(db, changes, actor, mutation.args);
@@ -874,6 +885,69 @@ function importedTime(actor: Actor, changes: ChangeSet, requested: number | unde
 	if (requested === undefined) return changes.now;
 	requireAdmin(actor, "Only admins can import with original dates");
 	return Math.min(requested, changes.now);
+}
+
+function createView(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"view.create">) {
+	if (db.select().from(schema.views).where(eq(schema.views.id, args.id)).get()) {
+		throw new MutationRejected("invalid", "View id already exists");
+	}
+	const count = db.select({ count: sql<number>`count(*)` }).from(schema.views).get()?.count ?? 0;
+	if (count >= MAX_VIEWS) {
+		throw new MutationRejected("invalid", `A workspace holds at most ${MAX_VIEWS} views`);
+	}
+
+	const { personal, ...view } = args;
+	const row: schema.ViewRow = {
+		...view,
+		ownerId: personal ? actor.member.userId : null,
+		creatorId: actor.member.userId,
+		createdAt: changes.now,
+		updatedAt: changes.now,
+	};
+	db.insert(schema.views).values(row).run();
+	changes.put("view", toView(row));
+}
+
+function updateView(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"view.update">) {
+	const view = findEditableView(db, actor, args.id);
+	const { personal, ...patch } = args.patch;
+	// Making a shared view personal makes it the actor's; sharing a personal one gives it to all.
+	const owner = personal === undefined ? {} : { ownerId: personal ? actor.member.userId : null };
+	const row = db
+		.update(schema.views)
+		.set({ ...patch, ...owner, updatedAt: changes.now })
+		.where(eq(schema.views.id, view.id))
+		.returning()
+		.get();
+	if (row) changes.put("view", toView(row));
+}
+
+function deleteView(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"view.delete">) {
+	const view = findEditableView(db, actor, args.id);
+	db.delete(schema.views).where(eq(schema.views.id, view.id)).run();
+	changes.delete("view", view.id);
+}
+
+/**
+ * A view the actor may change: their own personal view, or a shared one they made or, as an
+ * admin, any shared one. Someone else's personal view is not theirs to change, admins included.
+ */
+function findEditableView(db: Db, actor: Actor, id: string): schema.ViewRow {
+	const view = db.select().from(schema.views).where(eq(schema.views.id, id)).get();
+	if (!view) throw new MutationRejected("not_found", "View not found");
+	const allowed =
+		view.ownerId === null
+			? view.creatorId === actor.member.userId || isAdminRole(actor.member.role)
+			: view.ownerId === actor.member.userId;
+	if (!allowed) {
+		throw new MutationRejected(
+			"forbidden",
+			view.ownerId === null
+				? "Only its creator and workspace admins can change a shared view"
+				: "A personal view can only be changed by its owner",
+		);
+	}
+	return view;
 }
 
 function requireAdmin(actor: Actor, message: string) {

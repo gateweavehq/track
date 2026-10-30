@@ -10,12 +10,13 @@ import type {
 	Member,
 	Project,
 	Proposal,
+	SavedView,
 	Team,
 } from "./domain";
 import type { MutationInput } from "./mutations";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";
@@ -96,6 +97,8 @@ export interface Snapshot {
 	proposals: Proposal[];
 	/** Relations between live issues. */
 	relations: IssueRelation[];
+	/** Every saved view, personal ones included. */
+	views: SavedView[];
 	members: Member[];
 }
 
@@ -109,5 +112,6 @@ export const SNAPSHOT_KEYS = {
 	activity: "activities",
 	proposal: "proposals",
 	relation: "relations",
+	view: "views",
 	member: "members",
 } as const satisfies { [E in EntityName]: Exclude<keyof Snapshot, "version"> };

@@ -6,7 +6,9 @@ import {
 	type ActivityChange,
 	type AgentChangeKind,
 	ENTITY_NAMES,
+	ISSUE_LAYOUTS,
 	ISSUE_STATUSES,
+	type IssueFilters,
 	type IssuePriority,
 	MEMBER_ROLES,
 	PROJECT_STATUSES,
@@ -180,6 +182,18 @@ export const proposals = sqliteTable(
  * Replica of workspace membership. The app worker owns membership and pushes changes here.
  * `proposes` is the workspace's own: admins set it with `agent.update`, and pushes leave it be.
  */
+/** Saved views. Deleting one removes its row; nothing refers to a view. */
+export const views = sqliteTable("views", {
+	id: text("id").primaryKey(),
+	name: text("name").notNull(),
+	ownerId: text("owner_id"),
+	layout: text("layout", { enum: ISSUE_LAYOUTS }).notNull(),
+	filters: text("filters", { mode: "json" }).$type<IssueFilters>().notNull(),
+	creatorId: text("creator_id").notNull(),
+	createdAt: integer("created_at").notNull(),
+	updatedAt: integer("updated_at").notNull(),
+});
+
 export const members = sqliteTable("members", {
 	userId: text("user_id").primaryKey(),
 	name: text("name").notNull(),
@@ -271,6 +285,7 @@ export type CommentRow = typeof comments.$inferSelect;
 export type ActivityRow = typeof activities.$inferSelect;
 export type ProposalRow = typeof proposals.$inferSelect;
 export type RelationRow = typeof relations.$inferSelect;
+export type ViewRow = typeof views.$inferSelect;
 export type MemberRow = typeof members.$inferSelect;
 export type WebhookRow = typeof webhooks.$inferSelect;
 export type WebhookDeliveryRow = typeof webhookDeliveries.$inferSelect;

@@ -14,6 +14,7 @@ export interface SyncState {
 	/** Agents' open proposals. */
 	readonly proposals: ReadonlyMap<string, Entities["proposal"]>;
 	readonly relations: ReadonlyMap<string, Entities["relation"]>;
+	readonly views: ReadonlyMap<string, Entities["view"]>;
 	readonly members: ReadonlyMap<string, Entities["member"]>;
 }
 
@@ -36,6 +37,7 @@ const EMPTY: Tables = {
 	activity: new Map(),
 	proposal: new Map(),
 	relation: new Map(),
+	view: new Map(),
 	member: new Map(),
 };
 
@@ -131,6 +133,7 @@ export class Replica {
 			activity: new Map(snapshot.activities.map((row) => [row.id, row])),
 			proposal: new Map(snapshot.proposals.map((row) => [row.id, row])),
 			relation: new Map(snapshot.relations.map((row) => [row.id, row])),
+			view: new Map(snapshot.views.map((row) => [row.id, row])),
 			member: new Map(snapshot.members.map((row) => [row.id, row])),
 		};
 		this.#version = snapshot.version;
@@ -188,6 +191,7 @@ export class Replica {
 			activities: [...this.#confirmed.activity.values()],
 			proposals: [...this.#confirmed.proposal.values()],
 			relations: [...this.#confirmed.relation.values()],
+			views: [...this.#confirmed.view.values()],
 			members: [...this.#confirmed.member.values()],
 		};
 	}
@@ -215,6 +219,7 @@ function toState(tables: Tables, version: number): SyncState {
 		activities: tables.activity,
 		proposals: tables.proposal,
 		relations: tables.relation,
+		views: tables.view,
 		members: tables.member,
 	};
 }

@@ -7,6 +7,7 @@ import type {
 	Member,
 	Project,
 	Proposal,
+	SavedView,
 	Snapshot,
 	Team,
 } from "@gateweave/track-protocol";
@@ -41,6 +42,8 @@ export const toProposal = ({
 }: schema.ProposalRow): Proposal => proposal;
 
 export const toRelation = (relation: schema.RelationRow): IssueRelation => relation;
+
+export const toView = (view: schema.ViewRow): SavedView => view;
 
 export const toMember = ({ userId, ...member }: schema.MemberRow): Member => ({
 	id: userId,
@@ -102,6 +105,12 @@ export function readSnapshot(db: Db): Snapshot {
 			.orderBy(asc(schema.relations.createdAt), asc(schema.relations.id))
 			.all()
 			.map(toRelation),
+		views: db
+			.select()
+			.from(schema.views)
+			.orderBy(asc(schema.views.createdAt), asc(schema.views.id))
+			.all()
+			.map(toView),
 		members: db.select().from(schema.members).all().map(toMember),
 	};
 }

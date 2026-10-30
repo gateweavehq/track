@@ -42,6 +42,7 @@ const snapshot: Snapshot = {
 	activities: [],
 	proposals: [],
 	relations: [],
+	views: [],
 	members: [],
 };
 
@@ -198,6 +199,103 @@ describe("Replica", () => {
 
 		r.addPending(pending("m6", { name: "relation.delete", args: { id: "m3" } }));
 		expect(r.getState().relations.size).toBe(0);
+	});
+
+	it("predicts saved views, and replays them over the server's result", () => {
+		const r = replica();
+		const filters = { statuses: ["todo" as const] };
+		r.addPending(
+			pending("m1", {
+				name: "view.create",
+				args: { id: "v1", name: "Todo", personal: false, layout: "list", filters },
+			}),
+			pending("m2", {
+				name: "view.create",
+				args: { id: "v2", name: "Mine", personal: true, layout: "board", filters: {} },
+			}),
+		);
+		expect(r.getState().views.get("v1")).toEqual({
+			id: "v1",
+			name: "Todo",
+			ownerId: null,
+			layout: "list",
+			filters,
+			creatorId: "alice",
+			createdAt: 100,
+			updatedAt: 100,
+		});
+		expect(r.getState().views.get("v2")?.ownerId).toBe("alice");
+
+		// The server has applied the first; replaying it keeps the server's row.
+		const saved = {
+			id: "v1",
+			name: "Todo",
+			ownerId: null,
+			layout: "list" as const,
+			filters,
+			creatorId: "alice",
+			createdAt: 3,
+			updatedAt: 3,
+		};
+		r.applyOps([{ version: 3, entity: "view", id: "v1", op: "put", data: saved }]);
+		expect(r.getState().views.get("v1")?.createdAt).toBe(3);
+
+		r.addPending(
+			pending("m3", {
+				name: "view.update",
+				args: { id: "v1", patch: { name: "Open", personal: true, layout: "table" } },
+			}),
+		);
+		expect(r.getState().views.get("v1")).toMatchObject({
+			name: "Open",
+			ownerId: "alice",
+			layout: "table",
+			filters,
+		});
+		r.addPending(pending("m4", { name: "view.delete", args: { id: "v2" } }));
+		expect(r.getState().views.has("v2")).toBe(false);
+	});
+
+	it("leaves views the user may not change to the server", () => {
+		const r = replica();
+		const view = (id: string, ownerId: string | null) => ({
+			id,
+			name: id,
+			ownerId,
+			layout: "list" as const,
+			filters: {},
+			creatorId: "bob",
+			createdAt: 3,
+			updatedAt: 3,
+		});
+		const alice = {
+			id: "alice",
+			name: "Alice",
+			email: "alice@example.com",
+			image: null,
+			role: "member" as const,
+			proposes: [],
+			removedAt: null,
+		};
+		r.applyOps([
+			{ version: 3, entity: "view", id: "shared", op: "put", data: view("shared", null) },
+			{ version: 4, entity: "view", id: "bobs", op: "put", data: view("bobs", "bob") },
+			{ version: 5, entity: "member", id: "alice", op: "put", data: alice },
+		]);
+
+		r.addPending(
+			pending("m1", { name: "view.update", args: { id: "shared", patch: { name: "Mine" } } }),
+			pending("m2", { name: "view.delete", args: { id: "bobs" } }),
+		);
+		expect(r.getState().views.get("shared")?.name).toBe("shared");
+		expect(r.getState().views.has("bobs")).toBe(true);
+
+		// An admin changes shared views, but still not someone's personal one.
+		r.applyOps([
+			{ version: 6, entity: "member", id: "alice", op: "put", data: { ...alice, role: "admin" } },
+		]);
+		expect(r.getState().views.get("shared")?.name).toBe("Mine");
+		expect(r.getState().views.has("bobs")).toBe(true);
 	});
 
 	it("predicts deleting an issue takes its relations and frees its sub-issues", () => {

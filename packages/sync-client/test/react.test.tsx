@@ -16,6 +16,7 @@ const snapshot: Snapshot = {
 	activities: [],
 	proposals: [],
 	relations: [],
+	views: [],
 	members: [],
 };
 

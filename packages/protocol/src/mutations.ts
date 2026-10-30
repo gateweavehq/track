@@ -1,12 +1,14 @@
 import { z } from "zod";
 import {
 	AGENT_CHANGE_KINDS,
+	ISSUE_LAYOUTS,
 	ISSUE_PRIORITIES,
 	ISSUE_STATUSES,
 	MAX_LABELS_PER_ISSUE,
 	PROJECT_STATUSES,
 	RELATION_TYPES,
 } from "./domain";
+import { issueFilters } from "./filters";
 
 /** Client-generated ids. UUIDv7 is recommended so ids sort by creation time. */
 const id = z.string().min(1).max(64);
@@ -44,6 +46,7 @@ const importedCreatedAt = z
 	.min(Date.UTC(2000, 0, 1))
 	.optional();
 
+const viewName = z.string().trim().min(1).max(80);
 const nonEmpty = (patch: object) => Object.keys(patch).length > 0;
 
 export const mutationSchema = z.discriminatedUnion("name", [
@@ -191,6 +194,37 @@ export const mutationSchema = z.discriminatedUnion("name", [
 	}),
 	z.object({
 		name: z.literal("relation.delete"),
+		args: z.object({ id }),
+	}),
+	// Any member saves views. A personal one belongs to whoever makes it; a shared one can be
+	// changed by its creator and by admins. `personal` in a patch moves a view between the two.
+	z.object({
+		name: z.literal("view.create"),
+		args: z.object({
+			id,
+			name: viewName,
+			personal: z.boolean().default(false),
+			layout: z.enum(ISSUE_LAYOUTS),
+			filters: issueFilters,
+		}),
+	}),
+	z.object({
+		name: z.literal("view.update"),
+		args: z.object({
+			id,
+			patch: z
+				.object({
+					name: viewName,
+					personal: z.boolean(),
+					layout: z.enum(ISSUE_LAYOUTS),
+					filters: issueFilters,
+				})
+				.partial()
+				.refine(nonEmpty, "Empty patch"),
+		}),
+	}),
+	z.object({
+		name: z.literal("view.delete"),
 		args: z.object({ id }),
 	}),
 	// Admins only. Agents themselves are made in settings, like people's memberships.
