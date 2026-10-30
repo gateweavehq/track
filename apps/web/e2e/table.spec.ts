@@ -100,7 +100,11 @@ test("on a phone the table scrolls inside itself, not the page", async ({ page }
 	const { slug } = await startWorkspace(page);
 	await createIssue(page, unique("Narrow screens"));
 	await page.setViewportSize({ width: 360, height: 740 });
-	await page.goto(`/${slug}/team/ENG?view=table`);
+	await page.goto(`/${slug}/team/ENG`);
+	// On a phone the layouts are in a menu, so the header fits the screen.
+	await page.getByRole("button", { name: "View: List" }).click();
+	await page.getByRole("menuitemradio", { name: "Table" }).click();
+	await expect(page).toHaveURL(/view=table/);
 	await expect(page.getByRole("columnheader", { name: "Updated" })).toBeAttached();
 	// The page is its own scroll container, so it is that, not the document, that must not overflow.
 	const overflow = await page.evaluate(() => {
