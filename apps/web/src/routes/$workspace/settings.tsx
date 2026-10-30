@@ -10,6 +10,7 @@ const TABS = [
 	{ to: "/$workspace/settings/teams", label: "Teams" },
 	{ to: "/$workspace/settings/labels", label: "Labels" },
 	{ to: "/$workspace/settings/webhooks", label: "Webhooks" },
+	{ to: "/$workspace/settings/export", label: "Export" },
 ] as const;
 
 function SettingsLayout() {

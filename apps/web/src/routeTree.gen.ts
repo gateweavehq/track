@@ -25,6 +25,7 @@ import { Route as WorkspaceIssueIssueKeyRouteImport } from './routes/$workspace/
 import { Route as WorkspaceProjectProjectIdRouteImport } from './routes/$workspace/project.$projectId'
 import { Route as WorkspaceSettingsIndexRouteImport } from './routes/$workspace/settings.index'
 import { Route as WorkspaceSettingsAgentsRouteImport } from './routes/$workspace/settings.agents'
+import { Route as WorkspaceSettingsExportRouteImport } from './routes/$workspace/settings.export'
 import { Route as WorkspaceSettingsLabelsRouteImport } from './routes/$workspace/settings.labels'
 import { Route as WorkspaceSettingsMembersRouteImport } from './routes/$workspace/settings.members'
 import { Route as WorkspaceSettingsTeamsRouteImport } from './routes/$workspace/settings.teams'
@@ -113,6 +114,11 @@ const WorkspaceSettingsAgentsRoute = WorkspaceSettingsAgentsRouteImport.update({
   path: '/agents',
   getParentRoute: () => WorkspaceSettingsRoute,
 } as any)
+const WorkspaceSettingsExportRoute = WorkspaceSettingsExportRouteImport.update({
+  id: '/export',
+  path: '/export',
+  getParentRoute: () => WorkspaceSettingsRoute,
+} as any)
 const WorkspaceSettingsLabelsRoute = WorkspaceSettingsLabelsRouteImport.update({
   id: '/labels',
   path: '/labels',
@@ -162,6 +168,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
   '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
+  '/$workspace/settings/export': typeof WorkspaceSettingsExportRoute
   '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
@@ -184,6 +191,7 @@ export interface FileRoutesByTo {
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
   '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
+  '/$workspace/settings/export': typeof WorkspaceSettingsExportRoute
   '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
@@ -209,6 +217,7 @@ export interface FileRoutesById {
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
   '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
+  '/$workspace/settings/export': typeof WorkspaceSettingsExportRoute
   '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
@@ -235,6 +244,7 @@ export interface FileRouteTypes {
     | '/$workspace/issue/$issueKey'
     | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
+    | '/$workspace/settings/export'
     | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
     | '/$workspace/settings/teams'
@@ -257,6 +267,7 @@ export interface FileRouteTypes {
     | '/$workspace/issue/$issueKey'
     | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
+    | '/$workspace/settings/export'
     | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
     | '/$workspace/settings/teams'
@@ -281,6 +292,7 @@ export interface FileRouteTypes {
     | '/$workspace/issue/$issueKey'
     | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
+    | '/$workspace/settings/export'
     | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
     | '/$workspace/settings/teams'
@@ -415,6 +427,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceSettingsAgentsRouteImport
       parentRoute: typeof WorkspaceSettingsRoute
     }
+    '/$workspace/settings/export': {
+      id: '/$workspace/settings/export'
+      path: '/export'
+      fullPath: '/$workspace/settings/export'
+      preLoaderRoute: typeof WorkspaceSettingsExportRouteImport
+      parentRoute: typeof WorkspaceSettingsRoute
+    }
     '/$workspace/settings/labels': {
       id: '/$workspace/settings/labels'
       path: '/labels'
@@ -462,6 +481,7 @@ declare module '@tanstack/react-router' {
 
 interface WorkspaceSettingsRouteChildren {
   WorkspaceSettingsAgentsRoute: typeof WorkspaceSettingsAgentsRoute
+  WorkspaceSettingsExportRoute: typeof WorkspaceSettingsExportRoute
   WorkspaceSettingsLabelsRoute: typeof WorkspaceSettingsLabelsRoute
   WorkspaceSettingsMembersRoute: typeof WorkspaceSettingsMembersRoute
   WorkspaceSettingsTeamsRoute: typeof WorkspaceSettingsTeamsRoute
@@ -471,6 +491,7 @@ interface WorkspaceSettingsRouteChildren {
 
 const WorkspaceSettingsRouteChildren: WorkspaceSettingsRouteChildren = {
   WorkspaceSettingsAgentsRoute: WorkspaceSettingsAgentsRoute,
+  WorkspaceSettingsExportRoute: WorkspaceSettingsExportRoute,
   WorkspaceSettingsLabelsRoute: WorkspaceSettingsLabelsRoute,
   WorkspaceSettingsMembersRoute: WorkspaceSettingsMembersRoute,
   WorkspaceSettingsTeamsRoute: WorkspaceSettingsTeamsRoute,

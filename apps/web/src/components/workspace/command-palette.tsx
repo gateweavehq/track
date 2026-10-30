@@ -5,6 +5,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import {
 	ArrowLeftRight,
 	Bot,
+	Download,
 	Inbox,
 	Keyboard,
 	Layers,
@@ -32,6 +33,7 @@ import { issueKey, matchesQuery, parseIssueKey } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
 import { useProjectList, useTeams, useTeamsById } from "#/lib/queries";
 import { search } from "#/lib/search";
+import { useExportIssues } from "#/lib/use-export";
 import { isAdmin, useMyRole, useWorkspace, useWorkspaceActions } from "./context";
 
 interface PaletteCommand {
@@ -75,6 +77,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 	const updateIssue = useUpdateIssue();
 	const params = useParams({ strict: false });
 	const admin = isAdmin(useMyRole());
+	const exportIssues = useExportIssues();
 
 	const parsedKey = parseIssueKey(params.issueKey ?? "");
 	const screenIssue = parsedKey ? findIssue(state, parsedKey.teamKey, parsedKey.number) : undefined;
@@ -174,6 +177,20 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 			icon: Settings,
 			keywords: ["settings", "rename", "key"],
 			run: () => void navigate({ to: "/$workspace/settings/teams", params: { workspace: slug } }),
+		},
+		{
+			id: "export-csv",
+			label: "Export issues as CSV",
+			icon: Download,
+			keywords: ["download", "backup", "spreadsheet"],
+			run: () => exportIssues("csv"),
+		},
+		{
+			id: "export-json",
+			label: "Export issues as JSON",
+			icon: Download,
+			keywords: ["download", "backup"],
+			run: () => exportIssues("json"),
 		},
 		{
 			id: "switch-workspace",
