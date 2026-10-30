@@ -8,6 +8,16 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.7.1] - 2026-10-30
+
+Gets v0.7.0 to production. Updating a self-hosted copy needs nothing beyond what v0.7.0 asks.
+
+### Fixed
+
+- `pnpm run deploy` no longer stops when the Cloudflare API token may not manage R2. If the
+  bucket for attached files already exists, as when it was made by hand, the deploy goes on with
+  a warning; if it is missing, Cloudflare refuses the deploy and says so. ([#79])
+
 ## [0.7.0] - 2026-10-30
 
 Everything a team moving from another tracker needs on its first day: dates and estimates,
@@ -338,6 +348,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.7.1]: https://github.com/gateweavehq/track/releases/tag/v0.7.1
 [0.7.0]: https://github.com/gateweavehq/track/releases/tag/v0.7.0
 [0.6.0]: https://github.com/gateweavehq/track/releases/tag/v0.6.0
 [0.5.0]: https://github.com/gateweavehq/track/releases/tag/v0.5.0
@@ -405,3 +416,4 @@ The first pre-release.
 [#74]: https://github.com/gateweavehq/track/pull/74
 [#75]: https://github.com/gateweavehq/track/pull/75
 [#76]: https://github.com/gateweavehq/track/pull/76
+[#79]: https://github.com/gateweavehq/track/pull/79
