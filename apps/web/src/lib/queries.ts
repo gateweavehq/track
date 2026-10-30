@@ -274,6 +274,45 @@ export function useAssignedIssues(userId: string): Issue[] {
 	return useIssues(useCallback((issue: Issue) => issue.assigneeId === userId, [userId]));
 }
 
+/** An issue by id, such as an issue's parent. Undefined for null and for issues not in the copy. */
+export function useIssueById(id: string | null): Issue | undefined {
+	return useQuery(
+		useCallback((state: SyncState) => (id === null ? undefined : state.issues.get(id)), [id]),
+	);
+}
+
+export function useSubIssues(parentId: string): Issue[] {
+	return useIssues(useCallback((issue: Issue) => issue.parentId === parentId, [parentId]));
+}
+
+const selectSubIssueProgress = (state: SyncState): ReadonlyMap<string, ProjectProgress> => {
+	const grouped = new Map<string, Issue[]>();
+	for (const issue of state.issues.values()) {
+		if (issue.parentId === null) continue;
+		const group = grouped.get(issue.parentId);
+		if (group) group.push(issue);
+		else grouped.set(issue.parentId, [issue]);
+	}
+	return new Map([...grouped].map(([parentId, issues]) => [parentId, projectProgress(issues)]));
+};
+
+function progressByIdEqual(
+	a: ReadonlyMap<string, ProjectProgress>,
+	b: ReadonlyMap<string, ProjectProgress>,
+) {
+	if (a.size !== b.size) return false;
+	for (const [id, progress] of a) {
+		const other = b.get(id);
+		if (!other || other.done !== progress.done || other.total !== progress.total) return false;
+	}
+	return true;
+}
+
+/** Each parent's sub-issues done, out of all that are not canceled, by the parent's id. */
+export function useSubIssueProgress(): ReadonlyMap<string, ProjectProgress> {
+	return useQuery(selectSubIssueProgress, progressByIdEqual);
+}
+
 export function useIssue(teamId: string | undefined, number: number): Issue | undefined {
 	return useQuery(
 		useCallback(

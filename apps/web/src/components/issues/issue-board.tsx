@@ -12,7 +12,8 @@ import {
 import { useHotkeys } from "#/lib/hotkeys";
 import { BOARD_STATUS_ORDER, groupByStatus, issueKey, type StatusGroup } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
-import { useMembersById, useTeamsById } from "#/lib/queries";
+import type { ProjectProgress } from "#/lib/projects";
+import { useMembersById, useSubIssueProgress, useTeamsById } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import { useDragAutoScroll, useDraggableIssue, useIssueDropZone, useIssueMoves } from "./dnd";
 import { DropIndicator } from "./drop-indicator";
@@ -21,6 +22,7 @@ import { LabelChips } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 import { AssigneePicker, PriorityPicker, StatusPicker } from "./pickers";
 import { DueDate, Estimate } from "./schedule";
+import { SubIssueCount } from "./sub-issue-count";
 
 /** The space between cards, in pixels. Drop indicators sit in the middle of it. */
 const CARD_GAP = 8;
@@ -43,6 +45,7 @@ export function IssueBoard({
 }) {
 	const teams = useTeamsById();
 	const members = useMembersById();
+	const subIssues = useSubIssueProgress();
 	const columns = useMemo(() => groupByStatus(issues, BOARD_STATUS_ORDER), [issues]);
 	const moveIssue = useIssueMoves(columns);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -151,6 +154,7 @@ export function IssueBoard({
 							issue={issue}
 							team={teams.get(issue.teamId)}
 							assignee={issue.assigneeId ? members.get(issue.assigneeId) : undefined}
+							subIssues={subIssues.get(issue.id)}
 							selected={issue.id === selectedId}
 							menu={menu?.issueId === issue.id ? menu.field : null}
 							onMenuChange={onMenuChange}
@@ -218,6 +222,7 @@ interface IssueCardProps {
 	issue: Issue;
 	team: Team | undefined;
 	assignee: Member | undefined;
+	subIssues: ProjectProgress | undefined;
 	selected: boolean;
 	menu: IssueField | null;
 	onMenuChange: (issueId: string, menu: IssueField | null) => void;
@@ -230,6 +235,7 @@ const IssueCard = memo(function IssueCard({
 	issue,
 	team,
 	assignee,
+	subIssues,
 	selected,
 	menu,
 	onMenuChange,
@@ -303,6 +309,7 @@ const IssueCard = memo(function IssueCard({
 				</PriorityPicker>
 				<LabelChips labelIds={issue.labelIds} max={3} />
 				<div className="ml-auto flex shrink-0 items-center gap-1.5 pl-1">
+					<SubIssueCount progress={subIssues} />
 					<DueDate issue={issue} />
 					<Estimate estimate={issue.estimate} />
 				</div>

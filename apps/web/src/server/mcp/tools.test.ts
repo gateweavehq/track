@@ -68,6 +68,7 @@ class FakeWorkspace implements WorkspaceAccess {
 			.filter((issue) => !query.statuses || query.statuses.includes(issue.status))
 			.filter((issue) => query.labelId === undefined || issue.labelIds.includes(query.labelId))
 			.filter((issue) => query.projectId === undefined || issue.projectId === query.projectId)
+			.filter((issue) => query.parentId === undefined || issue.parentId === query.parentId)
 			.slice(0, query.limit);
 	}
 	async issue(id: string) {
@@ -385,6 +386,40 @@ describe("Track MCP tools", () => {
 			args: { patch: { dueDate: null, estimate: 0 } },
 		});
 		expect((await created({ title: "Bare" })).dueDate).toBeNull();
+	});
+
+	it("puts an issue under a parent, lists sub-issues, and makes it top-level again", async () => {
+		await created({ title: "Launch" });
+		const child = await created({ title: "Write the post", parent: "eng-1" });
+		expect(child).toMatchObject({ key: "ENG-2", parent: "ENG-1" });
+		expect(workspace.mutations.at(-1)).toMatchObject({
+			name: "issue.create",
+			args: { parentId: workspace.issues_[0]?.id },
+		});
+
+		const parent = await call("get_issue", { workspace: "acme", key: "ENG-1" });
+		expect(parent.structuredContent).toMatchObject({
+			parent: null,
+			subIssues: [{ key: "ENG-2", title: "Write the post" }],
+		});
+		const found = await call("search_issues", { workspace: "acme", parent: "ENG-1" });
+		expect(found.structuredContent).toMatchObject({ issues: [{ key: "ENG-2" }] });
+
+		const moved = await call("update_issue", { workspace: "acme", key: "ENG-2", parent: null });
+		expect(moved.structuredContent).toMatchObject({ parent: null });
+		expect(workspace.mutations.at(-1)).toMatchObject({ args: { patch: { parentId: null } } });
+	});
+
+	it("says which parent it cannot find, without writing", async () => {
+		const result = await call("create_issue", {
+			workspace: "acme",
+			team: "ENG",
+			title: "Orphan",
+			parent: "ENG-99",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content).toEqual([{ type: "text", text: "Issue ENG-99 not found." }]);
+		expect(workspace.mutations).toEqual([]);
 	});
 
 	it("refuses days that do not exist and estimates that are not whole points", async () => {

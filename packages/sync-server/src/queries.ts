@@ -21,6 +21,8 @@ export interface IssueQuery {
 	assigneeId?: string | null | undefined;
 	/** Only issues in this project. */
 	projectId?: string | undefined;
+	/** Only the sub-issues of this issue. */
+	parentId?: string | undefined;
 	/** Only issues with this label. */
 	labelId?: string | undefined;
 	/**
@@ -71,6 +73,7 @@ export function findIssues(db: Db, query: IssueQuery): Issue[] {
 		filters.push(eq(schema.issues.assigneeId, query.assigneeId));
 	}
 	if (query.projectId !== undefined) filters.push(eq(schema.issues.projectId, query.projectId));
+	if (query.parentId !== undefined) filters.push(eq(schema.issues.parentId, query.parentId));
 	if (query.labelId !== undefined) {
 		filters.push(
 			sql`exists (select 1 from json_each(${schema.issues.labelIds}) where value = ${query.labelId})`,

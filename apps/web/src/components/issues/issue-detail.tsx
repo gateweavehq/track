@@ -1,7 +1,7 @@
 import { calendarDate, type Issue, type Team } from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link, useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
-import { ChevronRight, Gauge, Layers, Trash, X } from "lucide-react";
+import { ChevronRight, Gauge, Layers, ListTree, Trash, X } from "lucide-react";
 import { type ReactNode, type Ref, useCallback, useEffect, useRef, useState } from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { ProjectStatusIcon } from "#/components/projects/meta";
@@ -20,9 +20,10 @@ import { formatDateTime, formatRelative } from "#/lib/dates";
 import { useHotkeys } from "#/lib/hotkeys";
 import { estimateLabel, isIssueOverdue, issueKey } from "#/lib/issues";
 import { send, useUpdateIssue } from "#/lib/mutations";
-import { useMembersById, useProject } from "#/lib/queries";
+import { useIssueById, useMembersById, useProject, useTeamsById } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import { IssueActivity } from "./issue-activity";
+import { ParentPicker } from "./issue-picker";
 import { IssueProposals } from "./issue-proposals";
 import type { IssueField } from "./issue-row";
 import { LabelChips, LabelPicker } from "./labels";
@@ -34,6 +35,7 @@ import {
 	ProjectPicker,
 	StatusPicker,
 } from "./pickers";
+import { SubIssues } from "./sub-issues";
 
 export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 	const { slug } = useWorkspace();
@@ -48,6 +50,9 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 	const assignee = issue.assigneeId ? members.get(issue.assigneeId) : undefined;
 	const creator = members.get(issue.creatorId);
 	const project = useProject(issue.projectId ?? "");
+	const parent = useIssueById(issue.parentId);
+	const teams = useTeamsById();
+	const parentKey = parent ? issueKey(teams.get(parent.teamId), parent) : null;
 	const dueDateRef = useRef<HTMLInputElement>(null);
 
 	function back() {
@@ -99,8 +104,22 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 
 			<div className="flex flex-1 flex-col lg:flex-row">
 				<article className="min-w-0 space-y-4 px-6 py-8 lg:flex-1 lg:px-12">
+					{parent && parentKey && (
+						<Link
+							to="/$workspace/issue/$issueKey"
+							params={{ workspace: slug, issueKey: parentKey }}
+							className="flex w-fit max-w-full items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+						>
+							<ListTree className="size-4 shrink-0" />
+							{/* The spaces keep the words apart in the link's accessible name. */}
+							<span className="shrink-0">Sub-issue of </span>
+							<span className="shrink-0 font-mono text-xs">{parentKey} </span>
+							<span className="truncate">{parent.title}</span>
+						</Link>
+					)}
 					<TitleField issue={issue} />
 					<DescriptionField issue={issue} />
+					<SubIssues issue={issue} />
 					<IssueProposals issue={issue} />
 					<IssueActivity issue={issue} />
 				</article>
@@ -165,6 +184,26 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 								)}
 							</PropertyButton>
 						</ProjectPicker>
+					</Property>
+					<Property label="Parent">
+						<ParentPicker
+							issue={issue}
+							value={issue.parentId}
+							onChange={(parentId) => update(issue, { parentId })}
+							{...menuProps("parent")}
+						>
+							<PropertyButton>
+								<ListTree className="size-4 shrink-0 text-muted-foreground" />
+								{parent && parentKey ? (
+									<span className="truncate">
+										<span className="font-mono text-xs text-muted-foreground">{parentKey}</span>{" "}
+										{parent.title}
+									</span>
+								) : (
+									<span className="text-muted-foreground">No parent</span>
+								)}
+							</PropertyButton>
+						</ParentPicker>
 					</Property>
 					<Property label="Labels">
 						<LabelPicker issue={issue} {...menuProps("labels")}>

@@ -46,6 +46,7 @@ export const issues = sqliteTable(
 		priority: integer("priority").$type<IssuePriority>().notNull(),
 		assigneeId: text("assignee_id"),
 		projectId: text("project_id"),
+		parentId: text("parent_id"),
 		startDate: text("start_date"),
 		dueDate: text("due_date"),
 		estimate: integer("estimate"),
@@ -64,6 +65,7 @@ export const issues = sqliteTable(
 	(table) => [
 		uniqueIndex("issues_team_number_idx").on(table.teamId, table.number),
 		index("issues_project_idx").on(table.projectId),
+		index("issues_parent_idx").on(table.parentId),
 	],
 );
 

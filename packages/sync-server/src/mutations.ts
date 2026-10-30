@@ -170,6 +170,7 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 	}
 	assertAssignable(db, args.assigneeId);
 	assertProjectLive(db, args.projectId);
+	assertParent(db, args.id, args.parentId);
 	const requested = [...new Set(args.labelIds)];
 	for (const labelId of requested) {
 		if (!findLiveLabel(db, labelId)) throw new MutationRejected("not_found", "Label not found");
@@ -241,6 +242,7 @@ function updateIssue(
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
 	if (args.patch.assigneeId !== undefined) assertAssignable(db, args.patch.assigneeId);
 	if (args.patch.projectId !== undefined) assertProjectLive(db, args.patch.projectId);
+	if (args.patch.parentId !== undefined) assertParent(db, issue.id, args.patch.parentId);
 
 	const patch: IssuePatch = {};
 	for (const [field, value] of Object.entries(args.patch) as [keyof IssuePatch, never][]) {
@@ -297,8 +299,9 @@ function updateIssue(
 type IssuePatch = MutationArgs<"issue.update">["patch"];
 
 /**
- * A patch field as a proposal. Manual ordering is never proposed, and neither are dates and
- * estimates: they are planning, which people correct by editing, not a decision about the work.
+ * A patch field as a proposal. Manual ordering is never proposed, and neither are the parent,
+ * dates and estimates: they are planning, which people correct by editing, not a decision about
+ * the work.
  */
 function proposedChange(field: keyof IssuePatch, value: never): ProposedChange | null {
 	switch (field) {
@@ -314,6 +317,7 @@ function proposedChange(field: keyof IssuePatch, value: never): ProposedChange |
 			return { type: "assignee", to: value };
 		case "projectId":
 			return { type: "project", to: value };
+		case "parentId":
 		case "startDate":
 		case "dueDate":
 		case "estimate":
@@ -337,6 +341,9 @@ function issueChanges(before: schema.IssueRow, patch: Partial<schema.IssueRow>):
 	if (patch.projectId !== undefined) {
 		changes.push({ type: "project", from: before.projectId, to: patch.projectId });
 	}
+	if (patch.parentId !== undefined) {
+		changes.push({ type: "parent", from: before.parentId, to: patch.parentId });
+	}
 	if (patch.startDate !== undefined) {
 		changes.push({ type: "startDate", from: before.startDate, to: patch.startDate });
 	}
@@ -359,6 +366,26 @@ function issueChanges(before: schema.IssueRow, patch: Partial<schema.IssueRow>):
 function deleteIssue(db: Db, changes: ChangeSet, args: MutationArgs<"issue.delete">) {
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
+
+	// Its sub-issues stay, as top-level issues: one op each, before the issue's own delete op.
+	// Like deleting a project, this writes no history.
+	const children = db
+		.select()
+		.from(schema.issues)
+		.where(and(isNull(schema.issues.deletedAt), eq(schema.issues.parentId, issue.id)))
+		.all();
+	for (const child of children) {
+		const row = db
+			.update(schema.issues)
+			.set({ parentId: null, version: changes.nextVersion, updatedAt: changes.now })
+			.where(eq(schema.issues.id, child.id))
+			.returning()
+			.get();
+		if (row) {
+			changes.put("issue", toIssue(row));
+			changes.events.push({ type: "issue.updated", issue: row, previous: child });
+		}
+	}
 
 	const comments = db
 		.select({ id: schema.comments.id })
@@ -795,6 +822,32 @@ function assertTeamKeyFree(db: Db, key: string, exceptTeamId?: string) {
 		)
 		.get();
 	if (taken) throw new MutationRejected("conflict", `Team key ${key} is already in use`);
+}
+
+/**
+ * A parent is a live issue of the workspace, and never closes a loop: walking up from it must
+ * not reach the issue itself. Deleting an issue frees its sub-issues, so every ancestor is live.
+ */
+function assertParent(db: Db, issueId: string, parentId: string | null) {
+	if (parentId === null) return;
+	if (parentId === issueId) {
+		throw new MutationRejected("invalid", "An issue cannot be its own parent");
+	}
+	if (!findLiveIssue(db, parentId)) throw new MutationRejected("not_found", "Parent not found");
+	const seen = new Set<string>();
+	let ancestor: string | null = parentId;
+	while (ancestor !== null && !seen.has(ancestor)) {
+		if (ancestor === issueId) {
+			throw new MutationRejected("invalid", "An issue cannot be under one of its sub-issues");
+		}
+		seen.add(ancestor);
+		ancestor =
+			db
+				.select({ parentId: schema.issues.parentId })
+				.from(schema.issues)
+				.where(eq(schema.issues.id, ancestor))
+				.get()?.parentId ?? null;
+	}
 }
 
 function assertProjectLive(db: Db, projectId: string | null) {

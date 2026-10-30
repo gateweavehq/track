@@ -13,6 +13,7 @@ function issue(overrides: Partial<Issue>): Issue {
 		priority: 0,
 		assigneeId: null,
 		projectId: null,
+		parentId: null,
 		startDate: null,
 		dueDate: null,
 		estimate: null,

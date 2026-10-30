@@ -89,6 +89,9 @@ const leadInput = z.string().min(1).describe(LEAD_HELP);
 const TARGET_DATE_HELP = "The day it should be done by, as YYYY-MM-DD.";
 const targetDateInput = calendarDate.describe(TARGET_DATE_HELP);
 const START_DATE_HELP = "The day work on it starts, as YYYY-MM-DD.";
+const PARENT_HELP = "The issue this one is part of: its key, such as ENG-42, in any team.";
+/** Sub-issues listed with an issue: an issue has few, and more than this is a list to search. */
+const MAX_SUB_ISSUES = 100;
 const DUE_DATE_HELP = "The day it is due, as YYYY-MM-DD.";
 const ESTIMATE_HELP = "Its size in points, a whole number from 0 to 1000.";
 
@@ -111,6 +114,7 @@ const issueSummary = z.looseObject({
 });
 const issueDetail = issueSummary.extend({
 	description: z.string().nullable().describe("Markdown."),
+	parent: z.string().nullable().describe("The key of the issue this one is part of."),
 	creator: z.string().nullable().describe("The creator's email."),
 	createdAt: z.string(),
 });
@@ -235,6 +239,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				assignee: assigneeInput.optional(),
 				label: z.string().min(1).optional().describe("A label name."),
 				project: projectInput.optional().describe("Only issues in this project: its name or id."),
+				parent: keyInput.optional().describe("Only the sub-issues of this issue: its key."),
 				text: z
 					.string()
 					.max(200)
@@ -260,6 +265,8 @@ export function createTrackServer(access: TrackAccess): McpServer {
 							: resolveAssignee(directory, workspace.me, input.assignee),
 					labelId: input.label === undefined ? undefined : labelId(directory, input.label),
 					projectId: input.project === undefined ? undefined : projectId(directory, input.project),
+					parentId:
+						input.parent === undefined ? undefined : (await findIssue(workspace, input.parent)).id,
 					text: input.text,
 					limit: input.limit,
 				});
@@ -272,9 +279,10 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Get issue",
 			description:
-				"Reads one issue, including its description, its comments, oldest first, and the changes agents proposed that wait for a person.",
+				"Reads one issue, including its description, its sub-issues, its comments, oldest first, and the changes agents proposed that wait for a person.",
 			inputSchema: z.object({ workspace: workspaceInput, key: keyInput }),
 			outputSchema: issueDetail.extend({
+				subIssues: z.array(issueSummary),
 				comments: z.array(commentOutput),
 				proposals: z.array(openProposalOutput),
 			}),
@@ -285,12 +293,14 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				const workspace = await open(access, slug);
 				const directory = await workspace.directory();
 				const issue = await findIssue(workspace, key);
-				const [comments, proposals] = await Promise.all([
+				const [subIssues, comments, proposals] = await Promise.all([
+					workspace.issues({ parentId: issue.id, limit: MAX_SUB_ISSUES }),
 					workspace.comments(issue.id),
 					workspace.proposals(issue.id),
 				]);
 				return {
-					...detail(access, workspace, directory, issue),
+					...(await detail(access, workspace, directory, issue)),
+					subIssues: subIssues.map((subIssue) => summarize(access, workspace, directory, subIssue)),
 					comments: comments.map((comment) => commentView(directory, comment)),
 					proposals: proposals.map((proposal) => ({
 						...proposalView(directory, proposal),
@@ -305,7 +315,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"create_issue",
 		{
 			title: "Create issue",
-			description: `Creates an issue in a team, and in a project if you name one. It goes to the end of the manual order. ${PROPOSALS_NOTE}`,
+			description: `Creates an issue in a team, and in a project or under a parent issue if you name one. It goes to the end of the manual order. ${PROPOSALS_NOTE}`,
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				team: z.string().describe("The team's key, such as ENG."),
@@ -316,6 +326,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				assignee: assigneeInput.optional(),
 				project: projectInput.optional(),
 				labels: labelsInput.optional(),
+				parent: keyInput.optional().describe(PARENT_HELP),
 				start_date: calendarDate.optional().describe(START_DATE_HELP),
 				due_date: calendarDate.optional().describe(DUE_DATE_HELP),
 				estimate: estimate.optional().describe(ESTIMATE_HELP),
@@ -343,6 +354,8 @@ export function createTrackServer(access: TrackAccess): McpServer {
 								: resolveAssignee(directory, workspace.me, input.assignee),
 						projectId: input.project === undefined ? null : projectId(directory, input.project),
 						labelIds: (input.labels ?? []).map((name) => labelId(directory, name)),
+						parentId:
+							input.parent === undefined ? null : (await findIssue(workspace, input.parent)).id,
 						startDate: input.start_date ?? null,
 						dueDate: input.due_date ?? null,
 						estimate: input.estimate ?? null,
@@ -350,7 +363,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					},
 				});
 				return withProposed(
-					detail(access, workspace, directory, await reread(workspace, id)),
+					await detail(access, workspace, directory, await reread(workspace, id)),
 					directory,
 					proposed,
 				);
@@ -361,7 +374,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"update_issue",
 		{
 			title: "Update issue",
-			description: `Changes an issue's title, description, status, priority, assignee, project, labels, dates or estimate. Fields you leave out stay as they are. ${PROPOSALS_NOTE}`,
+			description: `Changes an issue's title, description, status, priority, assignee, project, labels, parent, dates or estimate. Fields you leave out stay as they are. ${PROPOSALS_NOTE}`,
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				key: keyInput,
@@ -381,6 +394,10 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					.describe("Moves the issue to this project. Null takes it out of its project."),
 				add_labels: labelsInput.optional(),
 				remove_labels: labelsInput.optional(),
+				parent: keyInput
+					.nullable()
+					.optional()
+					.describe(`${PARENT_HELP} Null makes it a top-level issue.`),
 				start_date: calendarDate
 					.nullable()
 					.optional()
@@ -420,6 +437,9 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					...(input.project !== undefined && {
 						projectId: input.project === null ? null : projectId(directory, input.project),
 					}),
+					...(input.parent !== undefined && {
+						parentId: input.parent === null ? null : (await findIssue(workspace, input.parent)).id,
+					}),
 					...(input.start_date !== undefined && { startDate: input.start_date }),
 					...(input.due_date !== undefined && { dueDate: input.due_date }),
 					...(input.estimate !== undefined && { estimate: input.estimate }),
@@ -457,7 +477,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					);
 				}
 				return withProposed(
-					detail(access, workspace, directory, await reread(workspace, issue.id)),
+					await detail(access, workspace, directory, await reread(workspace, issue.id)),
 					directory,
 					proposed,
 				);
@@ -800,15 +820,18 @@ function summarize(
 	};
 }
 
-function detail(
+async function detail(
 	access: TrackAccess,
 	workspace: WorkspaceAccess,
 	directory: Directory,
 	issue: Issue,
-): IssueDetail {
+): Promise<IssueDetail> {
+	const parent = issue.parentId === null ? null : await workspace.issue(issue.parentId);
+	const parentTeam = parent ? directory.teams.find((team) => team.id === parent.teamId) : undefined;
 	return {
 		...summarize(access, workspace, directory, issue),
 		description: issue.description,
+		parent: parent ? issueKey(parentTeam, parent) : null,
 		creator: emailOf(directory, issue.creatorId),
 		createdAt: new Date(issue.createdAt).toISOString(),
 	};
