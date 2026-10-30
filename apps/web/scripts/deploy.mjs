@@ -5,6 +5,9 @@
 //
 // A first deploy also needs BETTER_AUTH_SECRET, which Wrangler only accepts for a new Worker as a
 // file. Unless the button has set one, a random secret is generated for it and never shown.
+//
+// The R2 bucket for attached files is made here when it is missing: Wrangler creates resources
+// for a new Worker, but not a bucket bound to a Worker that already exists.
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -67,7 +70,28 @@ function workerExists() {
 
 const migrate = () => wrangler(["d1", "migrations", "apply", "DB", "--remote"]);
 
+function ensureBucket() {
+	const config = unstable_readConfig({ config: join(root, "wrangler.jsonc") });
+	const bucket = config.r2_buckets.find(({ binding }) => binding === "FILES");
+	// Without the binding, Track runs with attachments off.
+	if (!bucket?.bucket_name) return;
+	try {
+		ask(["r2", "bucket", "create", bucket.bucket_name]);
+		console.log(`Created the R2 bucket ${bucket.bucket_name} for attached files.`);
+	} catch (error) {
+		if (/already exists/.test(error.stderr ?? "")) return;
+		if (/enable R2|10042/.test(error.stderr ?? "")) {
+			throw new Error(
+				"R2 is off in this Cloudflare account. Turn it on in the dashboard (R2 Object Storage), " +
+					"or delete the r2_buckets lines in wrangler.jsonc to run without attachments.",
+			);
+		}
+		throw error;
+	}
+}
+
 run("vite", "vite", ["build"]);
+ensureBucket();
 const exists = databaseExists();
 if (exists) migrate();
 if (workerExists()) {
