@@ -70,7 +70,7 @@ const SHORTCUTS: { group: string; items: { keys: string[][]; label: string }[] }
 export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
-			<DialogContent className="max-h-[85dvh] max-w-md overflow-y-auto">
+			<DialogContent className="max-w-md">
 				<DialogHeader>
 					<DialogTitle>Keyboard shortcuts</DialogTitle>
 					<DialogDescription>Gateweave Track works without a mouse.</DialogDescription>
