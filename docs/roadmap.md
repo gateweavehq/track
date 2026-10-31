@@ -91,3 +91,6 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations
   people use (see [ecosystem.md](ecosystem.md#agents-are-members)). It runs in Gateweave Agents,
   on the agent members and webhooks above.
+- Assigning an issue to an agent that works on it and proposes a pull request: Gateweave Agents'
+  "Work on Track issues", on an agent member's key and webhook. Track's part, `get_workspace`
+  naming the caller, shipped in v0.13.0.

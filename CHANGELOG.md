@@ -8,6 +8,19 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.13.0] - 2026-10-31
+
+The MCP server's `get_workspace` says who is calling, so an agent can find the issues assigned to
+it. Updating a self-hosted copy needs nothing: no migration, no new setting and no protocol
+change. ([#95])
+
+### Added
+
+- `get_workspace` names the caller as `you`: their member id, name and role in the workspace.
+  Issues assigned to them carry that id as their assignee. Gateweave Agents' ready-made "Work on
+  Track issues" reads it with an agent member's key, to start a run for each issue assigned to
+  that agent. ([#95])
+
 ## [0.12.0] - 2026-10-31
 
 Mention people in descriptions and comments, and hear when an issue you are assigned is due.
@@ -471,6 +484,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.13.0]: https://github.com/gateweavehq/track/releases/tag/v0.13.0
 [0.12.0]: https://github.com/gateweavehq/track/releases/tag/v0.12.0
 [0.11.0]: https://github.com/gateweavehq/track/releases/tag/v0.11.0
 [0.10.0]: https://github.com/gateweavehq/track/releases/tag/v0.10.0
@@ -554,3 +568,4 @@ The first pre-release.
 [#89]: https://github.com/gateweavehq/track/pull/89
 [#91]: https://github.com/gateweavehq/track/pull/91
 [#93]: https://github.com/gateweavehq/track/pull/93
+[#95]: https://github.com/gateweavehq/track/pull/95
