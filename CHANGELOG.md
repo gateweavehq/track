@@ -8,6 +8,28 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.12.0] - 2026-10-31
+
+Mention people in descriptions and comments, and hear when an issue you are assigned is due.
+Updating a self-hosted copy applies a migration in each workspace's database, which runs on its
+own; there is no D1 migration and no new setting. The protocol goes to version 15, so open tabs
+reload and sync again. ([#93])
+
+### Added
+
+- @-mentions. Typing `@` in a description, a comment or the new-issue dialog offers the
+  workspace's members, people first, and picking one mentions them. Someone mentioned is
+  subscribed to the issue, unless they unsubscribed before, and hears of it in their inbox, once
+  per comment; editing a text tells only the people it adds. Mentions of agents and of oneself
+  tell nobody, and a mention inside code is text. Agents over MCP mention people with the same
+  Markdown, `[@Name](mention:<member id>)`, which the app shows with the member's current
+  name. ([#93])
+- Due-date reminders. On the day an open issue is due, from 09:00 in its team's time zone (the
+  one its cycles follow, or UTC), Track tells its assignee in their inbox, once per due date.
+  ([#93])
+- Mentions and due dates in Settings, Notifications. Both are emailed until you choose
+  otherwise, and someone who turns mentions off is neither subscribed nor told by one. ([#93])
+
 ## [0.11.0] - 2026-10-31
 
 Inbox news you leave unread can follow you by email, and you choose what reaches your inbox and
@@ -449,6 +471,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.12.0]: https://github.com/gateweavehq/track/releases/tag/v0.12.0
 [0.11.0]: https://github.com/gateweavehq/track/releases/tag/v0.11.0
 [0.10.0]: https://github.com/gateweavehq/track/releases/tag/v0.10.0
 [0.9.0]: https://github.com/gateweavehq/track/releases/tag/v0.9.0
@@ -530,3 +553,4 @@ The first pre-release.
 [#88]: https://github.com/gateweavehq/track/pull/88
 [#89]: https://github.com/gateweavehq/track/pull/89
 [#91]: https://github.com/gateweavehq/track/pull/91
+[#93]: https://github.com/gateweavehq/track/pull/93
