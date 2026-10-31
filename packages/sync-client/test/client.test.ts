@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION } from "@gateweave/track-protocol";
+import { PROTOCOL_VERSION, privateId } from "@gateweave/track-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	deleteIdbReplica,
@@ -192,6 +192,47 @@ describe("collaboration", () => {
 	});
 });
 
+describe("inbox", () => {
+	it("keeps each member's subscriptions and inbox to themselves", async () => {
+		const ws = setup();
+		const alice = await ws.live("alice");
+		const bob = await ws.live("bob");
+		const team = make.team();
+		await alice.mutate(team);
+		const issue = { ...make.issue(team.args.id, "For Bob") };
+		await alice.mutate({ ...issue, args: { ...issue.args, assigneeId: "bob" } });
+		await waitForConvergence(alice, bob);
+
+		const id = privateId(issue.args.id, "bob");
+		const item = bob.getState().inbox.get(id);
+		expect(item).toMatchObject({ event: { type: "assigned" }, actorId: "alice", unread: 1 });
+		expect([...bob.getState().subscriptions.keys()]).toEqual([id]);
+		expect(alice.getState().inbox.size).toBe(0);
+		expect([...alice.getState().subscriptions.keys()]).toEqual([privateId(issue.args.id, "alice")]);
+
+		// Reading it is Bob's alone: Alice hears nothing, and her next change still reaches him.
+		const before = alice.getState().version;
+		await bob.mutate({
+			name: "inbox.update",
+			args: {
+				items: [{ issueId: issue.args.id, seen: item?.updatedAt ?? 0 }],
+				patch: { read: true },
+			},
+		});
+		expect(bob.getState().inbox.get(id)?.unread).toBe(0);
+		expect(bob.getState().version).toBeGreaterThan(before);
+		expect(alice.getState().version).toBe(before);
+
+		await alice.mutate(make.update(issueBy(alice, "For Bob"), { status: "todo" }));
+		await waitForConvergence(alice, bob);
+		expect(bob.getState().inbox.get(id)).toMatchObject({
+			event: { type: "status", from: "backlog", to: "todo" },
+			unread: 1,
+		});
+		expect(alice.getState().inbox.size).toBe(0);
+	});
+});
+
 describe("offline", () => {
 	it("queues edits while offline and merges them on reconnect", async () => {
 		const ws = setup();
@@ -327,6 +368,8 @@ describe("offline", () => {
 			relations: [],
 			views: [],
 			members: [],
+			subscriptions: [],
+			inbox: [],
 		});
 		const network = ws.network("alice");
 		const stale = await ws.live("alice", { persistence, network });
@@ -440,6 +483,8 @@ function scriptedTransport(
 			relations: [],
 			views: [],
 			members: [],
+			subscriptions: [],
+			inbox: [],
 		}),
 		probe: async () => {},
 		connect(handlers): SyncSocket {

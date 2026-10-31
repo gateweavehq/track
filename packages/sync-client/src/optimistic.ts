@@ -6,6 +6,7 @@ import {
 	MAX_VIEWS,
 	type MemberRole,
 	type ProposedChange,
+	privateId,
 	type SavedView,
 } from "@gateweave/track-protocol";
 import type { Draft, PendingMutation } from "./store";
@@ -267,6 +268,36 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 		case "proposal.dismiss": {
 			if (draft.get("member", userId)?.role === "agent") return;
 			draft.delete("proposal", mutation.args.id);
+			return;
+		}
+		case "issue.subscribe": {
+			const { issueId, subscribed } = mutation.args;
+			if (!draft.get("issue", issueId) || draft.get("member", userId)?.role === "agent") return;
+			const id = privateId(issueId, userId);
+			if (draft.get("subscription", id)?.subscribed === subscribed) return;
+			draft.put("subscription", { id, issueId, memberId: userId, subscribed, updatedAt: now });
+			return;
+		}
+		case "inbox.update": {
+			const { items, patch } = mutation.args;
+			for (const { issueId, seen } of items) {
+				const item = draft.get("inbox", privateId(issueId, userId));
+				if (!item) continue;
+				// As on the server: dismissing an item never takes news the person has not seen.
+				const current = item.updatedAt <= seen;
+				const next = { ...item };
+				if (patch.read === true && current) next.unread = 0;
+				if (patch.read === false) next.unread = Math.max(1, item.unread);
+				if (patch.archived === true && current) {
+					next.archivedAt = item.archivedAt ?? now;
+					next.unread = 0;
+				}
+				if (patch.archived === false) next.archivedAt = null;
+				if (patch.snoozedUntil !== undefined && (patch.snoozedUntil === null || current)) {
+					next.snoozedUntil = patch.snoozedUntil;
+				}
+				draft.put("inbox", next);
+			}
 			return;
 		}
 	}

@@ -21,13 +21,24 @@ export class TestClient {
 	readonly #inbox: ServerMessage[] = [];
 	readonly #waiters = new Set<() => void>();
 	#closed: { code: number; reason: string } | null = null;
+	/** The version the last delta ended at, which the next must start after. */
+	#through: number | null = null;
+	/** A delta that did not start where the one before ended, which fails the next wait. */
+	#gap: string | null = null;
 
 	private constructor(
 		private readonly ws: WebSocket,
 		readonly clientId: string,
 	) {
 		ws.addEventListener("message", (event) => {
-			this.#inbox.push(JSON.parse(event.data as string) as ServerMessage);
+			const message = JSON.parse(event.data as string) as ServerMessage;
+			if (message.type === "delta") {
+				if (this.#through !== null && message.from !== this.#through + 1) {
+					this.#gap ??= `Delta from ${message.from} after one through ${this.#through}`;
+				}
+				this.#through = message.to;
+			}
+			this.#inbox.push(message);
 			this.#notify();
 		});
 		ws.addEventListener("close", (event) => {
@@ -62,6 +73,7 @@ export class TestClient {
 	}
 
 	async hello(since = 0, protocol = PROTOCOL_VERSION): Promise<Of<"ready"> | Of<"reset">> {
+		this.#through = since;
 		this.send({ type: "hello", protocol, clientId: this.clientId, since });
 		return this.take(
 			(m): m is Of<"ready"> | Of<"reset"> => m.type === "ready" || m.type === "reset",
@@ -91,6 +103,7 @@ export class TestClient {
 		predicate: (message: ServerMessage) => message is T,
 	): Promise<T> {
 		for (;;) {
+			this.#checkRanges();
 			const index = this.#inbox.findIndex(predicate);
 			if (index !== -1) return this.#inbox.splice(index, 1)[0] as T;
 			if (this.#closed) throw new Error(`Socket closed: ${JSON.stringify(this.#closed)}`);
@@ -101,6 +114,7 @@ export class TestClient {
 	/** Waits until an op matching `predicate` arrives in a delta. */
 	async op(predicate: (op: Op) => boolean): Promise<Op> {
 		for (;;) {
+			this.#checkRanges();
 			const op = this.#inbox.flatMap((m) => (m.type === "delta" ? m.ops : [])).find(predicate);
 			if (op) return op;
 			if (this.#closed) throw new Error(`Socket closed: ${JSON.stringify(this.#closed)}`);
@@ -115,11 +129,21 @@ export class TestClient {
 
 	/** Ops received so far, in order. */
 	ops(): Op[] {
+		this.#checkRanges();
 		return this.#inbox.flatMap((m) => (m.type === "delta" ? m.ops : []));
+	}
+
+	/** The version the latest delta reached. */
+	get through(): number | null {
+		return this.#through;
 	}
 
 	close(): void {
 		this.ws.close(1000, "done");
+	}
+
+	#checkRanges(): void {
+		if (this.#gap) throw new Error(this.#gap);
 	}
 
 	#nextEvent(): Promise<void> {

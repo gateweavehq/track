@@ -10,7 +10,6 @@ import {
 	isAdminRole,
 	MEMBER_ROLES,
 	mutationSchema,
-	type Op,
 	PING,
 	PONG,
 	PROTOCOL_VERSION,
@@ -130,6 +129,8 @@ interface SocketState {
 	clientId: string | null;
 	/** True once the socket has said hello and been caught up; only live sockets get broadcasts. */
 	live: boolean;
+	/** The last version the socket has been sent a delta through, so the next starts after it. */
+	through: number;
 }
 
 /** One instance per workspace. Owns the workspace's data and fans changes out to clients. */
@@ -152,8 +153,9 @@ export class WorkspaceDO extends DurableObject {
 
 	/** Full workspace state. Also refreshes the requesting member's profile. */
 	snapshot(member: MemberProfile): Snapshot {
-		this.#write(() => upsertMember(this.#db, memberProfile.parse(member), Date.now()));
-		return readSnapshot(this.#db);
+		const profile = memberProfile.parse(member);
+		this.#write(() => upsertMember(this.#db, profile, Date.now()));
+		return readSnapshot(this.#db, profile.id);
 	}
 
 	syncMember(member: MemberProfile): void {
@@ -320,6 +322,7 @@ export class WorkspaceDO extends DurableObject {
 			userId: member.data.id,
 			clientId: null,
 			live: false,
+			through: 0,
 		} satisfies SocketState);
 		return new Response(null, { status: 101, webSocket: client });
 	}
@@ -396,19 +399,22 @@ export class WorkspaceDO extends DurableObject {
 			return;
 		}
 
+		const state = socketState(ws);
 		let cursor = hello.since;
 		while (cursor < head) {
-			const ops = opsSince(this.#db, cursor, OPS_PAGE_SIZE);
+			const ops = opsSince(this.#db, cursor, OPS_PAGE_SIZE, state.userId);
 			const last = ops.at(-1);
-			if (!last) break;
-			send(ws, { type: "delta", ops });
-			cursor = last.version;
+			// A short page reaches the head: the versions after its last op were for others.
+			const to = last && ops.length === OPS_PAGE_SIZE ? last.version : head;
+			send(ws, { type: "delta", from: cursor + 1, to, ops });
+			cursor = to;
 		}
 
 		ws.serializeAttachment({
-			...socketState(ws),
+			...state,
 			clientId: hello.clientId,
 			live: true,
+			through: head,
 		} satisfies SocketState);
 		send(ws, { type: "ready", version: head });
 	}
@@ -490,11 +496,39 @@ export class WorkspaceDO extends DurableObject {
 		return result;
 	}
 
-	#broadcast(result: { ops: Op[] }): void {
+	/**
+	 * Sends a write's ops to every live socket, leaving out other members' private ones. A socket
+	 * none of them are for gets nothing; its next delta starts where its last one ended.
+	 */
+	#broadcast(result: Pick<WriteResult, "version" | "ops" | "audience">): void {
 		if (result.ops.length === 0) return;
-		const payload = JSON.stringify({ type: "delta", ops: result.ops } satisfies ServerMessage);
+		const { audience } = result;
+		const members = new Set(audience?.values());
+		const shared = audience ? result.ops.filter((op) => !audience.has(op.version)) : result.ops;
+		// Sockets that are up to date and get the same ops share one payload.
+		const payloads = new Map<string, string>();
 		for (const ws of this.ctx.getWebSockets()) {
-			if (socketState(ws).live) trySend(ws, payload);
+			const state = socketState(ws);
+			if (!state.live) continue;
+			const own = members.has(state.userId);
+			const ops = own
+				? result.ops.filter((op) => (audience?.get(op.version) ?? state.userId) === state.userId)
+				: shared;
+			if (ops.length === 0) continue;
+			const from = state.through + 1;
+			const key = `${from}:${own ? state.userId : ""}`;
+			let payload = payloads.get(key);
+			if (payload === undefined) {
+				payload = JSON.stringify({
+					type: "delta",
+					from,
+					to: result.version,
+					ops,
+				} satisfies ServerMessage);
+				payloads.set(key, payload);
+			}
+			trySend(ws, payload);
+			ws.serializeAttachment({ ...state, through: result.version } satisfies SocketState);
 		}
 	}
 }

@@ -2,6 +2,7 @@ import type {
 	Activity,
 	Comment,
 	Cycle,
+	InboxItem,
 	Issue,
 	IssueRelation,
 	Label,
@@ -10,11 +11,13 @@ import type {
 	Proposal,
 	SavedView,
 	Snapshot,
+	Subscription,
 	Team,
 } from "@gateweave/track-protocol";
 import { and, asc, eq, getTableColumns, isNull, sql } from "drizzle-orm";
 import type { DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
 import * as schema from "./db/schema";
+import { forgetMember } from "./inbox";
 import { ChangeSet, currentVersion, type WriteResult } from "./log";
 
 export type Db = DrizzleSqliteDODatabase<typeof schema>;
@@ -53,7 +56,15 @@ export const toMember = ({ userId, ...member }: schema.MemberRow): Member => ({
 	...member,
 });
 
-export function readSnapshot(db: Db): Snapshot {
+export const toSubscription = (subscription: schema.SubscriptionRow): Subscription => subscription;
+
+export const toInboxItem = (item: schema.InboxItemRow): InboxItem => item;
+
+/**
+ * The workspace as `memberId` sees it: everything, with their own subscriptions and inbox. Those
+ * of deleted issues are removed with them.
+ */
+export function readSnapshot(db: Db, memberId: string): Snapshot {
 	return {
 		version: currentVersion(db),
 		teams: db.select().from(schema.teams).all().map(toTeam),
@@ -121,6 +132,18 @@ export function readSnapshot(db: Db): Snapshot {
 			.all()
 			.map(toView),
 		members: db.select().from(schema.members).all().map(toMember),
+		subscriptions: db
+			.select()
+			.from(schema.subscriptions)
+			.where(eq(schema.subscriptions.memberId, memberId))
+			.all()
+			.map(toSubscription),
+		inbox: db
+			.select()
+			.from(schema.inboxItems)
+			.where(eq(schema.inboxItems.memberId, memberId))
+			.all()
+			.map(toInboxItem),
 	};
 }
 
@@ -160,7 +183,10 @@ export function upsertMember(db: Db, profile: MemberProfile, now: number): Write
 	return changes.result();
 }
 
-/** Marks a member as removed. The row stays so existing references still resolve. */
+/**
+ * Marks a member as removed. The row stays so existing references still resolve; their
+ * subscriptions and inbox go.
+ */
 export function removeMember(db: Db, userId: string, now: number): WriteResult {
 	const changes = new ChangeSet(db, null, now);
 	const row = db
@@ -169,7 +195,10 @@ export function removeMember(db: Db, userId: string, now: number): WriteResult {
 		.where(and(eq(schema.members.userId, userId), isNull(schema.members.removedAt)))
 		.returning()
 		.get();
-	if (row) changes.put("member", toMember(row));
+	if (row) {
+		changes.put("member", toMember(row));
+		forgetMember(db, changes, userId);
+	}
 	return changes.result();
 }
 

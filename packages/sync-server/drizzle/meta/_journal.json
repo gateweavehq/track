@@ -85,6 +85,20 @@
       "when": 1793401987629,
       "tag": "0011_cycles",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793406405883,
+      "tag": "0012_inbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1793407600536,
+      "tag": "0013_subscribe_existing",
+      "breakpoints": true
     }
   ]
 }

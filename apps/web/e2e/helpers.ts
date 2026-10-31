@@ -111,6 +111,32 @@ export async function waitForServiceWorker(page: Page): Promise<void> {
 	});
 }
 
+/**
+ * Invites a new person from the owner's page and has them sign up and join on `guestPage`, a page
+ * of another browser context. Email is off in the test setup, so the invitation is a link to share.
+ */
+export async function joinByInvitation(
+	owner: Page,
+	guestPage: Page,
+	workspace: { slug: string; name: string },
+): Promise<Person> {
+	await owner.goto(`/${workspace.slug}/settings/members`);
+	const guest = newPerson("guest");
+	await owner.getByLabel("Email address").fill(guest.email);
+	await owner.getByRole("button", { name: "Create invite link" }).click();
+	const link = await owner.getByLabel("Invite link").inputValue();
+
+	await guestPage.goto(link);
+	await guestPage.getByRole("link", { name: "Create an account" }).click();
+	await waitForHydration(guestPage);
+	await guestPage.getByLabel("Name").fill(guest.name);
+	await guestPage.getByLabel("Password").fill(guest.password);
+	await guestPage.getByRole("button", { name: "Create account" }).click();
+	await guestPage.getByRole("button", { name: `Join ${workspace.name}` }).click();
+	await expect(syncBadge(guestPage)).toHaveText("Live");
+	return guest;
+}
+
 /** Signs up, creates a workspace and its first team: the start of most tests. */
 export async function startWorkspace(page: Page) {
 	const person = await signUp(page);

@@ -4,13 +4,12 @@ import {
 	createIssue,
 	createWorkspace,
 	issueRow,
-	newPerson,
+	joinByInvitation,
 	signUp,
 	startWorkspace,
 	syncBadge,
 	teamUrl,
 	unique,
-	waitForHydration,
 } from "./helpers";
 
 test("sign up, create a workspace and a team, and file the first issue", async ({ page }) => {
@@ -56,27 +55,14 @@ test("an edit in one tab appears in another without a reload", async ({ page, co
 });
 
 test("a second person who joined by invitation link sees edits live", async ({ page, browser }) => {
-	const { slug, name } = await startWorkspace(page);
-
-	// Email is off, so the invitation is a link to share.
-	await page.goto(`/${slug}/settings/members`);
-	const guest = newPerson("guest");
-	await page.getByLabel("Email address").fill(guest.email);
-	await page.getByRole("button", { name: "Create invite link" }).click();
-	const link = await page.getByLabel("Invite link").inputValue();
+	const workspace = await startWorkspace(page);
+	const { slug } = workspace;
 
 	const guestContext = await newBrowserContext(browser);
 	try {
 		const guestPage = await guestContext.newPage();
-		await guestPage.goto(link);
-		await guestPage.getByRole("link", { name: "Create an account" }).click();
-		await waitForHydration(guestPage);
-		await guestPage.getByLabel("Name").fill(guest.name);
-		await guestPage.getByLabel("Password").fill(guest.password);
-		await guestPage.getByRole("button", { name: "Create account" }).click();
-		await guestPage.getByRole("button", { name: `Join ${name}` }).click();
+		await joinByInvitation(page, guestPage, workspace);
 		await expect(guestPage).toHaveURL(new RegExp(`/${slug}(/team/ENG)?$`));
-		await expect(syncBadge(guestPage)).toHaveText("Live");
 
 		const fromOwner = unique("From the owner");
 		await page.goto(`/${slug}/team/ENG`);

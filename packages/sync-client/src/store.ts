@@ -17,6 +17,20 @@ export interface SyncState {
 	readonly relations: ReadonlyMap<string, Entities["relation"]>;
 	readonly views: ReadonlyMap<string, Entities["view"]>;
 	readonly members: ReadonlyMap<string, Entities["member"]>;
+	/** This member's own subscriptions and inbox, by id. Nobody else's reach the replica. */
+	readonly subscriptions: ReadonlyMap<string, Entities["subscription"]>;
+	readonly inbox: ReadonlyMap<string, Entities["inbox"]>;
+}
+
+/**
+ * Server versions `from` through `to` and the ops among them for this member, as a `delta`
+ * message carries them. Other members' private ops are left out, so there can be fewer ops than
+ * versions.
+ */
+export interface Delta {
+	from: number;
+	to: number;
+	ops: readonly Op[];
 }
 
 /** A mutation made on this device that the server has not confirmed yet. */
@@ -41,6 +55,8 @@ const EMPTY: Tables = {
 	relation: new Map(),
 	view: new Map(),
 	member: new Map(),
+	subscription: new Map(),
+	inbox: new Map(),
 };
 
 /**
@@ -138,6 +154,8 @@ export class Replica {
 			relation: new Map(snapshot.relations.map((row) => [row.id, row])),
 			view: new Map(snapshot.views.map((row) => [row.id, row])),
 			member: new Map(snapshot.members.map((row) => [row.id, row])),
+			subscription: new Map(snapshot.subscriptions.map((row) => [row.id, row])),
+			inbox: new Map(snapshot.inbox.map((row) => [row.id, row])),
 		};
 		this.#version = snapshot.version;
 		this.#hasData = true;
@@ -145,22 +163,24 @@ export class Replica {
 	}
 
 	/**
-	 * Applies server ops in version order. Ops at or below the current version are skipped, so
-	 * replaying is harmless. Returns false, without applying anything, if the ops do not continue
-	 * from the current version.
+	 * Applies a delta from the server. Versions already applied are skipped, so replaying is
+	 * harmless. Returns false, without applying anything, if the delta starts after the current
+	 * version: the versions in between were never seen.
 	 */
-	applyOps(ops: readonly Op[]): boolean {
-		const fresh = ops.filter((op) => op.version > this.#version);
-		if (fresh.length === 0) return true;
-		if (fresh.some((op, index) => op.version !== this.#version + 1 + index)) return false;
+	applyDelta({ from, to, ops }: Delta): boolean {
+		if (to <= this.#version) return true;
+		if (from > this.#version + 1) return false;
 
-		const draft = new Draft(this.#confirmed);
-		for (const op of fresh) {
-			if (op.op === "put") draft.put(op.entity, op.data as Entities[typeof op.entity]);
-			else draft.delete(op.entity, op.id);
+		const fresh = ops.filter((op) => op.version > this.#version);
+		if (fresh.length > 0) {
+			const draft = new Draft(this.#confirmed);
+			for (const op of fresh) {
+				if (op.op === "put") draft.put(op.entity, op.data as Entities[typeof op.entity]);
+				else draft.delete(op.entity, op.id);
+			}
+			this.#confirmed = draft.finish();
 		}
-		this.#confirmed = draft.finish();
-		this.#version += fresh.length;
+		this.#version = to;
 		this.#rebuild();
 		return true;
 	}
@@ -197,6 +217,8 @@ export class Replica {
 			relations: [...this.#confirmed.relation.values()],
 			views: [...this.#confirmed.view.values()],
 			members: [...this.#confirmed.member.values()],
+			subscriptions: [...this.#confirmed.subscription.values()],
+			inbox: [...this.#confirmed.inbox.values()],
 		};
 	}
 
@@ -226,5 +248,7 @@ function toState(tables: Tables, version: number): SyncState {
 		relations: tables.relation,
 		views: tables.view,
 		members: tables.member,
+		subscriptions: tables.subscription,
+		inbox: tables.inbox,
 	};
 }

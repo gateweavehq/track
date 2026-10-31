@@ -26,7 +26,7 @@ flowchart LR
   Files --> R2[("R2<br/>attached files")]
   Auth -- "membership hooks (RPC)" --> DO
   subgraph DO["WorkspaceDO (one per workspace)"]
-    SQLite[("SQLite<br/>teams, issues, labels,<br/>projects, comments, activity,<br/>views, members, oplog")]
+    SQLite[("SQLite<br/>teams, issues, labels,<br/>projects, comments, activity,<br/>views, members, inboxes, oplog")]
   end
 ```
 
@@ -66,6 +66,7 @@ different protocol versions in production. It also gives self-hosters one thing 
 | Saved views                         | Workspace DO | `sync-server`                      |
 | Comments on issues                  | Workspace DO | `sync-server`                      |
 | Issue activity (history)            | Workspace DO | `sync-server`, from issue writes   |
+| Subscriptions and inbox items       | Workspace DO | `sync-server`, from issue writes   |
 | Webhooks, their secrets, deliveries | Workspace DO | `sync-server`, managed by admins   |
 | Member replica (name, avatar, role) | Workspace DO | Pushed from D1 by membership hooks |
 | Attached files                      | R2           | The file gateway                   |
@@ -271,16 +272,25 @@ and reconcile against what the server broadcasts.
 
 Every write appends one or more ops to the workspace's **oplog**. Each op gets the next workspace
 version, so versions are gapless and totally ordered. An op is either a full-row `put` or a
-`delete` for a `team`, `issue`, `label`, `project`, `comment`, `activity`, `proposal` or `member`.
-A client's entire sync state is the highest version it has applied.
+`delete` of an entity: a `team`, `issue`, `label`, `project`, `comment`, `activity`, `proposal`,
+`member`, and so on (`ENTITY_NAMES`). A client's entire sync state is the highest version it has
+applied.
+
+Most entities are the whole workspace's. A member's `subscription` and `inbox` rows are theirs
+alone (`PRIVATE_ENTITIES`): their ops carry an **audience**, the member's id in the oplog's
+`audience` column, and reach no one else, whether in a snapshot, a catch-up or live. Every client's
+version still moves past them, so each `delta` names the range of versions it covers,
+`{ from, to, ops }`, which can be wider than the ops it carries. A client sets its version to `to`,
+and a delta whose `from` is beyond its version plus one means it missed something.
 
 ### Connecting
 
 1. `GET /api/sync/:slug/snapshot` returns
    `{ version, teams, issues, labels, projects, comments, activities, proposals, relations, views,
-   members }`,
-   leaving out the comments, activity and proposals of deleted issues, and deleted projects. It is served over HTTP so it can be compressed and fetched in
-   parallel with the socket.
+   members, subscriptions, inbox }`,
+   leaving out the comments, activity and proposals of deleted issues, deleted projects, and
+   everyone else's subscriptions and inbox. It is served over HTTP so it can be compressed and
+   fetched in parallel with the socket.
 2. The client opens the socket and sends `hello { protocol, clientId, since: snapshot.version }`.
 3. The server streams any ops after `since` as `delta` messages, then `ready { version }`. From
    then on the socket receives every new op live.
@@ -309,8 +319,8 @@ without waking a hibernated Durable Object.
 
 - The server applies each mutation in its own SQLite transaction. A rejection rolls back every
   write the mutation made.
-- The resulting ops go to **every** live socket, including the sender, as a `delta`. The sender
-  then gets `ack { id, version }`. A client therefore learns the canonical result of its own
+- The resulting ops go to **every** live socket, including the sender, as a `delta`; private ops
+  go only to their member's sockets. The sender then gets `ack { id, version }`. A client therefore learns the canonical result of its own
   mutation the same way it learns about everyone else's.
 - A rejection is `reject { id, reason, message }` with reason `invalid`, `forbidden`,
   `not_found` or `conflict`. The client drops the mutation and its optimistic effect.
@@ -579,6 +589,39 @@ use the same mutations as the issue page. The agent filter lives in the URL (`?a
 Only open proposals of live issues are in a snapshot. Webhooks report proposals (see
 [Webhooks](#webhooks)); an accepted one also sends the `issue.updated` of the person who
 accepted it.
+
+### Inbox and subscriptions
+
+Each person has an inbox: one item per issue with news for them. The rules live in
+`packages/sync-server/src/inbox.ts`. `notify` runs inside each mutation's transaction, after the
+handler, and reads the ops the mutation wrote, so the app, MCP and imports all follow the same
+rules and no client can skip them.
+
+- **Who is subscribed.** Filing an issue, commenting on it or being assigned it subscribes a
+  person. `issue.subscribe` subscribes or unsubscribes by hand, and an assignment subscribes the
+  assignee again even after they unsubscribed.
+- **Who hears what.** Subscribers hear of comments, status changes and agents' proposals. The new
+  assignee hears that they were assigned, and a subscribed former assignee that they were
+  unassigned. Nobody hears of their own changes, and imported issues and comments (those with a
+  `createdAt`) tell no one.
+- **One item per person and issue** (`privateId(issueId, memberId)`). It shows the latest event
+  and counts the events not yet read (`unread`). News takes an item out of the snoozed and
+  archived tabs, back into the inbox.
+- **`inbox.update`** marks up to 500 items (`MAX_INBOX_BATCH`) read or unread, archives them
+  (which also reads them) or snoozes them. Each names the `updatedAt` the person saw, and an item
+  with news since then is left alone, so nothing unseen is read or archived away.
+- **Agents have no inbox.** They hear of their work through [webhooks](#webhooks); they are
+  never subscribed and both mutations refuse them.
+- **Clean-up.** Deleting an issue deletes its subscriptions and items, and removing a member
+  deletes theirs.
+
+Subscriptions and items are [private](#versions-and-the-oplog) to their member. Migration `0013`
+subscribed the creators, assignees and commenters of existing issues when the inbox shipped.
+
+The Inbox page (`/$workspace/inbox`) has Inbox, Snoozed and Archived tabs (`?tab=`). It reads the
+replica, so it works offline. An open issue reads its item while it is on screen. The sidebar
+shows the unread count, and so does the installed app's icon (the Badging API). Email for
+unread items is planned.
 
 ### Search
 
