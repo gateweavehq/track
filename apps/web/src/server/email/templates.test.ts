@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { invitationEmail, passwordResetEmail, verificationEmail } from "./templates";
+import {
+	type DigestEntry,
+	inboxDigestEmail,
+	invitationEmail,
+	passwordResetEmail,
+	verificationEmail,
+} from "./templates";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -60,5 +66,77 @@ describe("verificationEmail", () => {
 		expect(email.text).toContain(url);
 		expect(email.text).toContain("24 hours");
 		expect(email.html).toContain(`href="${url.replace("&", "&amp;")}"`);
+	});
+});
+
+describe("inboxDigestEmail", () => {
+	const entry: DigestEntry = {
+		key: "ENG-12",
+		title: "Export issues as CSV",
+		url: "https://track.example.com/acme/issue/ENG-12",
+		event: { type: "assigned" },
+		actor: "Maya Chen",
+		unread: 1,
+		comment: null,
+	};
+	const base = {
+		workspace: "Acme",
+		inboxUrl: "https://track.example.com/acme/inbox",
+		settingsUrl: "https://track.example.com/acme/settings/notifications",
+	};
+
+	it("names the one piece of news in the subject, and links to the issue and the settings", () => {
+		const email = inboxDigestEmail({ ...base, items: [entry] });
+		expect(email.subject).toBe("Maya Chen assigned you ENG-12: Export issues as CSV");
+		expect(email.text).toContain("ENG-12 Export issues as CSV\nMaya Chen assigned you ENG-12");
+		expect(email.text).toContain(entry.url);
+		expect(email.text).toContain(`notification settings: ${base.settingsUrl}`);
+		expect(email.html).toContain(`href="${entry.url}"`);
+		expect(email.html).toContain(`href="${base.inboxUrl}"`);
+		expect(email.html).toContain(`href="${base.settingsUrl}"`);
+	});
+
+	it("counts the news, and says what each was", () => {
+		const email = inboxDigestEmail({
+			...base,
+			items: [
+				{ ...entry, event: { type: "comment", commentId: "c1" }, comment: "Ship it", unread: 3 },
+				{ ...entry, key: "ENG-13", event: { type: "status", from: "todo", to: "in_review" } },
+				{ ...entry, key: "ENG-14", event: { type: "unassigned" } },
+				{
+					...entry,
+					key: "ENG-15",
+					actor: "Triage",
+					event: { type: "proposal", proposalId: "p1", change: { type: "priority", to: 1 } },
+				},
+			],
+		});
+		expect(email.subject).toBe("4 updates in Acme");
+		expect(email.text).toContain("Maya Chen commented on ENG-12 · 3 updates\n> Ship it");
+		expect(email.text).toContain("Maya Chen moved ENG-13 to In Review");
+		expect(email.text).toContain("Maya Chen unassigned you from ENG-14");
+		expect(email.text).toContain("Triage proposed a change to ENG-15");
+	});
+
+	it("escapes what members typed, and keeps it short", () => {
+		const email = inboxDigestEmail({
+			...base,
+			workspace: "Acme\r\nBcc: everyone",
+			items: [
+				{
+					...entry,
+					title: "<script>alert(1)</script>",
+					event: { type: "comment", commentId: "c1" },
+					comment: `<img src=x> ${"word ".repeat(100)}`,
+				},
+			],
+		});
+		expect(email.subject).not.toMatch(/[\r\n]/);
+		expect(email.html).not.toContain("<script>");
+		expect(email.html).not.toContain("<img src=x>");
+		expect(email.html).toContain("&lt;script&gt;");
+		const quote = email.text.split("\n").find((line) => line.startsWith("> "));
+		expect(quote?.length).toBeLessThanOrEqual(282);
+		expect(quote?.endsWith("…")).toBe(true);
 	});
 });

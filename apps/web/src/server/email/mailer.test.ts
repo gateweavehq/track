@@ -35,6 +35,14 @@ describe("createMailer", () => {
 		});
 	});
 
+	it("passes headers on", async () => {
+		const send = vi.fn(async () => ({ messageId: "1" }));
+		const mailer = createMailer({ send } as unknown as SendEmail, "track@example.com");
+		const headers = { "List-Unsubscribe": "<https://track.example.com/api/unsubscribe/x>" };
+		await mailer?.send({ ...email, headers });
+		expect(send).toHaveBeenCalledWith({ from: "track@example.com", ...email, headers });
+	});
+
 	it("is off without a binding or a valid sender", () => {
 		const binding = { send: vi.fn() } as unknown as SendEmail;
 		vi.spyOn(console, "error").mockImplementation(() => {});

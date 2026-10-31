@@ -61,7 +61,7 @@ export const toMember = ({ userId, ...member }: schema.MemberRow): Member => ({
 
 export const toSubscription = (subscription: schema.SubscriptionRow): Subscription => subscription;
 
-export const toInboxItem = (item: schema.InboxItemRow): InboxItem => item;
+export const toInboxItem = ({ emailAt: _, ...item }: schema.InboxItemRow): InboxItem => item;
 
 /**
  * The workspace as `memberId` sees it: everything, with their own subscriptions and inbox. Those

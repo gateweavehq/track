@@ -15,6 +15,8 @@ import {
 	type IssueFilters,
 	type IssuePriority,
 	MEMBER_ROLES,
+	type NotificationKind,
+	type NotificationLevel,
 	PROJECT_STATUSES,
 	type ProposedChange,
 	PULL_REQUEST_STATES,
@@ -275,12 +277,33 @@ export const inboxItems = sqliteTable(
 		updatedAt: integer("updated_at").notNull(),
 		snoozedUntil: integer("snoozed_until"),
 		archivedAt: integer("archived_at"),
+		/**
+		 * When the item is to be emailed, if news the member wants by email is waiting. Reading,
+		 * archiving or snoozing it clears this. Never sent to clients.
+		 */
+		emailAt: integer("email_at"),
 	},
 	(table) => [
 		index("inbox_items_issue_idx").on(table.issueId),
 		index("inbox_items_member_idx").on(table.memberId),
+		index("inbox_items_email_idx").on(table.emailAt),
 	],
 );
+
+/**
+ * Members' choices of what reaches their inbox and email, and when they were last emailed. A
+ * member without a row has the defaults. Private, and never sent to clients: settings read them
+ * over RPC.
+ */
+export const notificationSettings = sqliteTable("notification_settings", {
+	memberId: text("member_id").primaryKey(),
+	/** The kinds they changed. The rest follow the defaults, which new kinds start from too. */
+	levels: text("levels", { mode: "json" })
+		.$type<Partial<Record<NotificationKind, NotificationLevel>>>()
+		.notNull(),
+	emailedAt: integer("emailed_at"),
+	updatedAt: integer("updated_at").notNull(),
+});
 
 /** Ordered log of every change. `version` is the workspace-wide sequence number. */
 export const oplog = sqliteTable("oplog", {
@@ -397,6 +420,7 @@ export type ViewRow = typeof views.$inferSelect;
 export type MemberRow = typeof members.$inferSelect;
 export type SubscriptionRow = typeof subscriptions.$inferSelect;
 export type InboxItemRow = typeof inboxItems.$inferSelect;
+export type NotificationSettingsRow = typeof notificationSettings.$inferSelect;
 export type PullRequestRow = typeof pullRequests.$inferSelect;
 export type GitHubConnectionRow = typeof githubConnections.$inferSelect;
 export type WebhookRow = typeof webhooks.$inferSelect;

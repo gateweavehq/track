@@ -1,20 +1,30 @@
-import { type InboxEvent, type MutationArgs, privateId } from "@gateweave/track-protocol";
+import {
+	EMAIL_DELAY_MS,
+	type InboxEvent,
+	type MutationArgs,
+	type NotificationSettings,
+	privateId,
+} from "@gateweave/track-protocol";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import * as schema from "./db/schema";
 import type { ChangeSet } from "./log";
+import { readSettings } from "./notifications";
 import { MutationRejected } from "./rejected";
 import { type Db, toInboxItem, toSubscription } from "./state";
 
 /**
  * Subscriptions and inboxes. People subscribed to an issue hear of what others do to it: the
  * creator, the assignee and whoever comments are subscribed on their own, and anyone can
- * subscribe or unsubscribe. Agents have neither; they hear through webhooks.
+ * subscribe or unsubscribe. Agents have neither; they hear through webhooks. Each person's
+ * notification settings say which kinds of news reach their inbox, and which are emailed when
+ * they stay unread (`notifications.ts`).
  *
  * Mutation handlers say what they did in the change set's events, for webhooks; {@link notify}
  * reads the same events once the handler is done, in the same transaction, so a rolled-back
- * write tells nobody and a retried mutation id tells nobody twice.
+ * write tells nobody and a retried mutation id tells nobody twice. Returns whether it set an
+ * email's time, which the alarm must then plan for.
  */
-export function notify(db: Db, changes: ChangeSet, actorId: string, imported: boolean): void {
+export function notify(db: Db, changes: ChangeSet, actorId: string, imported: boolean): boolean {
 	const inbox = new Inbox(db, changes, actorId);
 	for (const event of changes.events) {
 		switch (event.type) {
@@ -70,7 +80,7 @@ export function notify(db: Db, changes: ChangeSet, actorId: string, imported: bo
 				break;
 		}
 	}
-	inbox.flush();
+	return inbox.flush();
 }
 
 /** `issue.subscribe`: a person's own subscription to an issue. */
@@ -122,6 +132,10 @@ export function updateInbox(
 		if (patch.archived === false) next.archivedAt = null;
 		if (patch.snoozedUntil !== undefined && (patch.snoozedUntil === null || current)) {
 			next.snoozedUntil = patch.snoozedUntil;
+		}
+		// An item read, archived or snoozed is dealt with, so its news is not emailed.
+		if (next.unread === 0 || next.archivedAt !== null || next.snoozedUntil !== null) {
+			next.emailAt = null;
 		}
 		if (
 			next.unread === item.unread &&
@@ -195,6 +209,8 @@ class Inbox {
 	#people: Set<string> | undefined;
 	/** Inbox items to write, by id: a write that tells someone twice writes their item once. */
 	readonly #items = new Map<string, schema.InboxItemRow>();
+	/** People's notification settings, by id. Loaded when first needed. */
+	readonly #settings = new Map<string, NotificationSettings>();
 
 	constructor(
 		private readonly db: Db,
@@ -217,13 +233,20 @@ class Inbox {
 		return findSubscription(this.db, issueId, memberId)?.subscribed === true;
 	}
 
-	/** Puts an event in a person's inbox, unless they caused it. */
+	/**
+	 * Puts an event in a person's inbox, unless they caused it or turned its kind off. If they want
+	 * it by email, the item is emailed after a while unless they read it first.
+	 */
 	tell(issueId: string, memberId: string, event: InboxEvent): void {
 		if (memberId === this.actorId || !this.#isPerson(memberId)) return;
+		const level = this.#settingsOf(memberId)[event.type];
+		if (level === "off") return;
 		const id = privateId(issueId, memberId);
 		const existing =
 			this.#items.get(id) ??
 			this.db.select().from(schema.inboxItems).where(eq(schema.inboxItems.id, id)).get();
+		// Earlier news that is waiting keeps its time, so a busy issue is still emailed.
+		const waiting = existing?.emailAt ?? null;
 		this.#items.set(id, {
 			id,
 			issueId,
@@ -235,6 +258,7 @@ class Inbox {
 			// News brings an item back from wherever it was put away.
 			snoozedUntil: null,
 			archivedAt: null,
+			emailAt: level === "email" ? (waiting ?? this.changes.now + EMAIL_DELAY_MS) : waiting,
 		});
 	}
 
@@ -270,7 +294,9 @@ class Inbox {
 		}
 	}
 
-	flush(): void {
+	/** Writes the items. Returns whether any of them is to be emailed. */
+	flush(): boolean {
+		let email = false;
 		for (const row of this.#items.values()) {
 			this.db
 				.insert(schema.inboxItems)
@@ -278,7 +304,18 @@ class Inbox {
 				.onConflictDoUpdate({ target: schema.inboxItems.id, set: row })
 				.run();
 			this.changes.put("inbox", toInboxItem(row));
+			if (row.emailAt !== null) email = true;
 		}
+		return email;
+	}
+
+	#settingsOf(memberId: string): NotificationSettings {
+		let settings = this.#settings.get(memberId);
+		if (!settings) {
+			settings = readSettings(this.db, memberId);
+			this.#settings.set(memberId, settings);
+		}
+		return settings;
 	}
 
 	#isPerson(memberId: string): boolean {

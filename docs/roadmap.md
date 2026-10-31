@@ -83,7 +83,8 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   - Sub-issues and relations (blocks, duplicate of, related).
   - Start dates, due dates and estimates.
   - Saved views, and table, calendar and timeline layouts.
-- Email for unread inbox items, and notification settings per person.
+- Email for unread inbox items, and notification settings per person: in the next release.
+  @-mentions and due-date reminders follow.
 - GitHub integration: link pull requests and close issues from commits. The first part, over a
   webhook per repository or organization, shipped in v0.10.0; a GitHub App comes later.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations

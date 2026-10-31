@@ -13,6 +13,7 @@ const TABS = [
 	{ to: "/$workspace/settings/github", label: "GitHub" },
 	{ to: "/$workspace/settings/import", label: "Import" },
 	{ to: "/$workspace/settings/export", label: "Export" },
+	{ to: "/$workspace/settings/notifications", label: "Notifications" },
 ] as const;
 
 function SettingsLayout() {

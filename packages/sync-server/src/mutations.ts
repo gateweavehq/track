@@ -157,14 +157,16 @@ export function applyMutation(
 	const imported =
 		(mutation.name === "issue.create" || mutation.name === "comment.create") &&
 		mutation.args.createdAt !== undefined;
-	notify(db, changes, actor.member.userId, imported);
+	const email = notify(db, changes, actor.member.userId, imported);
 	const result = changes.result();
 	db.insert(schema.appliedMutations)
 		.values({ id: mutationId, clientId: actor.clientId, version: result.version, at: now })
 		.run();
 	const queued = queueDeliveries(db, actor.member, changes.events, result.version, now);
-	// The alarm plans the next cycle boundary, which a change to a team's cycles moves.
-	const wake = mutation.name === "team.update" && mutation.args.patch.cycles !== undefined;
+	// The alarm plans the next cycle boundary, which a change to a team's cycles moves, and the
+	// next email.
+	const wake =
+		email || (mutation.name === "team.update" && mutation.args.patch.cycles !== undefined);
 	return { ...result, queued, wake, proposed: changes.proposed };
 }
 

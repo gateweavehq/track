@@ -5,9 +5,10 @@ import { handleFileRequest, isFileRequest } from "./server/files";
 import { handleGitHubRequest, isGitHubRequest } from "./server/github";
 import { handleMcpRequest, isMcpRequest } from "./server/mcp";
 import { handleSyncRequest, isSyncRequest } from "./server/sync";
+import { handleUnsubscribeRequest, isUnsubscribeRequest } from "./server/unsubscribe";
 
-export { WorkspaceDO } from "@gateweave/track-sync-server";
 export { RateLimiter } from "./server/rate-limit";
+export { WorkspaceDO } from "./server/workspace-do";
 
 /** OAuth discovery documents for MCP clients. Better Auth serves them at the root. */
 const OAUTH_DISCOVERY =
@@ -23,6 +24,8 @@ export default {
 		if (isFileRequest(url)) return handleFileRequest(request);
 		// GitHub signs the raw body, so it reaches the workspace unread.
 		if (isGitHubRequest(url)) return handleGitHubRequest(request);
+		// Mail clients post here for one-click unsubscribe, with no session.
+		if (isUnsubscribeRequest(url)) return handleUnsubscribeRequest(request);
 		if (OAUTH_DISCOVERY.test(url.pathname)) return getAuth().handler(request);
 		return handler.fetch(request);
 	},
