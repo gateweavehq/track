@@ -65,6 +65,7 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   over MCP. Shipped in v0.8.0.
 - **Inbox.** People hear of assignments, comments, status changes and agents' proposals on the
   issues they follow, in an inbox of their own with read, snooze and archive that works offline.
+  Shipped in v0.9.0.
 
 ## Next: launch
 
