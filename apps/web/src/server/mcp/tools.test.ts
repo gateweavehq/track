@@ -379,6 +379,7 @@ describe("Track MCP tools", () => {
 				{ id: me.id, name: "Maya", email: "maya@example.com", role: "owner" },
 				{ id: sam.id, name: "Sam", email: "sam@example.com", role: "member" },
 			],
+			you: { id: me.id, name: "Maya", role: "owner" },
 		});
 	});
 

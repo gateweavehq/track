@@ -278,6 +278,8 @@ Settings has an Agents page for it.
 - **It acts as itself.** Its tool calls go through `mutate` with its own profile, so the same
   validation applies, the oplog and activity name it, and people see its changes live. It can do
   what members do and nothing only admins can. The app shows it with a robot for an avatar.
+  `get_workspace` names the caller as `you`, so an agent knows its member id: the assignee of the
+  issues assigned to it, which is how Gateweave Agents tells that an issue is its to work on.
 - **It proposes what an admin chooses.** An admin picks the kinds of change it only proposes
   (see [Proposals](#proposals)); everything else it makes directly.
 - **It goes with its workspace.** Deleting an agent deletes its user, membership and keys; the
