@@ -60,6 +60,9 @@ const cycleSettings = z.object({
 });
 const nonEmpty = (patch: object) => Object.keys(patch).length > 0;
 
+/** Inbox items one `inbox.update` changes at most, as when marking everything read. */
+export const MAX_INBOX_BATCH = 500;
+
 export const mutationSchema = z.discriminatedUnion("name", [
 	z.object({
 		name: z.literal("team.create"),
@@ -270,6 +273,32 @@ export const mutationSchema = z.discriminatedUnion("name", [
 	z.object({
 		name: z.literal("proposal.dismiss"),
 		args: z.object({ id }),
+	}),
+	// A person's own subscriptions and inbox. Agents have neither.
+	z.object({
+		name: z.literal("issue.subscribe"),
+		args: z.object({ issueId: id, subscribed: z.boolean() }),
+	}),
+	z.object({
+		name: z.literal("inbox.update"),
+		args: z.object({
+			/**
+			 * Each item's issue, and the item's `updatedAt` as the client saw it. Reading, archiving
+			 * and snoozing skip an item that has had a newer event, which the person has not seen.
+			 */
+			items: z
+				.array(z.object({ issueId: id, seen: z.number().int().nonnegative() }))
+				.min(1)
+				.max(MAX_INBOX_BATCH),
+			patch: z
+				.object({
+					read: z.boolean(),
+					archived: z.boolean(),
+					snoozedUntil: z.number().int().nonnegative().nullable(),
+				})
+				.partial()
+				.refine(nonEmpty, "Empty patch"),
+		}),
 	}),
 ]);
 

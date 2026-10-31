@@ -142,13 +142,16 @@ describe("connection", () => {
 describe("catch-up", () => {
 	it("replays missed ops to a reconnecting client", async () => {
 		const { workspace, admin } = await withTeam();
+		(await TestClient.live(workspace, alice)).close();
 		const issue = await createIssue(admin, "issue-1");
 
-		const returning = await TestClient.connect(workspace, owner);
+		const returning = await TestClient.connect(workspace, alice);
 		const ready = await returning.hello(issue.version - 1);
 
-		expect(ready).toEqual({ type: "ready", version: issue.version });
+		// Creating the issue also subscribed its creator, which only the creator hears of.
+		expect(ready).toEqual({ type: "ready", version: issue.version + 1 });
 		expect(returning.ops().map((op) => op.version)).toEqual([issue.version]);
+		expect(returning.through).toBe(issue.version + 1);
 	});
 
 	it("resets clients that are ahead of the server", async () => {
@@ -2303,6 +2306,9 @@ describe("search", () => {
 		if (!search) throw new Error("No search migration");
 		await runInDurableObject(workspace, async (_, state) => {
 			const db = drizzle(state.storage, { schema });
+			db.run(sql`drop table inbox_items`);
+			db.run(sql`drop table subscriptions`);
+			db.run(sql`alter table oplog drop column audience`);
 			db.run(sql`drop index issues_cycle_idx`);
 			db.run(sql`alter table issues drop column cycle_id`);
 			db.run(sql`alter table teams drop column cycles`);

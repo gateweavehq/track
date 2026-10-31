@@ -1,15 +1,18 @@
-import type {
-	Activity,
-	Comment,
-	Cycle,
-	Issue,
-	IssueRelation,
-	Label,
-	Member,
-	Project,
-	Proposal,
-	SavedView,
-	Team,
+import {
+	type Activity,
+	type Comment,
+	type Cycle,
+	type InboxItem,
+	type Issue,
+	type IssueRelation,
+	type Label,
+	type Member,
+	type Project,
+	type Proposal,
+	privateId,
+	type SavedView,
+	type Subscription,
+	type Team,
 } from "@gateweave/track-protocol";
 import type { SyncState } from "@gateweave/track-sync-client";
 import { shallowEqual, useQuery } from "@gateweave/track-sync-client/react";
@@ -432,4 +435,38 @@ export function useSavedViews(userId: string): SavedView[] {
 /** A saved view by id, if it exists; whether the member may see it is the caller's to check. */
 export function useSavedView(id: string): SavedView | undefined {
 	return useQuery(useCallback((state: SyncState) => state.views.get(id), [id]));
+}
+
+const selectComments = (state: SyncState) => state.comments;
+
+/** Every live comment of the workspace, by id. */
+export function useCommentsById(): ReadonlyMap<string, Comment> {
+	return useQuery(selectComments);
+}
+
+const selectInbox = (state: SyncState) => state.inbox;
+
+/** The member's own inbox items, by id. */
+export function useInbox(): ReadonlyMap<string, InboxItem> {
+	return useQuery(selectInbox);
+}
+
+/** The member's inbox item for an issue, if the issue has been in their inbox. */
+export function useInboxItem(issueId: string, userId: string): InboxItem | undefined {
+	return useQuery(
+		useCallback(
+			(state: SyncState) => state.inbox.get(privateId(issueId, userId)),
+			[issueId, userId],
+		),
+	);
+}
+
+/** The member's subscription to an issue: none until they or the server made one. */
+export function useSubscription(issueId: string, userId: string): Subscription | undefined {
+	return useQuery(
+		useCallback(
+			(state: SyncState) => state.subscriptions.get(privateId(issueId, userId)),
+			[issueId, userId],
+		),
+	);
 }

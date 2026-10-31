@@ -34,6 +34,16 @@ const SHORTCUTS: { group: string; items: { keys: string[][]; label: string }[] }
 		],
 	},
 	{
+		group: "Inbox",
+		items: [
+			{ keys: [["J"], ["↓"]], label: "Next item" },
+			{ keys: [["K"], ["↑"]], label: "Previous item" },
+			{ keys: [["U"]], label: "Mark the selected item read or unread" },
+			{ keys: [["E"]], label: "Archive the selected item" },
+			{ keys: [["Enter"]], label: "Open the selected item's issue" },
+		],
+	},
+	{
 		group: "Proposals",
 		items: [
 			{ keys: [["J"], ["↓"]], label: "Next proposal" },

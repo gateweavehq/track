@@ -19,6 +19,8 @@ const snapshot: Snapshot = {
 	relations: [],
 	views: [],
 	members: [],
+	subscriptions: [],
+	inbox: [],
 };
 
 /** Serves a snapshot but never connects, so every mutation stays pending. */

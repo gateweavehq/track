@@ -1,5 +1,12 @@
-import type { Entities, EntityName, Op, Proposal } from "@gateweave/track-protocol";
-import { and, asc, eq, gt, lt, lte, sql } from "drizzle-orm";
+import {
+	type Entities,
+	type EntityName,
+	isPrivateEntity,
+	type Op,
+	type PrivateEntityName,
+	type Proposal,
+} from "@gateweave/track-protocol";
+import { and, asc, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
 import type { Db } from "./state";
 import type { ChangeEvent } from "./webhooks";
@@ -10,6 +17,8 @@ export interface WriteResult {
 	/** Workspace version after the write. Unchanged if nothing was written. */
 	version: number;
 	ops: Op[];
+	/** The member each private op is for, by version. Every other op is for everyone. */
+	audience?: ReadonlyMap<number, string>;
 	/** Webhook deliveries the write queued, which the alarm sends. */
 	queued?: number;
 	/** Whether the alarm should run now, to plan around what the write changed. */
@@ -24,6 +33,7 @@ export interface WriteResult {
  */
 export class ChangeSet {
 	readonly ops: Op[] = [];
+	readonly #audience = new Map<number, string>();
 	/** What the write did, in the terms webhooks report. Handlers add to it. */
 	readonly events: ChangeEvent[] = [];
 	/** What an agent's write proposed instead of making, for the agent to be told. */
@@ -43,19 +53,32 @@ export class ChangeSet {
 		return this.#next;
 	}
 
+	/** Records a row. A private entity's row goes to its member alone. */
 	put<E extends EntityName>(entity: E, data: Entities[E]): void {
-		this.#append({ version: this.#next, entity, id: data.id, op: "put", data } as Op);
+		const audience = isPrivateEntity(entity)
+			? (data as Entities[PrivateEntityName]).memberId
+			: null;
+		this.#append({ version: this.#next, entity, id: data.id, op: "put", data } as Op, audience);
 	}
 
-	delete(entity: EntityName, id: string): void {
-		this.#append({ version: this.#next, entity, id, op: "delete" });
+	delete(entity: Exclude<EntityName, PrivateEntityName>, id: string): void {
+		this.#append({ version: this.#next, entity, id, op: "delete" }, null);
+	}
+
+	/** Records that a member's private row is gone, for that member alone. */
+	deletePrivate(entity: PrivateEntityName, id: string, memberId: string): void {
+		this.#append({ version: this.#next, entity, id, op: "delete" }, memberId);
 	}
 
 	result(): WriteResult {
-		return { version: this.#next - 1, ops: this.ops };
+		return {
+			version: this.#next - 1,
+			ops: this.ops,
+			...(this.#audience.size > 0 && { audience: this.#audience }),
+		};
 	}
 
-	#append(op: Op): void {
+	#append(op: Op, audience: string | null): void {
 		this.db
 			.insert(schema.oplog)
 			.values({
@@ -65,10 +88,12 @@ export class ChangeSet {
 				op: op.op,
 				data: op.op === "put" ? op.data : null,
 				actorId: this.actorId,
+				audience,
 				at: this.now,
 			})
 			.run();
 		this.ops.push(op);
+		if (audience !== null) this.#audience.set(op.version, audience);
 		this.#next += 1;
 	}
 }
@@ -87,11 +112,17 @@ export function oplogFloor(db: Db): number {
 	return row ? Number(row.value) : 0;
 }
 
-export function opsSince(db: Db, since: number, limit: number): Op[] {
+/** The ops after `since` that `memberId` may see: everyone's, and their own private ones. */
+export function opsSince(db: Db, since: number, limit: number, memberId: string): Op[] {
 	return db
 		.select()
 		.from(schema.oplog)
-		.where(gt(schema.oplog.version, since))
+		.where(
+			and(
+				gt(schema.oplog.version, since),
+				or(isNull(schema.oplog.audience), eq(schema.oplog.audience, memberId)),
+			),
+		)
 		.orderBy(asc(schema.oplog.version))
 		.limit(limit)
 		.all()

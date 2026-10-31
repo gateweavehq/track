@@ -342,6 +342,58 @@ export interface SavedView {
 	updatedAt: number;
 }
 
+/**
+ * Whether a member hears of an issue's changes in their inbox. Private, like the inbox: only that
+ * member's replica holds it. Unsubscribing keeps the row, so the member is not subscribed again
+ * on their next comment; being assigned the issue subscribes them all the same.
+ */
+export interface Subscription {
+	/** See {@link privateId}. */
+	id: string;
+	issueId: string;
+	memberId: string;
+	subscribed: boolean;
+	updatedAt: number;
+}
+
+/** What brought an issue to a member's inbox, always someone else's doing. */
+export type InboxEvent =
+	/** The member was made the issue's assignee. */
+	| { type: "assigned" }
+	/** The member stopped being the issue's assignee. */
+	| { type: "unassigned" }
+	| { type: "comment"; commentId: string }
+	| { type: "status"; from: IssueStatus; to: IssueStatus }
+	/** An agent proposed a change, which waits for a person to accept or dismiss it. */
+	| { type: "proposal"; proposalId: string; change: ProposedChange };
+
+/**
+ * An issue in a member's inbox, private to them. There is one per issue, holding its newest
+ * event; the issue's activity and comments tell the rest. A new event brings an archived or
+ * snoozed item back.
+ */
+export interface InboxItem {
+	/** See {@link privateId}. */
+	id: string;
+	issueId: string;
+	memberId: string;
+	event: InboxEvent;
+	/** Who caused the event: a person or an agent. */
+	actorId: string;
+	/** Events since the member last read the item; 0 when it is read. */
+	unread: number;
+	/** When the newest event happened. */
+	updatedAt: number;
+	/** Hidden from the inbox until then. */
+	snoozedUntil: number | null;
+	archivedAt: number | null;
+}
+
+/** The id of a member's private row about an issue: a subscription or an inbox item. */
+export function privateId(issueId: string, memberId: string): string {
+	return `${issueId}/${memberId}`;
+}
+
 export interface Entities {
 	team: Team;
 	issue: Issue;
@@ -354,6 +406,8 @@ export interface Entities {
 	relation: IssueRelation;
 	view: SavedView;
 	member: Member;
+	subscription: Subscription;
+	inbox: InboxItem;
 }
 export type EntityName = keyof Entities;
 export const ENTITY_NAMES = [
@@ -368,4 +422,17 @@ export const ENTITY_NAMES = [
 	"relation",
 	"view",
 	"member",
+	"subscription",
+	"inbox",
 ] as const satisfies readonly EntityName[];
+
+/**
+ * Entities that belong to one member. The server sends their rows and ops to that member alone,
+ * so nobody's replica holds what a colleague subscribed to or read.
+ */
+export const PRIVATE_ENTITIES = ["subscription", "inbox"] as const satisfies readonly EntityName[];
+export type PrivateEntityName = (typeof PRIVATE_ENTITIES)[number];
+
+export function isPrivateEntity(entity: EntityName): entity is PrivateEntityName {
+	return (PRIVATE_ENTITIES as readonly EntityName[]).includes(entity);
+}

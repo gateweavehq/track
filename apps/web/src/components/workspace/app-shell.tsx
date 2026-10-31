@@ -5,6 +5,7 @@ import {
 	Bookmark,
 	Bot,
 	ChevronDown,
+	CircleUserRound,
 	Inbox,
 	IterationCcw,
 	Keyboard,
@@ -19,6 +20,7 @@ import {
 	UserPlus,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
+import { useUnreadInboxCount } from "#/components/inbox/hooks";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { Button } from "#/components/ui/button";
 import {
@@ -97,6 +99,7 @@ function Sidebar() {
 	const teams = useTeams();
 	const views = useSavedViews(userId);
 	const proposalCount = useProposalCount();
+	const unread = useUnreadInboxCount();
 	const me = useMembersById().get(userId);
 	const admin = isAdmin(useMyRole());
 
@@ -128,12 +131,27 @@ function Sidebar() {
 					<Kbd className="ml-auto">C</Kbd>
 				</button>
 				<Link
+					to="/$workspace/inbox"
+					params={{ workspace: slug }}
+					className={navLink}
+					activeProps={{ className: activeNavLink }}
+					aria-label={unread > 0 ? `Inbox, ${unread} unread` : undefined}
+				>
+					<Inbox className="size-4" />
+					Inbox
+					{unread > 0 && (
+						<span className="ml-auto rounded-full bg-primary px-1.5 text-xs text-primary-foreground tabular-nums">
+							{unread}
+						</span>
+					)}
+				</Link>
+				<Link
 					to="/$workspace/my-issues"
 					params={{ workspace: slug }}
 					className={navLink}
 					activeProps={{ className: activeNavLink }}
 				>
-					<Inbox className="size-4" />
+					<CircleUserRound className="size-4" />
 					My issues
 				</Link>
 				<Link

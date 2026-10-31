@@ -1,12 +1,14 @@
-import type {
-	Cycle,
-	Issue,
-	Member,
-	Op,
-	Project,
-	Proposal,
-	Snapshot,
-	Team,
+import {
+	type Cycle,
+	type InboxItem,
+	type Issue,
+	type Member,
+	type Op,
+	type Project,
+	type Proposal,
+	privateId,
+	type Snapshot,
+	type Team,
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import { type PendingMutation, Replica } from "../src/store";
@@ -54,6 +56,8 @@ const snapshot: Snapshot = {
 	relations: [],
 	views: [],
 	members: [],
+	subscriptions: [],
+	inbox: [],
 };
 
 function replica(): Replica {
@@ -64,6 +68,14 @@ function replica(): Replica {
 
 function pending(id: string, mutation: PendingMutation["mutation"]): PendingMutation {
 	return { id, mutation, createdAt: 100 };
+}
+
+/** Applies ops as a delta covering exactly their versions. */
+function applyOps(r: Replica, ops: Op[]): boolean {
+	const first = ops[0];
+	const last = ops.at(-1);
+	if (!first || !last) throw new Error("No ops");
+	return r.applyDelta({ from: first.version, to: last.version, ops });
 }
 
 const put = (version: number, data: Issue): Op => ({
@@ -77,7 +89,7 @@ const put = (version: number, data: Issue): Op => ({
 describe("Replica", () => {
 	it("applies ops in order and skips ones it already has", () => {
 		const r = replica();
-		expect(r.applyOps([put(2, issue), put(3, { ...issue, title: "Renamed", version: 3 })])).toBe(
+		expect(applyOps(r, [put(2, issue), put(3, { ...issue, title: "Renamed", version: 3 })])).toBe(
 			true,
 		);
 		expect(r.version).toBe(3);
@@ -87,15 +99,32 @@ describe("Replica", () => {
 	it("refuses ops that leave a gap, without applying any of them", () => {
 		const r = replica();
 		const before = r.getState();
-		expect(r.applyOps([put(4, { ...issue, title: "Too new" })])).toBe(false);
+		expect(applyOps(r, [put(4, { ...issue, title: "Too new" })])).toBe(false);
 		expect(r.getState()).toBe(before);
 		expect(r.version).toBe(2);
+	});
+
+	it("moves to the end of a delta that holds fewer ops than versions", () => {
+		const r = replica();
+		const renamed = { ...issue, title: "Renamed", version: 4 };
+		expect(r.applyDelta({ from: 3, to: 5, ops: [put(4, renamed)] })).toBe(true);
+		expect(r.version).toBe(5);
+		expect(r.getState().issues.get("i1")?.title).toBe("Renamed");
+
+		// A delta of only other members' ops still moves the version on.
+		expect(r.applyDelta({ from: 6, to: 7, ops: [] })).toBe(true);
+		expect(r.version).toBe(7);
+		// One it already has is skipped; one that starts later leaves a gap.
+		expect(r.applyDelta({ from: 3, to: 5, ops: [put(4, issue)] })).toBe(true);
+		expect(r.getState().issues.get("i1")?.title).toBe("Renamed");
+		expect(r.applyDelta({ from: 9, to: 9, ops: [] })).toBe(false);
+		expect(r.version).toBe(7);
 	});
 
 	it("keeps untouched tables and rows identical across changes", () => {
 		const r = replica();
 		const before = r.getState();
-		r.applyOps([{ version: 3, entity: "issue", id: "i1", op: "delete" }]);
+		applyOps(r, [{ version: 3, entity: "issue", id: "i1", op: "delete" }]);
 		const after = r.getState();
 		expect(after.teams).toBe(before.teams);
 		expect(after.members).toBe(before.members);
@@ -247,7 +276,7 @@ describe("Replica", () => {
 			createdAt: 3,
 			updatedAt: 3,
 		};
-		r.applyOps([{ version: 3, entity: "view", id: "v1", op: "put", data: saved }]);
+		applyOps(r, [{ version: 3, entity: "view", id: "v1", op: "put", data: saved }]);
 		expect(r.getState().views.get("v1")?.createdAt).toBe(3);
 
 		r.addPending(
@@ -287,7 +316,7 @@ describe("Replica", () => {
 			proposes: [],
 			removedAt: null,
 		};
-		r.applyOps([
+		applyOps(r, [
 			{ version: 3, entity: "view", id: "shared", op: "put", data: view("shared", null) },
 			{ version: 4, entity: "view", id: "bobs", op: "put", data: view("bobs", "bob") },
 			{ version: 5, entity: "member", id: "alice", op: "put", data: alice },
@@ -301,7 +330,7 @@ describe("Replica", () => {
 		expect(r.getState().views.has("bobs")).toBe(true);
 
 		// An admin changes shared views, but still not someone's personal one.
-		r.applyOps([
+		applyOps(r, [
 			{ version: 6, entity: "member", id: "alice", op: "put", data: { ...alice, role: "admin" } },
 		]);
 		expect(r.getState().views.get("shared")?.name).toBe("Mine");
@@ -350,7 +379,7 @@ describe("Replica", () => {
 			}),
 		);
 		// Someone else renamed the issue meanwhile.
-		r.applyOps([put(3, { ...issue, title: "Renamed", version: 3 })]);
+		applyOps(r, [put(3, { ...issue, title: "Renamed", version: 3 })]);
 		const shown = r.getState().issues.get("i1");
 		expect(shown?.title).toBe("Renamed");
 		expect(shown?.status).toBe("todo");
@@ -392,7 +421,7 @@ describe("Replica", () => {
 		// The server numbered it 5; until the ack arrives the mutation is still pending, and
 		// replaying it must not overwrite the server's row.
 		const created: Issue = { ...issue, id: "i2", title: "Second", number: 5, version: 3 };
-		r.applyOps([put(3, created)]);
+		applyOps(r, [put(3, created)]);
 		expect(r.getState().issues.get("i2")).toEqual(created);
 		r.removePending("m1");
 		expect(r.getState().issues.get("i2")).toEqual(created);
@@ -422,7 +451,7 @@ describe("Replica", () => {
 
 		// The server has applied all three; the acks have not arrived yet.
 		const label = { id: "l1", name: "Bug", color: "#e5484d", createdAt: 3, updatedAt: 3 };
-		r.applyOps([
+		applyOps(r, [
 			{ version: 3, entity: "label", id: "l1", op: "put", data: label },
 			put(4, { ...issue, labelIds: ["l1"], version: 4 }),
 		]);
@@ -435,7 +464,7 @@ describe("Replica", () => {
 	it("predicts a label's deletion on every issue that has it", () => {
 		const r = replica();
 		const label = { id: "l1", name: "Bug", color: "#e5484d", createdAt: 3, updatedAt: 3 };
-		r.applyOps([
+		applyOps(r, [
 			{ version: 3, entity: "label", id: "l1", op: "put", data: label },
 			put(4, { ...issue, labelIds: ["l1"], version: 4 }),
 		]);
@@ -485,7 +514,7 @@ describe("Replica", () => {
 		expect(r.getState().comments.has("c2")).toBe(false);
 
 		const comment = { id: "c1", issueId: "i1", authorId: "alice", body: "Hi", createdAt: 3 };
-		r.applyOps([
+		applyOps(r, [
 			{ version: 3, entity: "comment", id: "c1", op: "put", data: { ...comment, updatedAt: 3 } },
 		]);
 		r.addPending(pending("m3", { name: "comment.update", args: { id: "c1", body: "Hi there" } }));
@@ -516,7 +545,7 @@ describe("Replica", () => {
 			proposes: [],
 			removedAt: null,
 		};
-		r.applyOps([
+		applyOps(r, [
 			{ version: 3, entity: "comment", id: "c1", op: "put", data: comment },
 			{ version: 4, entity: "member", id: "alice", op: "put", data: alice },
 		]);
@@ -527,7 +556,7 @@ describe("Replica", () => {
 		);
 		expect(r.getState().comments.get("c1")?.body).toBe("Mine");
 
-		r.applyOps([
+		applyOps(r, [
 			{ version: 5, entity: "member", id: "alice", op: "put", data: { ...alice, role: "admin" } },
 		]);
 		expect(r.getState().comments.has("c1")).toBe(false);
@@ -535,7 +564,7 @@ describe("Replica", () => {
 
 	it("predicts that an issue's comments and history go with it", () => {
 		const r = replica();
-		r.applyOps([
+		applyOps(r, [
 			{
 				version: 3,
 				entity: "comment",
@@ -599,7 +628,7 @@ describe("Replica", () => {
 			proposes: [],
 			removedAt: null,
 		});
-		r.applyOps([
+		applyOps(r, [
 			{ version: 3, entity: "member", id: "alice", op: "put", data: member("alice", "member") },
 			{ version: 4, entity: "member", id: "bot", op: "put", data: member("bot", "agent") },
 		]);
@@ -612,10 +641,92 @@ describe("Replica", () => {
 		r.addPending(setting);
 		expect(r.getState().members.get("bot")?.proposes).toEqual([]);
 
-		r.applyOps([
+		applyOps(r, [
 			{ version: 5, entity: "member", id: "alice", op: "put", data: member("alice", "admin") },
 		]);
 		expect(r.getState().members.get("bot")?.proposes).toEqual(["status", "labels"]);
+	});
+
+	describe("inbox", () => {
+		const item: InboxItem = {
+			id: privateId("i1", "alice"),
+			issueId: "i1",
+			memberId: "alice",
+			event: { type: "assigned" },
+			actorId: "bob",
+			unread: 2,
+			updatedAt: 50,
+			snoozedUntil: null,
+			archivedAt: null,
+		};
+		const alice = (role: Member["role"]): Member => ({
+			id: "alice",
+			name: "Alice",
+			email: "alice@example.com",
+			image: null,
+			role,
+			proposes: [],
+			removedAt: null,
+		});
+		const withItem = (role: Member["role"] = "member") => {
+			const r = new Replica("alice");
+			r.reset({ ...snapshot, members: [alice(role)], inbox: [item] });
+			return r;
+		};
+		const update = (
+			seen: number,
+			patch: { read?: boolean; archived?: boolean; snoozedUntil?: number | null },
+		) =>
+			pending("m1", {
+				name: "inbox.update",
+				args: { items: [{ issueId: "i1", seen }], patch },
+			});
+
+		it("predicts reading, archiving and snoozing, and replays over the server's result", () => {
+			const r = withItem();
+			r.addPending(update(50, { archived: true, snoozedUntil: 500 }));
+			const predicted = r.getState().inbox.get(item.id);
+			expect(predicted).toMatchObject({ unread: 0, archivedAt: 100, snoozedUntil: 500 });
+
+			applyOps(r, [
+				{
+					version: 3,
+					entity: "inbox",
+					id: item.id,
+					op: "put",
+					data: { ...item, unread: 0, archivedAt: 90, snoozedUntil: 500 },
+				},
+			]);
+			expect(r.getState().inbox.get(item.id)).toMatchObject({ archivedAt: 90, snoozedUntil: 500 });
+		});
+
+		it("leaves news the person has not seen unread, and unreads on request", () => {
+			const r = withItem();
+			r.addPending(update(49, { read: true, archived: true }));
+			expect(r.getState().inbox.get(item.id)).toEqual(item);
+			r.removePending("m1");
+
+			r.reset({ ...snapshot, members: [alice("member")], inbox: [{ ...item, unread: 0 }] });
+			r.addPending(update(0, { read: false }));
+			expect(r.getState().inbox.get(item.id)?.unread).toBe(1);
+		});
+
+		it("predicts subscribing, but nothing for agents", () => {
+			const r = withItem();
+			r.addPending(
+				pending("m1", { name: "issue.subscribe", args: { issueId: "i1", subscribed: false } }),
+			);
+			expect(r.getState().subscriptions.get(privateId("i1", "alice"))).toMatchObject({
+				subscribed: false,
+				memberId: "alice",
+			});
+
+			const agent = withItem("agent");
+			agent.addPending(
+				pending("m1", { name: "issue.subscribe", args: { issueId: "i1", subscribed: true } }),
+			);
+			expect(agent.getState().subscriptions.size).toBe(0);
+		});
 	});
 
 	describe("cycles", () => {
@@ -664,7 +775,7 @@ describe("Replica", () => {
 
 		it("predicts an issue joining a cycle of its team that has not completed, and no other", () => {
 			const r = replica();
-			r.applyOps([
+			applyOps(r, [
 				putCycle(3, cycle("c1")),
 				putCycle(4, cycle("c0", { number: 0, completedAt: 3 })),
 				putCycle(5, cycle("ops-1", { teamId: "t2" })),
@@ -680,7 +791,7 @@ describe("Replica", () => {
 
 		it("predicts naming a cycle", () => {
 			const r = replica();
-			r.applyOps([putCycle(3, cycle("c1"))]);
+			applyOps(r, [putCycle(3, cycle("c1"))]);
 			r.addPending(
 				pending("m1", { name: "cycle.update", args: { id: "c1", patch: { name: "Launch" } } }),
 			);
@@ -752,7 +863,7 @@ describe("Replica", () => {
 
 			// The server has applied both; the acks have not arrived yet.
 			const confirmed = { ...project, status: "started" as const, targetDate: "2026-12-31" };
-			r.applyOps([putProject(3, project), putProject(4, confirmed)]);
+			applyOps(r, [putProject(3, project), putProject(4, confirmed)]);
 			expect(r.getState().projects.get("p1")).toMatchObject({ ...confirmed, updatedAt: 100 });
 			r.removePending("m1");
 			r.removePending("m2");
@@ -770,7 +881,7 @@ describe("Replica", () => {
 
 		it("leaves what the server would refuse to the server", () => {
 			const r = replica();
-			r.applyOps([
+			applyOps(r, [
 				putMember(3, person("alice", "member")),
 				putMember(4, person("bot", "agent")),
 				putProject(5, project),
@@ -803,7 +914,7 @@ describe("Replica", () => {
 
 		it("predicts an issue's project, and that deleting the project clears it", () => {
 			const r = replica();
-			r.applyOps([putMember(3, person("alice", "admin")), putProject(4, project)]);
+			applyOps(r, [putMember(3, person("alice", "admin")), putProject(4, project)]);
 			r.addPending(
 				pending("m1", {
 					name: "issue.update",
@@ -868,7 +979,7 @@ describe("Replica", () => {
 
 		it("predicts accepting a proposed project", () => {
 			const r = replica();
-			r.applyOps([
+			applyOps(r, [
 				putProject(3, project),
 				{
 					version: 4,
@@ -901,7 +1012,7 @@ describe("Replica", () => {
 			op: "put",
 			data: { id, issueId: "i1", agentId: "bot", change, createdAt: 4, updatedAt: 4 },
 		});
-		r.applyOps([
+		applyOps(r, [
 			{ version: 3, entity: "label", id: "l1", op: "put", data: label },
 			{ ...proposal("p1", { type: "status", to: "done" }), version: 4 },
 			{ ...proposal("p2", { type: "label", labelId: "l1", added: true }), version: 5 },
@@ -921,7 +1032,7 @@ describe("Replica", () => {
 		expect(r.getState().proposals.size).toBe(0);
 
 		// The server has decided all three; the acks have not arrived yet.
-		r.applyOps([
+		applyOps(r, [
 			put(7, { ...issue, status: "done", version: 7 }),
 			{ version: 8, entity: "proposal", id: "p1", op: "delete" },
 			put(9, { ...issue, status: "done", labelIds: ["l1"], version: 9 }),
@@ -949,7 +1060,7 @@ describe("Replica", () => {
 		r.addPending(pending("m1", { name: "issue.delete", args: { id: "i1" } }));
 		r.removePending("m1");
 		unsubscribe();
-		r.applyOps([put(3, issue)]);
+		applyOps(r, [put(3, issue)]);
 		expect(calls).toBe(2);
 	});
 });

@@ -5,6 +5,7 @@ import type {
 	Cycle,
 	Entities,
 	EntityName,
+	InboxItem,
 	Issue,
 	IssueRelation,
 	Label,
@@ -12,12 +13,13 @@ import type {
 	Project,
 	Proposal,
 	SavedView,
+	Subscription,
 	Team,
 } from "./domain";
 import type { MutationInput } from "./mutations";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";
@@ -74,8 +76,13 @@ export const REJECT_REASONS = ["invalid", "forbidden", "not_found", "conflict"] 
 export type RejectReason = (typeof REJECT_REASONS)[number];
 
 export type ServerMessage =
-	/** Ops in ascending version order. Sent for catch-up after `hello` and live after every write. */
-	| { type: "delta"; ops: Op[] }
+	/**
+	 * The versions `from` through `to`, both included, and the ops among them meant for this
+	 * client, in ascending order: other members' private ops are left out, so a delta can hold
+	 * fewer ops than versions, or none. Each delta on a socket starts where the one before ended.
+	 * Sent for catch-up after `hello` and live after writes.
+	 */
+	| { type: "delta"; from: number; to: number; ops: Op[] }
 	/** Catch-up is complete; the client is live at `version`. */
 	| { type: "ready"; version: number }
 	/** The mutation was applied at `version`. Its ops arrive in a `delta` before this message. */
@@ -85,7 +92,10 @@ export type ServerMessage =
 	/** The client's state cannot be caught up incrementally; it must fetch a fresh snapshot. */
 	| { type: "reset" };
 
-/** Full workspace state, served over HTTP so it can be compressed and fetched in parallel. */
+/**
+ * Full workspace state as one member sees it, served over HTTP so it can be compressed and
+ * fetched in parallel.
+ */
 export interface Snapshot {
 	version: number;
 	teams: Team[];
@@ -102,6 +112,9 @@ export interface Snapshot {
 	/** Every saved view, personal ones included. */
 	views: SavedView[];
 	members: Member[];
+	/** The member's own subscriptions and inbox, of live issues; nobody else's. */
+	subscriptions: Subscription[];
+	inbox: InboxItem[];
 }
 
 /** Where each entity's rows live in a snapshot. */
@@ -117,4 +130,6 @@ export const SNAPSHOT_KEYS = {
 	relation: "relations",
 	view: "views",
 	member: "members",
+	subscription: "subscriptions",
+	inbox: "inbox",
 } as const satisfies { [E in EntityName]: Exclude<keyof Snapshot, "version"> };

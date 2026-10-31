@@ -13,6 +13,7 @@ import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { recordActivity } from "./activity";
 import { scheduleCycles } from "./cycles";
 import * as schema from "./db/schema";
+import { notify, subscribeToIssue, updateInbox } from "./inbox";
 import { ChangeSet, type WriteResult } from "./log";
 import {
 	decide,
@@ -144,8 +145,18 @@ export function applyMutation(
 		case "proposal.dismiss":
 			dismissProposal(db, changes, actor, mutation.args);
 			break;
+		case "issue.subscribe":
+			subscribeToIssue(db, changes, actor.member, mutation.args);
+			break;
+		case "inbox.update":
+			updateInbox(db, changes, actor.member, mutation.args);
+			break;
 	}
 
+	const imported =
+		(mutation.name === "issue.create" || mutation.name === "comment.create") &&
+		mutation.args.createdAt !== undefined;
+	notify(db, changes, actor.member.userId, imported);
 	const result = changes.result();
 	db.insert(schema.appliedMutations)
 		.values({ id: mutationId, clientId: actor.clientId, version: result.version, at: now })

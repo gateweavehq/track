@@ -63,6 +63,8 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   completes them at midnight in the team's time zone and moves unfinished issues on; each has
   its progress and a burn-up, filters know the current and next cycle, and agents plan into them
   over MCP. Shipped in v0.8.0.
+- **Inbox.** People hear of assignments, comments, status changes and agents' proposals on the
+  issues they follow, in an inbox of their own with read, snooze and archive that works offline.
 
 ## Next: launch
 
@@ -80,7 +82,7 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   - Sub-issues and relations (blocks, duplicate of, related).
   - Start dates, due dates and estimates.
   - Saved views, and table, calendar and timeline layouts.
-- Notifications and an inbox.
+- Email for unread inbox items, and notification settings per person.
 - GitHub integration: link pull requests and close issues from commits.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations
   people use (see [ecosystem.md](ecosystem.md#agents-are-members)). It runs in Gateweave Agents,

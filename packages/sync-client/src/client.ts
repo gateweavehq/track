@@ -4,7 +4,6 @@ import {
 	type Mutation,
 	type MutationInput,
 	mutationSchema,
-	type Op,
 	PING,
 	PONG,
 	PROTOCOL_VERSION,
@@ -13,7 +12,7 @@ import {
 	type Snapshot,
 } from "@gateweave/track-protocol";
 import { MemoryPersistence, type Persistence, type StoredReplica } from "./persistence";
-import { type PendingMutation, Replica, type SyncState } from "./store";
+import { type Delta, type PendingMutation, Replica, type SyncState } from "./store";
 import { type ConnectionStatus, standaloneTabs, type TabMessage, type Tabs } from "./tabs";
 import { HttpError, type SyncSocket, type Transport } from "./transport";
 
@@ -260,8 +259,8 @@ export class SyncClient {
 		// leader, and its own catch-up covers it.
 		if (this.#role === "leader") return;
 		switch (message.type) {
-			case "ops":
-				if (!this.#replica.applyOps(message.ops)) void this.#reload();
+			case "delta":
+				if (!this.#replica.applyDelta(message)) void this.#reload();
 				return;
 			case "reload":
 				void this.#reload();
@@ -346,7 +345,7 @@ export class SyncClient {
 		}
 		switch (message.type) {
 			case "delta":
-				this.#applyServerOps(message.ops);
+				this.#applyServerDelta(message);
 				return;
 			case "ready":
 				this.#live = true;
@@ -373,15 +372,15 @@ export class SyncClient {
 		}
 	}
 
-	#applyServerOps(ops: Op[]): void {
-		if (!this.#replica.applyOps(ops)) {
+	#applyServerDelta({ from, to, ops }: Delta): void {
+		if (!this.#replica.applyDelta({ from, to, ops })) {
 			// Never expected from a direct connection, but a gap cannot be repaired incrementally.
 			this.#needsSnapshot = true;
 			this.#reconnect();
 			return;
 		}
 		const version = this.#replica.version;
-		this.#write((p) => p.applyOps(ops, version), { type: "ops", ops }, { state: true });
+		this.#write((p) => p.applyOps(ops, version), { type: "delta", from, to, ops }, { state: true });
 	}
 
 	#applySnapshot(snapshot: Snapshot): void {

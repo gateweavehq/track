@@ -1,5 +1,5 @@
-import { type Op, PROTOCOL_VERSION, type RejectReason } from "@gateweave/track-protocol";
-import type { PendingMutation } from "./store";
+import { PROTOCOL_VERSION, type RejectReason } from "@gateweave/track-protocol";
+import type { Delta, PendingMutation } from "./store";
 
 export type ConnectionStatus =
 	/** Opening the socket or catching up. */
@@ -19,8 +19,8 @@ export type ConnectionStatus =
 export type TabMessage =
 	/** A tab made a mutation. Every tab applies it optimistically; the leader sends it. */
 	| { type: "mutation"; pending: PendingMutation }
-	/** The leader stored new server ops. */
-	| { type: "ops"; ops: Op[] }
+	/** The leader stored a delta from the server. */
+	| ({ type: "delta" } & Delta)
 	| { type: "ack"; id: string; version: number }
 	| { type: "reject"; id: string; reason: RejectReason; message?: string }
 	/** The leader replaced the stored state with a snapshot. Followers reload from storage. */

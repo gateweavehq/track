@@ -5,6 +5,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import {
 	ArrowLeftRight,
 	Bot,
+	CircleUserRound,
 	Download,
 	Inbox,
 	IterationCcw,
@@ -134,9 +135,16 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 				]
 			: []),
 		{
+			id: "inbox",
+			label: "Go to Inbox",
+			icon: Inbox,
+			keywords: ["notifications", "unread"],
+			run: () => void navigate({ to: "/$workspace/inbox", params: { workspace: slug } }),
+		},
+		{
 			id: "my-issues",
 			label: "Go to My issues",
-			icon: Inbox,
+			icon: CircleUserRound,
 			keywords: ["assigned"],
 			run: () => void navigate({ to: "/$workspace/my-issues", params: { workspace: slug } }),
 		},

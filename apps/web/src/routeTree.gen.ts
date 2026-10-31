@@ -15,6 +15,7 @@ import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as WorkspaceIndexRouteImport } from './routes/$workspace/index'
+import { Route as WorkspaceInboxRouteImport } from './routes/$workspace/inbox'
 import { Route as WorkspaceMyIssuesRouteImport } from './routes/$workspace/my-issues'
 import { Route as WorkspaceProjectsRouteImport } from './routes/$workspace/projects'
 import { Route as WorkspaceProposalsRouteImport } from './routes/$workspace/proposals'
@@ -65,6 +66,11 @@ const ResetPasswordRoute = ResetPasswordRouteImport.update({
 const WorkspaceIndexRoute = WorkspaceIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceInboxRoute = WorkspaceInboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
   getParentRoute: () => WorkspaceRoute,
 } as any)
 const WorkspaceMyIssuesRoute = WorkspaceMyIssuesRouteImport.update({
@@ -183,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/$workspace/inbox': typeof WorkspaceInboxRoute
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
   '/$workspace/projects': typeof WorkspaceProjectsRoute
   '/$workspace/proposals': typeof WorkspaceProposalsRoute
@@ -211,6 +218,7 @@ export interface FileRoutesByTo {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/$workspace/inbox': typeof WorkspaceInboxRoute
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
   '/$workspace/projects': typeof WorkspaceProjectsRoute
   '/$workspace/proposals': typeof WorkspaceProposalsRoute
@@ -240,6 +248,7 @@ export interface FileRoutesById {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/$workspace/inbox': typeof WorkspaceInboxRoute
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
   '/$workspace/projects': typeof WorkspaceProjectsRoute
   '/$workspace/proposals': typeof WorkspaceProposalsRoute
@@ -271,6 +280,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/reset-password'
+    | '/$workspace/inbox'
     | '/$workspace/my-issues'
     | '/$workspace/projects'
     | '/$workspace/proposals'
@@ -299,6 +309,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/reset-password'
+    | '/$workspace/inbox'
     | '/$workspace/my-issues'
     | '/$workspace/projects'
     | '/$workspace/proposals'
@@ -327,6 +338,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/reset-password'
+    | '/$workspace/inbox'
     | '/$workspace/my-issues'
     | '/$workspace/projects'
     | '/$workspace/proposals'
@@ -404,6 +416,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/$workspace/'
       preLoaderRoute: typeof WorkspaceIndexRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/$workspace/inbox': {
+      id: '/$workspace/inbox'
+      path: '/inbox'
+      fullPath: '/$workspace/inbox'
+      preLoaderRoute: typeof WorkspaceInboxRouteImport
       parentRoute: typeof WorkspaceRoute
     }
     '/$workspace/my-issues': {
@@ -582,6 +601,7 @@ const WorkspaceSettingsRouteWithChildren =
   WorkspaceSettingsRoute._addFileChildren(WorkspaceSettingsRouteChildren)
 
 interface WorkspaceRouteChildren {
+  WorkspaceInboxRoute: typeof WorkspaceInboxRoute
   WorkspaceMyIssuesRoute: typeof WorkspaceMyIssuesRoute
   WorkspaceProjectsRoute: typeof WorkspaceProjectsRoute
   WorkspaceProposalsRoute: typeof WorkspaceProposalsRoute
@@ -596,6 +616,7 @@ interface WorkspaceRouteChildren {
 }
 
 const WorkspaceRouteChildren: WorkspaceRouteChildren = {
+  WorkspaceInboxRoute: WorkspaceInboxRoute,
   WorkspaceMyIssuesRoute: WorkspaceMyIssuesRoute,
   WorkspaceProjectsRoute: WorkspaceProjectsRoute,
   WorkspaceProposalsRoute: WorkspaceProposalsRoute,

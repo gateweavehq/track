@@ -7,6 +7,7 @@ import {
 	type AgentChangeKind,
 	type CycleSettings,
 	ENTITY_NAMES,
+	type InboxEvent,
 	ISSUE_LAYOUTS,
 	ISSUE_STATUSES,
 	type IssueFilters,
@@ -233,6 +234,49 @@ export const members = sqliteTable("members", {
 	removedAt: integer("removed_at"),
 });
 
+/**
+ * Members' subscriptions to issues. Private: their ops and rows go to the member alone. A deleted
+ * issue's subscriptions go with it.
+ */
+export const subscriptions = sqliteTable(
+	"subscriptions",
+	{
+		id: text("id").primaryKey(),
+		issueId: text("issue_id")
+			.notNull()
+			.references(() => issues.id),
+		memberId: text("member_id").notNull(),
+		subscribed: integer("subscribed", { mode: "boolean" }).notNull(),
+		updatedAt: integer("updated_at").notNull(),
+	},
+	(table) => [
+		index("subscriptions_issue_idx").on(table.issueId),
+		index("subscriptions_member_idx").on(table.memberId),
+	],
+);
+
+/** Members' inboxes, one item per member and issue. Private, like subscriptions. */
+export const inboxItems = sqliteTable(
+	"inbox_items",
+	{
+		id: text("id").primaryKey(),
+		issueId: text("issue_id")
+			.notNull()
+			.references(() => issues.id),
+		memberId: text("member_id").notNull(),
+		event: text("event", { mode: "json" }).$type<InboxEvent>().notNull(),
+		actorId: text("actor_id").notNull(),
+		unread: integer("unread").notNull(),
+		updatedAt: integer("updated_at").notNull(),
+		snoozedUntil: integer("snoozed_until"),
+		archivedAt: integer("archived_at"),
+	},
+	(table) => [
+		index("inbox_items_issue_idx").on(table.issueId),
+		index("inbox_items_member_idx").on(table.memberId),
+	],
+);
+
 /** Ordered log of every change. `version` is the workspace-wide sequence number. */
 export const oplog = sqliteTable("oplog", {
 	version: integer("version").primaryKey(),
@@ -241,6 +285,8 @@ export const oplog = sqliteTable("oplog", {
 	op: text("op", { enum: ["put", "delete"] }).notNull(),
 	data: text("data", { mode: "json" }).$type<unknown>(),
 	actorId: text("actor_id"),
+	/** The only member a private op is for; null for ops every member gets. */
+	audience: text("audience"),
 	at: integer("at").notNull(),
 });
 
@@ -314,5 +360,7 @@ export type ProposalRow = typeof proposals.$inferSelect;
 export type RelationRow = typeof relations.$inferSelect;
 export type ViewRow = typeof views.$inferSelect;
 export type MemberRow = typeof members.$inferSelect;
+export type SubscriptionRow = typeof subscriptions.$inferSelect;
+export type InboxItemRow = typeof inboxItems.$inferSelect;
 export type WebhookRow = typeof webhooks.$inferSelect;
 export type WebhookDeliveryRow = typeof webhookDeliveries.$inferSelect;

@@ -4,6 +4,8 @@ import { Link, useCanGoBack, useNavigate, useRouter } from "@tanstack/react-rout
 import { ChevronRight, Gauge, Layers, ListTree, Pencil, Trash } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { CycleIcon } from "#/components/cycles/meta";
+import { useReadOnView } from "#/components/inbox/hooks";
+import { SubscribeButton } from "#/components/inbox/subscribe-button";
 import { Markdown } from "#/components/markdown";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { ProjectStatusIcon } from "#/components/projects/meta";
@@ -71,6 +73,7 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 			});
 	}
 
+	useReadOnView(issue.id);
 	useHotkeys({
 		s: () => setMenu("status"),
 		p: () => setMenu("priority"),
@@ -98,10 +101,12 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 				</Link>
 				<ChevronRight className="size-4 text-muted-foreground" />
 				<span className="font-mono text-xs">{key}</span>
+				<div className="ml-auto" />
+				<SubscribeButton issueId={issue.id} />
 				<Button
 					variant="ghost"
 					size="icon"
-					className="ml-auto size-8"
+					className="size-8"
 					aria-label="Delete issue"
 					onClick={() => setConfirmDelete(true)}
 				>

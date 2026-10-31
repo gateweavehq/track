@@ -3,11 +3,10 @@ import { expect, newBrowserContext, test } from "./fixtures";
 import {
 	createIssue,
 	issueRow,
-	newPerson,
+	joinByInvitation,
 	startWorkspace,
 	syncBadge,
 	unique,
-	waitForHydration,
 } from "./helpers";
 
 /** Ticks values of one filter in the filter menu, then closes the menu. */
@@ -130,23 +129,10 @@ test("a personal view is its owner's, and sharing it shows it to everyone", asyn
 	await page.getByRole("button", { name: "Save view" }).click();
 	await nameView(page, "Triage");
 
-	await page.goto(`/${slug}/settings/members`);
-	const guest = newPerson("guest");
-	await page.getByLabel("Email address").fill(guest.email);
-	await page.getByRole("button", { name: "Create invite link" }).click();
-	const link = await page.getByLabel("Invite link").inputValue();
-
 	const guestContext = await newBrowserContext(browser);
 	try {
 		const guestPage = await guestContext.newPage();
-		await guestPage.goto(link);
-		await guestPage.getByRole("link", { name: "Create an account" }).click();
-		await waitForHydration(guestPage);
-		await guestPage.getByLabel("Name").fill(guest.name);
-		await guestPage.getByLabel("Password").fill(guest.password);
-		await guestPage.getByRole("button", { name: "Create account" }).click();
-		await guestPage.getByRole("button", { name: `Join ${name}` }).click();
-		await expect(syncBadge(guestPage)).toHaveText("Live");
+		await joinByInvitation(page, guestPage, { slug, name });
 
 		// The guest sees the shared view, but not the personal one, even by its link.
 		const guestViews = viewsNav(guestPage);

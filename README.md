@@ -30,6 +30,8 @@ Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
 - **Works with AI agents.** A built-in MCP server lets Claude, ChatGPT and other agents find, file
   and update issues as you, once you approve them in the browser. Agents that work on their own
   join as members of their own, with a key.
+- **An inbox of your own.** Assignments, comments and status changes on the issues you follow
+  arrive live, to read, snooze or archive, and only you see them.
 - **Webhooks.** Each change can be posted to a URL of yours as it happens, signed per
   [Standard Webhooks](https://www.standardwebhooks.com) and retried while the receiver is down.
 - **Your data is yours.** Export a workspace or one team as CSV or JSON from Settings, Export. It
