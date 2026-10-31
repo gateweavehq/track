@@ -39,6 +39,30 @@ test("an empty workspace offers the guided team on its first-team page", async (
 	await expect(issueRow(page, "Welcome to Track")).toBeVisible();
 });
 
+test("the new-issue dialog stays within a short window, its button in reach", async ({ page }) => {
+	const { slug } = await startWorkspace(page);
+	await page.setViewportSize({ width: 1280, height: 520 });
+	await page.goto(`/${slug}/team/ENG`);
+	await page.getByRole("button", { name: "New issue" }).first().click();
+	const dialog = page.getByRole("dialog", { name: "New issue" });
+	const title = unique("Long description");
+	await dialog.getByLabel("Title").fill(title);
+	await dialog
+		.getByLabel("Description")
+		.fill(Array.from({ length: 30 }, (_, i) => `Line ${i + 1}`).join("\n"));
+
+	// Opened a fifth of the way down, the dialog ran past the bottom of the window, and so did its
+	// button, whatever it scrolled.
+	const box = await dialog.boundingBox();
+	expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(520);
+	const create = dialog.getByRole("button", { name: "Create issue" });
+	await create.scrollIntoViewIfNeeded();
+	await expect(create).toBeInViewport({ ratio: 1 });
+	await create.click();
+	await expect(dialog).toBeHidden();
+	await expect(issueRow(page, title)).toBeVisible();
+});
+
 test("an edit in one tab appears in another without a reload", async ({ page, context }) => {
 	const { slug } = await startWorkspace(page);
 	const other = await context.newPage();
