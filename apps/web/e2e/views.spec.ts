@@ -163,3 +163,99 @@ test("a personal view is its owner's, and sharing it shows it to everyone", asyn
 		await guestContext.close();
 	}
 });
+
+/** Picks a radio option of the Display menu, such as a way to group or order by. */
+async function displayOption(page: Page, name: string) {
+	await page.getByRole("button", { name: /^Display options/ }).click();
+	// Group by and Order by both offer Priority; the first is the grouping.
+	await page.getByRole("menuitemradio", { name, exact: true }).first().click();
+	await page.keyboard.press("Escape");
+}
+
+test("a shared view keeps how it groups, orders and lays out issues, for everyone", async ({
+	page,
+	browser,
+}) => {
+	const { slug, name } = await startWorkspace(page);
+	const { outage, docs } = await urgentAndNot(page, slug);
+	await page.goto(`/${slug}/team/ENG`);
+	const extra = unique("Archive the logs");
+	await createIssue(page, extra);
+
+	/** Whether the first issue's row is above the second's. */
+	async function above(on: Page, first: string, second: string) {
+		const [a, b] = await Promise.all([
+			issueRow(on, first).boundingBox(),
+			issueRow(on, second).boundingBox(),
+		]);
+		return a !== null && b !== null && a.y < b.y;
+	}
+	const group = (on: Page, title: string) =>
+		on.getByRole("heading", { level: 2, name: new RegExp(`^${title}`) });
+
+	// By default the list groups by status, in manual order: the older issue comes first.
+	await expect(group(page, "Backlog")).toBeVisible();
+	await expect.poll(() => above(page, docs, extra)).toBe(true);
+
+	// Group by priority and order by when issues were made, newest first. These are changes to the
+	// page's link, not yet to any view.
+	await displayOption(page, "Priority");
+	await displayOption(page, "Created");
+	await expect(group(page, "Urgent")).toBeVisible();
+	await expect(group(page, "No priority")).toBeVisible();
+	await expect(group(page, "Backlog")).toHaveCount(0);
+	await expect(issueRow(page, outage)).toBeVisible();
+	await expect.poll(() => above(page, extra, docs)).toBe(true);
+	await expect(page).toHaveURL(/group=priority/);
+
+	// Display options alone are enough to offer saving a view.
+	await page.getByRole("button", { name: "Save view" }).click();
+	await nameView(page, "By priority");
+	const viewUrl = page.url();
+	await expect(group(page, "Urgent")).toBeVisible();
+	await expect.poll(() => above(page, extra, docs)).toBe(true);
+	await expect(page.getByText("Unsaved changes")).toBeHidden();
+
+	// Changing them shows as unsaved, like filters, and goes back with Reset.
+	await displayOption(page, "No grouping");
+	await expect(page.getByText("Unsaved changes")).toBeVisible();
+	await expect(group(page, "Urgent")).toHaveCount(0);
+	await page.getByRole("button", { name: "Discard the changes" }).click();
+	await expect(page.getByText("Unsaved changes")).toBeHidden();
+	await expect(group(page, "Urgent")).toBeVisible();
+
+	// The table's columns and sort are kept in the view too.
+	await page.getByRole("button", { name: "Table", exact: true }).click();
+	await expect(page.getByText("Unsaved changes")).toBeVisible();
+	await page.getByRole("button", { name: "Columns" }).click();
+	await page.getByRole("menuitemcheckbox", { name: "Project" }).click();
+	await page.keyboard.press("Escape");
+	await page.getByRole("columnheader", { name: "Title" }).getByRole("button").click();
+	await expect(page.getByRole("columnheader", { name: "Project" })).toBeHidden();
+	await page.getByRole("button", { name: "Save", exact: true }).click();
+	await expect(page.getByText("Unsaved changes")).toBeHidden();
+
+	// Someone else opening the view sees the same table: no Project column, sorted by title.
+	const guestContext = await newBrowserContext(browser);
+	try {
+		const guestPage = await guestContext.newPage();
+		await joinByInvitation(page, guestPage, { slug, name });
+		await guestPage.goto(viewUrl);
+		await expect(guestPage.getByRole("heading", { name: "By priority", level: 1 })).toBeVisible();
+		await expect(guestPage.getByRole("columnheader", { name: "Title" })).toHaveAttribute(
+			"aria-sort",
+			"ascending",
+		);
+		await expect(guestPage.getByRole("columnheader", { name: "Status" })).toBeVisible();
+		await expect(guestPage.getByRole("columnheader", { name: "Project" })).toBeHidden();
+		await expect(guestPage.getByText("Unsaved changes")).toBeHidden();
+
+		// And in the list, the same grouping and order.
+		await guestPage.getByRole("button", { name: "List", exact: true }).click();
+		await expect(group(guestPage, "Urgent")).toBeVisible();
+		await expect(group(guestPage, "No priority")).toBeVisible();
+		await expect.poll(() => above(guestPage, extra, docs)).toBe(true);
+	} finally {
+		await guestContext.close();
+	}
+});

@@ -1,5 +1,5 @@
-import type { IssueFilters, IssueLayout, SavedView } from "@gateweave/track-protocol";
-import { mutationSchema } from "@gateweave/track-protocol";
+import type { IssueDisplay, IssueFilters, IssueLayout, SavedView } from "@gateweave/track-protocol";
+import { displayToStore, mutationSchema } from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { useNavigate } from "@tanstack/react-router";
@@ -28,7 +28,7 @@ import { useWorkspace } from "#/components/workspace/context";
 import { compactFilters } from "#/lib/filters";
 import { send } from "#/lib/mutations";
 
-/** Saves filters and a layout as a new view, then opens it. */
+/** Saves filters, a layout and display options as a new view, then opens it. */
 function useCreateView() {
 	const client = useSyncClient();
 	const navigate = useNavigate();
@@ -38,11 +38,17 @@ function useCreateView() {
 		personal: boolean;
 		layout: IssueLayout;
 		filters: IssueFilters;
+		display: IssueDisplay;
 	}) => {
 		const id = uuidv7();
 		const sent = send(client, {
 			name: "view.create",
-			args: { id, ...view, filters: compactFilters(view.filters) },
+			args: {
+				id,
+				...view,
+				filters: compactFilters(view.filters),
+				display: displayToStore(view.display),
+			},
 		});
 		if (sent)
 			void navigate({ to: "/$workspace/view/$viewId", params: { workspace: slug, viewId: id } });
@@ -139,13 +145,18 @@ function ViewNameDialog({
 	);
 }
 
-/** "Save view" beside the filters of a page of issues: keeps them, and the layout, as a view. */
+/**
+ * "Save view" beside the filters of a page of issues: keeps them, the layout and the display
+ * options as a view.
+ */
 export function SaveViewButton({
 	filters,
 	layout,
+	display,
 }: {
 	filters: IssueFilters;
 	layout: IssueLayout;
+	display: IssueDisplay;
 }) {
 	const [open, setOpen] = useState(false);
 	const create = useCreateView();
@@ -163,10 +174,10 @@ export function SaveViewButton({
 			{open && (
 				<ViewNameDialog
 					title="Save view"
-					description="Keeps these filters and this layout under a name in the sidebar."
+					description="Keeps these filters, this layout and these display options under a name in the sidebar."
 					submitLabel="Save view"
 					askPersonal
-					onSubmit={(name, personal) => create({ name, personal, layout, filters })}
+					onSubmit={(name, personal) => create({ name, personal, layout, filters, display })}
 					onClose={() => setOpen(false)}
 				/>
 			)}
@@ -175,13 +186,15 @@ export function SaveViewButton({
 }
 
 /**
- * What a view page shows beside its filters once they or the layout differ from the saved view:
+ * What a view page shows beside its filters once they, the layout or the display options differ
+ * from the saved view:
  * save them into it (for those who may), save them as a new view, or go back to the saved ones.
  */
 export function ViewChanges({
 	view,
 	filters,
 	layout,
+	display,
 	canEdit,
 	onSaved,
 	onReset,
@@ -189,6 +202,7 @@ export function ViewChanges({
 	view: SavedView;
 	filters: IssueFilters;
 	layout: IssueLayout;
+	display: IssueDisplay;
 	canEdit: boolean;
 	onSaved: () => void;
 	onReset: () => void;
@@ -225,7 +239,14 @@ export function ViewChanges({
 					onClick={() => {
 						const sent = send(client, {
 							name: "view.update",
-							args: { id: view.id, patch: { layout, filters: compactFilters(filters) } },
+							args: {
+								id: view.id,
+								patch: {
+									layout,
+									filters: compactFilters(filters),
+									display: displayToStore(display),
+								},
+							},
 						});
 						if (sent) onSaved();
 					}}
@@ -236,10 +257,10 @@ export function ViewChanges({
 			{naming && (
 				<ViewNameDialog
 					title="Save as a new view"
-					description={`A new view with these filters and this layout. "${view.name}" stays as it is.`}
+					description={`A new view with these filters, this layout and these display options. "${view.name}" stays as it is.`}
 					submitLabel="Save view"
 					askPersonal
-					onSubmit={(name, personal) => create({ name, personal, layout, filters })}
+					onSubmit={(name, personal) => create({ name, personal, layout, filters, display })}
 					onClose={() => setNaming(false)}
 				/>
 			)}
@@ -314,7 +335,7 @@ export function ViewMenu({ view, canEdit }: { view: SavedView; canEdit: boolean 
 			{dialog === "rename" && (
 				<ViewNameDialog
 					title="Rename view"
-					description="The filters and the layout stay as they are."
+					description="The filters, the layout and the display options stay as they are."
 					submitLabel="Rename"
 					initialName={view.name}
 					askPersonal={false}

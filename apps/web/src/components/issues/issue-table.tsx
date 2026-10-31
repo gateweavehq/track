@@ -1,4 +1,12 @@
-import type { Cycle, Issue, Member, Project, Team } from "@gateweave/track-protocol";
+import type {
+	Cycle,
+	Issue,
+	IssueDisplay,
+	Member,
+	Project,
+	TableColumn,
+	Team,
+} from "@gateweave/track-protocol";
 import { Link } from "@tanstack/react-router";
 import { ArrowDown, ArrowUp, ListRestart, SlidersHorizontal } from "lucide-react";
 import {
@@ -27,19 +35,17 @@ import {
 import { useWorkspace } from "#/components/workspace/context";
 import { cycleName, stateIn } from "#/lib/cycles";
 import { formatDateTime, formatShortDate } from "#/lib/dates";
+import {
+	type DisplayUpdate,
+	HIDEABLE_COLUMNS,
+	shownColumns,
+	TABLE_COLUMN_LABELS,
+	toggleColumn,
+} from "#/lib/display";
 import { isIssueOverdue, issueKey } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
 import { useCyclesById, useMembersById, useProjectsById, useTeamsById } from "#/lib/queries";
-import {
-	HIDEABLE_COLUMNS,
-	nextSort,
-	type SortColumn,
-	sortIssues,
-	TABLE_COLUMN_LABELS,
-	type TableColumn,
-	type TableSort,
-	useTableColumns,
-} from "#/lib/table";
+import { nextSort, type SortColumn, sortIssues, type TableSort } from "#/lib/table";
 import { cn } from "#/lib/utils";
 import { DateField } from "./date-field";
 import { LabelChips, LabelPicker } from "./labels";
@@ -84,25 +90,29 @@ const OVERSCAN = 15;
 /**
  * Issues as a table: a column per property, each editable in place, sorted by clicking a header.
  * It scrolls sideways inside its own container, with the ID and Title columns staying put. The
- * chosen columns are remembered per page (`scope`); the sort is not. Only the rows near the screen
- * are in the page, so a table of thousands opens and sorts as quickly as one of a few dozen.
+ * columns and the sort are display options, so they go with the page's link or saved view. Only
+ * the rows near the screen are in the page, so a table of thousands opens and sorts as quickly as
+ * one of a few dozen.
  */
 export function IssueTable({
 	issues,
 	empty,
-	scope,
+	display,
+	onDisplayChange,
 }: {
 	issues: Issue[];
 	empty: ReactNode;
-	/** What the page remembers its columns by: the scope its view is remembered by. */
-	scope: string;
+	display: IssueDisplay;
+	onDisplayChange: (update: DisplayUpdate) => void;
 }) {
 	const teams = useTeamsById();
 	const members = useMembersById();
 	const projects = useProjectsById();
 	const cycles = useCyclesById();
-	const { shown, toggle } = useTableColumns(scope);
-	const [sort, setSort] = useState<TableSort | null>(null);
+	const shown = useMemo(() => shownColumns(display), [display]);
+	const sort: TableSort | null = display.sort ?? null;
+	const setSort = (update: (current: TableSort | null) => TableSort | null) =>
+		onDisplayChange((current) => ({ ...current, sort: update(current.sort ?? null) ?? undefined }));
 	const rows = useMemo(
 		() => sortIssues(issues, sort, { teams, members, projects, cycles }),
 		[issues, sort, teams, members, projects, cycles],
@@ -124,12 +134,15 @@ export function IssueTable({
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
 			<div className="flex shrink-0 items-center justify-end gap-2 px-3 py-2 sm:px-4">
 				{sort && (
-					<Button variant="ghost" size="sm" className="h-8" onClick={() => setSort(null)}>
+					<Button variant="ghost" size="sm" className="h-8" onClick={() => setSort(() => null)}>
 						<ListRestart />
 						Manual order
 					</Button>
 				)}
-				<ColumnsMenu shown={shown} onToggle={toggle} />
+				<ColumnsMenu
+					shown={shown}
+					onToggle={(column) => onDisplayChange((current) => toggleColumn(current, column))}
+				/>
 			</div>
 			<div className="min-w-0 flex-1 overflow-x-auto border-t">
 				<table

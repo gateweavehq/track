@@ -3,6 +3,7 @@
  * Server-only bookkeeping (field versions, soft-delete markers) never leaves the server.
  */
 
+import type { IssueDisplay } from "./display";
 import type { IssueFilters } from "./filters";
 
 export const ISSUE_STATUSES = [
@@ -337,6 +338,8 @@ export interface SavedView {
 	ownerId: string | null;
 	layout: IssueLayout;
 	filters: IssueFilters;
+	/** How the issues are grouped, ordered and shown. Null means the defaults. */
+	display: IssueDisplay | null;
 	creatorId: string;
 	createdAt: number;
 	updatedAt: number;

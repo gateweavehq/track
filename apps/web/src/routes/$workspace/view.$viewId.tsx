@@ -1,4 +1,11 @@
-import type { IssueFilters, IssueLayout, SavedView } from "@gateweave/track-protocol";
+import {
+	compactDisplay,
+	type IssueDisplay,
+	type IssueFilters,
+	type IssueLayout,
+	type SavedView,
+	sameDisplay,
+} from "@gateweave/track-protocol";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { FILTER_KEYS } from "#/components/issues/filter-menu";
@@ -7,6 +14,7 @@ import { Button } from "#/components/ui/button";
 import { ViewChanges, ViewMenu } from "#/components/views/view-controls";
 import { useMyRole, useWorkspace } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
+import type { DisplayUpdate } from "#/lib/display";
 import { compactFilters, type FiltersUpdate, sameFilters } from "#/lib/filters";
 import { useIssues, useSavedView } from "#/lib/queries";
 import { canEditView, isViewVisible } from "#/lib/saved-views";
@@ -50,7 +58,15 @@ function ViewPage() {
 interface Draft {
 	filters: IssueFilters;
 	layout: IssueLayout;
+	display: IssueDisplay;
 }
+
+/** What the view holds, as a draft. */
+const draftOf = (view: SavedView): Draft => ({
+	filters: view.filters,
+	layout: view.layout,
+	display: compactDisplay(view.display),
+});
 
 function ViewIssues({ view }: { view: SavedView }) {
 	const { userId } = useWorkspace();
@@ -59,22 +75,30 @@ function ViewIssues({ view }: { view: SavedView }) {
 	// Changes not saved yet, kept here rather than in the URL so that the view's link stays the
 	// view. Null while there are none, so a change someone else saves shows up at once.
 	const [draft, setDraft] = useState<Draft | null>(null);
-	const shown: Draft = draft ?? view;
+	const shown: Draft = draft ?? draftOf(view);
 
 	const change = useCallback(
 		(update: (current: Draft) => Draft) =>
 			setDraft((current) => {
-				const next = update(current ?? view);
+				const next = update(current ?? draftOf(view));
 				const filters = compactFilters(next.filters);
-				return next.layout === view.layout && sameFilters(filters, view.filters)
+				const display = compactDisplay(next.display);
+				return next.layout === view.layout &&
+					sameFilters(filters, view.filters) &&
+					sameDisplay(display, view.display)
 					? null
-					: { filters, layout: next.layout };
+					: { filters, layout: next.layout, display };
 			}),
 		[view],
 	);
 	const onFiltersChange = useCallback(
 		(update: FiltersUpdate) =>
 			change((current) => ({ ...current, filters: update(current.filters) })),
+		[change],
+	);
+	const onDisplayChange = useCallback(
+		(update: DisplayUpdate) =>
+			change((current) => ({ ...current, display: update(current.display) })),
 		[change],
 	);
 	const onViewChange = useCallback(
@@ -94,6 +118,8 @@ function ViewIssues({ view }: { view: SavedView }) {
 			onViewChange={onViewChange}
 			filters={shown.filters}
 			onFiltersChange={onFiltersChange}
+			display={shown.display}
+			onDisplayChange={onDisplayChange}
 			offeredFilters={FILTER_KEYS}
 			filterActions={
 				draft && (
@@ -101,6 +127,7 @@ function ViewIssues({ view }: { view: SavedView }) {
 						view={view}
 						filters={draft.filters}
 						layout={draft.layout}
+						display={draft.display}
 						canEdit={canEdit}
 						onSaved={() => setDraft(null)}
 						onReset={() => setDraft(null)}

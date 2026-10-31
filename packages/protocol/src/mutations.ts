@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isTimeZone, MAX_CYCLE_WEEKS } from "./cycles";
+import { issueDisplay } from "./display";
 import {
 	AGENT_CHANGE_KINDS,
 	ISSUE_LAYOUTS,
@@ -233,6 +234,7 @@ export const mutationSchema = z.discriminatedUnion("name", [
 			personal: z.boolean().default(false),
 			layout: z.enum(ISSUE_LAYOUTS),
 			filters: issueFilters,
+			display: issueDisplay.nullish(),
 		}),
 	}),
 	z.object({
@@ -245,6 +247,7 @@ export const mutationSchema = z.discriminatedUnion("name", [
 					personal: z.boolean(),
 					layout: z.enum(ISSUE_LAYOUTS),
 					filters: issueFilters,
+					display: issueDisplay.nullable(),
 				})
 				.partial()
 				.refine(nonEmpty, "Empty patch"),

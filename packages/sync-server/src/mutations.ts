@@ -1,6 +1,7 @@
 import {
 	type ActivityChange,
 	AGENT_CHANGE_KINDS,
+	displayToStore,
 	isAdminRole,
 	MAX_LABELS_PER_ISSUE,
 	MAX_VIEWS,
@@ -942,9 +943,10 @@ function createView(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 		throw new MutationRejected("invalid", `A workspace holds at most ${MAX_VIEWS} views`);
 	}
 
-	const { personal, ...view } = args;
+	const { personal, display, ...view } = args;
 	const row: schema.ViewRow = {
 		...view,
+		display: displayToStore(display),
 		ownerId: personal ? actor.member.userId : null,
 		creatorId: actor.member.userId,
 		createdAt: changes.now,
@@ -956,12 +958,14 @@ function createView(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 
 function updateView(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"view.update">) {
 	const view = findEditableView(db, actor, args.id);
-	const { personal, ...patch } = args.patch;
+	const { personal, display, ...patch } = args.patch;
 	// Making a shared view personal makes it the actor's; sharing a personal one gives it to all.
 	const owner = personal === undefined ? {} : { ownerId: personal ? actor.member.userId : null };
+	// Null clears the display options; both it and options that are all defaults are stored as null.
+	const shown = display === undefined ? {} : { display: displayToStore(display) };
 	const row = db
 		.update(schema.views)
-		.set({ ...patch, ...owner, updatedAt: changes.now })
+		.set({ ...patch, ...owner, ...shown, updatedAt: changes.now })
 		.where(eq(schema.views.id, view.id))
 		.returning()
 		.get();

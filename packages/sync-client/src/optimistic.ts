@@ -1,5 +1,6 @@
 import {
 	AGENT_CHANGE_KINDS,
+	displayToStore,
 	type Issue,
 	isAdminRole,
 	MAX_LABELS_PER_ISSUE,
@@ -211,11 +212,12 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			return;
 		}
 		case "view.create": {
-			const { personal, ...view } = mutation.args;
+			const { personal, display, ...view } = mutation.args;
 			if (draft.get("view", view.id)) return;
 			if ([...draft.values("view")].length >= MAX_VIEWS) return;
 			draft.put("view", {
 				...view,
+				display: displayToStore(display),
 				ownerId: personal ? userId : null,
 				creatorId: userId,
 				createdAt: now,
@@ -226,10 +228,11 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 		case "view.update": {
 			const view = draft.get("view", mutation.args.id);
 			if (!view || !canEditView(view, userId, draft.get("member", userId)?.role)) return;
-			const { personal, ...patch } = mutation.args.patch;
+			const { personal, display, ...patch } = mutation.args.patch;
 			draft.put("view", {
 				...view,
 				...patch,
+				...(display === undefined ? {} : { display: displayToStore(display) }),
 				...(personal === undefined ? {} : { ownerId: personal ? userId : null }),
 				updatedAt: now,
 			});

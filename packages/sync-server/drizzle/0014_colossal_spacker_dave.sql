@@ -1,0 +1,1 @@
+ALTER TABLE `views` ADD `display` text;

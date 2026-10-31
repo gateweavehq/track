@@ -8,6 +8,7 @@ import { Button } from "#/components/ui/button";
 import { SaveViewButton } from "#/components/views/view-controls";
 import { useWorkspaceActions } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
+import { hasDisplay } from "#/lib/display";
 import { hasFilters } from "#/lib/filters";
 import { useProject, useProjectIssues } from "#/lib/queries";
 import { useDocumentTitle } from "#/lib/title";
@@ -16,6 +17,7 @@ import {
 	type IssueView,
 	issuePageSearch,
 	useIssueView,
+	usePageDisplay,
 	usePageFilters,
 } from "#/lib/views";
 
@@ -71,6 +73,7 @@ function ProjectIssues({ project }: { project: Project }) {
 	const scope = `project.${project.id}`;
 	const [view, setView] = useIssueView(scope, search.view, setUrlView);
 	const { filters, onFiltersChange } = usePageFilters(search, setSearch);
+	const { display, onDisplayChange } = usePageDisplay(search, setSearch);
 
 	return (
 		<IssuesPage
@@ -99,11 +102,17 @@ function ProjectIssues({ project }: { project: Project }) {
 			onViewChange={setView}
 			filters={filters}
 			onFiltersChange={onFiltersChange}
+			display={display}
+			onDisplayChange={onDisplayChange}
 			offeredFilters={PROJECT_FILTERS}
 			filterActions={
 				// A view shows issues from the whole workspace, so it keeps the project as a filter.
-				hasFilters(filters) && (
-					<SaveViewButton filters={{ ...filters, projectIds: [project.id] }} layout={view} />
+				(hasFilters(filters) || hasDisplay(display)) && (
+					<SaveViewButton
+						filters={{ ...filters, projectIds: [project.id] }}
+						layout={view}
+						display={display}
+					/>
 				)
 			}
 			empty={

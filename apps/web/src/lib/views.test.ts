@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { filtersFromSearch, issuePageSearch, searchFromFilters } from "./views";
+import {
+	displayFromSearch,
+	filtersFromSearch,
+	issuePageSearch,
+	searchFromDisplay,
+	searchFromFilters,
+} from "./views";
 
 describe("issuePageSearch", () => {
 	it("reads the view and the filters", () => {
@@ -67,5 +73,61 @@ describe("filters in the search params", () => {
 			priority: undefined,
 			assignee: undefined,
 		});
+	});
+});
+
+describe("display options in the search params", () => {
+	it("reads them under short names, and writes them back", () => {
+		const search = issuePageSearch.parse({
+			group: "assignee",
+			order: "dueDate",
+			props: ["id", "labels"],
+			columns: ["id", "title", "status"],
+			sort: "dueDate.desc",
+		});
+		const display = displayFromSearch(search);
+		expect(display).toEqual({
+			groupBy: "assignee",
+			orderBy: "dueDate",
+			properties: ["id", "labels"],
+			columns: ["id", "title", "status"],
+			sort: { column: "dueDate", direction: "desc" },
+		});
+		expect(searchFromDisplay(display)).toEqual({ ...search, view: undefined });
+	});
+
+	it("drops what it cannot read, and the defaults", () => {
+		const search = issuePageSearch.parse({
+			group: "team",
+			order: "title",
+			props: ["nope"],
+			columns: "title",
+			sort: "labels.asc",
+		});
+		expect(displayFromSearch(search)).toEqual({});
+		expect(displayFromSearch(issuePageSearch.parse({ group: "status", order: "manual" }))).toEqual(
+			{},
+		);
+	});
+
+	it("names every option when writing, so merging clears the ones that went", () => {
+		expect(searchFromDisplay({ groupBy: "project" })).toEqual({
+			group: "project",
+			order: undefined,
+			props: undefined,
+			columns: undefined,
+			sort: undefined,
+		});
+		expect(Object.keys(searchFromDisplay({})).sort()).toEqual([
+			"columns",
+			"group",
+			"order",
+			"props",
+			"sort",
+		]);
+	});
+
+	it("leaves filters and display options out of each other's way", () => {
+		expect(Object.keys(searchFromFilters({}))).not.toContain("group");
 	});
 });
