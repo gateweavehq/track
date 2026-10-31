@@ -8,6 +8,29 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.9.0] - 2026-10-31
+
+An inbox of your own: people hear of assignments, comments, status changes and agents' proposals
+on the issues they follow. Updating a self-hosted copy applies two migrations in each workspace's
+database, which run on their own; there is no D1 migration. The protocol goes to version 12, so
+open tabs reload and sync again. ([#86])
+
+### Added
+
+- Subscriptions and an inbox. Filing, commenting on or being assigned an issue subscribes a
+  person, and anyone can subscribe or unsubscribe from the issue page; existing workspaces
+  subscribe the creators, assignees and commenters of their issues when they update. Subscribers
+  hear of comments, status changes and agents' proposals, and the assignee hears of being
+  assigned. The Inbox page keeps one row per issue with its latest news and unread count, to read,
+  snooze or archive, and news brings a snoozed or archived item back. Opening an issue reads it.
+  The sidebar and the installed app's icon show the unread count. Nobody hears of their own
+  changes, imports tell no one, and agents have no inbox: webhooks tell them. Each person's
+  subscriptions and inbox reach only their own browsers. ([#86])
+
+### Changed
+
+- The public demo and `pnpm dev:seed` plan a few Engineering issues into its current cycle. ([#85])
+
 ## [0.8.0] - 2026-10-31
 
 Cycles: a team can work in fixed runs of one to four weeks, and Track moves them on by itself.
@@ -377,6 +400,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.9.0]: https://github.com/gateweavehq/track/releases/tag/v0.9.0
 [0.8.0]: https://github.com/gateweavehq/track/releases/tag/v0.8.0
 [0.7.1]: https://github.com/gateweavehq/track/releases/tag/v0.7.1
 [0.7.0]: https://github.com/gateweavehq/track/releases/tag/v0.7.0
@@ -450,3 +474,5 @@ The first pre-release.
 [#79]: https://github.com/gateweavehq/track/pull/79
 [#81]: https://github.com/gateweavehq/track/pull/81
 [#82]: https://github.com/gateweavehq/track/pull/82
+[#85]: https://github.com/gateweavehq/track/pull/85
+[#86]: https://github.com/gateweavehq/track/pull/86
