@@ -145,6 +145,7 @@ describe("a Track export read back", () => {
 		comments: [],
 		activities: [],
 		relations: [],
+		cycles: [],
 	};
 
 	it("keeps what the export wrote", () => {

@@ -23,6 +23,7 @@ export const issuePageSearch = z.object({
 	priority: issueFilters.shape.priorities.catch(undefined),
 	assignee: issueFilters.shape.assigneeIds.catch(undefined),
 	project: issueFilters.shape.projectIds.catch(undefined),
+	cycle: issueFilters.shape.cycles.catch(undefined),
 	labels: issueFilters.shape.labelIds.catch(undefined),
 	due: issueFilters.shape.due.catch(undefined),
 });
@@ -35,6 +36,7 @@ export function filtersFromSearch(search: IssuePageSearch): IssueFilters {
 		priorities: search.priority,
 		assigneeIds: search.assignee,
 		projectIds: search.project,
+		cycles: search.cycle,
 		labelIds: search.labels,
 		due: search.due,
 	});
@@ -48,6 +50,7 @@ export function searchFromFilters(filters: IssueFilters): Omit<IssuePageSearch, 
 		priority: filters.priorities,
 		assignee: filters.assigneeIds,
 		project: filters.projectIds,
+		cycle: filters.cycles,
 		labels: filters.labelIds,
 		due: filters.due,
 	};

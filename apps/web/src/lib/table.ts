@@ -1,4 +1,5 @@
 import {
+	type Cycle,
 	ISSUE_STATUSES,
 	type Issue,
 	type Member,
@@ -17,6 +18,7 @@ export const TABLE_COLUMNS = [
 	"priority",
 	"assignee",
 	"project",
+	"cycle",
 	"labels",
 	"estimate",
 	"startDate",
@@ -33,6 +35,7 @@ export const TABLE_COLUMN_LABELS: Record<TableColumn, string> = {
 	priority: "Priority",
 	assignee: "Assignee",
 	project: "Project",
+	cycle: "Cycle",
 	labels: "Labels",
 	estimate: "Estimate",
 	startDate: "Start date",
@@ -59,6 +62,7 @@ export interface SortLookups {
 	teams: ReadonlyMap<string, Pick<Team, "key">>;
 	members: ReadonlyMap<string, Pick<Member, "name">>;
 	projects: ReadonlyMap<string, Pick<Project, "name">>;
+	cycles: ReadonlyMap<string, Pick<Cycle, "startsOn">>;
 }
 
 type SortValue = string | number | null;
@@ -87,6 +91,9 @@ function sortValue(issue: Issue, column: SortColumn, lookups: SortLookups): Sort
 			return (issue.assigneeId && lookups.members.get(issue.assigneeId)?.name) || null;
 		case "project":
 			return (issue.projectId && lookups.projects.get(issue.projectId)?.name) || null;
+		case "cycle":
+			// Earliest first: each team numbers its own cycles, but days are the same for all.
+			return (issue.cycleId && lookups.cycles.get(issue.cycleId)?.startsOn) || null;
 		case "estimate":
 			return issue.estimate;
 		case "startDate":

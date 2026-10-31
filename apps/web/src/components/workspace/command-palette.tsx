@@ -7,6 +7,7 @@ import {
 	Bot,
 	Download,
 	Inbox,
+	IterationCcw,
 	Keyboard,
 	Layers,
 	type LucideIcon,
@@ -164,6 +165,19 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 					params: { workspace: slug, teamKey: team.key },
 				}),
 		})),
+		...teams
+			.filter((team) => team.cycles !== null)
+			.map((team) => ({
+				id: `cycles-${team.id}`,
+				label: `Go to ${team.name} cycles`,
+				icon: IterationCcw,
+				keywords: [team.key, "sprint"],
+				run: () =>
+					void navigate({
+						to: "/$workspace/team/$teamKey/cycles",
+						params: { workspace: slug, teamKey: team.key },
+					}),
+			})),
 		{
 			id: "members",
 			label: "Go to Members",

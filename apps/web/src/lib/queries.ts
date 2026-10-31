@@ -279,6 +279,13 @@ export function useIssueActivity(issueId: string): Activity[] {
 	);
 }
 
+const selectActivitiesById = (state: SyncState) => state.activities;
+
+/** All issue history, for what is worked out from it across issues, such as a burn-up. */
+export function useActivitiesById(): ReadonlyMap<string, Activity> {
+	return useQuery(selectActivitiesById);
+}
+
 const selectTeamsById = (state: SyncState) => state.teams;
 
 export function useTeamsById(): ReadonlyMap<string, Team> {

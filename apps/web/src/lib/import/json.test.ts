@@ -118,6 +118,7 @@ const exported: ExportSource = {
 	comments: [reply],
 	activities: [],
 	relations: [blocks],
+	cycles: [],
 };
 
 /** Another workspace: it has Engineering (as ENG) and Grace, and nothing else of Acme's. */

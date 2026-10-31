@@ -29,6 +29,7 @@ describe("filters in the search params", () => {
 			priority: [1, 2],
 			assignee: [null, "u1"],
 			project: ["p1"],
+			cycle: ["current", null, "c1"],
 			team: ["t1"],
 			labels: ["bug"],
 			due: "week",
@@ -39,6 +40,7 @@ describe("filters in the search params", () => {
 			priorities: [1, 2],
 			assigneeIds: [null, "u1"],
 			projectIds: ["p1"],
+			cycles: ["current", null, "c1"],
 			teamIds: ["t1"],
 			labelIds: ["bug"],
 			due: "week",
@@ -53,6 +55,7 @@ describe("filters in the search params", () => {
 			priority: undefined,
 			assignee: undefined,
 			project: undefined,
+			cycle: undefined,
 			labels: undefined,
 			due: undefined,
 		});

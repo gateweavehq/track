@@ -21,6 +21,7 @@ import { Route as WorkspaceProposalsRouteImport } from './routes/$workspace/prop
 import { Route as WorkspaceSettingsRouteImport } from './routes/$workspace/settings'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite.$invitationId'
 import { Route as OauthConsentRouteImport } from './routes/oauth.consent'
+import { Route as WorkspaceCycleCycleIdRouteImport } from './routes/$workspace/cycle.$cycleId'
 import { Route as WorkspaceIssueIssueKeyRouteImport } from './routes/$workspace/issue.$issueKey'
 import { Route as WorkspaceProjectProjectIdRouteImport } from './routes/$workspace/project.$projectId'
 import { Route as WorkspaceSettingsIndexRouteImport } from './routes/$workspace/settings.index'
@@ -34,6 +35,7 @@ import { Route as WorkspaceSettingsWebhooksRouteImport } from './routes/$workspa
 import { Route as WorkspaceTeamTeamKeyRouteImport } from './routes/$workspace/team.$teamKey'
 import { Route as WorkspaceViewViewIdRouteImport } from './routes/$workspace/view.$viewId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as WorkspaceTeamTeamKeyCyclesRouteImport } from './routes/$workspace/team.$teamKey_.cycles'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -94,6 +96,11 @@ const OauthConsentRoute = OauthConsentRouteImport.update({
   id: '/oauth/consent',
   path: '/oauth/consent',
   getParentRoute: () => rootRouteImport,
+} as any)
+const WorkspaceCycleCycleIdRoute = WorkspaceCycleCycleIdRouteImport.update({
+  id: '/cycle/$cycleId',
+  path: '/cycle/$cycleId',
+  getParentRoute: () => WorkspaceRoute,
 } as any)
 const WorkspaceIssueIssueKeyRoute = WorkspaceIssueIssueKeyRouteImport.update({
   id: '/issue/$issueKey',
@@ -163,6 +170,12 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkspaceTeamTeamKeyCyclesRoute =
+  WorkspaceTeamTeamKeyCyclesRouteImport.update({
+    id: '/team/$teamKey_/cycles',
+    path: '/team/$teamKey/cycles',
+    getParentRoute: () => WorkspaceRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -177,6 +190,7 @@ export interface FileRoutesByFullPath {
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/$workspace/': typeof WorkspaceIndexRoute
+  '/$workspace/cycle/$cycleId': typeof WorkspaceCycleCycleIdRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
   '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
@@ -190,6 +204,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/view/$viewId': typeof WorkspaceViewViewIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$workspace/settings/': typeof WorkspaceSettingsIndexRoute
+  '/$workspace/team/$teamKey/cycles': typeof WorkspaceTeamTeamKeyCyclesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -202,6 +217,7 @@ export interface FileRoutesByTo {
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/$workspace': typeof WorkspaceIndexRoute
+  '/$workspace/cycle/$cycleId': typeof WorkspaceCycleCycleIdRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
   '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
@@ -215,6 +231,7 @@ export interface FileRoutesByTo {
   '/$workspace/view/$viewId': typeof WorkspaceViewViewIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$workspace/settings': typeof WorkspaceSettingsIndexRoute
+  '/$workspace/team/$teamKey/cycles': typeof WorkspaceTeamTeamKeyCyclesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -230,6 +247,7 @@ export interface FileRoutesById {
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/$workspace/': typeof WorkspaceIndexRoute
+  '/$workspace/cycle/$cycleId': typeof WorkspaceCycleCycleIdRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
   '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
@@ -243,6 +261,7 @@ export interface FileRoutesById {
   '/$workspace/view/$viewId': typeof WorkspaceViewViewIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$workspace/settings/': typeof WorkspaceSettingsIndexRoute
+  '/$workspace/team/$teamKey_/cycles': typeof WorkspaceTeamTeamKeyCyclesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -259,6 +278,7 @@ export interface FileRouteTypes {
     | '/invite/$invitationId'
     | '/oauth/consent'
     | '/$workspace/'
+    | '/$workspace/cycle/$cycleId'
     | '/$workspace/issue/$issueKey'
     | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
@@ -272,6 +292,7 @@ export interface FileRouteTypes {
     | '/$workspace/view/$viewId'
     | '/api/auth/$'
     | '/$workspace/settings/'
+    | '/$workspace/team/$teamKey/cycles'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -284,6 +305,7 @@ export interface FileRouteTypes {
     | '/invite/$invitationId'
     | '/oauth/consent'
     | '/$workspace'
+    | '/$workspace/cycle/$cycleId'
     | '/$workspace/issue/$issueKey'
     | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
@@ -297,6 +319,7 @@ export interface FileRouteTypes {
     | '/$workspace/view/$viewId'
     | '/api/auth/$'
     | '/$workspace/settings'
+    | '/$workspace/team/$teamKey/cycles'
   id:
     | '__root__'
     | '/'
@@ -311,6 +334,7 @@ export interface FileRouteTypes {
     | '/invite/$invitationId'
     | '/oauth/consent'
     | '/$workspace/'
+    | '/$workspace/cycle/$cycleId'
     | '/$workspace/issue/$issueKey'
     | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
@@ -324,6 +348,7 @@ export interface FileRouteTypes {
     | '/$workspace/view/$viewId'
     | '/api/auth/$'
     | '/$workspace/settings/'
+    | '/$workspace/team/$teamKey_/cycles'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -423,6 +448,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthConsentRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$workspace/cycle/$cycleId': {
+      id: '/$workspace/cycle/$cycleId'
+      path: '/cycle/$cycleId'
+      fullPath: '/$workspace/cycle/$cycleId'
+      preLoaderRoute: typeof WorkspaceCycleCycleIdRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
     '/$workspace/issue/$issueKey': {
       id: '/$workspace/issue/$issueKey'
       path: '/issue/$issueKey'
@@ -514,6 +546,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$workspace/team/$teamKey_/cycles': {
+      id: '/$workspace/team/$teamKey_/cycles'
+      path: '/team/$teamKey/cycles'
+      fullPath: '/$workspace/team/$teamKey/cycles'
+      preLoaderRoute: typeof WorkspaceTeamTeamKeyCyclesRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
   }
 }
 
@@ -548,10 +587,12 @@ interface WorkspaceRouteChildren {
   WorkspaceProposalsRoute: typeof WorkspaceProposalsRoute
   WorkspaceSettingsRoute: typeof WorkspaceSettingsRouteWithChildren
   WorkspaceIndexRoute: typeof WorkspaceIndexRoute
+  WorkspaceCycleCycleIdRoute: typeof WorkspaceCycleCycleIdRoute
   WorkspaceIssueIssueKeyRoute: typeof WorkspaceIssueIssueKeyRoute
   WorkspaceProjectProjectIdRoute: typeof WorkspaceProjectProjectIdRoute
   WorkspaceTeamTeamKeyRoute: typeof WorkspaceTeamTeamKeyRoute
   WorkspaceViewViewIdRoute: typeof WorkspaceViewViewIdRoute
+  WorkspaceTeamTeamKeyCyclesRoute: typeof WorkspaceTeamTeamKeyCyclesRoute
 }
 
 const WorkspaceRouteChildren: WorkspaceRouteChildren = {
@@ -560,10 +601,12 @@ const WorkspaceRouteChildren: WorkspaceRouteChildren = {
   WorkspaceProposalsRoute: WorkspaceProposalsRoute,
   WorkspaceSettingsRoute: WorkspaceSettingsRouteWithChildren,
   WorkspaceIndexRoute: WorkspaceIndexRoute,
+  WorkspaceCycleCycleIdRoute: WorkspaceCycleCycleIdRoute,
   WorkspaceIssueIssueKeyRoute: WorkspaceIssueIssueKeyRoute,
   WorkspaceProjectProjectIdRoute: WorkspaceProjectProjectIdRoute,
   WorkspaceTeamTeamKeyRoute: WorkspaceTeamTeamKeyRoute,
   WorkspaceViewViewIdRoute: WorkspaceViewViewIdRoute,
+  WorkspaceTeamTeamKeyCyclesRoute: WorkspaceTeamTeamKeyCyclesRoute,
 }
 
 const WorkspaceRouteWithChildren = WorkspaceRoute._addFileChildren(

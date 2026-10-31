@@ -29,13 +29,22 @@ export function teamZone(team: Pick<Team, "cycles"> | undefined): string {
 	return team?.cycles?.timeZone ?? localZone();
 }
 
-/** Where a cycle stands now. */
+/** Where a cycle of `team` stands now. */
+export function stateIn(
+	cycle: Cycle,
+	team: Pick<Team, "cycles"> | undefined,
+	now: number,
+): CycleState {
+	return cycleState(cycle, dayIn(teamZone(team), now));
+}
+
+/** Where a cycle stands now, its team looked up in `teams`. */
 export function stateOf(
 	cycle: Cycle,
 	teams: ReadonlyMap<string, Pick<Team, "cycles">>,
 	now: number,
 ): CycleState {
-	return cycleState(cycle, dayIn(teamZone(teams.get(cycle.teamId)), now));
+	return stateIn(cycle, teams.get(cycle.teamId), now);
 }
 
 /** Each team's current and next cycles, which the `current` and `next` filters stand for. */
@@ -108,10 +117,13 @@ export function burnUp(
 	const end = cycle.completedAt !== null || today > cycle.endsOn ? cycle.endsOn : today;
 	const length = daysBetween(cycle.startsOn, end) + 1;
 	if (length <= 0) return [];
+	// A cycle that completed is seen as it was just before: completing moves its unfinished issues
+	// out, at once when its team stops working in cycles before its last day is over.
+	const until = cycle.completedAt === null ? now : Math.min(now, cycle.completedAt - 1);
 	const days = Array.from({ length }, (_, index) => {
 		const day = addDays(cycle.startsOn, index);
 		// Its last moment, or now for the day that is not over.
-		const at = Math.min(startOfDay(timeZone, addDays(day, 1)) - 1, now);
+		const at = Math.min(startOfDay(timeZone, addDays(day, 1)) - 1, until);
 		return { day, at, scope: 0, done: 0 };
 	});
 
@@ -155,4 +167,56 @@ export function burnUp(
 		}
 	}
 	return days.map(({ day, scope, done }) => ({ day, scope, done }));
+}
+
+/** The coming Monday, or `day` itself when it is one: where a team's cycles start at first. */
+export function nextMonday(day: string): string {
+	const [year = 0, month = 1, date = 1] = day.split("-").map(Number);
+	const weekday = new Date(Date.UTC(year, month - 1, date)).getUTCDay();
+	return addDays(day, (8 - weekday) % 7);
+}
+
+/** The cycles of one team that have not completed, the one running today (if any), and the next. */
+function openCyclesOf(cycles: readonly Cycle[], today: string) {
+	const open = cycles
+		.filter((cycle) => cycle.completedAt === null)
+		.sort((a, b) => a.number - b.number);
+	return {
+		running: open.filter((cycle) => cycle.startsOn <= today).at(-1),
+		upcoming: open.find((cycle) => cycle.startsOn > today),
+	};
+}
+
+/**
+ * The first day an admin's settings start the next cycle on, as they open: where the next cycle
+ * starts now, else the day after the running one ends, else the coming Monday.
+ */
+export function suggestedStart(cycles: readonly Cycle[], today: string): string {
+	const { running, upcoming } = openCyclesOf(cycles, today);
+	if (upcoming) return upcoming.startsOn;
+	return running ? addDays(running.endsOn, 1) : nextMonday(today);
+}
+
+/** The earliest day the next cycle may start on: after the running cycle, if one runs. */
+export function earliestStart(cycles: readonly Cycle[], today: string): string | null {
+	const { running } = openCyclesOf(cycles, today);
+	return running ? addDays(running.endsOn, 1) : null;
+}
+
+/** Why the server would turn down these settings, as it words it, or null if it would not. */
+export function startProblem(
+	cycles: readonly Cycle[],
+	today: string,
+	startsOn: string,
+	weeks: number,
+): string | null {
+	const earliest = earliestStart(cycles, today);
+	if (earliest && startsOn < earliest) {
+		return `The next cycle has to start after the current one ends: on ${earliest} or later`;
+	}
+	if (!earliest && daysBetween(startsOn, today) >= weeks * 7) {
+		return "A cycle that starts then would be over already";
+	}
+	if (daysBetween(today, startsOn) > 366) return "Cycles can start at most a year ahead";
+	return null;
 }

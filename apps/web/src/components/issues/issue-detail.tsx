@@ -3,6 +3,7 @@ import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link, useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
 import { ChevronRight, Gauge, Layers, ListTree, Pencil, Trash } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { CycleIcon } from "#/components/cycles/meta";
 import { Markdown } from "#/components/markdown";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { ProjectStatusIcon } from "#/components/projects/meta";
@@ -16,11 +17,12 @@ import {
 	DialogTitle,
 } from "#/components/ui/dialog";
 import { useWorkspace } from "#/components/workspace/context";
+import { cycleName, stateIn } from "#/lib/cycles";
 import { formatDateTime, formatRelative } from "#/lib/dates";
 import { useHotkeys } from "#/lib/hotkeys";
 import { estimateLabel, isIssueOverdue, issueKey } from "#/lib/issues";
 import { send, useUpdateIssue } from "#/lib/mutations";
-import { useIssueById, useMembersById, useProject, useTeamsById } from "#/lib/queries";
+import { useCycle, useIssueById, useMembersById, useProject, useTeamsById } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import { AttachButton, useAttachFiles } from "./attach-files";
 import { DateField } from "./date-field";
@@ -32,6 +34,7 @@ import { LabelChips, LabelPicker } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 import {
 	AssigneePicker,
+	CyclePicker,
 	EstimatePicker,
 	PriorityPicker,
 	ProjectPicker,
@@ -53,6 +56,7 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 	const assignee = issue.assigneeId ? members.get(issue.assigneeId) : undefined;
 	const creator = members.get(issue.creatorId);
 	const project = useProject(issue.projectId ?? "");
+	const cycle = useCycle(issue.cycleId ?? "");
 	const parent = useIssueById(issue.parentId);
 	const teams = useTeamsById();
 	const parentKey = parent ? issueKey(teams.get(parent.teamId), parent) : null;
@@ -192,6 +196,31 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 							</PropertyButton>
 						</ProjectPicker>
 					</Property>
+					{/* Only teams that work in cycles plan issues into them. */}
+					{(team.cycles || cycle) && (
+						<Property label="Cycle">
+							<CyclePicker
+								teamId={team.id}
+								value={issue.cycleId}
+								onChange={(cycleId) => update(issue, { cycleId })}
+								{...menuProps("cycle")}
+							>
+								<PropertyButton>
+									{cycle ? (
+										<>
+											<CycleIcon state={stateIn(cycle, team, Date.now())} />
+											<span className="truncate">{cycleName(cycle)}</span>
+										</>
+									) : (
+										<>
+											<CycleIcon />
+											<span className="text-muted-foreground">No cycle</span>
+										</>
+									)}
+								</PropertyButton>
+							</CyclePicker>
+						</Property>
+					)}
 					<Property label="Parent">
 						<ParentPicker
 							issue={issue}

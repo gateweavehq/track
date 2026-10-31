@@ -6,7 +6,15 @@ import {
 	startOfDay,
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
-import { burnUp, cycleName, cycleProgress, relativeCycles } from "./cycles";
+import {
+	burnUp,
+	cycleName,
+	cycleProgress,
+	nextMonday,
+	relativeCycles,
+	startProblem,
+	suggestedStart,
+} from "./cycles";
 
 const ZONE = "Europe/Istanbul";
 const team = { cycles: { weeks: 1, timeZone: ZONE } };
@@ -98,6 +106,38 @@ describe("cycles", () => {
 	});
 });
 
+describe("cycle settings", () => {
+	const running = cycle("c1", 1, "2026-10-26", "2026-11-08");
+	const next = cycle("c2", 2, "2026-11-09", "2026-11-22");
+
+	it("start on a Monday at first", () => {
+		expect(nextMonday("2026-10-31")).toBe("2026-11-02");
+		expect(nextMonday("2026-11-02")).toBe("2026-11-02");
+		expect(nextMonday("2026-11-01")).toBe("2026-11-02");
+	});
+
+	it("suggest where the next cycle starts now, or after the running one", () => {
+		expect(suggestedStart([running, next], "2026-11-03")).toBe("2026-11-09");
+		expect(suggestedStart([running], "2026-11-03")).toBe("2026-11-09");
+		expect(suggestedStart([{ ...running, completedAt: 1 }], "2026-11-12")).toBe("2026-11-16");
+	});
+
+	it("turn down what the server would, in its words", () => {
+		expect(startProblem([running, next], "2026-11-03", "2026-11-09", 2)).toBeNull();
+		expect(startProblem([running, next], "2026-11-03", "2026-11-08", 2)).toBe(
+			"The next cycle has to start after the current one ends: on 2026-11-09 or later",
+		);
+		// With no cycle running, a cycle may have started already, but not be over.
+		expect(startProblem([], "2026-11-03", "2026-10-21", 2)).toBeNull();
+		expect(startProblem([], "2026-11-03", "2026-10-20", 2)).toBe(
+			"A cycle that starts then would be over already",
+		);
+		expect(startProblem([], "2026-11-03", "2027-11-05", 2)).toBe(
+			"Cycles can start at most a year ahead",
+		);
+	});
+});
+
 describe("burnUp", () => {
 	const current = cycle("c2", 2, "2026-11-02", "2026-11-08");
 
@@ -138,6 +178,20 @@ describe("burnUp", () => {
 		const days = burnUp(current, issues, [], ZONE, noon("2026-11-20"));
 		expect(days.map((day) => day.scope)).toEqual([0, 0, 0, 0, 0, 1, 1]);
 		expect(days.at(-1)?.day).toBe("2026-11-08");
+	});
+
+	it("sees a cycle that completed early as it was just before", () => {
+		// The team stopped working in cycles on the fourth day: the cycle ended then, and its
+		// unfinished issue left it at the same moment.
+		const stopped = noon("2026-11-05");
+		const ended = { ...current, endsOn: "2026-11-05", completedAt: stopped };
+		const issues = [
+			issue("open", { cycleId: null }),
+			issue("shipped", { cycleId: "c2", status: "done" }),
+		];
+		const activities = [activity("open", stopped, { type: "cycle", from: "c2", to: null })];
+		const days = burnUp(ended, issues, activities, ZONE, noon("2026-11-20"));
+		expect(days.at(-1)).toEqual({ day: "2026-11-05", scope: 2, done: 1 });
 	});
 
 	it("is empty before the cycle starts", () => {

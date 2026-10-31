@@ -1,4 +1,4 @@
-import type { Issue, Member, Project, Team } from "@gateweave/track-protocol";
+import type { Cycle, Issue, Member, Project, Team } from "@gateweave/track-protocol";
 import { Link } from "@tanstack/react-router";
 import { ArrowDown, ArrowUp, ListRestart, SlidersHorizontal } from "lucide-react";
 import {
@@ -12,6 +12,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { CycleIcon } from "#/components/cycles/meta";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { ProjectStatusIcon } from "#/components/projects/meta";
 import { Button } from "#/components/ui/button";
@@ -24,10 +25,11 @@ import {
 	DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
 import { useWorkspace } from "#/components/workspace/context";
+import { cycleName, stateIn } from "#/lib/cycles";
 import { formatDateTime, formatShortDate } from "#/lib/dates";
 import { isIssueOverdue, issueKey } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
-import { useMembersById, useProjectsById, useTeamsById } from "#/lib/queries";
+import { useCyclesById, useMembersById, useProjectsById, useTeamsById } from "#/lib/queries";
 import {
 	HIDEABLE_COLUMNS,
 	nextSort,
@@ -44,6 +46,7 @@ import { LabelChips, LabelPicker } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 import {
 	AssigneePicker,
+	CyclePicker,
 	EstimatePicker,
 	PriorityPicker,
 	ProjectPicker,
@@ -63,6 +66,7 @@ const COLUMN_WIDTH: Record<TableColumn, string> = {
 	priority: "min-w-32",
 	assignee: "min-w-52",
 	project: "min-w-52",
+	cycle: "min-w-36",
 	labels: "min-w-52",
 	estimate: "min-w-24",
 	startDate: "min-w-48",
@@ -96,11 +100,12 @@ export function IssueTable({
 	const teams = useTeamsById();
 	const members = useMembersById();
 	const projects = useProjectsById();
+	const cycles = useCyclesById();
 	const { shown, toggle } = useTableColumns(scope);
 	const [sort, setSort] = useState<TableSort | null>(null);
 	const rows = useMemo(
-		() => sortIssues(issues, sort, { teams, members, projects }),
-		[issues, sort, teams, members, projects],
+		() => sortIssues(issues, sort, { teams, members, projects, cycles }),
+		[issues, sort, teams, members, projects, cycles],
 	);
 	const body = useRef<HTMLTableSectionElement>(null);
 	const [first, last] = useRowsOnScreen(rows.length, body);
@@ -154,6 +159,7 @@ export function IssueTable({
 								team={teams.get(issue.teamId)}
 								assignee={issue.assigneeId ? members.get(issue.assigneeId) : undefined}
 								project={issue.projectId ? projects.get(issue.projectId) : undefined}
+								cycle={issue.cycleId ? cycles.get(issue.cycleId) : undefined}
 								columns={shown}
 							/>
 						))}
@@ -309,6 +315,7 @@ const TableRow = memo(function TableRow({
 	team,
 	assignee,
 	project,
+	cycle,
 	columns,
 }: {
 	/** Its place in the sorted rows, for assistive technology, which sees only those rendered. */
@@ -317,6 +324,7 @@ const TableRow = memo(function TableRow({
 	team: Team | undefined;
 	assignee: Member | undefined;
 	project: Project | undefined;
+	cycle: Cycle | undefined;
 	columns: readonly TableColumn[];
 }) {
 	const { slug } = useWorkspace();
@@ -398,6 +406,25 @@ const TableRow = memo(function TableRow({
 							)}
 						</CellButton>
 					</ProjectPicker>
+				);
+			case "cycle":
+				return (
+					<CyclePicker
+						teamId={issue.teamId}
+						value={issue.cycleId}
+						onChange={(cycleId) => update(issue, { cycleId })}
+					>
+						<CellButton label={cycle ? `Cycle: ${cycleName(cycle)}` : "Cycle: none"}>
+							{cycle ? (
+								<>
+									<CycleIcon state={stateIn(cycle, team, Date.now())} />
+									<span className="truncate">{cycleName(cycle)}</span>
+								</>
+							) : (
+								<Empty />
+							)}
+						</CellButton>
+					</CyclePicker>
 				);
 			case "labels":
 				return (

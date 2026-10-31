@@ -40,7 +40,7 @@ export interface SampleOptions {
 
 /**
  * Every write that builds the sample workspace, in an order that is valid: teams and labels
- * first (only admins create them), then the projects, then the issues in listed order so they
+ * first (only admins create them, and turn on Engineering's two-week cycles), then the projects, then the issues in listed order so they
  * are numbered that way, then their comments, then any generated filler.
  */
 export function sampleSteps({
@@ -60,6 +60,18 @@ export function sampleSteps({
 			mutation: { name: "team.create", args: { id: teamIds[key], key, name } },
 		});
 	}
+
+	// Its first cycle started this week, so the demo has one running.
+	steps.push({
+		person: maya,
+		mutation: {
+			name: "team.update",
+			args: {
+				id: teamIds.ENG,
+				patch: { cycles: { weeks: 2, timeZone: "UTC", startsOn: mondayOf(now) } },
+			},
+		},
+	});
 
 	const labelIds = {} as Record<LabelKey, string>;
 	for (const [key, label] of Object.entries(LABELS) as [LabelKey, (typeof LABELS)[LabelKey]][]) {
@@ -159,6 +171,11 @@ function issueCreate(
 /** `YYYY-MM-DD`, `days` after the day `from` falls on in UTC. */
 function dayFrom(from: Date, days: number): string {
 	return new Date(from.getTime() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/** `YYYY-MM-DD` of the Monday on or before the day `from` falls on in UTC. */
+function mondayOf(from: Date): string {
+	return dayFrom(from, -((from.getUTCDay() + 6) % 7));
 }
 
 /** The people a sample workspace has, with the role each holds there. */

@@ -27,6 +27,7 @@ describe("sampleSteps", () => {
 		expect(before.every((step) => step.person === "maya")).toBe(true);
 		expect(before.map((step) => step.mutation.name)).toEqual([
 			...Array(3).fill("team.create"),
+			"team.update",
 			...Array(7).fill("label.create"),
 			...Array(Object.keys(PROJECTS).length).fill("project.create"),
 		]);
@@ -91,6 +92,20 @@ describe("sampleSteps", () => {
 		);
 		expect(dates).toContain("2027-01-14");
 		expect(dates).toContain(null);
+	});
+
+	it("starts Engineering's cycles on the Monday of the given day", () => {
+		for (const [day, monday] of [
+			["2026-11-30T12:00:00Z", "2026-11-30"],
+			["2026-12-06T23:00:00Z", "2026-11-30"],
+		] as const) {
+			let next = 0;
+			const all = sampleSteps({ userIds, newId: () => `id-${++next}`, now: new Date(day) });
+			const settings = all.flatMap(({ mutation }) =>
+				mutation.name === "team.update" ? [mutation.args.patch.cycles] : [],
+			);
+			expect(settings).toEqual([{ weeks: 2, timeZone: "UTC", startsOn: monday }]);
+		}
 	});
 
 	it("marks only generated filler as unordered, after everything else", () => {

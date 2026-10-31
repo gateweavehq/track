@@ -9,19 +9,28 @@ import { useNavigate } from "@tanstack/react-router";
 import { ChevronRight, Layers, Tag } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useState } from "react";
 import { toast } from "sonner";
+import { CycleIcon } from "#/components/cycles/meta";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { ProjectStatusIcon } from "#/components/projects/meta";
 import { Button } from "#/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "#/components/ui/dialog";
 import { Kbd } from "#/components/ui/kbd";
 import { type IssueDefaults, useWorkspace } from "#/components/workspace/context";
+import { cycleName } from "#/lib/cycles";
 import { MOD_LABEL } from "#/lib/hotkeys";
 import { issueKey, sortOrderAfter } from "#/lib/issues";
 import { send } from "#/lib/mutations";
-import { useMembersById, useProjectsById, useTeams } from "#/lib/queries";
+import { useCyclesById, useMembersById, useProjectsById, useTeams } from "#/lib/queries";
 import { LabelChips, LabelMenu } from "./labels";
 import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
-import { AssigneePicker, PriorityPicker, ProjectPicker, StatusPicker, TeamPicker } from "./pickers";
+import {
+	AssigneePicker,
+	CyclePicker,
+	PriorityPicker,
+	ProjectPicker,
+	StatusPicker,
+	TeamPicker,
+} from "./pickers";
 
 export function CreateIssueDialog({
 	defaults,
@@ -36,6 +45,7 @@ export function CreateIssueDialog({
 	const teams = useTeams();
 	const members = useMembersById();
 	const projects = useProjectsById();
+	const cycles = useCyclesById();
 	const [teamId, setTeamId] = useState(defaults.teamId ?? teams[0]?.id ?? "");
 	const [title, setTitle] = useState("");
 	const [description, setDescription] = useState("");
@@ -49,12 +59,18 @@ export function CreateIssueDialog({
 			: null,
 	);
 	const project = projectId ? projects.get(projectId) : undefined;
+	const [cycleId, setCycleId] = useState<string | null>(defaults.cycleId ?? null);
 	const [labelIds, setLabelIds] = useState(() => {
 		// Defaults can come from a URL, so they may name labels that do not exist.
 		const known = client.getState().labels;
 		return [...new Set(defaults.labelIds)].filter((id) => known.has(id));
 	});
 	const team = teams.find((t) => t.id === teamId) ?? teams[0];
+	// A cycle belongs to one team, so picking another team leaves it behind. One that has
+	// completed takes no more issues.
+	const cycle = cycleId ? cycles.get(cycleId) : undefined;
+	const plannedCycle =
+		cycle && cycle.teamId === team?.id && cycle.completedAt === null ? cycle : undefined;
 
 	function submit() {
 		if (!team || !title.trim()) return;
@@ -71,6 +87,11 @@ export function CreateIssueDialog({
 				assigneeId,
 				// A project picked here may have been deleted elsewhere since.
 				projectId: projectId && client.getState().projects.has(projectId) ? projectId : null,
+				// The cycle may have completed since it was picked, and an issue cannot join it then.
+				cycleId:
+					plannedCycle && client.getState().cycles.get(plannedCycle.id)?.completedAt === null
+						? plannedCycle.id
+						: null,
 				// A label picked here may have been deleted elsewhere since.
 				labelIds: labelIds.filter((id) => client.getState().labels.has(id)),
 				sortOrder: sortOrderAfter(client.getState().issues.values()),
@@ -181,6 +202,16 @@ export function CreateIssueDialog({
 								)}
 							</Button>
 						</ProjectPicker>
+						{team?.cycles && (
+							<CyclePicker teamId={team.id} value={plannedCycle?.id ?? null} onChange={setCycleId}>
+								<Button type="button" variant="outline" size="sm" className="h-7 max-w-48 px-2">
+									<CycleIcon className="text-current" />
+									<span className="truncate">
+										{plannedCycle ? cycleName(plannedCycle) : "Cycle"}
+									</span>
+								</Button>
+							</CyclePicker>
+						)}
 						<LabelMenu
 							selected={labelIds}
 							creatable
