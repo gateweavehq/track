@@ -1,4 +1,4 @@
-import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import {
 	addDays,
 	type Cycle,
@@ -9,7 +9,7 @@ import {
 	startOfDay,
 } from "@gateweave/track-protocol";
 import { drizzle } from "drizzle-orm/durable-sqlite";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { MemberProfile } from "../src";
 import { advanceCycles, nextCycleChange } from "../src/cycles";
 import * as schema from "../src/db/schema";
@@ -392,11 +392,15 @@ describe("the cycle step", () => {
 		const day = today(zone);
 		await setCycles(admin, { weeks: 1, timeZone: zone, startsOn: addDays(day, -6) });
 
-		await runDurableObjectAlarm(workspace);
-
-		await runInDurableObject(workspace, async (_, state) => {
-			expect(await state.storage.getAlarm()).toBe(startOfDay(zone, addDays(day, 1)));
-		});
+		// The update wakes the alarm at once, and that run, which comes on its own, sets it for the
+		// boundary. Running the alarm here as well would race it, and the two can leave none set.
+		await vi.waitFor(
+			() =>
+				runInDurableObject(workspace, async (_, state) => {
+					expect(await state.storage.getAlarm()).toBe(startOfDay(zone, addDays(day, 1)));
+				}),
+			{ timeout: 5000, interval: 20 },
+		);
 	});
 });
 
