@@ -1,5 +1,5 @@
-import { MEMBER_HEADER } from "@gateweave/track-sync-server";
-import { db, getAuth } from "./auth";
+import { LINK_HEADER, MEMBER_HEADER, type WorkspaceLink } from "@gateweave/track-sync-server";
+import { appOrigin, db, getAuth } from "./auth";
 import { findMembership, workspaceStub } from "./workspaces";
 
 const SYNC_ROUTE = /^\/api\/sync\/([^/]+)\/(snapshot|socket)$/;
@@ -46,8 +46,18 @@ export async function handleSyncRequest(request: Request): Promise<Response> {
 			headers: { "Cache-Control": "no-store" },
 		});
 	}
+	// The workspace records where it lives, for the links in its emails.
+	const link: WorkspaceLink = {
+		id: membership.workspaceId,
+		slug: decodeURIComponent(slug),
+		origin: appOrigin(request),
+	};
 	return stub.fetch("https://workspace/socket", {
-		headers: { Upgrade: "websocket", [MEMBER_HEADER]: JSON.stringify(membership.profile) },
+		headers: {
+			Upgrade: "websocket",
+			[MEMBER_HEADER]: JSON.stringify(membership.profile),
+			[LINK_HEADER]: JSON.stringify(link),
+		},
 	});
 }
 

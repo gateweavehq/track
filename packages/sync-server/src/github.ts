@@ -170,13 +170,13 @@ export function applyGitHubDelivery(db: Db, delivery: GitHubDelivery, now: numbe
 		if (payload.success) github.push(payload.data);
 	}
 
-	notify(db, changes, GITHUB_ACTOR_ID, false);
+	const wake = notify(db, changes, GITHUB_ACTOR_ID, false);
 	const result = changes.result();
 	db.insert(schema.appliedMutations)
 		.values({ id: mutationId, clientId: GITHUB_CLIENT_ID, version: result.version, at: now })
 		.run();
 	const queued = queueDeliveries(db, GITHUB_WEBHOOK_ACTOR, changes.events, result.version, now);
-	return { ...result, queued };
+	return { ...result, queued, wake };
 }
 
 // The parts of GitHub's payloads that matter here.

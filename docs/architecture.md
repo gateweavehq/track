@@ -67,6 +67,7 @@ different protocol versions in production. It also gives self-hosters one thing 
 | Comments on issues                  | Workspace DO | `sync-server`                      |
 | Issue activity (history)            | Workspace DO | `sync-server`, from issue writes   |
 | Subscriptions and inbox items       | Workspace DO | `sync-server`, from issue writes   |
+| Notification settings               | Workspace DO | `sync-server`, each person's own   |
 | Webhooks, their secrets, deliveries | Workspace DO | `sync-server`, managed by admins   |
 | GitHub connections and secrets      | Workspace DO | `sync-server`, managed by admins   |
 | Pull requests that mention issues   | Workspace DO | `sync-server`, from GitHub         |
@@ -122,6 +123,7 @@ HTML-escaped and squeezed onto one short line.
 | Password reset | Someone asks on `/forgot-password`. The link works once, for an hour, and resetting ends every session | No password reset     |
 | Invitation     | An admin with a verified address invites someone or presses Resend                                     | Admins share the link |
 | Verification   | Someone signs up, or asks on an invitation or the members page. The link works for 24 hours            | Nobody is verified    |
+| Inbox digest   | News a person wants by email stays unread for 10 minutes; at most once an hour per workspace           | The inbox alone       |
 
 Better Auth sends email after the response, through `waitUntil`. Reset requests therefore take
 the same time whether or not the account exists. Invitations put text chosen by a stranger,
@@ -130,6 +132,14 @@ only inviters who verified their own address trigger an email. Each person can s
 invitation emails a day, and invite-member requests are rate limited to 20 a minute. Whatever
 the kind, one address gets at most 5 emails at once and 10 a day; past that, email to it is
 dropped without telling the requester.
+
+Inbox digests go only to a verified address of someone who is still a member, checked in D1 when
+the digest is sent, and never from the public demo. Each carries `List-Unsubscribe` and
+`List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058) when the app is served over HTTPS,
+which Email Service requires. The link (`/api/unsubscribe/:token`, in
+`apps/web/src/server/unsubscribe.ts`) needs no session: its token names the workspace and the
+member and is an HMAC of both under `BETTER_AUTH_SECRET`. A POST, as mail clients send, turns that person's email off in that
+workspace; opening the link shows a page with a button, so link scanners change nothing.
 
 ### Rate limits
 
@@ -628,8 +638,32 @@ subscribed the creators, assignees and commenters of existing issues when the in
 
 The Inbox page (`/$workspace/inbox`) has Inbox, Snoozed and Archived tabs (`?tab=`). It reads the
 replica, so it works offline. An open issue reads its item while it is on screen. The sidebar
-shows the unread count, and so does the installed app's icon (the Badging API). Email for
-unread items is planned.
+shows the unread count, and so does the installed app's icon (the Badging API).
+
+#### Notification settings and email
+
+Each person chooses, per workspace, where each kind of news goes (`NOTIFICATION_KINDS` in
+`packages/protocol/src/notifications.ts`): nowhere, to the inbox, or to the inbox and email. By
+default being assigned and comments go to email too, and the rest to the inbox. The choices are
+rows of `notification_settings` in the workspace's database, read by `notify` in the same
+transaction, so news a person turned off never reaches their inbox (they stay subscribed). They
+are not in the replica: Settings, Notifications reads and changes them over RPC, through the
+`notificationSettings` and `updateNotificationSettings` methods, for the signed-in member.
+
+Email is for news left unread (`packages/sync-server/src/notifications.ts`):
+
+- News of a kind the person wants by email gives its inbox item an `email_at`, ten minutes
+  (`EMAIL_DELAY_MS`) after the first such news since they last read it. Reading, archiving or
+  snoozing the item clears it. The column is never sent to clients.
+- The alarm takes each person's due items into one digest, at most once an hour per person and
+  workspace (`EMAIL_INTERVAL_MS`). Items are unmarked in the same transaction as they are taken
+  and the email is sent after it, so a failure loses that email rather than sending it twice.
+- `sync-server` sends no email itself. `WorkspaceDO` hands each digest to its
+  `sendInboxDigest`, which does nothing; the app's Worker exports a subclass
+  (`apps/web/src/server/workspace-do.ts`) that sends it as described under [Email](#email).
+- The digest links to the workspace through the link the sync gateway records on each socket
+  connection (`LINK_HEADER`), as the alarm has no request to take an origin from. Without one,
+  due items are dropped.
 
 ### Search
 

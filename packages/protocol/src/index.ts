@@ -5,4 +5,5 @@ export * from "./filters";
 export * from "./github";
 export * from "./messages";
 export * from "./mutations";
+export * from "./notifications";
 export * from "./webhooks";

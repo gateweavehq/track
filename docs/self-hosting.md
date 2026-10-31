@@ -119,8 +119,10 @@ password. To turn it on:
    plan.
 2. Set `EMAIL_FROM` to a sender on that domain, such as `Gateweave Track <track@example.com>`.
 
-Track then sends password resets, address verification and invitations. With email on, joining
-a workspace requires a verified address.
+Track then sends password resets, address verification, invitations and, to people who want
+them, emails of inbox news they leave unread. With email on, joining a workspace requires a
+verified address. Serve Track over HTTPS (a `workers.dev` or custom domain is) so that those
+emails carry a one-click unsubscribe link: Email Service refuses one over HTTP.
 
 ## The public demo
 

@@ -11,6 +11,8 @@ import {
 	isAdminRole,
 	MEMBER_ROLES,
 	mutationSchema,
+	type NotificationSettings,
+	notificationSettingsPatch,
 	PING,
 	PONG,
 	PROTOCOL_VERSION,
@@ -48,6 +50,14 @@ import {
 	type WriteResult,
 } from "./log";
 import { applyMutation } from "./mutations";
+import {
+	type InboxDigest,
+	nextDigestAt,
+	readSettings,
+	takeDueDigests,
+	unsubscribe,
+	updateSettings,
+} from "./notifications";
 import { issueProposals } from "./proposals";
 import {
 	type Directory,
@@ -86,6 +96,7 @@ import {
 	updateWebhook,
 	type WebhookList,
 	type WorkspaceLink,
+	workspaceLink,
 } from "./webhooks";
 
 /**
@@ -93,6 +104,12 @@ import {
  * through the app worker's binding, which sets this after checking the session and membership.
  */
 export const MEMBER_HEADER = "x-track-member";
+
+/**
+ * Header carrying the workspace's link (its id, slug and the app's origin) on socket requests,
+ * which the gateway knows from the request. Emails link to the workspace with it.
+ */
+export const LINK_HEADER = "x-track-link";
 
 export const RETENTION: RetentionPolicy = { minOps: 10_000, minAgeMs: 30 * 24 * 60 * 60 * 1000 };
 const COMPACTION_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -130,7 +147,10 @@ export type MutateResult =
 	| { ok: true; version: number; proposed: Proposal[] }
 	| { ok: false; reason: RejectReason; message: string };
 
-/** The outcome of managing webhooks or GitHub connections, which only admins may do. */
+/**
+ * The outcome of managing webhooks or GitHub connections, which only admins may do, or a
+ * person's own notification settings.
+ */
 export type WebhookResult<T> =
 	| { ok: true; value: T }
 	| { ok: false; reason: RejectReason; message: string };
@@ -353,6 +373,44 @@ export class WorkspaceDO extends DurableObject {
 		);
 	}
 
+	// RPC for a person's own notification settings. Agents have none: webhooks tell them.
+
+	notificationSettings(member: MemberProfile): WebhookResult<NotificationSettings> {
+		return this.#own(member, (id) => readSettings(this.#db, id));
+	}
+
+	updateNotificationSettings(
+		member: MemberProfile,
+		patch: unknown,
+	): WebhookResult<NotificationSettings> {
+		const parsed = notificationSettingsPatch.safeParse(patch);
+		if (!parsed.success) {
+			return { ok: false, reason: "invalid", message: "Invalid notification settings" };
+		}
+		return this.#own(member, (id) => updateSettings(this.#db, id, parsed.data, Date.now()));
+	}
+
+	/**
+	 * Turns a member's email off, from the link in an email. The gateway has checked the link's
+	 * signature, which stands in for a session. False when they are no longer a member.
+	 */
+	unsubscribe(memberId: string): boolean {
+		const id = shortId.parse(memberId);
+		return this.ctx.storage.transactionSync(() => {
+			const member = activeMember(this.#db, id);
+			if (!member || member.role === "agent") return false;
+			unsubscribe(this.#db, id, Date.now());
+			return true;
+		});
+	}
+
+	/**
+	 * Sends a member a digest of the inbox news they left unread. Track's app sends it as email;
+	 * without an app that does, nothing is sent. Called by the alarm, outside any transaction, at
+	 * most once per digest: a failure loses that email rather than sending it twice.
+	 */
+	protected async sendInboxDigest(_digest: InboxDigest): Promise<void> {}
+
 	/** A delivery from a GitHub connection's webhook. */
 	async github(input: unknown): Promise<GitHubDeliveryResult> {
 		const parsed = githubDelivery.safeParse(input);
@@ -388,6 +446,8 @@ export class WorkspaceDO extends DurableObject {
 		if (!member.success) return new Response("Missing member", { status: 400 });
 
 		this.#write(() => upsertMember(this.#db, member.data, Date.now()));
+		const link = workspaceLink.safeParse(parseJson(request.headers.get(LINK_HEADER)));
+		if (link.success) this.ctx.storage.transactionSync(() => saveLink(this.#db, link.data));
 
 		const { 0: client, 1: server } = new WebSocketPair();
 		this.ctx.acceptWebSocket(server);
@@ -426,7 +486,7 @@ export class WorkspaceDO extends DurableObject {
 
 	/**
 	 * Moves teams' cycles on at their boundaries, compacts the log when that is due, and sends the
-	 * webhook deliveries that are.
+	 * webhook deliveries and the inbox digests that are.
 	 */
 	override async alarm(): Promise<void> {
 		const now = Date.now();
@@ -446,6 +506,14 @@ export class WorkspaceDO extends DurableObject {
 		}
 		const transact: Transact = (fn) => this.ctx.storage.transactionSync(fn);
 		const more = await deliverDue(this.#db, transact);
+		const digests = this.ctx.storage.transactionSync(() => takeDueDigests(this.#db, Date.now()));
+		await Promise.all(
+			digests.map((digest) =>
+				this.sendInboxDigest(digest).catch((error) => {
+					console.error("email: inbox digest not sent", error);
+				}),
+			),
+		);
 		// Cycles were just moved on, so a boundary that is still due is a clock disagreement:
 		// look again in a minute rather than straight away.
 		const cycles = nextCycleChange(this.#db, Date.now());
@@ -454,6 +522,7 @@ export class WorkspaceDO extends DurableObject {
 			: Math.min(
 					this.#compactionDue(),
 					nextDeliveryAt(this.#db) ?? Number.POSITIVE_INFINITY,
+					nextDigestAt(this.#db) ?? Number.POSITIVE_INFINITY,
 					cycles === null ? Number.POSITIVE_INFINITY : Math.max(cycles, Date.now() + 60_000),
 				);
 		await this.ctx.storage.setAlarm(next);
@@ -541,9 +610,20 @@ export class WorkspaceDO extends DurableObject {
 		}
 	}
 
+	/** Runs a person's change to their own settings in a transaction. Agents are refused. */
+	#own<T>(member: MemberProfile, fn: (id: string) => T): WebhookResult<T> {
+		const profile = memberProfile.parse(member);
+		this.#write(() => upsertMember(this.#db, profile, Date.now()));
+		const row = activeMember(this.#db, profile.id);
+		if (!row || row.role === "agent") {
+			return { ok: false, reason: "forbidden", message: "Agents have no notifications" };
+		}
+		return { ok: true, value: this.ctx.storage.transactionSync(() => fn(profile.id)) };
+	}
+
 	/**
-	 * Has the alarm run now, rather than at its next scheduled time: to send queued deliveries, or
-	 * to plan around a change to a team's cycles.
+	 * Has the alarm run now, rather than at its next scheduled time: to send queued deliveries, to
+	 * plan around a change to a team's cycles, or to plan the next email.
 	 */
 	#alarmSoon(): void {
 		this.ctx.storage.setAlarm(Date.now()).catch((error) => {

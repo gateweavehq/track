@@ -84,7 +84,9 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    `apps/web/src/server/mcp/index.ts` for AI agents (an OAuth token or an agent member's key
    first, never cookies). GitHub's deliveries (`apps/web/src/server/github.ts`) carry no member:
    the object checks their signature against the connection's secret before reading them.
-   Non-members get the same 404 or "not found" as a missing workspace. The verified member
+   The unsubscribe link in an inbox email (`apps/web/src/server/unsubscribe.ts`) carries no
+   session either: its token, signed with `BETTER_AUTH_SECRET`, names the member, and it can only
+   turn their email off. Non-members get the same 404 or "not found" as a missing workspace. The verified member
    travels in `MEMBER_HEADER` or as the `member` argument of `mutate`, which only a gateway sets.
 7. **Server code never reaches the browser bundle.** In server functions, import server modules
    dynamically inside the handler, as `apps/web/src/lib/session.ts` does.

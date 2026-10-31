@@ -92,7 +92,7 @@ export function renameLink(db: Db, slug: string): void {
 	if (link) saveLink(db, { ...link, slug });
 }
 
-function readLink(db: Db): WorkspaceLink | undefined {
+export function readLink(db: Db): WorkspaceLink | undefined {
 	const row = db.select().from(schema.meta).where(eq(schema.meta.key, LINK_KEY)).get();
 	return row ? workspaceLink.parse(JSON.parse(row.value)) : undefined;
 }

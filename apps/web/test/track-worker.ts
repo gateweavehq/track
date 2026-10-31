@@ -24,6 +24,7 @@ export interface SentEmail {
 	subject: string;
 	text: string;
 	html: string;
+	headers?: Record<string, string>;
 }
 
 /** A request that reached the stand-in webhook receiver. */
@@ -66,7 +67,8 @@ export default class Inspector extends WorkerEntrypoint {
 		const [id, rpc] = new URL(request.url).pathname.slice(1).split("/");
 		if (rpc === "rpc") {
 			const { method, args } = await request.json();
-			return Response.json(await this.env.WORKSPACE.getByName(id)[method](...args));
+			// A method that returns nothing answers null.
+			return Response.json((await this.env.WORKSPACE.getByName(id)[method](...args)) ?? null);
 		}
 		if (request.method === "POST") {
 			const { member, mutation } = await request.json();
