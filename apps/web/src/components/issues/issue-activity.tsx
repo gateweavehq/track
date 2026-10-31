@@ -28,6 +28,7 @@ import {
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import { Markdown } from "#/components/markdown";
 import { MemberAvatar } from "#/components/members/member-avatar";
+import { useMentions } from "#/components/mention-menu";
 import { Button } from "#/components/ui/button";
 import {
 	DropdownMenu,
@@ -530,6 +531,7 @@ function CommentForm({
 	const [body, setBody] = useState(initial);
 	const textarea = useRef<HTMLTextAreaElement>(null);
 	const files = useAttachFiles(textarea, setBody);
+	const mentions = useMentions(textarea, setBody);
 	const empty = !body.trim();
 
 	function submit() {
@@ -544,27 +546,37 @@ function CommentForm({
 				submit();
 			}}
 		>
-			<Textarea
-				ref={textarea}
-				value={body}
-				onChange={(event) => setBody(event.target.value)}
-				onKeyDown={(event) => {
-					if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-						event.preventDefault();
-						submit();
-					} else if (event.key === "Escape") {
-						event.preventDefault();
-						if (onCancel) onCancel();
-						else event.currentTarget.blur();
-					}
-				}}
-				{...files?.handlers}
-				aria-label={label}
-				placeholder={placeholder}
-				autoFocus={autoFocus}
-				maxLength={100_000}
-				className="field-sizing-content min-h-20 resize-none"
-			/>
+			<div className="relative">
+				<Textarea
+					ref={textarea}
+					value={body}
+					onChange={(event) => {
+						setBody(event.target.value);
+						mentions.update(event.currentTarget);
+					}}
+					onSelect={(event) => mentions.update(event.currentTarget)}
+					onBlur={mentions.close}
+					onKeyDown={(event) => {
+						if (mentions.onKeyDown(event)) return;
+						if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+							event.preventDefault();
+							submit();
+						} else if (event.key === "Escape") {
+							event.preventDefault();
+							if (onCancel) onCancel();
+							else event.currentTarget.blur();
+						}
+					}}
+					{...files?.handlers}
+					{...mentions.aria}
+					aria-label={label}
+					placeholder={placeholder}
+					autoFocus={autoFocus}
+					maxLength={100_000}
+					className="field-sizing-content min-h-20 resize-none"
+				/>
+				{mentions.menu}
+			</div>
 			<div className="flex items-center justify-end gap-2">
 				<div className="mr-auto flex items-center gap-2 text-xs text-muted-foreground">
 					{files && <AttachButton label="Attach files to the comment" onFiles={files.attach} />}

@@ -18,6 +18,7 @@ import {
 	type WorkspaceLink,
 } from "../src";
 import * as schema from "../src/db/schema";
+import { remindDue } from "../src/reminders";
 import { freshWorkspace, type Workspace } from "./client";
 
 const owner: MemberProfile = {
@@ -304,7 +305,13 @@ describe("inbox email", () => {
 		expect(await workspace.unsubscribe(alice.id)).toBe(true);
 		expect(await workspace.notificationSettings(alice)).toEqual({
 			ok: true,
-			value: { ...DEFAULT_NOTIFICATIONS, assigned: "inbox", comment: "inbox" },
+			value: {
+				...DEFAULT_NOTIFICATIONS,
+				assigned: "inbox",
+				comment: "inbox",
+				mention: "inbox",
+				due: "inbox",
+			},
 		});
 		expect(await emailAt(workspace, alice)).toBeNull();
 		await later(workspace, EMAIL_DELAY_MS);
@@ -313,6 +320,40 @@ describe("inbox email", () => {
 
 		expect(await workspace.unsubscribe(triage.id)).toBe(false);
 		expect(await workspace.unsubscribe("user-nobody")).toBe(false);
+	});
+
+	it("quotes the comment that mentions someone, with current names, and signs reminders Track", async () => {
+		const { workspace, update, as, sent } = await setup();
+		await as(bob, comment("comment-1", "Thoughts, [@Al](mention:user-alice)?"));
+		await later(workspace, EMAIL_DELAY_MS);
+		await alarm(workspace);
+		expect(sent.alice).toEqual([
+			expect.objectContaining({
+				items: [
+					expect.objectContaining({
+						event: { type: "mention", commentId: "comment-1" },
+						actor: "Bob",
+						comment: "Thoughts, @Alice?",
+					}),
+				],
+			}),
+		]);
+
+		await update(owner, { assigneeId: alice.id, dueDate: "2030-03-04" });
+		await runInDurableObject(workspace, (_, state) => {
+			state.storage.transactionSync(() =>
+				remindDue(drizzle(state.storage, { schema }), Date.parse("2030-03-04T09:00:00Z")),
+			);
+		});
+		await later(workspace, EMAIL_INTERVAL_MS);
+		await alarm(workspace);
+		expect(sent.alice[1]?.items).toEqual([
+			expect.objectContaining({
+				event: { type: "due", on: "2030-03-04" },
+				actor: "Track",
+				comment: null,
+			}),
+		]);
 	});
 
 	it("drops email that is due when no link to the workspace was recorded", async () => {

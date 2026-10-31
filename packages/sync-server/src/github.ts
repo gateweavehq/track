@@ -15,6 +15,7 @@ import * as schema from "./db/schema";
 import { notify } from "./inbox";
 import { ChangeSet, type WriteResult } from "./log";
 import { MutationRejected } from "./rejected";
+import { movesReminders } from "./reminders";
 import { type Db, toIssue, toPullRequest } from "./state";
 import { queueDeliveries } from "./webhooks";
 
@@ -170,7 +171,7 @@ export function applyGitHubDelivery(db: Db, delivery: GitHubDelivery, now: numbe
 		if (payload.success) github.push(payload.data);
 	}
 
-	const wake = notify(db, changes, GITHUB_ACTOR_ID, false);
+	const wake = notify(db, changes, GITHUB_ACTOR_ID, false) || movesReminders(changes.events);
 	const result = changes.result();
 	db.insert(schema.appliedMutations)
 		.values({ id: mutationId, clientId: GITHUB_CLIENT_ID, version: result.version, at: now })

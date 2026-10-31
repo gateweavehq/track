@@ -7,10 +7,11 @@ import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronRight, Layers, Tag } from "lucide-react";
-import { type FormEvent, type KeyboardEvent, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CycleIcon } from "#/components/cycles/meta";
 import { MemberAvatar } from "#/components/members/member-avatar";
+import { keepOpenForMentions, useMentions } from "#/components/mention-menu";
 import { ProjectStatusIcon } from "#/components/projects/meta";
 import { Button } from "#/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "#/components/ui/dialog";
@@ -118,6 +119,9 @@ export function CreateIssueDialog({
 		});
 	}
 
+	const textarea = useRef<HTMLTextAreaElement>(null);
+	const mentions = useMentions(textarea, setDescription);
+
 	function onSubmit(event: FormEvent) {
 		event.preventDefault();
 		submit();
@@ -132,7 +136,10 @@ export function CreateIssueDialog({
 
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
-			<DialogContent className="top-[20%] max-w-2xl translate-y-0 gap-0 p-0">
+			<DialogContent
+				className="top-[20%] max-w-2xl translate-y-0 gap-0 p-0"
+				onEscapeKeyDown={keepOpenForMentions}
+			>
 				<form onSubmit={onSubmit} onKeyDown={onKeyDown}>
 					<div className="flex items-center gap-1.5 px-4 pt-4 text-sm">
 						<TeamPicker teams={teams} value={team?.id ?? ""} onChange={setTeamId}>
@@ -156,14 +163,25 @@ export function CreateIssueDialog({
 							autoFocus
 							className="w-full bg-transparent text-lg font-medium outline-none placeholder:text-muted-foreground"
 						/>
-						<textarea
-							value={description}
-							onChange={(event) => setDescription(event.target.value)}
-							placeholder="Add a description…"
-							aria-label="Description"
-							rows={4}
-							className="field-sizing-content max-h-80 min-h-24 w-full resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-						/>
+						<div className="relative">
+							<textarea
+								ref={textarea}
+								value={description}
+								onChange={(event) => {
+									setDescription(event.target.value);
+									mentions.update(event.currentTarget);
+								}}
+								onSelect={(event) => mentions.update(event.currentTarget)}
+								onBlur={mentions.close}
+								onKeyDown={mentions.onKeyDown}
+								{...mentions.aria}
+								placeholder="Add a description…"
+								aria-label="Description"
+								rows={4}
+								className="field-sizing-content max-h-80 min-h-24 w-full resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+							/>
+							{mentions.menu}
+						</div>
 					</div>
 					<div className="flex flex-wrap gap-2 px-4 pb-3">
 						<StatusPicker value={status} onChange={setStatus}>

@@ -2,8 +2,11 @@ import {
 	EMAIL_DELAY_MS,
 	type InboxEvent,
 	type MutationArgs,
+	mentionedIds,
 	type NotificationSettings,
+	newMentions,
 	privateId,
+	SYSTEM_ACTOR_ID,
 } from "@gateweave/track-protocol";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import * as schema from "./db/schema";
@@ -14,8 +17,9 @@ import { type Db, toInboxItem, toSubscription } from "./state";
 
 /**
  * Subscriptions and inboxes. People subscribed to an issue hear of what others do to it: the
- * creator, the assignee and whoever comments are subscribed on their own, and anyone can
- * subscribe or unsubscribe. Agents have neither; they hear through webhooks. Each person's
+ * creator, the assignee, whoever comments and whoever is mentioned are subscribed on their own,
+ * and anyone can subscribe or unsubscribe. A mention tells the person mentioned even if they
+ * unsubscribed. Agents have neither; they hear through webhooks. Each person's
  * notification settings say which kinds of news reach their inbox, and which are emailed when
  * they stay unread (`notifications.ts`).
  *
@@ -33,9 +37,14 @@ export function notify(db: Db, changes: ChangeSet, actorId: string, imported: bo
 				// An imported issue tells nobody, and leaves out its importer, who only moved it
 				// here. Its assignee is subscribed all the same.
 				if (!imported) inbox.subscribe(issue.id, actorId);
-				if (issue.assigneeId === null) break;
-				inbox.subscribe(issue.id, issue.assigneeId, { force: true });
-				if (!imported) inbox.tell(issue.id, issue.assigneeId, { type: "assigned" });
+				const told = new Set<string>();
+				if (issue.assigneeId !== null) {
+					inbox.subscribe(issue.id, issue.assigneeId, { force: true });
+					if (!imported && inbox.tell(issue.id, issue.assigneeId, { type: "assigned" })) {
+						told.add(issue.assigneeId);
+					}
+				}
+				if (!imported) inbox.mention(issue.id, mentionedIds(issue.description), null, told);
 				break;
 			}
 			case "issue.updated": {
@@ -48,28 +57,41 @@ export function notify(db: Db, changes: ChangeSet, actorId: string, imported: bo
 					});
 				}
 				// After the status, so that the new assignee's item shows that they were assigned.
+				const told = new Set<string>();
 				if (issue.assigneeId !== previous.assigneeId) {
 					if (previous.assigneeId !== null && inbox.subscribed(issue.id, previous.assigneeId)) {
 						inbox.tell(issue.id, previous.assigneeId, { type: "unassigned" });
 					}
 					if (issue.assigneeId !== null) {
 						inbox.subscribe(issue.id, issue.assigneeId, { force: true });
-						inbox.tell(issue.id, issue.assigneeId, { type: "assigned" });
+						if (inbox.tell(issue.id, issue.assigneeId, { type: "assigned" })) {
+							told.add(issue.assigneeId);
+						}
 					}
+				}
+				if (issue.description !== previous.description) {
+					const mentioned = newMentions(previous.description, issue.description);
+					inbox.mention(issue.id, mentioned, null, told);
 				}
 				break;
 			}
 			case "issue.deleted":
 				inbox.forgetIssue(event.issue.id);
 				break;
-			case "comment.created":
+			case "comment.created": {
 				if (imported) break;
-				inbox.subscribe(event.comment.issueId, actorId);
-				inbox.tellSubscribers(event.comment.issueId, {
-					type: "comment",
-					commentId: event.comment.id,
-				});
+				const { comment } = event;
+				inbox.subscribe(comment.issueId, actorId);
+				// Those the comment mentions hear of it as a mention, not twice.
+				const told = inbox.mention(comment.issueId, mentionedIds(comment.body), comment.id);
+				inbox.tellSubscribers(comment.issueId, { type: "comment", commentId: comment.id }, told);
 				break;
+			}
+			case "comment.updated": {
+				const { comment, previous } = event;
+				inbox.mention(comment.issueId, newMentions(previous.body, comment.body), comment.id);
+				break;
+			}
 			case "proposal.created":
 			case "proposal.updated":
 				inbox.tellSubscribers(event.proposal.issueId, {
@@ -79,6 +101,22 @@ export function notify(db: Db, changes: ChangeSet, actorId: string, imported: bo
 				});
 				break;
 		}
+	}
+	return inbox.flush();
+}
+
+/**
+ * Reminds assignees that their issues are due, from the alarm; Track is the actor. Returns whether
+ * a reminder is to be emailed.
+ */
+export function remindAssignees(
+	db: Db,
+	changes: ChangeSet,
+	reminders: { issueId: string; memberId: string; dueOn: string }[],
+): boolean {
+	const inbox = new Inbox(db, changes, SYSTEM_ACTOR_ID);
+	for (const { issueId, memberId, dueOn } of reminders) {
+		inbox.tell(issueId, memberId, { type: "due", on: dueOn });
 	}
 	return inbox.flush();
 }
@@ -235,12 +273,13 @@ class Inbox {
 
 	/**
 	 * Puts an event in a person's inbox, unless they caused it or turned its kind off. If they want
-	 * it by email, the item is emailed after a while unless they read it first.
+	 * it by email, the item is emailed after a while unless they read it first. Returns whether
+	 * they were told.
 	 */
-	tell(issueId: string, memberId: string, event: InboxEvent): void {
-		if (memberId === this.actorId || !this.#isPerson(memberId)) return;
+	tell(issueId: string, memberId: string, event: InboxEvent): boolean {
+		if (memberId === this.actorId || !this.#isPerson(memberId)) return false;
 		const level = this.#settingsOf(memberId)[event.type];
-		if (level === "off") return;
+		if (level === "off") return false;
 		const id = privateId(issueId, memberId);
 		const existing =
 			this.#items.get(id) ??
@@ -260,9 +299,11 @@ class Inbox {
 			archivedAt: null,
 			emailAt: level === "email" ? (waiting ?? this.changes.now + EMAIL_DELAY_MS) : waiting,
 		});
+		return true;
 	}
 
-	tellSubscribers(issueId: string, event: InboxEvent): void {
+	/** Tells everyone subscribed to an issue, except those already told of the same thing. */
+	tellSubscribers(issueId: string, event: InboxEvent, except?: ReadonlySet<string>): void {
 		const subscribers = this.db
 			.select({ memberId: schema.subscriptions.memberId })
 			.from(schema.subscriptions)
@@ -270,7 +311,31 @@ class Inbox {
 				and(eq(schema.subscriptions.issueId, issueId), eq(schema.subscriptions.subscribed, true)),
 			)
 			.all();
-		for (const { memberId } of subscribers) this.tell(issueId, memberId, event);
+		for (const { memberId } of subscribers) {
+			if (!except?.has(memberId)) this.tell(issueId, memberId, event);
+		}
+	}
+
+	/**
+	 * Subscribes the people a description or comment mentions and tells them, except those in
+	 * `told`, who heard of the same write already. Returns who was told. A mention does nothing
+	 * for someone who turned mentions off: if they follow the issue, they hear of a comment as any
+	 * subscriber does.
+	 */
+	mention(
+		issueId: string,
+		memberIds: string[],
+		commentId: string | null,
+		told: ReadonlySet<string> = new Set(),
+	): Set<string> {
+		const mentioned = new Set<string>();
+		for (const memberId of memberIds) {
+			if (memberId === this.actorId || told.has(memberId) || !this.#isPerson(memberId)) continue;
+			if (this.#settingsOf(memberId).mention === "off") continue;
+			this.subscribe(issueId, memberId);
+			if (this.tell(issueId, memberId, { type: "mention", commentId })) mentioned.add(memberId);
+		}
+		return mentioned;
 	}
 
 	/** Removes everyone's subscriptions to a deleted issue, and the issue from their inboxes. */

@@ -57,14 +57,22 @@ export function daysBetween(from: string, to: string): number {
  * where a change of offset skips midnight.
  */
 export function startOfDay(timeZone: string, day: string): number {
-	const wall = Date.parse(`${day}T00:00:00Z`);
-	// The offset at a guess decides the next guess. Two rounds settle a guess that lands on the
-	// other side of a change of offset.
-	let at = wall - offsetAt(timeZone, wall);
-	at = wall - offsetAt(timeZone, at);
+	let at = atHour(timeZone, day, 0);
 	// Where the clock jumps over midnight, the guess is still in the day before.
 	while (dayIn(timeZone, at) < day) at += 15 * 60 * 1000;
 	return at;
+}
+
+/**
+ * When the clock in `timeZone` reads `hour`:00 on `day` (epoch ms). Where a change of offset
+ * skips that time, a moment next to it.
+ */
+export function atHour(timeZone: string, day: string, hour: number): number {
+	const wall = Date.parse(`${day}T${pad(hour)}:00:00Z`);
+	// The offset at a guess decides the next guess. Two rounds settle a guess that lands on the
+	// other side of a change of offset.
+	const at = wall - offsetAt(timeZone, wall);
+	return wall - offsetAt(timeZone, at);
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;

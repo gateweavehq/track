@@ -78,7 +78,7 @@ export interface DigestEntry {
 	/** Who caused the newest event. */
 	actor: string;
 	unread: number;
-	/** A comment's text, as written. */
+	/** The text of the comment, or of the one that mentions them, with mentions as `@Name`. */
 	comment: string | null;
 }
 
@@ -141,7 +141,24 @@ function summary(item: DigestEntry, issue: string): string {
 			return `${actor} moved ${issue} to ${STATUS_NAMES[item.event.to]}`;
 		case "proposal":
 			return `${actor} proposed a change to ${issue}`;
+		case "mention":
+			return `${actor} mentioned you in ${issue}`;
+		case "due":
+			return `${issue} is due ${dueDay(item.event.on)}`;
 	}
+}
+
+const DUE_DAY = new Intl.DateTimeFormat("en-US", {
+	weekday: "long",
+	month: "long",
+	day: "numeric",
+	timeZone: "UTC",
+});
+
+/** "Saturday, October 31": the day itself, whatever the reader's time zone. */
+function dueDay(day: string): string {
+	const at = Date.parse(`${day}T00:00:00Z`);
+	return Number.isNaN(at) ? day : DUE_DAY.format(at);
 }
 
 function compose({

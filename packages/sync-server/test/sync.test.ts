@@ -2373,6 +2373,8 @@ describe("search", () => {
 		if (!search) throw new Error("No search migration");
 		await runInDurableObject(workspace, async (_, state) => {
 			const db = drizzle(state.storage, { schema });
+			db.run(sql`drop table due_reminders`);
+			db.run(sql`drop index issues_due_idx`);
 			db.run(sql`drop table notification_settings`);
 			db.run(sql`drop table pull_requests`);
 			db.run(sql`drop table github_connections`);
