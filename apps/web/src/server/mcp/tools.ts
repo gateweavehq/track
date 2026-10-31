@@ -234,7 +234,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Get workspace",
 			description:
-				"Lists a workspace's teams (whose keys prefix issue keys), the current and upcoming cycles of the teams that work in cycles, its labels, its projects, and its members (who can be assignees).",
+				"Lists a workspace's teams (whose keys prefix issue keys), the current and upcoming cycles of the teams that work in cycles, its labels, its projects, its members (who can be assignees), and which member you are.",
 			inputSchema: z.object({ workspace: workspaceInput }),
 			outputSchema: z.looseObject({
 				teams: z.array(
@@ -267,14 +267,18 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						role: z.enum(MEMBER_ROLES),
 					}),
 				),
+				you: z
+					.looseObject({ id: z.string(), name: z.string(), role: z.enum(MEMBER_ROLES) })
+					.describe(
+						"You, the caller, as a member of this workspace. Issues assigned to you have your id as their assignee.",
+					),
 			}),
 			annotations: { readOnlyHint: true, openWorldHint: false },
 		},
 		({ workspace }) =>
 			run(async () => {
-				const { teams, cycles, labels, projects, members } = await (
-					await open(access, workspace)
-				).directory();
+				const opened = await open(access, workspace);
+				const { teams, cycles, labels, projects, members } = await opened.directory();
 				const now = Date.now();
 				return {
 					teams: teams.map(({ key, name, cycles }) => ({ key, name, cycles })),
@@ -299,6 +303,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					members: members
 						.filter((member) => member.removedAt === null)
 						.map(({ id, name, email, role }) => ({ id, name, email, role })),
+					you: { id: opened.me.id, name: opened.me.name, role: opened.me.role },
 				};
 			}),
 	);

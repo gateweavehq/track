@@ -156,6 +156,10 @@ describe("agent members, in the Workers runtime", () => {
 
 		const mcp = await connect(created.key);
 		const workspaces = await mcp.callTool({ name: "list_workspaces", arguments: {} });
+		const directory = await mcp.callTool({
+			name: "get_workspace",
+			arguments: { workspace: "acme" },
+		});
 		const issue = await mcp.callTool({
 			name: "create_issue",
 			arguments: { workspace: "acme", team: "ENG", title: "Login fails on Safari" },
@@ -168,6 +172,10 @@ describe("agent members, in the Workers runtime", () => {
 
 		expect(workspaces.structuredContent).toEqual({
 			workspaces: [{ slug: "acme", name: "Acme", role: "agent" }],
+		});
+		// An agent learns which member it is, so it can tell the issues assigned to it.
+		expect(directory.structuredContent).toMatchObject({
+			you: { id: created.agent.id, name: "Triage", role: "agent" },
 		});
 		// The issue is the agent's own, and the agent can do what members do, nothing more.
 		expect(issue.structuredContent).toMatchObject({
