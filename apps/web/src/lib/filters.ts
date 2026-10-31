@@ -3,7 +3,9 @@ import {
 	type Issue,
 	type IssueFilterKey,
 	type IssueFilters,
+	RELATIVE_CYCLES,
 } from "@gateweave/track-protocol";
+import { NO_RELATIVE_CYCLES, type RelativeCycles } from "./cycles";
 import { matchesDue } from "./issues";
 
 // Filters for pages of issues and saved views (`IssueFilters` in the protocol). They are applied
@@ -14,8 +16,12 @@ export interface FilterTargets {
 	teams: ReadonlyMap<string, unknown>;
 	members: ReadonlyMap<string, unknown>;
 	projects: ReadonlyMap<string, unknown>;
+	cycles: ReadonlyMap<string, unknown>;
 	labels: ReadonlyMap<string, unknown>;
 }
+
+const isRelativeCycle = (value: string | null) =>
+	RELATIVE_CYCLES.some((relative) => relative === value);
 
 /**
  * The filters that still mean something: values that resolve, without repeats. A property whose
@@ -29,6 +35,10 @@ export function activeFilters(filters: IssueFilters, targets: FilterTargets): Is
 		priorities: kept(filters.priorities),
 		assigneeIds: kept(filters.assigneeIds, (id) => id === null || targets.members.has(id)),
 		projectIds: kept(filters.projectIds, (id) => id === null || targets.projects.has(id)),
+		cycles: kept(
+			filters.cycles,
+			(id) => id === null || isRelativeCycle(id) || targets.cycles.has(id),
+		),
 		labelIds: kept(filters.labelIds, (id) => targets.labels.has(id)),
 		due: filters.due,
 	});
@@ -74,15 +84,30 @@ export function sameFilters(a: IssueFilters, b: IssueFilters): boolean {
 	return key(a) === key(b);
 }
 
-/** Whether an issue passes filters, best made active first (see `activeFilters`). */
-export function matchesFilters(issue: Issue, filters: IssueFilters, now = new Date()): boolean {
+/**
+ * Whether an issue passes filters, best made active first (see `activeFilters`). `cycles` says
+ * which cycles are current and next, for the filters that name them so.
+ */
+export function matchesFilters(
+	issue: Issue,
+	filters: IssueFilters,
+	now = new Date(),
+	cycles: RelativeCycles = NO_RELATIVE_CYCLES,
+): boolean {
 	const { teamIds, statuses, priorities, assigneeIds, projectIds, labelIds, due } = filters;
+	const inCycle = (value: string | null) => {
+		if (value === "current" || value === "next") {
+			return issue.cycleId !== null && cycles[value].has(issue.cycleId);
+		}
+		return value === issue.cycleId;
+	};
 	return (
 		(!teamIds || teamIds.includes(issue.teamId)) &&
 		(!statuses || statuses.includes(issue.status)) &&
 		(!priorities || priorities.includes(issue.priority)) &&
 		(!assigneeIds || assigneeIds.includes(issue.assigneeId)) &&
 		(!projectIds || projectIds.includes(issue.projectId)) &&
+		(!filters.cycles || filters.cycles.some(inCycle)) &&
 		(!labelIds || issue.labelIds.some((id) => labelIds.includes(id))) &&
 		(!due || matchesDue(issue, due, now))
 	);
@@ -129,6 +154,7 @@ export function defaultsFromFilters(filters: IssueFilters): {
 	priority?: Issue["priority"];
 	assigneeId?: string | null;
 	projectId?: string | null;
+	cycleId?: string | null;
 	labelIds?: string[];
 } {
 	const only = <T>(values: readonly T[] | undefined) =>
@@ -139,6 +165,8 @@ export function defaultsFromFilters(filters: IssueFilters): {
 		priority: only(filters.priorities),
 		assigneeId: only(filters.assigneeIds),
 		projectId: only(filters.projectIds),
+		// A current or next cycle depends on the team, which the page knows better.
+		cycleId: [only(filters.cycles)].find((value) => value !== undefined && !isRelativeCycle(value)),
 		// Any one label passes a label filter; all of them do no harm and say what was meant.
 		labelIds: filters.labelIds ? [...filters.labelIds] : undefined,
 	};

@@ -6,6 +6,7 @@ import {
 	Bot,
 	ChevronDown,
 	Inbox,
+	IterationCcw,
 	Keyboard,
 	Layers,
 	Lock,
@@ -221,6 +222,8 @@ function Sidebar() {
 									to="/$workspace/team/$teamKey"
 									params={{ workspace: slug, teamKey: team.key }}
 									className={navLink}
+									// Not lit on the team's cycles page, whose own link is.
+									activeOptions={{ exact: true }}
 									activeProps={{ className: activeNavLink }}
 								>
 									<span className="w-9 shrink-0 font-mono text-xs text-muted-foreground">
@@ -228,6 +231,18 @@ function Sidebar() {
 									</span>
 									<span className="truncate">{team.name}</span>
 								</Link>
+								{team.cycles && (
+									<Link
+										to="/$workspace/team/$teamKey/cycles"
+										params={{ workspace: slug, teamKey: team.key }}
+										className={cn(navLink, "pl-13")}
+										activeProps={{ className: activeNavLink }}
+										aria-label={`${team.name} cycles`}
+									>
+										<IterationCcw className="size-4 text-muted-foreground" />
+										Cycles
+									</Link>
+								)}
 							</li>
 						))}
 					</ul>

@@ -13,6 +13,7 @@ function issue(id: string, overrides: Partial<Issue> = {}): Issue {
 		priority: 0,
 		assigneeId: null,
 		projectId: null,
+		cycleId: null,
 		parentId: null,
 		startDate: null,
 		dueDate: null,
@@ -40,6 +41,10 @@ const lookups: SortLookups = {
 	projects: new Map([
 		["launch", { name: "Launch" }],
 		["docs", { name: "Docs" }],
+	]),
+	cycles: new Map([
+		["c2", { startsOn: "2026-11-09" }],
+		["c1", { startsOn: "2026-11-02" }],
 	]),
 };
 
@@ -115,6 +120,16 @@ describe("sortIssues", () => {
 		expect(ids(issues, "assignee")).toEqual(["3", "2", "1", "4"]);
 		expect(ids(issues, "assignee", "desc")).toEqual(["1", "2", "3", "4"]);
 		expect(ids(issues, "project")).toEqual(["3", "1", "4", "2"]);
+	});
+
+	it("sorts cycles by when they start, with no cycle last either way", () => {
+		const issues = [
+			issue("later", { cycleId: "c2" }),
+			issue("none", { cycleId: null }),
+			issue("sooner", { cycleId: "c1" }),
+		];
+		expect(ids(issues, "cycle")).toEqual(["sooner", "later", "none"]);
+		expect(ids(issues, "cycle", "desc")).toEqual(["later", "sooner", "none"]);
 	});
 
 	it("treats an assignee or project it cannot find as empty", () => {

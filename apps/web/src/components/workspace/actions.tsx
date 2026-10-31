@@ -57,6 +57,7 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 							priority: first(defaults.priority, page.priority),
 							assigneeId: first(defaults.assigneeId, page.assigneeId),
 							projectId: first(defaults.projectId, page.projectId, routeProjectId),
+							cycleId: first(defaults.cycleId, page.cycleId),
 							labelIds: first(defaults.labelIds, page.labelIds),
 						},
 					});

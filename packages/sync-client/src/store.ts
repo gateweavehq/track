@@ -9,6 +9,7 @@ export interface SyncState {
 	readonly issues: ReadonlyMap<string, Entities["issue"]>;
 	readonly labels: ReadonlyMap<string, Entities["label"]>;
 	readonly projects: ReadonlyMap<string, Entities["project"]>;
+	readonly cycles: ReadonlyMap<string, Entities["cycle"]>;
 	readonly comments: ReadonlyMap<string, Entities["comment"]>;
 	readonly activities: ReadonlyMap<string, Entities["activity"]>;
 	/** Agents' open proposals. */
@@ -33,6 +34,7 @@ const EMPTY: Tables = {
 	issue: new Map(),
 	label: new Map(),
 	project: new Map(),
+	cycle: new Map(),
 	comment: new Map(),
 	activity: new Map(),
 	proposal: new Map(),
@@ -129,6 +131,7 @@ export class Replica {
 			issue: new Map(snapshot.issues.map((row) => [row.id, row])),
 			label: new Map(snapshot.labels.map((row) => [row.id, row])),
 			project: new Map(snapshot.projects.map((row) => [row.id, row])),
+			cycle: new Map(snapshot.cycles.map((row) => [row.id, row])),
 			comment: new Map(snapshot.comments.map((row) => [row.id, row])),
 			activity: new Map(snapshot.activities.map((row) => [row.id, row])),
 			proposal: new Map(snapshot.proposals.map((row) => [row.id, row])),
@@ -187,6 +190,7 @@ export class Replica {
 			issues: [...this.#confirmed.issue.values()],
 			labels: [...this.#confirmed.label.values()],
 			projects: [...this.#confirmed.project.values()],
+			cycles: [...this.#confirmed.cycle.values()],
 			comments: [...this.#confirmed.comment.values()],
 			activities: [...this.#confirmed.activity.values()],
 			proposals: [...this.#confirmed.proposal.values()],
@@ -215,6 +219,7 @@ function toState(tables: Tables, version: number): SyncState {
 		issues: tables.issue,
 		labels: tables.label,
 		projects: tables.project,
+		cycles: tables.cycle,
 		comments: tables.comment,
 		activities: tables.activity,
 		proposals: tables.proposal,

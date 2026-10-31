@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
 	Activity,
 	Comment,
+	Cycle,
 	Entities,
 	EntityName,
 	Issue,
@@ -16,7 +17,7 @@ import type {
 import type { MutationInput } from "./mutations";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";
@@ -91,6 +92,7 @@ export interface Snapshot {
 	issues: Issue[];
 	labels: Label[];
 	projects: Project[];
+	cycles: Cycle[];
 	/** Comments, activity and open proposals of live issues only. */
 	comments: Comment[];
 	activities: Activity[];
@@ -108,6 +110,7 @@ export const SNAPSHOT_KEYS = {
 	issue: "issues",
 	label: "labels",
 	project: "projects",
+	cycle: "cycles",
 	comment: "comments",
 	activity: "activities",
 	proposal: "proposals",

@@ -78,7 +78,14 @@ describe("statuses and priorities", () => {
 });
 
 describe("a Track export read back", () => {
-	const eng: Team = { id: "t1", key: "ENG", name: "Engineering", createdAt: 1, updatedAt: 1 };
+	const eng: Team = {
+		id: "t1",
+		key: "ENG",
+		name: "Engineering",
+		cycles: null,
+		createdAt: 1,
+		updatedAt: 1,
+	};
 	const ada: Member = {
 		id: "u1",
 		name: "Ada",
@@ -101,6 +108,7 @@ describe("a Track export read back", () => {
 		assigneeId: null,
 		creatorId: "u1",
 		projectId: null,
+		cycleId: null,
 		parentId: null,
 		startDate: null,
 		dueDate: null,
@@ -137,6 +145,7 @@ describe("a Track export read back", () => {
 		comments: [],
 		activities: [],
 		relations: [],
+		cycles: [],
 	};
 
 	it("keeps what the export wrote", () => {

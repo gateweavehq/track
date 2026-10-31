@@ -8,6 +8,7 @@ import {
 } from "@gateweave/track-protocol";
 import { Check, Gauge, Layers } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { CycleIcon, cycleDates } from "#/components/cycles/meta";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { PROJECT_STATUS_META, ProjectStatusIcon } from "#/components/projects/meta";
 import {
@@ -20,14 +21,18 @@ import {
 } from "#/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover";
 import { useWorkspace } from "#/components/workspace/context";
+import { cycleName, stateOf } from "#/lib/cycles";
 import { ESTIMATE_OPTIONS, estimateLabel } from "#/lib/issues";
-import { useActiveMembers, useProjectList } from "#/lib/queries";
+import { useActiveMembers, useProjectList, useTeamCycles, useTeamsById } from "#/lib/queries";
+import { cn } from "#/lib/utils";
 import { PRIORITY_META, PRIORITY_ORDER, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
 
 interface Option<V> {
 	value: V;
 	label: string;
 	icon: ReactNode;
+	/** A quiet note after the label, such as a date. */
+	detail?: string;
 	keywords?: string[];
 }
 
@@ -76,7 +81,14 @@ function OptionPicker<V extends string | number | null>({
 								>
 									{option.icon}
 									<span className="truncate">{option.label}</span>
-									{option.value === value && <Check className="ml-auto size-4" />}
+									{option.detail && (
+										<span className="ml-auto shrink-0 text-xs text-muted-foreground">
+											{option.detail}
+										</span>
+									)}
+									{option.value === value && (
+										<Check className={cn("size-4 shrink-0", !option.detail && "ml-auto")} />
+									)}
 								</CommandItem>
 							))}
 						</CommandGroup>
@@ -136,6 +148,33 @@ export function ProjectPicker(props: PickerProps<string | null>) {
 		})),
 	];
 	return <OptionPicker {...props} options={options} placeholder="Set project…" />;
+}
+
+/**
+ * A cycle of the issue's team that has not completed, or none. The issue's own cycle is listed even
+ * when it has completed, so the picker still shows where the issue was planned.
+ */
+export function CyclePicker({ teamId, ...props }: PickerProps<string | null> & { teamId: string }) {
+	const teams = useTeamsById();
+	const cycles = useTeamCycles(teamId);
+	const now = Date.now();
+	const options: Option<string | null>[] = [
+		{ value: null, label: "No cycle", icon: <CycleIcon /> },
+		...cycles.flatMap((cycle) => {
+			const state = stateOf(cycle, teams, now);
+			if (state === "completed" && cycle.id !== props.value) return [];
+			return [
+				{
+					value: cycle.id,
+					label: cycleName(cycle),
+					detail: state === "current" ? "Current" : cycleDates(cycle),
+					icon: <CycleIcon state={state} />,
+					keywords: [`Cycle ${cycle.number}`, state],
+				},
+			];
+		}),
+	];
+	return <OptionPicker {...props} options={options} placeholder="Set cycle…" />;
 }
 
 /** Points on a short scale, or none. An estimate set off the scale, by an agent, is listed too. */

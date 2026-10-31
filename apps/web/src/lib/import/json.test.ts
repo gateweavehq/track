@@ -15,8 +15,22 @@ import { type ImportTarget, importId, planImport } from "./plan";
 
 // The JSON export, read back into another workspace: what one Track writes, another takes in.
 
-const eng: Team = { id: "t1", key: "ENG", name: "Engineering", createdAt: 1, updatedAt: 1 };
-const ops: Team = { id: "t2", key: "OPS", name: "Operations", createdAt: 1, updatedAt: 1 };
+const eng: Team = {
+	id: "t1",
+	key: "ENG",
+	name: "Engineering",
+	cycles: null,
+	createdAt: 1,
+	updatedAt: 1,
+};
+const ops: Team = {
+	id: "t2",
+	key: "OPS",
+	name: "Operations",
+	cycles: null,
+	createdAt: 1,
+	updatedAt: 1,
+};
 const ada: Member = {
 	id: "u1",
 	name: "Ada",
@@ -48,6 +62,7 @@ function issue(overrides: Partial<Issue> & Pick<Issue, "id" | "teamId" | "number
 		assigneeId: null,
 		creatorId: "u1",
 		projectId: null,
+		cycleId: null,
 		parentId: null,
 		startDate: null,
 		dueDate: null,
@@ -103,6 +118,7 @@ const exported: ExportSource = {
 	comments: [reply],
 	activities: [],
 	relations: [blocks],
+	cycles: [],
 };
 
 /** Another workspace: it has Engineering (as ENG) and Grace, and nothing else of Acme's. */

@@ -12,6 +12,8 @@ export interface WriteResult {
 	ops: Op[];
 	/** Webhook deliveries the write queued, which the alarm sends. */
 	queued?: number;
+	/** Whether the alarm should run now, to plan around what the write changed. */
+	wake?: boolean;
 	/** What an agent's write proposed instead of making, open proposals included as they stand. */
 	proposed?: Proposal[];
 }

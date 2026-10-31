@@ -2,6 +2,7 @@ import type { Team } from "@gateweave/track-protocol";
 import { Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
+import { CycleSettingsDialog } from "#/components/cycles/cycle-settings-dialog";
 import { EditTeamDialog } from "#/components/teams/edit-team-dialog";
 import { Button } from "#/components/ui/button";
 import {
@@ -19,6 +20,7 @@ export function TeamsSettings() {
 	const teams = useTeams();
 	const counts = useIssueCountsByTeam();
 	const [editing, setEditing] = useState<Team | null>(null);
+	const [planning, setPlanning] = useState<Team | null>(null);
 
 	return (
 		<section aria-labelledby="teams-heading" className="space-y-4">
@@ -59,13 +61,32 @@ export function TeamsSettings() {
 								>
 									{team.name}
 								</Link>
+								{team.cycles && (
+									<Link
+										to="/$workspace/team/$teamKey/cycles"
+										params={{ workspace: slug, teamKey: team.key }}
+										className="hidden text-xs text-muted-foreground hover:underline sm:inline"
+									>
+										{team.cycles.weeks === 1 ? "Weekly" : `${team.cycles.weeks}-week`} cycles
+									</Link>
+								)}
 								<span className="text-xs text-muted-foreground tabular-nums">
 									{count === 1 ? "1 issue" : `${count} issues`}
 								</span>
 								{admin && (
-									<Button variant="ghost" size="sm" onClick={() => setEditing(team)}>
-										Edit
-									</Button>
+									<>
+										<Button
+											variant="ghost"
+											size="sm"
+											onClick={() => setPlanning(team)}
+											aria-label={`Cycles for ${team.name}`}
+										>
+											Cycles
+										</Button>
+										<Button variant="ghost" size="sm" onClick={() => setEditing(team)}>
+											Edit
+										</Button>
+									</>
 								)}
 							</li>
 						);
@@ -73,6 +94,7 @@ export function TeamsSettings() {
 				</ul>
 			)}
 			{editing && <EditTeamDialog team={editing} onClose={() => setEditing(null)} />}
+			{planning && <CycleSettingsDialog team={planning} onClose={() => setPlanning(null)} />}
 		</section>
 	);
 }

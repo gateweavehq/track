@@ -23,6 +23,9 @@
 	--input: oklch(0.92 0.004 286.32);
 	--ring: oklch(0.705 0.015 286.067);
 	--radius: 0.5rem;
+	/* Chart series, checked for color-blind separation and contrast in each mode. */
+	--chart-1: #2a78d6;
+	--chart-2: #eb6834;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -46,6 +49,8 @@
 		--border: oklch(1 0 0 / 10%);
 		--input: oklch(1 0 0 / 15%);
 		--ring: oklch(0.552 0.016 285.938);
+		--chart-1: #3987e5;
+		--chart-2: #d95926;
 	}
 }
 
@@ -70,6 +75,8 @@
 	--color-border: var(--border);
 	--color-input: var(--input);
 	--color-ring: var(--ring);
+	--color-chart-1: var(--chart-1);
+	--color-chart-2: var(--chart-2);
 	--radius-sm: calc(var(--radius) - 4px);
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);

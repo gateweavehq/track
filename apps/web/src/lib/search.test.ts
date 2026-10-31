@@ -13,6 +13,7 @@ function issue(overrides: Partial<Issue>): Issue {
 		priority: 0,
 		assigneeId: null,
 		projectId: null,
+		cycleId: null,
 		parentId: null,
 		startDate: null,
 		dueDate: null,
@@ -39,7 +40,14 @@ function comment(overrides: Partial<Comment>): Comment {
 	};
 }
 
-const team: Team = { id: "t1", key: "ENG", name: "Engineering", createdAt: 0, updatedAt: 0 };
+const team: Team = {
+	id: "t1",
+	key: "ENG",
+	name: "Engineering",
+	cycles: null,
+	createdAt: 0,
+	updatedAt: 0,
+};
 
 function tables(issues: Issue[], comments: Comment[] = []) {
 	return {

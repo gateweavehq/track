@@ -27,8 +27,16 @@ import { drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { z } from "zod";
 import migrations from "../drizzle/migrations";
+import { advanceCycles, nextCycleChange } from "./cycles";
 import * as schema from "./db/schema";
-import { compact, currentVersion, oplogFloor, opsSince, type RetentionPolicy } from "./log";
+import {
+	compact,
+	currentVersion,
+	oplogFloor,
+	opsSince,
+	type RetentionPolicy,
+	type WriteResult,
+} from "./log";
 import { applyMutation } from "./mutations";
 import { issueProposals } from "./proposals";
 import {
@@ -96,6 +104,7 @@ const issueQuery = z.object({
 	statuses: z.array(z.enum(ISSUE_STATUSES)).optional(),
 	assigneeId: shortId.nullable().optional(),
 	projectId: shortId.optional(),
+	cycleIds: z.array(shortId).max(100).optional(),
 	parentId: shortId.optional(),
 	labelId: shortId.optional(),
 	text: z.string().max(200).optional(),
@@ -277,7 +286,7 @@ export class WorkspaceDO extends DurableObject {
 			queueTest(this.#db, shortId.parse(id), Date.now());
 			return null;
 		});
-		if (result.ok) this.#deliverSoon();
+		if (result.ok) this.#alarmSoon();
 		return result;
 	}
 
@@ -339,9 +348,14 @@ export class WorkspaceDO extends DurableObject {
 		}
 	}
 
-	/** Compacts the log when that is due, and sends the webhook deliveries that are. */
+	/**
+	 * Moves teams' cycles on at their boundaries, compacts the log when that is due, and sends the
+	 * webhook deliveries that are.
+	 */
 	override async alarm(): Promise<void> {
 		const now = Date.now();
+		// Deliveries this queues go out below, in this same run.
+		this.#broadcast(this.ctx.storage.transactionSync(() => advanceCycles(this.#db, now)));
 		if (now >= this.#compactionDue()) {
 			this.ctx.storage.transactionSync(() => {
 				compact(this.#db, now, RETENTION);
@@ -356,9 +370,16 @@ export class WorkspaceDO extends DurableObject {
 		}
 		const transact: Transact = (fn) => this.ctx.storage.transactionSync(fn);
 		const more = await deliverDue(this.#db, transact);
+		// Cycles were just moved on, so a boundary that is still due is a clock disagreement:
+		// look again in a minute rather than straight away.
+		const cycles = nextCycleChange(this.#db, Date.now());
 		const next = more
 			? Date.now()
-			: Math.min(this.#compactionDue(), nextDeliveryAt(this.#db) ?? Number.POSITIVE_INFINITY);
+			: Math.min(
+					this.#compactionDue(),
+					nextDeliveryAt(this.#db) ?? Number.POSITIVE_INFINITY,
+					cycles === null ? Number.POSITIVE_INFINITY : Math.max(cycles, Date.now() + 60_000),
+				);
 		await this.ctx.storage.setAlarm(next);
 	}
 
@@ -441,10 +462,13 @@ export class WorkspaceDO extends DurableObject {
 		}
 	}
 
-	/** Has the alarm send queued deliveries now, rather than at its next scheduled run. */
-	#deliverSoon(): void {
+	/**
+	 * Has the alarm run now, rather than at its next scheduled time: to send queued deliveries, or
+	 * to plan around a change to a team's cycles.
+	 */
+	#alarmSoon(): void {
 		this.ctx.storage.setAlarm(Date.now()).catch((error) => {
-			console.error("webhooks: could not schedule delivery", error);
+			console.error("sync: could not schedule the alarm", error);
 		});
 	}
 
@@ -459,16 +483,19 @@ export class WorkspaceDO extends DurableObject {
 	}
 
 	/** Runs a write in a transaction, then broadcasts its ops to every live socket. */
-	#write<T extends { ops: Op[]; queued?: number }>(fn: () => T): T {
+	#write<T extends WriteResult>(fn: () => T): T {
 		const result = this.ctx.storage.transactionSync(fn);
-		if (result.queued) this.#deliverSoon();
-		if (result.ops.length > 0) {
-			const payload = JSON.stringify({ type: "delta", ops: result.ops } satisfies ServerMessage);
-			for (const ws of this.ctx.getWebSockets()) {
-				if (socketState(ws).live) trySend(ws, payload);
-			}
-		}
+		if (result.queued || result.wake) this.#alarmSoon();
+		this.#broadcast(result);
 		return result;
+	}
+
+	#broadcast(result: { ops: Op[] }): void {
+		if (result.ops.length === 0) return;
+		const payload = JSON.stringify({ type: "delta", ops: result.ops } satisfies ServerMessage);
+		for (const ws of this.ctx.getWebSockets()) {
+			if (socketState(ws).live) trySend(ws, payload);
+		}
 	}
 }
 

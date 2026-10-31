@@ -9,6 +9,7 @@ import m0007 from "./0007_issue_dates.sql";
 import m0008 from "./0008_issue_parent.sql";
 import m0009 from "./0009_issue_relations.sql";
 import m0010 from "./0010_saved_views.sql";
+import m0011 from "./0011_cycles.sql";
 import journal from "./meta/_journal.json";
 
 export default {
@@ -25,5 +26,6 @@ export default {
 		m0008,
 		m0009,
 		m0010,
+		m0011,
 	},
 };

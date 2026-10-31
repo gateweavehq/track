@@ -56,6 +56,7 @@ export interface IssueDefaults {
 	priority?: IssuePriority;
 	assigneeId?: string | null;
 	projectId?: string | null;
+	cycleId?: string | null;
 	labelIds?: string[];
 }
 

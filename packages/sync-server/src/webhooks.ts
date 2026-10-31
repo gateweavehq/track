@@ -1,6 +1,7 @@
 import {
 	type Issue,
 	MAX_WEBHOOKS_PER_WORKSPACE,
+	SYSTEM_ACTOR_ID,
 	WEBHOOK_TEST_EVENT,
 	type Webhook,
 	type WebhookActor,
@@ -99,7 +100,7 @@ function readLink(db: Db): WorkspaceLink | undefined {
 /** Queues a delivery of each event to each active webhook that wants it. Returns how many. */
 export function queueDeliveries(
 	db: Db,
-	actor: schema.MemberRow,
+	actor: schema.MemberRow | null,
 	events: readonly ChangeEvent[],
 	version: number,
 	now: number,
@@ -119,7 +120,7 @@ export function queueDeliveries(
 			if (!webhook.events.includes(event.type)) continue;
 			if (webhook.teamId !== null && !built.teamIds.includes(webhook.teamId)) continue;
 			// An agent's own changes would set it off again.
-			if (webhook.agentId === actor.userId) continue;
+			if (actor && webhook.agentId === actor.userId) continue;
 			insertDelivery(db, webhook.id, event.type, built.body, now);
 			queued += 1;
 		}
@@ -158,15 +159,13 @@ class Payloads {
 	constructor(
 		private readonly db: Db,
 		private readonly link: WorkspaceLink,
-		actor: schema.MemberRow,
+		actor: schema.MemberRow | null,
 		private readonly version: number,
 		now: number,
 	) {
-		this.#actor = {
-			id: actor.userId,
-			name: actor.name,
-			type: actor.role === "agent" ? "agent" : "person",
-		};
+		this.#actor = actor
+			? { id: actor.userId, name: actor.name, type: actor.role === "agent" ? "agent" : "person" }
+			: { id: SYSTEM_ACTOR_ID, name: "Track", type: "system" };
 		this.#timestamp = new Date(now).toISOString();
 	}
 

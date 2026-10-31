@@ -1,6 +1,8 @@
 import {
 	type Comment,
 	calendarDate,
+	cycleState,
+	dayIn,
 	estimate,
 	ISSUE_STATUSES,
 	type Issue,
@@ -103,6 +105,10 @@ const MAX_RELATIONS = 100;
 const RELATION_HELP =
 	'How the issue relates to the other one: it "blocks" it, is "blocked_by" it, is a "duplicate_of" it, is "duplicated_by" it, or is "related" to it.';
 const DUE_DATE_HELP = "The day it is due, as YYYY-MM-DD.";
+const CYCLE_HELP =
+	'A cycle of the issue\'s team: "current", "next", or its number, from get_workspace.';
+const cycleInput = z.union([z.enum(["current", "next"]), z.number().int().min(1)]);
+type CycleChoice = z.infer<typeof cycleInput>;
 const ESTIMATE_HELP = "Its size in points, a whole number from 0 to 1000.";
 
 // Outputs are loose objects. Clients keep a tool's output schema from when they connected and
@@ -116,6 +122,7 @@ const issueSummary = z.looseObject({
 	assignee: z.string().nullable().describe("The assignee's email."),
 	labels: z.array(z.string()).describe("Label names."),
 	project: z.string().nullable().describe("The project's name."),
+	cycle: z.number().nullable().describe("The number of the team's cycle it is planned for."),
 	startDate: z.string().nullable().describe("YYYY-MM-DD."),
 	dueDate: z.string().nullable().describe("YYYY-MM-DD."),
 	estimate: z.number().nullable().describe("Points."),
@@ -211,10 +218,29 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Get workspace",
 			description:
-				"Lists a workspace's teams (whose keys prefix issue keys), its labels, its projects, and its members (who can be assignees).",
+				"Lists a workspace's teams (whose keys prefix issue keys), the current and upcoming cycles of the teams that work in cycles, its labels, its projects, and its members (who can be assignees).",
 			inputSchema: z.object({ workspace: workspaceInput }),
 			outputSchema: z.looseObject({
-				teams: z.array(z.looseObject({ key: z.string(), name: z.string() })),
+				teams: z.array(
+					z.looseObject({
+						key: z.string(),
+						name: z.string(),
+						cycles: z
+							.looseObject({ weeks: z.number(), timeZone: z.string() })
+							.nullable()
+							.describe("How long the team's cycles are, and the time zone they run in."),
+					}),
+				),
+				cycles: z.array(
+					z.looseObject({
+						team: z.string().describe("The team's key."),
+						number: z.number(),
+						name: z.string().nullable(),
+						startsOn: z.string().describe("Its first day, YYYY-MM-DD."),
+						endsOn: z.string().describe("Its last day, YYYY-MM-DD."),
+						current: z.boolean(),
+					}),
+				),
 				labels: z.array(z.looseObject({ name: z.string(), color: z.string() })),
 				projects: z.array(z.looseObject({ id: z.string(), name: z.string(), status: z.string() })),
 				members: z.array(
@@ -230,11 +256,28 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		},
 		({ workspace }) =>
 			run(async () => {
-				const { teams, labels, projects, members } = await (
+				const { teams, cycles, labels, projects, members } = await (
 					await open(access, workspace)
 				).directory();
+				const now = Date.now();
 				return {
-					teams: teams.map(({ key, name }) => ({ key, name })),
+					teams: teams.map(({ key, name, cycles }) => ({ key, name, cycles })),
+					cycles: teams.flatMap((team) => {
+						if (!team.cycles) return [];
+						const today = dayIn(team.cycles.timeZone, now);
+						return cycles
+							.filter((cycle) => cycle.teamId === team.id)
+							.map((cycle) => ({ cycle, state: cycleState(cycle, today) }))
+							.filter(({ state }) => state !== "completed")
+							.map(({ cycle, state }) => ({
+								team: team.key,
+								number: cycle.number,
+								name: cycle.name,
+								startsOn: cycle.startsOn,
+								endsOn: cycle.endsOn,
+								current: state === "current",
+							}));
+					}),
 					labels: labels.map(({ name, color }) => ({ name, color })),
 					projects: projects.map(({ id, name, status }) => ({ id, name, status })),
 					members: members
@@ -257,6 +300,11 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				assignee: assigneeInput.optional(),
 				label: z.string().min(1).optional().describe("A label name."),
 				project: projectInput.optional().describe("Only issues in this project: its name or id."),
+				cycle: cycleInput
+					.optional()
+					.describe(
+						'Only issues in a cycle: "current" or "next" for each team\'s, or a number, with team.',
+					),
 				parent: keyInput.optional().describe("Only the sub-issues of this issue: its key."),
 				text: z
 					.string()
@@ -274,8 +322,13 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			run(async () => {
 				const workspace = await open(access, input.workspace);
 				const directory = await workspace.directory();
+				const team = input.team === undefined ? undefined : teamId(directory, input.team);
+				const cycleIds =
+					input.cycle === undefined ? undefined : cyclesToSearch(directory, team, input.cycle);
+				if (cycleIds?.length === 0) return { issues: [] };
 				const issues = await workspace.issues({
-					teamId: input.team === undefined ? undefined : teamId(directory, input.team),
+					teamId: team,
+					cycleIds,
 					statuses: input.status,
 					assigneeId:
 						input.assignee === undefined
@@ -336,7 +389,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"create_issue",
 		{
 			title: "Create issue",
-			description: `Creates an issue in a team, and in a project or under a parent issue if you name one. It goes to the end of the manual order. ${PROPOSALS_NOTE}`,
+			description: `Creates an issue in a team, and in a project, a cycle or under a parent issue if you name one. It goes to the end of the manual order. ${PROPOSALS_NOTE}`,
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				team: z.string().describe("The team's key, such as ENG."),
@@ -346,6 +399,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				priority: priorityInput.default("none"),
 				assignee: assigneeInput.optional(),
 				project: projectInput.optional(),
+				cycle: cycleInput.optional().describe(CYCLE_HELP),
 				labels: labelsInput.optional(),
 				parent: keyInput.optional().describe(PARENT_HELP),
 				start_date: calendarDate.optional().describe(START_DATE_HELP),
@@ -360,11 +414,12 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				const workspace = await open(access, input.workspace);
 				const directory = await workspace.directory();
 				const id = uuidv7();
+				const team = teamId(directory, input.team);
 				const proposed = await apply(workspace, {
 					name: "issue.create",
 					args: {
 						id,
-						teamId: teamId(directory, input.team),
+						teamId: team,
 						title: input.title,
 						description: input.description?.trim() ? input.description : null,
 						status: input.status,
@@ -374,6 +429,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 								? null
 								: resolveAssignee(directory, workspace.me, input.assignee),
 						projectId: input.project === undefined ? null : projectId(directory, input.project),
+						cycleId: input.cycle === undefined ? null : cycleId(directory, team, input.cycle),
 						labelIds: (input.labels ?? []).map((name) => labelId(directory, name)),
 						parentId:
 							input.parent === undefined ? null : (await findIssue(workspace, input.parent)).id,
@@ -395,7 +451,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"update_issue",
 		{
 			title: "Update issue",
-			description: `Changes an issue's title, description, status, priority, assignee, project, labels, parent, dates or estimate. Fields you leave out stay as they are. ${PROPOSALS_NOTE}`,
+			description: `Changes an issue's title, description, status, priority, assignee, project, cycle, labels, parent, dates or estimate. Fields you leave out stay as they are. ${PROPOSALS_NOTE}`,
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				key: keyInput,
@@ -413,6 +469,10 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					.nullable()
 					.optional()
 					.describe("Moves the issue to this project. Null takes it out of its project."),
+				cycle: cycleInput
+					.nullable()
+					.optional()
+					.describe(`${CYCLE_HELP} Null takes it out of its cycle.`),
 				add_labels: labelsInput.optional(),
 				remove_labels: labelsInput.optional(),
 				parent: keyInput
@@ -457,6 +517,9 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					}),
 					...(input.project !== undefined && {
 						projectId: input.project === null ? null : projectId(directory, input.project),
+					}),
+					...(input.cycle !== undefined && {
+						cycleId: input.cycle === null ? null : cycleId(directory, issue.teamId, input.cycle),
 					}),
 					...(input.parent !== undefined && {
 						parentId: input.parent === null ? null : (await findIssue(workspace, input.parent)).id,
@@ -857,6 +920,48 @@ function projectId(directory: Directory, nameOrId: string): string {
 	return project.id;
 }
 
+/**
+ * A team's cycle: its current or next one, which need the team to work in cycles, or one by
+ * number. Whether it still takes issues, the server decides.
+ */
+function cycleId(directory: Directory, teamId: string, choice: CycleChoice): string {
+	const team = directory.teams.find((team) => team.id === teamId);
+	const cycles = directory.cycles.filter((cycle) => cycle.teamId === teamId);
+	let cycle: (typeof cycles)[number] | undefined;
+	if (typeof choice === "number") {
+		cycle = cycles.find((cycle) => cycle.number === choice);
+	} else {
+		if (!team?.cycles) throw new ToolError(`Team ${team?.key} does not work in cycles.`);
+		const today = dayIn(team.cycles.timeZone, Date.now());
+		const wanted = choice === "current" ? "current" : "upcoming";
+		cycle = cycles.find((cycle) => cycleState(cycle, today) === wanted);
+	}
+	if (!cycle) {
+		const which = typeof choice === "number" ? `cycle ${choice}` : `${choice} cycle`;
+		throw new ToolError(`Team ${team?.key} has no ${which}. See get_workspace.`);
+	}
+	return cycle.id;
+}
+
+/** The cycles a search means: one team's, or each team's current or next one. */
+function cyclesToSearch(
+	directory: Directory,
+	teamId: string | undefined,
+	choice: CycleChoice,
+): string[] {
+	if (teamId !== undefined) return [cycleId(directory, teamId, choice)];
+	if (typeof choice === "number") throw new ToolError("Name the team of a cycle by its number.");
+	return directory.teams.flatMap((team) => {
+		if (!team.cycles) return [];
+		const today = dayIn(team.cycles.timeZone, Date.now());
+		const wanted = choice === "current" ? "current" : "upcoming";
+		const cycle = directory.cycles.find(
+			(cycle) => cycle.teamId === team.id && cycleState(cycle, today) === wanted,
+		);
+		return cycle ? [cycle.id] : [];
+	});
+}
+
 function labelId(directory: Directory, name: string): string {
 	const label = findLabelByName(directory.labels, name);
 	if (!label) {
@@ -904,6 +1009,7 @@ function summarize(
 			.map((id) => directory.labels.find((label) => label.id === id)?.name)
 			.filter((name) => name !== undefined),
 		project: directory.projects.find((project) => project.id === issue.projectId)?.name ?? null,
+		cycle: directory.cycles.find((cycle) => cycle.id === issue.cycleId)?.number ?? null,
 		startDate: issue.startDate,
 		dueDate: issue.dueDate,
 		estimate: issue.estimate,

@@ -1,15 +1,19 @@
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
-import type {
-	MutationInput,
-	WebhookDelivery,
-	WebhookInput,
-	WebhookPayload,
+import {
+	addDays,
+	dayIn,
+	type MutationInput,
+	startOfDay,
+	type WebhookDelivery,
+	type WebhookInput,
+	type WebhookPayload,
 } from "@gateweave/track-protocol";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { Webhook as Verifier } from "standardwebhooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MemberProfile, WebhookResult, WorkspaceLink } from "../src";
+import { advanceCycles } from "../src/cycles";
 import * as schema from "../src/db/schema";
 import { RETRY_DELAYS_MS } from "../src/webhooks";
 import { freshWorkspace, type Workspace } from "./client";
@@ -430,6 +434,52 @@ describe("delivery", () => {
 			issue: { projectId: null },
 			updatedFrom: { projectId: "project-1" },
 		});
+	});
+
+	it("tells of issues a completed cycle moved on, with Track as the actor", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		const timeZone = "Europe/Istanbul";
+		await mutate(workspace, owner, {
+			name: "team.update",
+			args: {
+				id: "team-eng",
+				patch: { cycles: { weeks: 1, timeZone, startsOn: dayIn(timeZone, Date.now()) } },
+			},
+		});
+		const [current, next] = (await workspace.snapshot(owner)).cycles;
+		if (!current || !next) throw new Error("Cycles were not made");
+		await mutate(workspace, owner, {
+			name: "issue.create",
+			args: {
+				id: "issue-1",
+				teamId: "team-eng",
+				title: "Unfinished",
+				cycleId: current.id,
+				sortOrder: "a0",
+			},
+		});
+		await createHook(workspace, { events: ["issue.updated"] });
+
+		await runInDurableObject(workspace, (_, state) => {
+			const db = drizzle(state.storage, { schema });
+			const midnight = startOfDay(timeZone, addDays(current.endsOn, 1));
+			state.storage.transactionSync(() => advanceCycles(db, midnight));
+		});
+		// Queued at that midnight, they would wait for it.
+		await skipBackoff(workspace);
+		await deliver(workspace);
+
+		expect(payloads(received)).toEqual([
+			expect.objectContaining({
+				type: "issue.updated",
+				data: expect.objectContaining({
+					actor: { id: "system", name: "Track", type: "system" },
+					issue: expect.objectContaining({ id: "issue-1", cycleId: next.id }),
+					updatedFrom: { cycleId: current.id },
+				}),
+			}),
+		]);
 	});
 
 	it("sends comments with their issue", async () => {

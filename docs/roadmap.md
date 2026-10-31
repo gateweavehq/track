@@ -58,7 +58,11 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   v0.4.0; v0.5.0 added a workspace-wide list of open proposals, and webhook events for them.
 - **Projects.** Groups of issues across teams toward a goal, with a lead, a status, a target date
   and progress. They have a page, a list, a picker on every issue and a place in the command
-  palette, and agents set them over MCP. Shipped in v0.5.0. Cycles are still to come.
+  palette, and agents set them over MCP. Shipped in v0.5.0.
+- **Cycles.** A team can work in fixed runs of one to four weeks. The workspace dates them,
+  completes them at midnight in the team's time zone and moves unfinished issues on; each has
+  its progress and a burn-up, filters know the current and next cycle, and agents plan into them
+  over MCP. Shipped in v0.8.0.
 
 ## Next: launch
 
@@ -77,7 +81,6 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   - Start dates, due dates and estimates.
   - Saved views, and table, calendar and timeline layouts.
 - Notifications and an inbox.
-- Cycles: time-boxed sprints for the issues of a team, next to projects.
 - GitHub integration: link pull requests and close issues from commits.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations
   people use (see [ecosystem.md](ecosystem.md#agents-are-members)). It runs in Gateweave Agents,

@@ -1,6 +1,7 @@
 import type {
 	Activity,
 	Comment,
+	Cycle,
 	Issue,
 	Label,
 	Member,
@@ -16,8 +17,22 @@ import {
 	workspaceToJson,
 } from "./export";
 
-const eng: Team = { id: "t1", key: "ENG", name: "Engineering", createdAt: 1, updatedAt: 1 };
-const ops: Team = { id: "t2", key: "OPS", name: "Operations", createdAt: 1, updatedAt: 1 };
+const eng: Team = {
+	id: "t1",
+	key: "ENG",
+	name: "Engineering",
+	cycles: null,
+	createdAt: 1,
+	updatedAt: 1,
+};
+const ops: Team = {
+	id: "t2",
+	key: "OPS",
+	name: "Operations",
+	cycles: null,
+	createdAt: 1,
+	updatedAt: 1,
+};
 
 const ada: Member = {
 	id: "u1",
@@ -55,6 +70,7 @@ function issue(overrides: Partial<Issue> & Pick<Issue, "id" | "teamId" | "number
 		assigneeId: null,
 		creatorId: "u1",
 		projectId: null,
+		cycleId: null,
 		parentId: null,
 		startDate: null,
 		dueDate: null,
@@ -84,6 +100,20 @@ function activity(id: string, issueId: string): Activity {
 	};
 }
 
+function cycle(id: string, teamId: string): Cycle {
+	return {
+		id,
+		teamId,
+		number: 1,
+		name: null,
+		startsOn: "2026-11-02",
+		endsOn: "2026-11-15",
+		completedAt: null,
+		createdAt: 1,
+		updatedAt: 1,
+	};
+}
+
 function source(issues: Issue[], extra: Partial<ExportSource> = {}): ExportSource {
 	return {
 		workspace: { slug: "acme", name: "Acme" },
@@ -95,6 +125,7 @@ function source(issues: Issue[], extra: Partial<ExportSource> = {}): ExportSourc
 		comments: [],
 		activities: [],
 		relations: [],
+		cycles: [],
 		...extra,
 	};
 }
@@ -133,6 +164,7 @@ describe("issuesToCsv", () => {
 					assigneeId: "u2",
 					creatorId: "u1",
 					projectId: "p1",
+					cycleId: null,
 					parentId: "i0",
 					labelIds: ["l1", "l2"],
 					startDate: "2026-11-01",
@@ -243,6 +275,7 @@ describe("workspaceToJson", () => {
 	const full = source(issues, {
 		comments: [comment("c1", "a"), comment("c2", "b")],
 		activities: [activity("x1", "a"), activity("x2", "b")],
+		cycles: [cycle("cy2", "t2"), cycle("cy1", "t1")],
 		relations: [
 			{
 				id: "r1",
@@ -272,6 +305,8 @@ describe("workspaceToJson", () => {
 		]);
 		expect(doc.labels).toHaveLength(2);
 		expect(doc.projects).toHaveLength(1);
+		// By team, like the issues.
+		expect(doc.cycles.map((item: Cycle) => item.id)).toEqual(["cy1", "cy2"]);
 		expect(doc.issues.map((item: { key: string }) => item.key)).toEqual(["ENG-1", "OPS-1"]);
 		expect(doc.issues[0]).toMatchObject({ id: "b", labelIds: ["l1"], status: "backlog" });
 		expect(doc.comments).toHaveLength(2);
@@ -282,6 +317,7 @@ describe("workspaceToJson", () => {
 
 	it("keeps every team, member, label and project but only one team's issues and their rows", () => {
 		const doc = JSON.parse(workspaceToJson(full, "t1"));
+		expect(doc.cycles.map((item: Cycle) => item.id)).toEqual(["cy1"]);
 		expect(doc.teams).toHaveLength(2);
 		expect(doc.members).toHaveLength(2);
 		expect(doc.labels).toHaveLength(2);

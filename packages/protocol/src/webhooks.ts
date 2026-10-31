@@ -86,11 +86,14 @@ export type WebhookPatch = z.input<typeof webhookPatch>;
 
 // Payloads. Every body is `{ type, timestamp, data }`, as Standard Webhooks recommends.
 
-/** Who made a change. Agents are members that act for an AI agent, over MCP with a key. */
+/**
+ * Who made a change. Agents are members that act for an AI agent, over MCP with a key. `system`
+ * is Track itself, with the id `system`, as when it moves unfinished issues to the next cycle.
+ */
 export interface WebhookActor {
 	id: string;
 	name: string;
-	type: "person" | "agent";
+	type: "person" | "agent" | "system";
 }
 
 export interface WebhookIssue extends Issue {

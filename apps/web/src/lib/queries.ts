@@ -1,6 +1,7 @@
 import type {
 	Activity,
 	Comment,
+	Cycle,
 	Issue,
 	IssueRelation,
 	Label,
@@ -66,6 +67,34 @@ const selectProjectList = (state: SyncState) => [...state.projects.values()].sor
 /** Live projects, open work first, for pickers. */
 export function useProjectList(): Project[] {
 	return useQuery(selectProjectList, shallowEqual);
+}
+
+const selectCyclesById = (state: SyncState) => state.cycles;
+
+export function useCyclesById(): ReadonlyMap<string, Cycle> {
+	return useQuery(selectCyclesById);
+}
+
+export function useCycle(id: string): Cycle | undefined {
+	return useQuery(useCallback((state: SyncState) => state.cycles.get(id), [id]));
+}
+
+/** A team's cycles, oldest first. */
+export function useTeamCycles(teamId: string | undefined): Cycle[] {
+	return useQuery(
+		useCallback(
+			(state: SyncState) =>
+				[...state.cycles.values()]
+					.filter((cycle) => cycle.teamId === teamId)
+					.sort((a, b) => a.number - b.number),
+			[teamId],
+		),
+		shallowEqual,
+	);
+}
+
+export function useCycleIssues(cycleId: string): Issue[] {
+	return useIssues(useCallback((issue: Issue) => issue.cycleId === cycleId, [cycleId]));
 }
 
 const selectProjectsById = (state: SyncState) => state.projects;
@@ -248,6 +277,13 @@ export function useIssueActivity(issueId: string): Activity[] {
 		),
 		shallowEqual,
 	);
+}
+
+const selectActivitiesById = (state: SyncState) => state.activities;
+
+/** All issue history, for what is worked out from it across issues, such as a burn-up. */
+export function useActivitiesById(): ReadonlyMap<string, Activity> {
+	return useQuery(selectActivitiesById);
 }
 
 const selectTeamsById = (state: SyncState) => state.teams;

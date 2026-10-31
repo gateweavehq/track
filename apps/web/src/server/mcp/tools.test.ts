@@ -1,5 +1,6 @@
 import type {
 	Comment,
+	Cycle,
 	Issue,
 	IssueRelation,
 	Label,
@@ -10,7 +11,7 @@ import type {
 	Proposal,
 	Team,
 } from "@gateweave/track-protocol";
-import { mutationSchema } from "@gateweave/track-protocol";
+import { addDays, dayIn, mutationSchema } from "@gateweave/track-protocol";
 import type { IssueQuery, MemberProfile, MutateResult } from "@gateweave/track-sync-server";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createMcpHandler } from "@modelcontextprotocol/server";
@@ -33,7 +34,14 @@ const sam: Member = {
 	proposes: [],
 	removedAt: null,
 };
-const team: Team = { id: "team-eng", key: "ENG", name: "Engineering", createdAt: 0, updatedAt: 0 };
+const team: Team = {
+	id: "team-eng",
+	key: "ENG",
+	name: "Engineering",
+	cycles: null,
+	createdAt: 0,
+	updatedAt: 0,
+};
 
 /**
  * A one-workspace stand-in for the gateway and Durable Object. It applies mutations naively; the
@@ -54,6 +62,8 @@ class FakeWorkspace implements WorkspaceAccess {
 	projects: Project[] = [];
 	proposals_: Proposal[] = [];
 	relations_: IssueRelation[] = [];
+	cycles: Cycle[] = [];
+	queries: IssueQuery[] = [];
 	#version = 10;
 
 	async directory() {
@@ -61,16 +71,19 @@ class FakeWorkspace implements WorkspaceAccess {
 			teams: this.teams,
 			labels: this.labels,
 			projects: this.projects,
+			cycles: this.cycles,
 			members: [{ ...me, proposes: [], removedAt: null }, sam],
 		};
 	}
 	async issues(query: IssueQuery) {
+		this.queries.push(query);
 		return this.issues_
 			.filter((issue) => query.assigneeId === undefined || issue.assigneeId === query.assigneeId)
 			.filter((issue) => !query.statuses || query.statuses.includes(issue.status))
 			.filter((issue) => query.labelId === undefined || issue.labelIds.includes(query.labelId))
 			.filter((issue) => query.projectId === undefined || issue.projectId === query.projectId)
 			.filter((issue) => query.parentId === undefined || issue.parentId === query.parentId)
+			.filter((issue) => !query.cycleIds || query.cycleIds.includes(issue.cycleId ?? ""))
 			.slice(0, query.limit);
 	}
 	async issue(id: string) {
@@ -195,7 +208,7 @@ class FakeWorkspace implements WorkspaceAccess {
 		} else if (mutation.name === "label.create") {
 			this.labels.push({ ...mutation.args, createdAt: 0, updatedAt: 0 });
 		} else if (mutation.name === "team.create") {
-			this.teams.push({ ...mutation.args, createdAt: 0, updatedAt: 0 });
+			this.teams.push({ ...mutation.args, cycles: null, createdAt: 0, updatedAt: 0 });
 		} else if (mutation.name === "project.create") {
 			this.projects.push({ ...mutation.args, createdAt: 0, updatedAt: 0 });
 		} else if (mutation.name === "project.update") {
@@ -285,12 +298,76 @@ describe("Track MCP tools", () => {
 		expect(closed).toEqual([]);
 	});
 
+	it("plans issues into a team's cycles: the current one, the next or one by number", async () => {
+		const today = dayIn("UTC", Date.now());
+		const cycle = (
+			id: string,
+			number: number,
+			startsOn: string,
+			completedAt: number | null = null,
+		) => ({
+			id,
+			teamId: team.id,
+			number,
+			name: null,
+			startsOn,
+			endsOn: addDays(startsOn, 13),
+			completedAt,
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		workspace.teams = [{ ...team, cycles: { weeks: 2, timeZone: "UTC" } }];
+		workspace.cycles = [
+			cycle("c-1", 1, addDays(today, -15), 1),
+			cycle("c-2", 2, addDays(today, -1)),
+			cycle("c-3", 3, addDays(today, 13)),
+		];
+
+		const listed = (await call("get_workspace", { workspace: "acme" })).structuredContent;
+		expect(listed).toMatchObject({
+			teams: [{ key: "ENG", cycles: { weeks: 2, timeZone: "UTC" } }],
+			cycles: [
+				{ team: "ENG", number: 2, name: null, startsOn: addDays(today, -1), current: true },
+				{ team: "ENG", number: 3, name: null, startsOn: addDays(today, 13), current: false },
+			],
+		});
+
+		const issue = await created({ title: "In this cycle", cycle: "current" });
+		expect(workspace.mutations.at(-1)).toMatchObject({ args: { cycleId: "c-2" } });
+		expect(issue.cycle).toBe(2);
+
+		const update = (cycle: unknown) =>
+			call("update_issue", { workspace: "acme", key: "ENG-1", cycle });
+		expect((await update("next")).structuredContent).toMatchObject({ cycle: 3 });
+		expect((await update(null)).structuredContent).toMatchObject({ cycle: null });
+		expect(await update(7)).toMatchObject({
+			isError: true,
+			content: [{ type: "text", text: "Team ENG has no cycle 7. See get_workspace." }],
+		});
+
+		await update(2);
+		const found = await call("search_issues", { workspace: "acme", cycle: "current" });
+		expect(workspace.queries.at(-1)?.cycleIds).toEqual(["c-2"]);
+		expect(found.structuredContent).toMatchObject({ issues: [{ key: "ENG-1", cycle: 2 }] });
+		expect(await call("search_issues", { workspace: "acme", cycle: 2 })).toMatchObject({
+			isError: true,
+			content: [{ type: "text", text: "Name the team of a cycle by its number." }],
+		});
+
+		workspace.teams = [team];
+		expect(await update("current")).toMatchObject({
+			isError: true,
+			content: [{ type: "text", text: "Team ENG does not work in cycles." }],
+		});
+	});
+
 	it("lists workspaces, teams and members", async () => {
 		expect((await call("list_workspaces")).structuredContent).toEqual({
 			workspaces: [{ slug: "acme", name: "Acme", role: "owner" }],
 		});
 		expect((await call("get_workspace", { workspace: "acme" })).structuredContent).toEqual({
-			teams: [{ key: "ENG", name: "Engineering" }],
+			teams: [{ key: "ENG", name: "Engineering", cycles: null }],
+			cycles: [],
 			labels: [],
 			projects: [],
 			members: [

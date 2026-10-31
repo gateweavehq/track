@@ -11,6 +11,7 @@ import {
 } from "@gateweave/track-protocol";
 import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { recordActivity } from "./activity";
+import { scheduleCycles } from "./cycles";
 import * as schema from "./db/schema";
 import { ChangeSet, type WriteResult } from "./log";
 import {
@@ -27,6 +28,7 @@ import {
 	activeMember,
 	type Db,
 	toComment,
+	toCycle,
 	toIssue,
 	toLabel,
 	toMember,
@@ -106,6 +108,9 @@ export function applyMutation(
 		case "project.delete":
 			deleteProject(db, changes, actor, mutation.args);
 			break;
+		case "cycle.update":
+			updateCycle(db, changes, mutation.args);
+			break;
 		case "comment.create":
 			createComment(db, changes, actor, mutation.args);
 			break;
@@ -146,7 +151,9 @@ export function applyMutation(
 		.values({ id: mutationId, clientId: actor.clientId, version: result.version, at: now })
 		.run();
 	const queued = queueDeliveries(db, actor.member, changes.events, result.version, now);
-	return { ...result, queued, proposed: changes.proposed };
+	// The alarm plans the next cycle boundary, which a change to a team's cycles moves.
+	const wake = mutation.name === "team.update" && mutation.args.patch.cycles !== undefined;
+	return { ...result, queued, wake, proposed: changes.proposed };
 }
 
 function createTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"team.create">) {
@@ -156,6 +163,7 @@ function createTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 
 	const row: schema.TeamRow = {
 		...args,
+		cycles: null,
 		issueCounter: 0,
 		createdAt: changes.now,
 		updatedAt: changes.now,
@@ -170,13 +178,16 @@ function updateTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 	if (!team) throw new MutationRejected("not_found", "Team not found");
 	if (args.patch.key && args.patch.key !== team.key) assertTeamKeyFree(db, args.patch.key, team.id);
 
+	const { cycles: schedule, ...patch } = args.patch;
+	const settings = schedule && { weeks: schedule.weeks, timeZone: schedule.timeZone };
 	const row = db
 		.update(schema.teams)
-		.set({ ...args.patch, updatedAt: changes.now })
+		.set({ ...patch, ...(schedule !== undefined && { cycles: settings }), updatedAt: changes.now })
 		.where(eq(schema.teams.id, team.id))
 		.returning()
 		.get();
 	if (row) changes.put("team", toTeam(row));
+	if (schedule !== undefined) scheduleCycles(db, changes, team, schedule, actor.member.userId);
 	// The team's issue keys changed with it.
 	if (row && row.key !== team.key) indexTeamIssues(db, team.id);
 }
@@ -190,6 +201,7 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 	const createdAt = importedTime(actor, changes, args.createdAt);
 	assertAssignable(db, args.assigneeId);
 	assertProjectLive(db, args.projectId);
+	assertCycle(db, team.id, args.cycleId);
 	assertParent(db, args.id, args.parentId);
 	const requested = [...new Set(args.labelIds)];
 	for (const labelId of requested) {
@@ -262,6 +274,10 @@ function updateIssue(
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
 	if (args.patch.assigneeId !== undefined) assertAssignable(db, args.patch.assigneeId);
 	if (args.patch.projectId !== undefined) assertProjectLive(db, args.patch.projectId);
+	// An issue may keep a completed cycle it is already in.
+	if (args.patch.cycleId !== undefined && args.patch.cycleId !== issue.cycleId) {
+		assertCycle(db, issue.teamId, args.patch.cycleId);
+	}
 	if (args.patch.parentId !== undefined) assertParent(db, issue.id, args.patch.parentId);
 
 	const patch: IssuePatch = {};
@@ -320,8 +336,8 @@ type IssuePatch = MutationArgs<"issue.update">["patch"];
 
 /**
  * A patch field as a proposal. Manual ordering is never proposed, and neither are the parent,
- * dates and estimates: they are planning, which people correct by editing, not a decision about
- * the work.
+ * cycle, dates and estimates: they are planning, which people correct by editing, not a decision
+ * about the work.
  */
 function proposedChange(field: keyof IssuePatch, value: never): ProposedChange | null {
 	switch (field) {
@@ -337,6 +353,7 @@ function proposedChange(field: keyof IssuePatch, value: never): ProposedChange |
 			return { type: "assignee", to: value };
 		case "projectId":
 			return { type: "project", to: value };
+		case "cycleId":
 		case "parentId":
 		case "startDate":
 		case "dueDate":
@@ -360,6 +377,9 @@ function issueChanges(before: schema.IssueRow, patch: Partial<schema.IssueRow>):
 	}
 	if (patch.projectId !== undefined) {
 		changes.push({ type: "project", from: before.projectId, to: patch.projectId });
+	}
+	if (patch.cycleId !== undefined) {
+		changes.push({ type: "cycle", from: before.cycleId, to: patch.cycleId });
 	}
 	if (patch.parentId !== undefined) {
 		changes.push({ type: "parent", from: before.parentId, to: patch.parentId });
@@ -649,6 +669,19 @@ function deleteProject(
 		.where(eq(schema.projects.id, project.id))
 		.run();
 	changes.delete("project", project.id);
+}
+
+/** Any member names a cycle. The server makes, dates and completes them. */
+function updateCycle(db: Db, changes: ChangeSet, args: MutationArgs<"cycle.update">) {
+	const cycle = db.select().from(schema.cycles).where(eq(schema.cycles.id, args.id)).get();
+	if (!cycle) throw new MutationRejected("not_found", "Cycle not found");
+	const row = db
+		.update(schema.cycles)
+		.set({ ...args.patch, updatedAt: changes.now })
+		.where(eq(schema.cycles.id, cycle.id))
+		.returning()
+		.get();
+	if (row) changes.put("cycle", toCycle(row));
 }
 
 function createComment(
@@ -1051,6 +1084,17 @@ function assertProjectLive(db: Db, projectId: string | null) {
 	if (projectId !== null && !findLiveProject(db, projectId)) {
 		throw new MutationRejected("not_found", "Project not found");
 	}
+}
+
+/** An issue joins a cycle of its own team, and only one that has not completed. */
+function assertCycle(db: Db, teamId: string, cycleId: string | null) {
+	if (cycleId === null) return;
+	const cycle = db.select().from(schema.cycles).where(eq(schema.cycles.id, cycleId)).get();
+	if (!cycle) throw new MutationRejected("not_found", "Cycle not found");
+	if (cycle.teamId !== teamId) {
+		throw new MutationRejected("invalid", "The cycle belongs to another team");
+	}
+	if (cycle.completedAt !== null) throw new MutationRejected("invalid", "The cycle has completed");
 }
 
 /** A project is led by a person: an agent proposes and works, it does not lead. */

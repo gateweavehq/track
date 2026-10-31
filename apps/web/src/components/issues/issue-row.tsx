@@ -22,6 +22,7 @@ export type IssueField =
 	| "priority"
 	| "assignee"
 	| "project"
+	| "cycle"
 	| "parent"
 	| "labels"
 	| "estimate";

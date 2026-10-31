@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isTimeZone, MAX_CYCLE_WEEKS } from "./cycles";
 import {
 	AGENT_CHANGE_KINDS,
 	ISSUE_LAYOUTS,
@@ -47,6 +48,16 @@ const importedCreatedAt = z
 	.optional();
 
 const viewName = z.string().trim().min(1).max(80);
+const cycleName = z.string().trim().min(1).max(64);
+/**
+ * A team's cycles, as an admin sets them. The cycles that have not started are dated anew: the
+ * first starts on `startsOn` and each of the rest the day after the one before ends.
+ */
+const cycleSettings = z.object({
+	weeks: z.number().int().min(1).max(MAX_CYCLE_WEEKS),
+	timeZone: z.string().min(1).max(64).refine(isTimeZone, "Not a time zone"),
+	startsOn: calendarDate,
+});
 const nonEmpty = (patch: object) => Object.keys(patch).length > 0;
 
 export const mutationSchema = z.discriminatedUnion("name", [
@@ -58,7 +69,10 @@ export const mutationSchema = z.discriminatedUnion("name", [
 		name: z.literal("team.update"),
 		args: z.object({
 			id,
-			patch: z.object({ key: teamKey, name: teamName }).partial().refine(nonEmpty, "Empty patch"),
+			patch: z
+				.object({ key: teamKey, name: teamName, cycles: cycleSettings.nullable() })
+				.partial()
+				.refine(nonEmpty, "Empty patch"),
 		}),
 	}),
 	z.object({
@@ -72,6 +86,7 @@ export const mutationSchema = z.discriminatedUnion("name", [
 			priority: priority.default(0),
 			assigneeId: id.nullable().default(null),
 			projectId: id.nullable().default(null),
+			cycleId: id.nullable().default(null),
 			parentId: id.nullable().default(null),
 			startDate: calendarDate.nullable().default(null),
 			dueDate: calendarDate.nullable().default(null),
@@ -95,6 +110,7 @@ export const mutationSchema = z.discriminatedUnion("name", [
 					priority,
 					assigneeId: id.nullable(),
 					projectId: id.nullable(),
+					cycleId: id.nullable(),
 					parentId: id.nullable(),
 					startDate: calendarDate.nullable(),
 					dueDate: calendarDate.nullable(),
@@ -167,6 +183,14 @@ export const mutationSchema = z.discriminatedUnion("name", [
 	z.object({
 		name: z.literal("project.delete"),
 		args: z.object({ id }),
+	}),
+	// The server makes cycles; people only name them. A null name puts the number back.
+	z.object({
+		name: z.literal("cycle.update"),
+		args: z.object({
+			id,
+			patch: z.object({ name: cycleName.nullable() }).partial().refine(nonEmpty, "Empty patch"),
+		}),
 	}),
 	z.object({
 		name: z.literal("comment.create"),

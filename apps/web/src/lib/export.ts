@@ -1,6 +1,7 @@
 import type {
 	Activity,
 	Comment,
+	Cycle,
 	Issue,
 	IssueRelation,
 	Label,
@@ -45,6 +46,7 @@ export interface ExportSource {
 	members: Iterable<Member>;
 	labels: Iterable<Label>;
 	projects: Iterable<Project>;
+	cycles: Iterable<Cycle>;
 	issues: Iterable<Issue>;
 	comments: Iterable<Comment>;
 	activities: Iterable<Activity>;
@@ -62,6 +64,7 @@ export function exportSourceFrom(
 		members: state.members.values(),
 		labels: state.labels.values(),
 		projects: state.projects.values(),
+		cycles: state.cycles.values(),
 		issues: state.issues.values(),
 		comments: state.comments.values(),
 		activities: state.activities.values(),
@@ -75,6 +78,8 @@ interface Slice {
 	members: Member[];
 	labels: Label[];
 	projects: Project[];
+	/** The cycles of the slice's teams, so every issue's cycle is in the file. */
+	cycles: Cycle[];
 	issues: Issue[];
 	comments: Comment[];
 	activities: Activity[];
@@ -109,6 +114,13 @@ function sliceOf(source: ExportSource, teamId: string | null): Slice {
 		members,
 		labels,
 		projects,
+		cycles: [...source.cycles]
+			.filter((cycle) => teamId === null || cycle.teamId === teamId)
+			.sort(
+				(a, b) =>
+					(rank.get(a.teamId) ?? Number.MAX_SAFE_INTEGER) -
+						(rank.get(b.teamId) ?? Number.MAX_SAFE_INTEGER) || a.number - b.number,
+			),
 		issues,
 		comments: [...source.comments]
 			.filter((comment) => issueIds.has(comment.issueId))
@@ -191,7 +203,8 @@ function emailOf(slice: Slice, id: string | null): string {
 
 /**
  * The whole export as one document, in the protocol's entity shapes. Teams, members, labels and
- * projects stay whole when `teamId` limits the issues, so every reference resolves.
+ * projects stay whole when `teamId` limits the issues, so every reference resolves; cycles are
+ * the team's.
  */
 export function workspaceToJson(
 	source: ExportSource,
@@ -209,6 +222,7 @@ export function workspaceToJson(
 			members: slice.members.map(({ id, name, email, role }) => ({ id, name, email, role })),
 			labels: slice.labels,
 			projects: slice.projects,
+			cycles: slice.cycles,
 			issues: slice.issues.map((issue) => ({
 				...issue,
 				key: issueKey(slice.teamsById.get(issue.teamId), issue),

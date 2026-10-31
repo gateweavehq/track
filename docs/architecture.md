@@ -376,6 +376,48 @@ The Projects page (`/$workspace/projects`) lists them with their lead, target da
 and a project's page (`/$workspace/project/$projectId`) edits its fields above the project's
 issues, shown with the same list and board as a team's.
 
+### Cycles
+
+A team can work in cycles: fixed runs of one to four weeks, back to back, in a time zone an admin
+picks (`Team.cycles`, `{ weeks, timeZone }`, or null). A `Cycle` belongs to one team and has a
+number (counted per team), an optional name, `startsOn` and `endsOn` (its first and last day,
+both included, as `YYYY-MM-DD` in the team's time zone) and `completedAt`. An issue is planned
+into at most one cycle of its own team through `cycleId`. The date helpers every side uses live in
+`packages/protocol/src/cycles.ts`; the schedule itself in `packages/sync-server/src/cycles.ts`.
+
+- The Durable Object owns the calendar; clients never create cycles. An admin turns cycles on
+  with `team.update` and `cycles: { weeks, timeZone, startsOn }` (`startsOn` is not stored). The
+  same mutation makes the first cycle and enough after it to keep `UPCOMING_CYCLES` (two) that
+  have not started.
+- Changing the settings never touches a cycle that has started. Cycles still to come are dated
+  anew from `startsOn`, keeping their ids, numbers and issues. While a cycle runs, `startsOn`
+  must come after its last day; with none running it may be in the past, but not so far that the
+  cycle would be over. At most a year ahead.
+- Turning cycles off (`cycles: null`) completes the running cycle today, takes its unfinished
+  issues out, and deletes the cycles still to come, taking their issues out too. Completed
+  cycles stay. These moves are the admin's, in history and in webhooks.
+- The alarm moves cycles on. At each midnight in a team's time zone on which one of its cycles
+  ends or starts, it completes every cycle whose last day is over, moves its unfinished issues
+  (not done or canceled) to the next cycle, and makes cycles to keep two ahead. A workspace that
+  slept through whole cycles skips them, keeping the rhythm, rather than making cycles that would
+  complete at once. Track itself is the actor of these moves: `SYSTEM_ACTOR_ID` in history, an
+  actor of `type: "system"` in webhooks. A team update that changes cycles sets the alarm at once.
+- `issue.create` and `issue.update` accept only a cycle of the issue's team that has not
+  completed (`not_found` otherwise, `invalid` for another team's). An issue may keep the
+  completed cycle it is in. The cycle is never an agent's to propose, and changing it is
+  recorded in history like the project.
+- `cycle.update` names a cycle, or clears the name; any member may.
+- Progress and the burn-up are not stored. The UI counts the cycle's issues that are done, out
+  of all that are not canceled, and works the burn-up out day by day from issue history: when
+  each issue joined or left the cycle and how its status changed. A completed cycle is shown as
+  it stood just before it completed, since completing moves its unfinished issues out.
+
+A team's cycles are at `/$workspace/team/$teamKey/cycles` (current, upcoming, completed), and a
+cycle's page (`/$workspace/cycle/$cycleId`) shows its dates, progress and burn-up above its
+issues. Admins change the settings there or under Settings, Teams. Over MCP, `get_workspace`
+lists the open cycles, and `search_issues`, `create_issue` and `update_issue` take a cycle as
+`"current"`, `"next"` or its number.
+
 ### Sub-issues
 
 An issue can be part of another, its parent (`parentId`), in any team of the workspace, so large
@@ -569,16 +611,19 @@ A page of issues (a team, a project, My issues) filters and lays out the local r
 browser, so both are instant and work offline; the server is not asked.
 
 - Filters are `IssueFilters` (`packages/protocol/src/filters.ts`): status, priority, assignee,
-  project, labels, team and due date. Values of one property are alternatives and properties add
+  project, cycle, labels, team and due date. A cycle is an id or `"current"` or `"next"`, which
+  stand for each team's cycle in its own time zone, so a saved view of the current cycle moves
+  on with it. Values of one property are alternatives and properties add
   up, so "Todo or In Progress, and Urgent" is `statuses: ["todo", "in_progress"], priorities: [1]`.
   `null` among assignees or projects means none. A page offers only the filters that narrow it
   (a team's page has no team filter).
-- They live in the URL (`status`, `priority`, `assignee`, `project`, `labels`, `team`, `due`), so
+- They live in the URL (`status`, `priority`, `assignee`, `project`, `cycle`, `labels`, `team`,
+  `due`), so
   a filtered page can be shared and survives a reload. Each key is parsed with the protocol's
   schema, and a malformed one is dropped instead of failing the page. Ids that no longer resolve,
   such as a deleted label, are dropped too, so an old link still shows issues.
 - An issue created on a filtered page takes each filter that has a single value (a status,
-  priority, assignee, project or team) and the labels filtered by, so it appears on the page it
+  priority, assignee, project, cycle or team) and the labels filtered by, so it appears on the page it
   was made from. The page registers these defaults with the workspace's actions, so the page's
   button, the C shortcut and the command palette agree.
 - The layouts are a list, a board by status, a calendar by due date, a table and a timeline from
@@ -697,8 +742,9 @@ imports, so validation, permissions and fan-out are the ordinary ones.
 The alarm compacts the oplog every six hours. Ops are dropped only when they are both older than
 30 days **and** more than 10,000 versions behind the head. The highest dropped version becomes
 the floor, and clients behind it get `reset`. Recorded mutation ids are pruned on the same
-schedule, as are finished webhook deliveries. The same alarm sends webhooks, so it also runs
-whenever a delivery is due; when compaction is next due is kept in the `meta` table.
+schedule, as are finished webhook deliveries. The same alarm sends webhooks and moves cycles on,
+so it also runs whenever a delivery is due or a team's cycle starts or ends; when compaction is
+next due is kept in the `meta` table.
 
 ## Client sync engine
 

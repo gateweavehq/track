@@ -1,4 +1,10 @@
-import { ISSUE_STATUSES, type IssueFilterKey, type IssueFilters } from "@gateweave/track-protocol";
+import {
+	type Cycle,
+	ISSUE_STATUSES,
+	type IssueFilterKey,
+	type IssueFilters,
+	type Team,
+} from "@gateweave/track-protocol";
 import {
 	Boxes,
 	CalendarClock,
@@ -6,6 +12,7 @@ import {
 	ChevronRight,
 	CircleDashed,
 	CircleUserRound,
+	IterationCcw,
 	ListFilter,
 	type LucideIcon,
 	SignalHigh,
@@ -25,10 +32,12 @@ import {
 	CommandList,
 } from "#/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover";
+import { cycleName, stateOf } from "#/lib/cycles";
 import { compactFilters, type FiltersUpdate, isPicked, toggleFilter } from "#/lib/filters";
 import { DUE_FILTER_LABELS, DUE_FILTERS } from "#/lib/issues";
 import {
 	useActiveMembers,
+	useCyclesById,
 	useLabels,
 	useLabelsById,
 	useMembersById,
@@ -47,6 +56,7 @@ export const FILTER_KEYS = [
 	"priorities",
 	"assigneeIds",
 	"projectIds",
+	"cycles",
 	"labelIds",
 	"due",
 	"teamIds",
@@ -57,6 +67,7 @@ const FILTER_META: Record<IssueFilterKey, { label: string; icon: LucideIcon }> =
 	priorities: { label: "Priority", icon: SignalHigh },
 	assigneeIds: { label: "Assignee", icon: CircleUserRound },
 	projectIds: { label: "Project", icon: Boxes },
+	cycles: { label: "Cycle", icon: IterationCcw },
 	labelIds: { label: "Labels", icon: Tag },
 	due: { label: "Due date", icon: CalendarClock },
 	teamIds: { label: "Team", icon: Users },
@@ -76,6 +87,8 @@ function useFilterOptions(): Record<IssueFilterKey, FilterOption[]> {
 	const projects = useProjectList();
 	const labels = useLabels();
 	const teams = useTeams();
+	const teamsById = useTeamsById();
+	const cycles = useCyclesById();
 	const metaIcon = ({ icon: Icon, className }: { icon: LucideIcon; className: string }) => (
 		<Icon aria-hidden className={cn("size-4", className)} />
 	);
@@ -106,6 +119,20 @@ function useFilterOptions(): Record<IssueFilterKey, FilterOption[]> {
 			value: project?.id ?? null,
 			label: project?.name ?? "No project",
 			icon: <Boxes aria-hidden className="size-4 text-muted-foreground" />,
+		})),
+		cycles: [
+			{ id: "current", value: "current", label: "Current cycle" },
+			{ id: "next", value: "next", label: "Next cycle" },
+			{ id: "none", value: null, label: "No cycle" },
+			// Cycles still to come or running; the finished ones are on the team's cycles page.
+			...openCycles(cycles, teamsById).map((cycle) => ({
+				id: cycle.id,
+				value: cycle.id,
+				label: cycleLabel(cycle, teamsById),
+			})),
+		].map((option) => ({
+			...option,
+			icon: <IterationCcw aria-hidden className="size-4 text-muted-foreground" />,
 		})),
 		labelIds: labels.map((label) => ({
 			id: label.id,
@@ -249,6 +276,24 @@ export function FilterMenu({ filters, onChange, offered }: FilterProps) {
 	);
 }
 
+/** The cycles that have not completed, team by team, in order. */
+function openCycles(cycles: ReadonlyMap<string, Cycle>, teams: ReadonlyMap<string, Team>): Cycle[] {
+	const now = Date.now();
+	return [...cycles.values()]
+		.filter((cycle) => stateOf(cycle, teams, now) !== "completed")
+		.sort(
+			(a, b) =>
+				(teams.get(a.teamId)?.key ?? "").localeCompare(teams.get(b.teamId)?.key ?? "") ||
+				a.number - b.number,
+		);
+}
+
+/** A cycle with its team's key, since every team numbers its cycles from 1. */
+function cycleLabel(cycle: Cycle, teams: ReadonlyMap<string, Team>): string {
+	const team = teams.get(cycle.teamId);
+	return team ? `${team.key} ${cycleName(cycle)}` : cycleName(cycle);
+}
+
 function FilterIcon({ filter }: { filter: IssueFilterKey }) {
 	const Icon = FILTER_META[filter].icon;
 	return <Icon aria-hidden className="size-4 text-muted-foreground" />;
@@ -323,6 +368,7 @@ function useValueNames() {
 	const projects = useProjectsById();
 	const labels = useLabelsById();
 	const teams = useTeamsById();
+	const cycles = useCyclesById();
 	return (key: IssueFilterKey, filters: IssueFilters): string => {
 		const list = (names: (string | undefined)[]) =>
 			names.filter((name): name is string => name !== undefined).join(", ");
@@ -351,6 +397,16 @@ function useValueNames() {
 					(filters.projectIds ?? []).map((id) =>
 						id === null ? "No project" : projects.get(id)?.name,
 					),
+				);
+			case "cycles":
+				return list(
+					(filters.cycles ?? []).map((id) => {
+						if (id === null) return "No cycle";
+						if (id === "current") return "Current";
+						if (id === "next") return "Next";
+						const cycle = cycles.get(id);
+						return cycle && cycleLabel(cycle, teams);
+					}),
 				);
 			case "labelIds":
 				return list((filters.labelIds ?? []).map((id) => labels.get(id)?.name));
