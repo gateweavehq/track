@@ -12,6 +12,7 @@ import type {
 	Member,
 	Project,
 	Proposal,
+	PullRequest,
 	SavedView,
 	Subscription,
 	Team,
@@ -19,7 +20,7 @@ import type {
 import type { MutationInput } from "./mutations";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 14;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";
@@ -115,6 +116,8 @@ export interface Snapshot {
 	/** The member's own subscriptions and inbox, of live issues; nobody else's. */
 	subscriptions: Subscription[];
 	inbox: InboxItem[];
+	/** Pull requests linked to live issues. */
+	pullRequests: PullRequest[];
 }
 
 /** Where each entity's rows live in a snapshot. */
@@ -132,4 +135,5 @@ export const SNAPSHOT_KEYS = {
 	member: "members",
 	subscription: "subscriptions",
 	inbox: "inbox",
+	pullRequest: "pullRequests",
 } as const satisfies { [E in EntityName]: Exclude<keyof Snapshot, "version"> };

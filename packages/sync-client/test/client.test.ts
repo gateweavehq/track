@@ -370,6 +370,7 @@ describe("offline", () => {
 			members: [],
 			subscriptions: [],
 			inbox: [],
+			pullRequests: [],
 		});
 		const network = ws.network("alice");
 		const stale = await ws.live("alice", { persistence, network });
@@ -485,6 +486,7 @@ function scriptedTransport(
 			members: [],
 			subscriptions: [],
 			inbox: [],
+			pullRequests: [],
 		}),
 		probe: async () => {},
 		connect(handlers): SyncSocket {

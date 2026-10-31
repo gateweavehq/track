@@ -4,6 +4,7 @@
  */
 import {
 	type ActivityChange,
+	type ActivitySource,
 	type AgentChangeKind,
 	type CycleSettings,
 	ENTITY_NAMES,
@@ -16,6 +17,7 @@ import {
 	MEMBER_ROLES,
 	PROJECT_STATUSES,
 	type ProposedChange,
+	PULL_REQUEST_STATES,
 	RELATION_TYPES,
 	type WebhookDelivery,
 	type WebhookEventType,
@@ -154,6 +156,7 @@ export const activities = sqliteTable(
 		actorId: text("actor_id").notNull(),
 		change: text("change", { mode: "json" }).$type<ActivityChange>().notNull(),
 		proposedBy: text("proposed_by"),
+		source: text("source", { mode: "json" }).$type<ActivitySource>(),
 		createdAt: integer("created_at").notNull(),
 		updatedAt: integer("updated_at").notNull(),
 	},
@@ -324,6 +327,36 @@ export const webhooks = sqliteTable("webhooks", {
 });
 
 /**
+ * Pull requests that mention the workspace's issues, as GitHub connections report them. A pull
+ * request that mentions none is not kept.
+ */
+export const pullRequests = sqliteTable("pull_requests", {
+	id: text("id").primaryKey(),
+	repository: text("repository").notNull(),
+	number: integer("number").notNull(),
+	title: text("title").notNull(),
+	url: text("url").notNull(),
+	state: text("state", { enum: PULL_REQUEST_STATES }).notNull(),
+	branch: text("branch").notNull(),
+	author: text("author"),
+	issueIds: text("issue_ids", { mode: "json" }).$type<string[]>().notNull(),
+	closingIssueIds: text("closing_issue_ids", { mode: "json" }).$type<string[]>().notNull(),
+	createdAt: integer("created_at").notNull(),
+	updatedAt: integer("updated_at").notNull(),
+});
+
+/** Webhooks on GitHub that report to the workspace. The secret checks each delivery. */
+export const githubConnections = sqliteTable("github_connections", {
+	id: text("id").primaryKey(),
+	secret: text("secret").notNull(),
+	createdBy: text("created_by").notNull(),
+	createdAt: integer("created_at").notNull(),
+	lastDeliveryAt: integer("last_delivery_at"),
+	lastEvent: text("last_event"),
+	lastRepository: text("last_repository"),
+});
+
+/**
  * The webhooks' outbox. A change queues its deliveries in its own transaction, so none is lost,
  * and the alarm sends them. Finished deliveries are kept a while, for settings to show.
  */
@@ -364,5 +397,7 @@ export type ViewRow = typeof views.$inferSelect;
 export type MemberRow = typeof members.$inferSelect;
 export type SubscriptionRow = typeof subscriptions.$inferSelect;
 export type InboxItemRow = typeof inboxItems.$inferSelect;
+export type PullRequestRow = typeof pullRequests.$inferSelect;
+export type GitHubConnectionRow = typeof githubConnections.$inferSelect;
 export type WebhookRow = typeof webhooks.$inferSelect;
 export type WebhookDeliveryRow = typeof webhookDeliveries.$inferSelect;

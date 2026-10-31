@@ -28,6 +28,7 @@ import { Route as WorkspaceProjectProjectIdRouteImport } from './routes/$workspa
 import { Route as WorkspaceSettingsIndexRouteImport } from './routes/$workspace/settings.index'
 import { Route as WorkspaceSettingsAgentsRouteImport } from './routes/$workspace/settings.agents'
 import { Route as WorkspaceSettingsExportRouteImport } from './routes/$workspace/settings.export'
+import { Route as WorkspaceSettingsGithubRouteImport } from './routes/$workspace/settings.github'
 import { Route as WorkspaceSettingsImportRouteImport } from './routes/$workspace/settings.import'
 import { Route as WorkspaceSettingsLabelsRouteImport } from './routes/$workspace/settings.labels'
 import { Route as WorkspaceSettingsMembersRouteImport } from './routes/$workspace/settings.members'
@@ -134,6 +135,11 @@ const WorkspaceSettingsExportRoute = WorkspaceSettingsExportRouteImport.update({
   path: '/export',
   getParentRoute: () => WorkspaceSettingsRoute,
 } as any)
+const WorkspaceSettingsGithubRoute = WorkspaceSettingsGithubRouteImport.update({
+  id: '/github',
+  path: '/github',
+  getParentRoute: () => WorkspaceSettingsRoute,
+} as any)
 const WorkspaceSettingsImportRoute = WorkspaceSettingsImportRouteImport.update({
   id: '/import',
   path: '/import',
@@ -202,6 +208,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
   '/$workspace/settings/export': typeof WorkspaceSettingsExportRoute
+  '/$workspace/settings/github': typeof WorkspaceSettingsGithubRoute
   '/$workspace/settings/import': typeof WorkspaceSettingsImportRoute
   '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
@@ -230,6 +237,7 @@ export interface FileRoutesByTo {
   '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
   '/$workspace/settings/export': typeof WorkspaceSettingsExportRoute
+  '/$workspace/settings/github': typeof WorkspaceSettingsGithubRoute
   '/$workspace/settings/import': typeof WorkspaceSettingsImportRoute
   '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
@@ -261,6 +269,7 @@ export interface FileRoutesById {
   '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
   '/$workspace/settings/export': typeof WorkspaceSettingsExportRoute
+  '/$workspace/settings/github': typeof WorkspaceSettingsGithubRoute
   '/$workspace/settings/import': typeof WorkspaceSettingsImportRoute
   '/$workspace/settings/labels': typeof WorkspaceSettingsLabelsRoute
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
@@ -293,6 +302,7 @@ export interface FileRouteTypes {
     | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
     | '/$workspace/settings/export'
+    | '/$workspace/settings/github'
     | '/$workspace/settings/import'
     | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
@@ -321,6 +331,7 @@ export interface FileRouteTypes {
     | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
     | '/$workspace/settings/export'
+    | '/$workspace/settings/github'
     | '/$workspace/settings/import'
     | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
@@ -351,6 +362,7 @@ export interface FileRouteTypes {
     | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
     | '/$workspace/settings/export'
+    | '/$workspace/settings/github'
     | '/$workspace/settings/import'
     | '/$workspace/settings/labels'
     | '/$workspace/settings/members'
@@ -509,6 +521,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceSettingsExportRouteImport
       parentRoute: typeof WorkspaceSettingsRoute
     }
+    '/$workspace/settings/github': {
+      id: '/$workspace/settings/github'
+      path: '/github'
+      fullPath: '/$workspace/settings/github'
+      preLoaderRoute: typeof WorkspaceSettingsGithubRouteImport
+      parentRoute: typeof WorkspaceSettingsRoute
+    }
     '/$workspace/settings/import': {
       id: '/$workspace/settings/import'
       path: '/import'
@@ -578,6 +597,7 @@ declare module '@tanstack/react-router' {
 interface WorkspaceSettingsRouteChildren {
   WorkspaceSettingsAgentsRoute: typeof WorkspaceSettingsAgentsRoute
   WorkspaceSettingsExportRoute: typeof WorkspaceSettingsExportRoute
+  WorkspaceSettingsGithubRoute: typeof WorkspaceSettingsGithubRoute
   WorkspaceSettingsImportRoute: typeof WorkspaceSettingsImportRoute
   WorkspaceSettingsLabelsRoute: typeof WorkspaceSettingsLabelsRoute
   WorkspaceSettingsMembersRoute: typeof WorkspaceSettingsMembersRoute
@@ -589,6 +609,7 @@ interface WorkspaceSettingsRouteChildren {
 const WorkspaceSettingsRouteChildren: WorkspaceSettingsRouteChildren = {
   WorkspaceSettingsAgentsRoute: WorkspaceSettingsAgentsRoute,
   WorkspaceSettingsExportRoute: WorkspaceSettingsExportRoute,
+  WorkspaceSettingsGithubRoute: WorkspaceSettingsGithubRoute,
   WorkspaceSettingsImportRoute: WorkspaceSettingsImportRoute,
   WorkspaceSettingsLabelsRoute: WorkspaceSettingsLabelsRoute,
   WorkspaceSettingsMembersRoute: WorkspaceSettingsMembersRoute,

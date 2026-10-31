@@ -20,6 +20,8 @@ export interface SyncState {
 	/** This member's own subscriptions and inbox, by id. Nobody else's reach the replica. */
 	readonly subscriptions: ReadonlyMap<string, Entities["subscription"]>;
 	readonly inbox: ReadonlyMap<string, Entities["inbox"]>;
+	/** Pull requests on GitHub that mention a live issue. */
+	readonly pullRequests: ReadonlyMap<string, Entities["pullRequest"]>;
 }
 
 /**
@@ -57,6 +59,7 @@ const EMPTY: Tables = {
 	member: new Map(),
 	subscription: new Map(),
 	inbox: new Map(),
+	pullRequest: new Map(),
 };
 
 /**
@@ -156,6 +159,7 @@ export class Replica {
 			member: new Map(snapshot.members.map((row) => [row.id, row])),
 			subscription: new Map(snapshot.subscriptions.map((row) => [row.id, row])),
 			inbox: new Map(snapshot.inbox.map((row) => [row.id, row])),
+			pullRequest: new Map(snapshot.pullRequests.map((row) => [row.id, row])),
 		};
 		this.#version = snapshot.version;
 		this.#hasData = true;
@@ -219,6 +223,7 @@ export class Replica {
 			members: [...this.#confirmed.member.values()],
 			subscriptions: [...this.#confirmed.subscription.values()],
 			inbox: [...this.#confirmed.inbox.values()],
+			pullRequests: [...this.#confirmed.pullRequest.values()],
 		};
 	}
 
@@ -250,5 +255,6 @@ function toState(tables: Tables, version: number): SyncState {
 		members: tables.member,
 		subscriptions: tables.subscription,
 		inbox: tables.inbox,
+		pullRequests: tables.pullRequest,
 	};
 }

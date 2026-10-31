@@ -9,6 +9,7 @@ import {
 	type Member,
 	type Project,
 	type Proposal,
+	type PullRequest,
 	privateId,
 	type SavedView,
 	type Subscription,
@@ -380,6 +381,41 @@ function relationsByIssue(
 		relationGroups.set(table, groups);
 	}
 	return groups;
+}
+
+const pullRequestGroups = new WeakMap<
+	ReadonlyMap<string, PullRequest>,
+	ReadonlyMap<string, PullRequest[]>
+>();
+
+/** Pull requests by each issue they mention, oldest first. Computed once per version of the table. */
+function pullRequestsByIssue(table: ReadonlyMap<string, PullRequest>) {
+	let groups = pullRequestGroups.get(table);
+	if (!groups) {
+		const grouped = new Map<string, PullRequest[]>();
+		for (const pullRequest of table.values()) {
+			for (const issueId of pullRequest.issueIds) {
+				const rows = grouped.get(issueId);
+				if (rows) rows.push(pullRequest);
+				else grouped.set(issueId, [pullRequest]);
+			}
+		}
+		for (const rows of grouped.values()) rows.sort((a, b) => a.createdAt - b.createdAt);
+		groups = grouped;
+		pullRequestGroups.set(table, groups);
+	}
+	return groups;
+}
+
+/** The pull requests on GitHub that mention an issue, oldest first. */
+export function useIssuePullRequests(issueId: string): PullRequest[] {
+	return useQuery(
+		useCallback(
+			(state: SyncState) => pullRequestsByIssue(state.pullRequests).get(issueId) ?? NONE,
+			[issueId],
+		),
+		shallowEqual,
+	);
 }
 
 /** An issue's relations, from either side, oldest first. */

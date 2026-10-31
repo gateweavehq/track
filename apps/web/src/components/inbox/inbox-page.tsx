@@ -1,7 +1,12 @@
-import type { InboxEvent, InboxItem, Issue } from "@gateweave/track-protocol";
+import {
+	GITHUB_ACTOR_ID,
+	type InboxEvent,
+	type InboxItem,
+	type Issue,
+} from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link } from "@tanstack/react-router";
-import { Archive, ArchiveRestore, Check, Clock, Mail } from "lucide-react";
+import { Archive, ArchiveRestore, Check, Clock, GitPullRequest, Mail } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { PRIORITY_META, STATUS_META } from "#/components/issues/meta";
 import { MemberAvatar } from "#/components/members/member-avatar";
@@ -15,6 +20,7 @@ import {
 } from "#/components/ui/dropdown-menu";
 import { useWorkspace } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
+import { actorName } from "#/lib/actors";
 import { formatDateTime, formatRelative } from "#/lib/dates";
 import { useHotkeys } from "#/lib/hotkeys";
 import {
@@ -207,6 +213,7 @@ function InboxRow({
 	const { item, issue } = entry;
 	const key = issueKey(teams.get(issue.teamId), issue);
 	const actor = members.get(item.actorId);
+	const github = item.actorId === GITHUB_ACTOR_ID;
 	const unread = item.unread > 0;
 
 	return (
@@ -222,7 +229,14 @@ function InboxRow({
 					unread ? "bg-primary" : "bg-transparent",
 				)}
 			/>
-			<MemberAvatar member={actor} className="mt-0.5 size-6" />
+			{github ? (
+				<GitPullRequest
+					aria-hidden
+					className="mt-0.5 size-6 shrink-0 p-0.5 text-muted-foreground"
+				/>
+			) : (
+				<MemberAvatar member={actor} className="mt-0.5 size-6" />
+			)}
 			<div className="min-w-0 flex-1 text-sm">
 				<Link
 					ref={(link) => registerRow(item.id, link)}
@@ -235,7 +249,7 @@ function InboxRow({
 					{unread && <span className="sr-only">, unread</span>}
 				</Link>
 				<p className="truncate text-muted-foreground">
-					<span className="text-foreground">{actor?.name ?? "Someone"}</span>{" "}
+					<span className="text-foreground">{actorName(item.actorId, members)}</span>{" "}
 					<EventText event={item.event} issue={issue} />
 				</p>
 			</div>

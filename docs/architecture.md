@@ -68,6 +68,8 @@ different protocol versions in production. It also gives self-hosters one thing 
 | Issue activity (history)            | Workspace DO | `sync-server`, from issue writes   |
 | Subscriptions and inbox items       | Workspace DO | `sync-server`, from issue writes   |
 | Webhooks, their secrets, deliveries | Workspace DO | `sync-server`, managed by admins   |
+| GitHub connections and secrets      | Workspace DO | `sync-server`, managed by admins   |
+| Pull requests that mention issues   | Workspace DO | `sync-server`, from GitHub         |
 | Member replica (name, avatar, role) | Workspace DO | Pushed from D1 by membership hooks |
 | Attached files                      | R2           | The file gateway                   |
 
@@ -192,6 +194,12 @@ The Durable Object has **no public route**. Only the Worker can reach it, throug
    the client cannot set.
 
 The DO is keyed by workspace id, not slug, so renaming a workspace does not move its data.
+
+GitHub's webhook deliveries are the one way in without a session: `POST
+/api/github/:workspaceId/:connectionId` (`apps/web/src/server/github.ts`). That gateway checks
+only that the workspace exists in D1, so made-up ids never create an object, and passes the raw
+body on. The Durable Object checks the `X-Hub-Signature-256` signature against the connection's
+secret, which never leaves it, before it reads the body. See [GitHub](#github).
 
 `HEAD /api/sync/:slug/snapshot` runs the same checks without touching the DO. A browser cannot
 see the HTTP status of a refused WebSocket handshake, so the client uses this probe to tell
@@ -765,6 +773,47 @@ is `packages/sync-server/src/webhooks.ts`.
   them with every webhook change, and the organization plugin's update hook passes a new slug.
   Management is admin-only twice over: the gateway checks membership in D1, and the object
   refuses a verified member who is not an admin. The public demo sends no webhooks.
+
+### GitHub
+
+A GitHub connection is a webhook on GitHub, on one repository or a whole organization, that tells
+a workspace of pull requests and pushes. Pull requests and commits that name an issue's key, such
+as `ENG-12`, are linked to it and move it along. There is no GitHub App yet: an admin adds a
+connection on Settings › GitHub and pastes its payload URL and secret into GitHub. The code is
+`packages/sync-server/src/github.ts`, with the gateway in `apps/web/src/server/github.ts`.
+
+- **A connection is an id and a secret in the workspace's Durable Object.** The secret is shown
+  once, when the connection is made or its secret replaced, and is never sent anywhere. A
+  workspace has at most `MAX_GITHUB_CONNECTIONS`. Settings show the event and repository of each
+  connection's latest delivery, so an admin can tell the webhook works.
+- **Deliveries are authenticated by their signature, inside the object.** The gateway passes the
+  headers and the raw body (at most 1 MiB, JSON only); the object answers 404 for an unknown
+  connection and 401 for a signature that does not match, before reading the body, and writes
+  nothing for either. Each delivery is applied once: its `X-GitHub-Delivery` id is recorded as
+  the applied mutation `github:<id>`, so GitHub redelivering it changes nothing.
+- **Linking.** Keys in a pull request's branch name, title and description link it to those
+  issues, matched case-insensitively against team keys and live issues. A key in the branch name,
+  or after a closing word (close, closes, closed, fix, fixes, fixed, resolve, resolves, resolved),
+  makes the link a closing one. A pull request that names no issue of the workspace is not kept.
+  Pull requests are an entity of their own (`pullRequest`), in every member's replica, with the
+  ids of the issues they link and close; the snapshot leaves out those that only name deleted
+  issues. The issue page lists them, and MCP's `get_issue` returns them.
+- **Automation only moves forward.** A draft pull request moves its issues to In Progress, an
+  open one to In Review, and a merged one moves the issues it closes to Done. A push to the
+  default branch moves the issues its commits close to Done (commits GitHub marks as not
+  `distinct`, already seen on another branch, are skipped). An issue is never moved back to an
+  earlier status, nor out of Done or Canceled. Only a change of the pull request's state moves
+  issues (opened, reopened, ready for review, converted to draft, merged), or an edit that links
+  an issue anew; new commits or an edit leave linked issues where people put them.
+- **GitHub is the actor.** Changes are made as `GITHUB_ACTOR_ID` (`github`), shown as "GitHub".
+  History entries carry their `source`, the pull request (`acme/app#7`) or commit
+  (`acme/app@abc1234`) with its URL. The status's field stamp names the client `github`, so an
+  offline edit to the status made before GitHub's change conflicts instead of undoing it.
+  Subscribers' inboxes and webhooks hear of the change like any other, with a `system` actor
+  named GitHub in webhook payloads.
+- **Copy branch name.** The issue page copies a branch name such as `eng-12-fix-the-login-form`,
+  so a pull request from it links to the issue, and closes it when merged.
+- The public demo takes no deliveries, as it sends no webhooks.
 
 ### Imports
 

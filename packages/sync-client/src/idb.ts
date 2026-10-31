@@ -35,6 +35,7 @@ interface ReplicaSchema extends DBSchema {
 	member: { key: string; value: Entities["member"] };
 	subscription: { key: string; value: Entities["subscription"] };
 	inbox: { key: string; value: Entities["inbox"] };
+	pullRequest: { key: string; value: Entities["pullRequest"] };
 	pending: { key: number; value: PendingMutation & { seq?: number }; indexes: { id: string } };
 }
 
@@ -116,6 +117,7 @@ class IdbPersistence implements Persistence {
 			members,
 			subscriptions,
 			inbox,
+			pullRequests,
 			pending,
 		] = await Promise.all([
 			meta.get("version") as Promise<number | undefined>,
@@ -132,6 +134,7 @@ class IdbPersistence implements Persistence {
 			tx.objectStore("member").getAll(),
 			tx.objectStore("subscription").getAll(),
 			tx.objectStore("inbox").getAll(),
+			tx.objectStore("pullRequest").getAll(),
 			tx.objectStore("pending").getAll(),
 		]);
 		await tx.done;
@@ -155,6 +158,7 @@ class IdbPersistence implements Persistence {
 							members,
 							subscriptions,
 							inbox,
+							pullRequests,
 						},
 			pending: pending.map(({ seq: _, ...mutation }) => mutation),
 		};
@@ -176,6 +180,7 @@ class IdbPersistence implements Persistence {
 			member: snapshot.members,
 			subscription: snapshot.subscriptions,
 			inbox: snapshot.inbox,
+			pullRequest: snapshot.pullRequests,
 		};
 		await Promise.all([
 			...ENTITY_NAMES.map(async (entity) => {
