@@ -6,7 +6,14 @@ import { schema } from "../db";
 import { limitDemoStarts } from "../rate-limit";
 import { workspaceStub } from "../workspaces";
 import { assertDemo, VISITOR_DOMAIN } from "./mode";
-import { type PersonKey, SAMPLE_PEOPLE, sampleSteps, WORKSPACE_NAME } from "./sample";
+import {
+	currentCycleId,
+	type PersonKey,
+	SAMPLE_PEOPLE,
+	sampleSteps,
+	WORKSPACE_NAME,
+	withCycle,
+} from "./sample";
 
 /** Thrown for problems the visitor should read, such as having asked too often. */
 export class DemoError extends Error {}
@@ -70,7 +77,12 @@ export async function startDemoSandbox(headers: Headers): Promise<{ slug: string
 			>,
 			newId: () => crypto.randomUUID(),
 		});
-		for (const [index, { person, mutation }] of steps.entries()) {
+		// Cycle ids are the Durable Object's to make, so read it once a step needs it.
+		let cycleId: string | undefined;
+		for (const [index, planned] of steps.entries()) {
+			if (planned.needsCycle) cycleId ??= currentCycleId(await stub.directory());
+			const { person, mutation } =
+				planned.needsCycle && cycleId ? withCycle(planned, cycleId) : planned;
 			const result = await stub.mutate(
 				people[person],
 				"demo-sandbox",

@@ -11,7 +11,15 @@ import {
 	type Transport,
 	uuidv7,
 } from "@gateweave/track-sync-client";
-import { PASSWORD, PEOPLE, type PersonKey, sampleSteps, WORKSPACE_NAME } from "./seed-data";
+import {
+	currentCycleId,
+	PASSWORD,
+	PEOPLE,
+	type PersonKey,
+	sampleSteps,
+	WORKSPACE_NAME,
+	withCycle,
+} from "./seed-data";
 
 const { values: args } = parseArgs({
 	options: {
@@ -109,7 +117,17 @@ async function main() {
 		// In order, so teams exist before their issues and the sample issues are numbered as
 		// listed. Generated filler only needs to arrive, so it goes in parallel.
 		const ordered = steps.filter((step) => !step.parallel);
-		for (const { person, mutation } of ordered) await clients[person].mutate(mutation);
+		// Cycle ids are the Durable Object's to make; the owner's replica learns of them as the
+		// team update is applied.
+		let cycleId: string | undefined;
+		for (const step of ordered) {
+			if (step.needsCycle) {
+				const state = clients.maya.getState();
+				cycleId ??= currentCycleId({ teams: state.teams.values(), cycles: state.cycles.values() });
+			}
+			const { person, mutation } = step.needsCycle && cycleId ? withCycle(step, cycleId) : step;
+			await clients[person].mutate(mutation);
+		}
 		await Promise.all(
 			steps
 				.filter((step) => step.parallel)

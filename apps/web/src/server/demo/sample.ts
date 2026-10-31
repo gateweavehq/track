@@ -1,7 +1,7 @@
 // Turns the sample data into the mutations that fill a workspace. `pnpm dev:seed` sends them
 // through the sync gateway; the demo sends them to the Durable Object directly. Pure: no Node or
 // Worker APIs, so both can use it.
-import type { MutationInput } from "@gateweave/track-protocol";
+import { type Cycle, cycleState, type MutationInput, type Team } from "@gateweave/track-protocol";
 import { generateNKeysBetween } from "fractional-indexing";
 import {
 	generatedIssues,
@@ -25,7 +25,45 @@ export interface SampleStep {
 	mutation: MutationInput;
 	/** True when order does not matter, so a caller may send such steps at once. */
 	parallel?: true;
+	/**
+	 * Plans an issue into its team's current cycle. The cycle gets its id from the workspace when
+	 * cycles are turned on, so the step holds a placeholder: the caller reads `currentCycleId` once
+	 * the earlier steps are applied and sends `withCycle(step, id)`.
+	 */
+	needsCycle?: true;
 }
+
+const CYCLE_PLACEHOLDER = "current-cycle";
+
+/** The step to send for one that `needsCycle`, with the cycle's real id. */
+export function withCycle(step: SampleStep, cycleId: string): SampleStep {
+	const { mutation } = step;
+	if (!step.needsCycle || mutation.name !== "issue.update") return step;
+	return {
+		person: step.person,
+		mutation: { ...mutation, args: { ...mutation.args, patch: { cycleId } } },
+	};
+}
+
+/**
+ * The id of the Engineering team's cycle running on `now`, from a workspace's teams and cycles
+ * (a Durable Object's `directory()` or a client's replica). Throws when there is none, which
+ * means the steps before the `needsCycle` ones were not applied.
+ */
+export function currentCycleId(
+	{ teams, cycles }: { teams: Iterable<Pick<Team, "id" | "key">>; cycles: Iterable<Cycle> },
+	now = new Date(),
+): string {
+	const team = [...teams].find((candidate) => candidate.key === CYCLE_TEAM);
+	const today = now.toISOString().slice(0, 10);
+	const cycle = [...cycles].find(
+		(candidate) => candidate.teamId === team?.id && cycleState(candidate, today) === "current",
+	);
+	if (!cycle) throw new Error(`The ${CYCLE_TEAM} team has no current cycle`);
+	return cycle.id;
+}
+
+const CYCLE_TEAM: TeamKey = "ENG";
 
 export interface SampleOptions {
 	/** The user id of each sample person, which issues are assigned to and projects are led by. */
@@ -67,7 +105,7 @@ export function sampleSteps({
 		mutation: {
 			name: "team.update",
 			args: {
-				id: teamIds.ENG,
+				id: teamIds[CYCLE_TEAM],
 				patch: { cycles: { weeks: 2, timeZone: "UTC", startsOn: mondayOf(now) } },
 			},
 		},
@@ -126,6 +164,19 @@ export function sampleSteps({
 
 	const sample = created.slice(0, ISSUES.length);
 	steps.push(...sample.map(({ step }) => step));
+	// Planned after creation, once the cycle is known. The creator makes the edit, so it never
+	// conflicts with the issue's own fields.
+	for (const { id, issue } of sample) {
+		if (issue.cycle !== "current") continue;
+		steps.push({
+			person: issue.by,
+			needsCycle: true,
+			mutation: {
+				name: "issue.update",
+				args: { id, baseVersion: 0, patch: { cycleId: CYCLE_PLACEHOLDER } },
+			},
+		});
+	}
 	// A comment at a time, so each thread reads in the order it is listed.
 	for (const { id, issue } of sample) {
 		for (const comment of issue.comments ?? []) {
