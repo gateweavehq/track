@@ -1,11 +1,17 @@
 import {
+	compactDisplay,
+	GROUP_BYS,
 	ISSUE_LAYOUTS,
+	type IssueDisplay,
 	type IssueFilters,
 	type IssueLayout,
+	issueDisplay,
 	issueFilters,
+	ORDER_BYS,
 } from "@gateweave/track-protocol";
 import { useCallback, useMemo, useState } from "react";
 import { z } from "zod";
+import { type DisplayUpdate, sortFromParam, sortToParam } from "./display";
 import { compactFilters, type FiltersUpdate } from "./filters";
 
 // The protocol names them, because a saved view keeps one.
@@ -13,8 +19,9 @@ export const ISSUE_VIEWS = ISSUE_LAYOUTS;
 export type IssueView = IssueLayout;
 
 /**
- * Search params for a page of issues: its view and its filters (see `IssueFilters`), under short
- * names. Malformed values are dropped rather than failing the page, since links get mangled.
+ * Search params for a page of issues: its view, its filters (see `IssueFilters`) and its display
+ * options (see `IssueDisplay`), under short names. Malformed values are dropped rather than
+ * failing the page, since links get mangled.
  */
 export const issuePageSearch = z.object({
 	view: z.enum(ISSUE_VIEWS).optional().catch(undefined),
@@ -26,6 +33,12 @@ export const issuePageSearch = z.object({
 	cycle: issueFilters.shape.cycles.catch(undefined),
 	labels: issueFilters.shape.labelIds.catch(undefined),
 	due: issueFilters.shape.due.catch(undefined),
+	group: z.enum(GROUP_BYS).optional().catch(undefined),
+	order: z.enum(ORDER_BYS).optional().catch(undefined),
+	props: issueDisplay.shape.properties.catch(undefined),
+	columns: issueDisplay.shape.columns.catch(undefined),
+	// A column and a direction, such as `dueDate.desc`.
+	sort: z.string().max(40).optional().catch(undefined),
 });
 export type IssuePageSearch = z.infer<typeof issuePageSearch>;
 
@@ -42,8 +55,12 @@ export function filtersFromSearch(search: IssuePageSearch): IssueFilters {
 	});
 }
 
+const DISPLAY_KEYS = ["group", "order", "props", "columns", "sort"] as const;
+
 /** The search params for filters, every one named so that merging them clears the rest. */
-export function searchFromFilters(filters: IssueFilters): Omit<IssuePageSearch, "view"> {
+export function searchFromFilters(
+	filters: IssueFilters,
+): Omit<IssuePageSearch, "view" | (typeof DISPLAY_KEYS)[number]> {
 	return {
 		team: filters.teamIds,
 		status: filters.statuses,
@@ -53,6 +70,30 @@ export function searchFromFilters(filters: IssueFilters): Omit<IssuePageSearch, 
 		cycle: filters.cycles,
 		labels: filters.labelIds,
 		due: filters.due,
+	};
+}
+
+export function displayFromSearch(search: IssuePageSearch): IssueDisplay {
+	return compactDisplay({
+		groupBy: search.group,
+		orderBy: search.order,
+		properties: search.props,
+		columns: search.columns,
+		sort: sortFromParam(search.sort),
+	});
+}
+
+/** The search params for display options, every one named so that merging them clears the rest. */
+export function searchFromDisplay(
+	display: IssueDisplay,
+): Pick<IssuePageSearch, (typeof DISPLAY_KEYS)[number]> {
+	const compact = compactDisplay(display);
+	return {
+		group: compact.groupBy,
+		order: compact.orderBy,
+		props: compact.properties,
+		columns: compact.columns,
+		sort: sortToParam(compact.sort),
 	};
 }
 
@@ -110,4 +151,18 @@ export function useIssueView(
 		[scope, setUrl],
 	);
 	return [fromUrl ?? remembered ?? "list", change];
+}
+
+/** A page's display options, read from its search params and written back to them. */
+export function usePageDisplay(
+	search: IssuePageSearch,
+	setSearch: (patch: IssuePageSearch | ((current: IssuePageSearch) => IssuePageSearch)) => void,
+): { display: IssueDisplay; onDisplayChange: (update: DisplayUpdate) => void } {
+	const display = useMemo(() => displayFromSearch(search), [search]);
+	const onDisplayChange = useCallback(
+		(update: DisplayUpdate) =>
+			setSearch((current) => searchFromDisplay(update(displayFromSearch(current)))),
+		[setSearch],
+	);
+	return { display, onDisplayChange };
 }

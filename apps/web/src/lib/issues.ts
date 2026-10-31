@@ -97,13 +97,26 @@ export function planMove(
 	status: IssueStatus,
 	index: number,
 ): { status?: IssueStatus; sortOrder: string } | null {
+	const fields: { status?: IssueStatus } = status === issue.status ? {} : { status };
+	return planPlacement(group, issue, index, fields);
+}
+
+/**
+ * What changes when `issue` is placed at `index` among `group`, the issues of one group in
+ * manual order, which may include the issue itself. `fields` are what moving into the group
+ * changes about the issue (none when it is already there). Returns null when nothing would change.
+ */
+export function planPlacement<F extends object>(
+	group: readonly Issue[],
+	issue: Issue,
+	index: number,
+	fields: F,
+): (F & { sortOrder: string }) | null {
 	const others = group.filter((other) => other.id !== issue.id);
 	const target = Math.min(Math.max(index, 0), others.length);
-	if (status === issue.status && group.findIndex((other) => other.id === issue.id) === target) {
-		return null;
-	}
-	const sortOrder = sortOrderAt(others, target);
-	return status === issue.status ? { sortOrder } : { status, sortOrder };
+	const unchanged = Object.keys(fields).length === 0;
+	if (unchanged && group.findIndex((other) => other.id === issue.id) === target) return null;
+	return { ...fields, sortOrder: sortOrderAt(others, target) };
 }
 
 /**

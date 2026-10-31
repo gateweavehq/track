@@ -8,9 +8,9 @@ import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-sc
 import { attachClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge/attach-closest-edge";
 import { extractClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge/extract-closest-edge";
 import type { Edge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/types";
-import { ISSUE_STATUSES, type Issue, type IssueStatus } from "@gateweave/track-protocol";
+import type { Issue } from "@gateweave/track-protocol";
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
-import { planMove, type StatusGroup } from "#/lib/issues";
+import { type IssueGroup, planGroupMove } from "#/lib/grouping";
 import { useUpdateIssue } from "#/lib/mutations";
 
 type Data = Record<string | symbol, unknown>;
@@ -26,18 +26,14 @@ type GroupEnd = "start" | "end";
 
 type DropTarget =
 	| { target: "issue"; issueId: string }
-	| { target: "group"; status: IssueStatus; at: GroupEnd };
-
-function isStatus(value: unknown): value is IssueStatus {
-	return (ISSUE_STATUSES as readonly unknown[]).includes(value);
-}
+	| { target: "group"; groupKey: string; at: GroupEnd };
 
 function parseDropTarget(data: Data): DropTarget | null {
 	if (data.target === "issue" && typeof data.issueId === "string") {
 		return { target: "issue", issueId: data.issueId };
 	}
-	if (data.target === "group" && isStatus(data.status)) {
-		return { target: "group", status: data.status, at: data.at === "start" ? "start" : "end" };
+	if (data.target === "group" && typeof data.groupKey === "string") {
+		return { target: "group", groupKey: data.groupKey, at: data.at === "start" ? "start" : "end" };
 	}
 	return null;
 }
@@ -93,11 +89,11 @@ export function useDraggableIssue<T extends HTMLElement>(
 }
 
 /**
- * Makes an element a drop zone for a status: a board column, or a list's group header. Returns
+ * Makes an element a drop zone for a group: a board column, or a list's group header. Returns
  * whether an issue is being dragged over it.
  */
 export function useIssueDropZone<T extends HTMLElement>(
-	status: IssueStatus,
+	groupKey: string,
 	at: GroupEnd,
 ): [RefObject<T | null>, boolean] {
 	const ref = useRef<T>(null);
@@ -109,12 +105,12 @@ export function useIssueDropZone<T extends HTMLElement>(
 		return dropTargetForElements({
 			element,
 			canDrop: ({ source }) => draggedIssueId(source.data) !== null,
-			getData: () => ({ target: "group", status, at }),
+			getData: () => ({ target: "group", groupKey, at }),
 			onDragEnter: () => setOver(true),
 			onDragLeave: () => setOver(false),
 			onDrop: () => setOver(false),
 		});
-	}, [status, at]);
+	}, [groupKey, at]);
 
 	return [ref, over];
 }
@@ -129,18 +125,20 @@ export function useDragAutoScroll(ref: RefObject<HTMLElement | null>, enabled = 
 }
 
 /**
- * Moves issues among `groups`: returns a function that moves an issue to a position in a status,
- * and applies drops onto rows, cards and drop zones with it.
+ * Moves issues among `groups`: returns a function that moves an issue to a position in a group,
+ * and applies drops onto rows, cards and drop zones with it. Only in manual order (`manual`) does
+ * the position count; see `planGroupMove`.
  */
-export function useIssueMoves(groups: readonly StatusGroup[]) {
+export function useIssueMoves(groups: readonly IssueGroup[], manual: boolean) {
 	const update = useUpdateIssue();
-	const latest = useRef(groups);
-	latest.current = groups;
+	const latest = useRef({ groups, manual });
+	latest.current = { groups, manual };
 
 	const move = useCallback(
-		(issue: Issue, status: IssueStatus, index: number): boolean => {
-			const group = latest.current.find((candidate) => candidate.status === status);
-			const patch = group ? planMove(group.issues, issue, status, index) : null;
+		(issue: Issue, groupKey: string, index: number): boolean => {
+			const { groups, manual } = latest.current;
+			const group = groups.find((candidate) => candidate.key === groupKey);
+			const patch = group ? planGroupMove(group, issue, index, manual) : null;
 			return patch !== null && update(issue, patch);
 		},
 		[update],
@@ -156,18 +154,18 @@ export function useIssueMoves(groups: readonly StatusGroup[]) {
 					if (!issueId || !innermost) return;
 					const target = parseDropTarget(innermost.data);
 					if (!target) return;
-					const groups = latest.current;
+					const { groups } = latest.current;
 					const issue = groups.flatMap((group) => group.issues).find(({ id }) => id === issueId);
 					if (!issue) return;
 
 					if (target.target === "group") {
-						const group = groups.find((candidate) => candidate.status === target.status);
+						const group = groups.find((candidate) => candidate.key === target.groupKey);
 						const size = group?.issues.filter(({ id }) => id !== issueId).length ?? 0;
-						move(issue, target.status, target.at === "start" ? 0 : size);
+						move(issue, target.groupKey, target.at === "start" ? 0 : size);
 						return;
 					}
 					// Look the target up now rather than trusting the data it registered with, since
-					// its status may have changed while the drag was in progress.
+					// its group may have changed while the drag was in progress.
 					const group = groups.find((candidate) =>
 						candidate.issues.some(({ id }) => id === target.issueId),
 					);
@@ -177,7 +175,7 @@ export function useIssueMoves(groups: readonly StatusGroup[]) {
 					// The issue was dropped on itself.
 					if (index === -1) return;
 					const edge = extractClosestEdge(innermost.data);
-					move(issue, group.status, edge === "bottom" ? index + 1 : index);
+					move(issue, group.key, edge === "bottom" ? index + 1 : index);
 				},
 			}),
 		[move],

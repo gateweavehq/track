@@ -1,4 +1,4 @@
-import type { Issue, Member, Team } from "@gateweave/track-protocol";
+import type { Issue, IssueProperty, Member, Team } from "@gateweave/track-protocol";
 import { Link } from "@tanstack/react-router";
 import { forwardRef, memo, type ReactNode } from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";
@@ -35,6 +35,8 @@ interface IssueRowProps {
 	subIssues: ProjectProgress | undefined;
 	/** Whether an open issue blocks it. */
 	blocked: boolean;
+	/** The properties to show; the title is always shown. */
+	properties: ReadonlySet<IssueProperty>;
 	selected: boolean;
 	/** The property menu open on this row, if any. */
 	menu: IssueField | null;
@@ -54,6 +56,7 @@ export const IssueRow = memo(function IssueRow({
 	assignee,
 	subIssues,
 	blocked,
+	properties,
 	selected,
 	menu,
 	onMenuChange,
@@ -79,30 +82,36 @@ export const IssueRow = memo(function IssueRow({
 			)}
 		>
 			{drag.edge && <DropIndicator edge={drag.edge} />}
-			<PriorityPicker
-				value={issue.priority}
-				onChange={(priority) => update(issue, { priority })}
-				{...menuProps("priority")}
-			>
-				<RowButton label={`Priority: ${PRIORITY_META[issue.priority].label}`}>
-					<PriorityIcon priority={issue.priority} />
-				</RowButton>
-			</PriorityPicker>
-			<span
-				aria-hidden
-				className="hidden w-16 shrink-0 font-mono text-xs text-muted-foreground tabular-nums sm:block"
-			>
-				{key}
-			</span>
-			<StatusPicker
-				value={issue.status}
-				onChange={(status) => update(issue, { status })}
-				{...menuProps("status")}
-			>
-				<RowButton label={`Status: ${STATUS_META[issue.status].label}`}>
-					<StatusIcon status={issue.status} />
-				</RowButton>
-			</StatusPicker>
+			{properties.has("priority") && (
+				<PriorityPicker
+					value={issue.priority}
+					onChange={(priority) => update(issue, { priority })}
+					{...menuProps("priority")}
+				>
+					<RowButton label={`Priority: ${PRIORITY_META[issue.priority].label}`}>
+						<PriorityIcon priority={issue.priority} />
+					</RowButton>
+				</PriorityPicker>
+			)}
+			{properties.has("id") && (
+				<span
+					aria-hidden
+					className="hidden w-16 shrink-0 font-mono text-xs text-muted-foreground tabular-nums sm:block"
+				>
+					{key}
+				</span>
+			)}
+			{properties.has("status") && (
+				<StatusPicker
+					value={issue.status}
+					onChange={(status) => update(issue, { status })}
+					{...menuProps("status")}
+				>
+					<RowButton label={`Status: ${STATUS_META[issue.status].label}`}>
+						<StatusIcon status={issue.status} />
+					</RowButton>
+				</StatusPicker>
+			)}
 			<Link
 				ref={(link) => registerRow(issue.id, link)}
 				to="/$workspace/issue/$issueKey"
@@ -114,27 +123,37 @@ export const IssueRow = memo(function IssueRow({
 				<span className="sr-only">{key} </span>
 				{issue.title}
 			</Link>
-			<LabelChips labelIds={issue.labelIds} max={2} className="hidden shrink-0 lg:flex" />
+			{properties.has("labels") && (
+				<LabelChips labelIds={issue.labelIds} max={2} className="hidden shrink-0 lg:flex" />
+			)}
 			<BlockedMark blocked={blocked} />
-			<SubIssueCount progress={subIssues} className="hidden sm:inline-flex" />
-			<Estimate estimate={issue.estimate} className="hidden sm:inline-flex" />
-			<DueDate issue={issue} />
-			<time
-				dateTime={new Date(issue.createdAt).toISOString()}
-				title={`Created ${formatDateTime(issue.createdAt)}`}
-				className="hidden shrink-0 text-xs text-muted-foreground md:block"
-			>
-				{formatShortDate(issue.createdAt)}
-			</time>
-			<AssigneePicker
-				value={issue.assigneeId}
-				onChange={(assigneeId) => update(issue, { assigneeId })}
-				{...menuProps("assignee")}
-			>
-				<RowButton label={assignee ? `Assignee: ${assignee.name}` : "Assign"}>
-					<MemberAvatar member={assignee} />
-				</RowButton>
-			</AssigneePicker>
+			{properties.has("subIssues") && (
+				<SubIssueCount progress={subIssues} className="hidden sm:inline-flex" />
+			)}
+			{properties.has("estimate") && (
+				<Estimate estimate={issue.estimate} className="hidden sm:inline-flex" />
+			)}
+			{properties.has("dueDate") && <DueDate issue={issue} />}
+			{properties.has("created") && (
+				<time
+					dateTime={new Date(issue.createdAt).toISOString()}
+					title={`Created ${formatDateTime(issue.createdAt)}`}
+					className="hidden shrink-0 text-xs text-muted-foreground md:block"
+				>
+					{formatShortDate(issue.createdAt)}
+				</time>
+			)}
+			{properties.has("assignee") && (
+				<AssigneePicker
+					value={issue.assigneeId}
+					onChange={(assigneeId) => update(issue, { assigneeId })}
+					{...menuProps("assignee")}
+				>
+					<RowButton label={assignee ? `Assignee: ${assignee.name}` : "Assign"}>
+						<MemberAvatar member={assignee} />
+					</RowButton>
+				</AssigneePicker>
+			)}
 		</div>
 	);
 });

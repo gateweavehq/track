@@ -1,33 +1,39 @@
-import type { Issue, IssueStatus } from "@gateweave/track-protocol";
+import type { Issue, IssueDisplay } from "@gateweave/track-protocol";
 import { ChevronRight, Plus } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { type IssueDefaults, useWorkspaceActions } from "#/components/workspace/context";
+import { groupByOf, orderByOf, shownProperties } from "#/lib/display";
+import { groupFields, groupIssues, type IssueGroup } from "#/lib/grouping";
 import { useHotkeys } from "#/lib/hotkeys";
-import { groupByStatus, type StatusGroup } from "#/lib/issues";
 import {
 	useBlockedIssueIds,
 	useMembersById,
+	useProjectsById,
 	useSubIssueProgress,
 	useTeamsById,
 } from "#/lib/queries";
 import { markIssueListShown } from "#/lib/timing";
 import { cn } from "#/lib/utils";
 import { useIssueDropZone, useIssueMoves } from "./dnd";
+import { GroupIcon, useGroupName } from "./group-label";
 import { type IssueField, IssueRow } from "./issue-row";
-import { STATUS_META, StatusIcon } from "./meta";
 
 /**
- * Issues grouped by status, driven from the keyboard: J/K or the arrow keys move the selection,
- * Enter opens the issue, S, P and A change the selected issue's status, priority and assignee,
- * and Alt with the arrow keys moves it up or down. Rows can also be dragged.
+ * Issues in groups (by status unless the display options say otherwise), driven from the keyboard:
+ * J/K or the arrow keys move the selection, Enter opens the issue, S, P and A change the selected
+ * issue's status, priority and assignee, and Alt with the arrow keys moves it up or down. Rows can
+ * also be dragged.
  */
 export function IssueList({
 	issues,
+	display,
 	defaults,
 	empty,
 }: {
 	issues: Issue[];
+	/** How to group and order the issues, and which of their properties to show. */
+	display: IssueDisplay;
 	/** Values for issues created from this list, such as its team. */
 	defaults: IssueDefaults;
 	/** Shown when there are no issues at all. */
@@ -37,10 +43,17 @@ export function IssueList({
 	const members = useMembersById();
 	const subIssues = useSubIssueProgress();
 	const blocked = useBlockedIssueIds();
-	const allGroups = useMemo(() => groupByStatus(issues), [issues]);
+	const projects = useProjectsById();
+	const groupBy = groupByOf(display);
+	const orderBy = orderByOf(display);
+	const properties = useMemo(() => shownProperties(display), [display]);
+	const allGroups = useMemo(
+		() => groupIssues(issues, groupBy, orderBy, "list", { members, projects }),
+		[issues, groupBy, orderBy, members, projects],
+	);
 	const groups = allGroups.filter((group) => group.issues.length > 0);
-	const moveIssue = useIssueMoves(allGroups);
-	const [collapsed, setCollapsed] = useState<ReadonlySet<IssueStatus>>(() => new Set());
+	const moveIssue = useIssueMoves(allGroups, orderBy === "manual");
+	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [menu, setMenu] = useState<{ issueId: string; field: IssueField } | null>(null);
 	const rows = useRef(new Map<string, HTMLAnchorElement>());
@@ -50,7 +63,7 @@ export function IssueList({
 		if (shown) markIssueListShown(issues.length);
 	}, [shown, issues.length]);
 
-	const visible = groups.flatMap((group) => (collapsed.has(group.status) ? [] : group.issues));
+	const visible = groups.flatMap((group) => (collapsed.has(group.key) ? [] : group.issues));
 
 	const registerRow = useCallback((issueId: string, link: HTMLAnchorElement | null) => {
 		if (link) rows.current.set(issueId, link);
@@ -80,9 +93,9 @@ export function IssueList({
 		);
 		const index = group?.issues.findIndex((issue) => issue.id === selectedId) ?? -1;
 		const issue = group?.issues[index];
-		if (!group || !issue || collapsed.has(group.status)) return;
+		if (!group || !issue || collapsed.has(group.key)) return;
 		// Positions count the other issues, so one step up is index - 1 and one down is index + 1.
-		if (moveIssue(issue, group.status, index + step)) {
+		if (moveIssue(issue, group.key, index + step)) {
 			// Reordering moves the row's element, which drops its focus.
 			requestAnimationFrame(() => rows.current.get(issue.id)?.focus());
 		}
@@ -102,34 +115,36 @@ export function IssueList({
 		a: () => openMenu("assignee"),
 	});
 
-	function toggle(status: IssueStatus) {
+	function toggle(key: string) {
 		setCollapsed((current) => {
 			const next = new Set(current);
-			if (!next.delete(status)) next.add(status);
+			if (!next.delete(key)) next.add(key);
 			return next;
 		});
 	}
 
 	if (groups.length === 0) return empty;
 
-	// Headers and rows are siblings in one flat list, so a row that changes status moves to its
-	// new group without remounting and keeps focus and any open menu.
+	// Headers and rows are siblings in one flat list, so a row that changes group moves to its
+	// new one without remounting and keeps focus and any open menu.
 	return (
 		<div>
 			{groups.flatMap((group) => {
-				const isCollapsed = collapsed.has(group.status);
-				const header = (
-					<GroupHeader
-						key={`group-${group.status}`}
-						group={group}
-						collapsed={isCollapsed}
-						onToggle={toggle}
-						defaults={defaults}
-					/>
-				);
+				const isCollapsed = collapsed.has(group.key);
+				// Without grouping there is one group, and no header to put above it.
+				const header =
+					group.by === "none" ? null : (
+						<GroupHeader
+							key={`group-${group.key}`}
+							group={group}
+							collapsed={isCollapsed}
+							onToggle={toggle}
+							defaults={defaults}
+						/>
+					);
 				if (isCollapsed) return [header];
 				return [
-					header,
+					...(header ? [header] : []),
 					...group.issues.map((issue) => (
 						<IssueRow
 							key={issue.id}
@@ -138,6 +153,7 @@ export function IssueList({
 							assignee={issue.assigneeId ? members.get(issue.assigneeId) : undefined}
 							subIssues={subIssues.get(issue.id)}
 							blocked={blocked.has(issue.id)}
+							properties={properties}
 							selected={issue.id === selectedId}
 							menu={menu?.issueId === issue.id ? menu.field : null}
 							onMenuChange={onMenuChange}
@@ -151,21 +167,21 @@ export function IssueList({
 	);
 }
 
-/** A status group's header. Dropping an issue on it moves the issue to the top of the group. */
+/** A group's header. Dropping an issue on it moves the issue to the top of the group. */
 function GroupHeader({
 	group,
 	collapsed,
 	onToggle,
 	defaults,
 }: {
-	group: StatusGroup;
+	group: IssueGroup;
 	collapsed: boolean;
-	onToggle: (status: IssueStatus) => void;
+	onToggle: (key: string) => void;
 	defaults: IssueDefaults;
 }) {
 	const actions = useWorkspaceActions();
-	const [ref, over] = useIssueDropZone<HTMLHeadingElement>(group.status, "start");
-	const label = STATUS_META[group.status].label;
+	const [ref, over] = useIssueDropZone<HTMLHeadingElement>(group.key, "start");
+	const label = useGroupName()(group);
 
 	return (
 		<h2
@@ -177,7 +193,7 @@ function GroupHeader({
 		>
 			<button
 				type="button"
-				onClick={() => onToggle(group.status)}
+				onClick={() => onToggle(group.key)}
 				aria-expanded={!collapsed}
 				className="flex min-w-0 flex-1 items-center gap-2 text-sm"
 			>
@@ -187,7 +203,7 @@ function GroupHeader({
 						!collapsed && "rotate-90",
 					)}
 				/>
-				<StatusIcon status={group.status} />
+				<GroupIcon group={group} />
 				<span className="font-medium">{label}</span>
 				<span className="text-muted-foreground tabular-nums">{group.issues.length}</span>
 			</button>
@@ -195,8 +211,10 @@ function GroupHeader({
 				variant="ghost"
 				size="icon"
 				className="size-7"
-				aria-label={`Create a ${label} issue`}
-				onClick={() => actions.createIssue({ ...defaults, status: group.status })}
+				aria-label={
+					group.by === "status" ? `Create a ${label} issue` : `Create an issue in ${label}`
+				}
+				onClick={() => actions.createIssue({ ...defaults, ...groupFields(group) })}
 			>
 				<Plus />
 			</Button>

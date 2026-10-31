@@ -604,6 +604,73 @@ describe("views", () => {
 		).toMatchObject({ type: "reject", reason: "invalid" });
 	});
 
+	it("keeps a view's display options, and refuses ones it does not know", async () => {
+		const workspace = freshWorkspace();
+		const author = await TestClient.live(workspace, alice);
+		const other = await TestClient.live(workspace, bob);
+		const create = (id: string, display: unknown) =>
+			author.mutate({
+				name: "view.create",
+				args: { id, name: id, layout: "list", filters: {}, display } as never,
+			});
+		const displayOf = async (id: string) =>
+			(await snapshotOf(workspace)).views.find((view) => view.id === id)?.display;
+
+		// A view saved without options, and with options that are all the defaults, has none.
+		expect(await createView(author, "view-plain")).toMatchObject({ type: "ack" });
+		expect(await create("view-default", { groupBy: "status", orderBy: "manual" })).toMatchObject({
+			type: "ack",
+		});
+		expect(await displayOf("view-plain")).toBeNull();
+		expect(await displayOf("view-default")).toBeNull();
+
+		// Defaults are dropped and lists put in order, so equal options are stored alike.
+		const display = {
+			groupBy: "assignee",
+			orderBy: "dueDate",
+			properties: ["labels", "id"],
+			columns: ["status", "title"],
+			sort: { column: "dueDate", direction: "desc" },
+		};
+		expect(await create("view-shown", display)).toMatchObject({ type: "ack" });
+		expect(await displayOf("view-shown")).toEqual({
+			...display,
+			properties: ["id", "labels"],
+			columns: ["id", "title", "status"],
+		});
+		// It reaches other members' replicas with the view.
+		const received = await other.op((op) => op.entity === "view" && op.id === "view-shown");
+		expect(received).toMatchObject({ op: "put", data: { display: { groupBy: "assignee" } } });
+
+		for (const bad of [
+			{ groupBy: "team" },
+			{ orderBy: "title" },
+			{ properties: ["nope"] },
+			{ columns: ["labels", "nope"] },
+			{ sort: { column: "labels", direction: "asc" } },
+			{ sort: { column: "status", direction: "up" } },
+			"status",
+		]) {
+			expect(await create("view-bad", bad)).toMatchObject({ type: "reject", reason: "invalid" });
+		}
+		expect(await displayOf("view-bad")).toBeUndefined();
+
+		const update = (patch: unknown) =>
+			author.mutate({ name: "view.update", args: { id: "view-shown", patch } as never });
+		expect(await update({ display: { groupBy: "project" } })).toMatchObject({ type: "ack" });
+		expect(await displayOf("view-shown")).toEqual({ groupBy: "project" });
+		// Other fields leave the options as they are; null clears them.
+		expect(await update({ name: "Renamed" })).toMatchObject({ type: "ack" });
+		expect(await displayOf("view-shown")).toEqual({ groupBy: "project" });
+		expect(await update({ display: { groupBy: "bogus" } })).toMatchObject({
+			type: "reject",
+			reason: "invalid",
+		});
+		expect(await displayOf("view-shown")).toEqual({ groupBy: "project" });
+		expect(await update({ display: null })).toMatchObject({ type: "ack" });
+		expect(await displayOf("view-shown")).toBeNull();
+	});
+
 	it("lets the creator and admins change a shared view, and only the owner a personal one", async () => {
 		const workspace = freshWorkspace();
 		const admin = await TestClient.live(workspace, owner);

@@ -8,6 +8,7 @@ const view = (patch: Partial<SavedView>): SavedView => ({
 	ownerId: null,
 	layout: "list",
 	filters: {},
+	display: null,
 	creatorId: "maya",
 	createdAt: 1,
 	updatedAt: 1,

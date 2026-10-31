@@ -1,4 +1,4 @@
-import type { Issue, IssueFilterKey, IssueFilters } from "@gateweave/track-protocol";
+import type { Issue, IssueDisplay, IssueFilterKey, IssueFilters } from "@gateweave/track-protocol";
 import {
 	CalendarDays,
 	ChartGantt,
@@ -21,6 +21,7 @@ import {
 import { type IssueDefaults, useWorkspaceActions } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
 import { relativeCycles } from "#/lib/cycles";
+import type { DisplayUpdate } from "#/lib/display";
 import {
 	activeFilters,
 	defaultsFromFilters,
@@ -39,6 +40,7 @@ import {
 } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import type { IssueView } from "#/lib/views";
+import { DisplayMenu } from "./display-menu";
 import { useDragAutoScroll } from "./dnd";
 import { ActiveFilters, FilterMenu } from "./filter-menu";
 import { IssueBoard } from "./issue-board";
@@ -62,6 +64,8 @@ export function IssuesPage({
 	onViewChange,
 	filters,
 	onFiltersChange,
+	display,
+	onDisplayChange,
 	offeredFilters,
 	filterActions,
 	intro,
@@ -71,7 +75,7 @@ export function IssuesPage({
 	badge?: ReactNode;
 	/** Shown between the header and the issues, such as a project's details. */
 	intro?: ReactNode;
-	/** What the page remembers its view and table columns by; the scope `useIssueView` takes. */
+	/** What the page remembers its view by (the scope `useIssueView` takes), and remounts on. */
 	scope: string;
 	issues: Issue[];
 	defaults: IssueDefaults;
@@ -81,6 +85,9 @@ export function IssuesPage({
 	/** Which issues to show. Values that no longer resolve, such as a deleted label, are ignored. */
 	filters: IssueFilters;
 	onFiltersChange: (update: FiltersUpdate) => void;
+	/** How to group, order and show the issues. */
+	display: IssueDisplay;
+	onDisplayChange: (update: DisplayUpdate) => void;
 	/** The filters this page offers; what the page is about, such as its team, is not one. */
 	offeredFilters: readonly IssueFilterKey[];
 	/** Shown at the end of the row of filters in force, such as a way to save them. */
@@ -196,6 +203,9 @@ export function IssuesPage({
 							/>
 						</div>
 						<FilterMenu filters={active} onChange={onFiltersChange} offered={offeredFilters} />
+						{(view === "list" || view === "board") && (
+							<DisplayMenu display={display} onChange={onDisplayChange} layout={view} />
+						)}
 						<ViewSwitch view={view} onChange={onViewChange} />
 						<Button size="sm" onClick={() => actions.createIssue(issueDefaults)}>
 							<Plus />
@@ -212,16 +222,32 @@ export function IssuesPage({
 			{intro}
 			{view === "board" ? (
 				<div className="min-h-0 flex-1">
-					<IssueBoard issues={filtered} defaults={issueDefaults} empty={emptyState} />
+					<IssueBoard
+						issues={filtered}
+						display={display}
+						defaults={issueDefaults}
+						empty={emptyState}
+					/>
 				</div>
 			) : view === "calendar" ? (
 				<IssueCalendar issues={filtered} empty={emptyState} />
 			) : view === "table" ? (
-				<IssueTable key={scope} issues={filtered} empty={emptyState} scope={scope} />
+				<IssueTable
+					key={scope}
+					issues={filtered}
+					empty={emptyState}
+					display={display}
+					onDisplayChange={onDisplayChange}
+				/>
 			) : view === "timeline" ? (
 				<IssueTimeline issues={filtered} empty={emptyState} />
 			) : (
-				<IssueList issues={filtered} defaults={issueDefaults} empty={emptyState} />
+				<IssueList
+					issues={filtered}
+					display={display}
+					defaults={issueDefaults}
+					empty={emptyState}
+				/>
 			)}
 		</div>
 	);

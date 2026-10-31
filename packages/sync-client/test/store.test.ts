@@ -259,6 +259,7 @@ describe("Replica", () => {
 			ownerId: null,
 			layout: "list",
 			filters,
+			display: null,
 			creatorId: "alice",
 			createdAt: 100,
 			updatedAt: 100,
@@ -272,6 +273,7 @@ describe("Replica", () => {
 			ownerId: null,
 			layout: "list" as const,
 			filters,
+			display: null,
 			creatorId: "alice",
 			createdAt: 3,
 			updatedAt: 3,
@@ -295,6 +297,55 @@ describe("Replica", () => {
 		expect(r.getState().views.has("v2")).toBe(false);
 	});
 
+	it("predicts a view's display options, kept in their stored form", () => {
+		const r = replica();
+		r.addPending(
+			pending("m1", {
+				name: "view.create",
+				args: {
+					id: "v1",
+					name: "By priority",
+					personal: false,
+					layout: "board",
+					filters: {},
+					display: { groupBy: "priority", orderBy: "manual", columns: ["title", "id", "status"] },
+				},
+			}),
+			pending("m2", {
+				name: "view.create",
+				args: {
+					id: "v2",
+					name: "Plain",
+					personal: false,
+					layout: "list",
+					filters: {},
+					display: { groupBy: "status" },
+				},
+			}),
+		);
+		// Defaults are dropped and lists put in order, as the server stores them.
+		expect(r.getState().views.get("v1")?.display).toEqual({
+			groupBy: "priority",
+			columns: ["id", "title", "status"],
+		});
+		expect(r.getState().views.get("v2")?.display).toBeNull();
+
+		r.addPending(
+			pending("m3", {
+				name: "view.update",
+				args: { id: "v1", patch: { display: { orderBy: "dueDate" } } },
+			}),
+			pending("m4", { name: "view.update", args: { id: "v2", patch: { name: "Still plain" } } }),
+		);
+		expect(r.getState().views.get("v1")?.display).toEqual({ orderBy: "dueDate" });
+		expect(r.getState().views.get("v2")?.display).toBeNull();
+
+		r.addPending(
+			pending("m5", { name: "view.update", args: { id: "v1", patch: { display: null } } }),
+		);
+		expect(r.getState().views.get("v1")?.display).toBeNull();
+	});
+
 	it("leaves views the user may not change to the server", () => {
 		const r = replica();
 		const view = (id: string, ownerId: string | null) => ({
@@ -303,6 +354,7 @@ describe("Replica", () => {
 			ownerId,
 			layout: "list" as const,
 			filters: {},
+			display: null,
 			creatorId: "bob",
 			createdAt: 3,
 			updatedAt: 3,

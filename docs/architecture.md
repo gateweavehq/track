@@ -669,21 +669,37 @@ browser, so both are instant and work offline; the server is not asked.
   priority, assignee, project, cycle or team) and the labels filtered by, so it appears on the page it
   was made from. The page registers these defaults with the workspace's actions, so the page's
   button, the C shortcut and the command palette agree.
-- The layouts are a list, a board by status, a calendar by due date, a table and a timeline from
-  start to due date. A page remembers its last layout in the browser, and `view` in the URL
-  overrides it. The table renders only the rows near the screen, as a team can hold thousands.
+- Display options are `IssueDisplay` (`packages/protocol/src/display.ts`), the other half of how
+  a page looks: what a list or board groups by (status, priority, assignee, project or nothing)
+  and orders by (manual, priority, due date, updated, created), which properties show on rows
+  and cards, and the table's columns and sort. They live in the URL like filters (`group`,
+  `order`, `props`, `columns`, `sort`, such as `dueDate.desc`), malformed values dropped, and
+  anything left out is the default: grouped by status, manual order, every property and column,
+  an unsorted table. Grouping and ordering are one memoized pass over the local replica
+  (`apps/web/src/lib/grouping.ts`). Dragging an issue into another group sets the grouped field
+  (status, priority, assignee or project); where it lands in the group counts only in manual
+  order, and without grouping a drag only reorders (manual order) or does nothing.
+- The layouts are a list, a board (one column per group, status by default), a calendar by due
+  date, a table and a timeline from start to due date. A page remembers its last layout in the
+  browser, and `view` in the URL overrides it. The table renders only the rows near the screen,
+  as a team can hold thousands.
 
 ### Saved views
 
-A saved view (`SavedView` in `packages/protocol/src/domain.ts`) is filters and a layout under
-a name, listed in the sidebar and opened at `/$workspace/view/$viewId`. Views are entities of
+A saved view (`SavedView` in `packages/protocol/src/domain.ts`) is filters, a layout and display
+options under a name, listed in the sidebar and opened at `/$workspace/view/$viewId`. Views are entities of
 the workspace, synced like the rest (`view.create`, `view.update`, `view.delete`), so they work
 offline and show up in other browsers at once.
 
 - A view shows issues from the whole workspace, so saving one from a team's page, a project's or
   My issues keeps that scope as a filter.
-- On a view's page, changes to its filters or layout stay in the page, not in the URL, until
-  they are saved into the view or as a new one; the view's link always opens the view as saved.
+- On a view's page, changes to its filters, layout or display options stay in the page, not in
+  the URL, until they are saved into the view or as a new one; the view's link always opens the
+  view as saved.
+- `display` is null when every option is a default; the server and the client's prediction both
+  store only what differs, with lists in a fixed order (`displayToStore`), so equal options are
+  stored alike and "Unsaved changes" is a plain comparison. Views saved before it have none, and
+  look as they did.
 - A shared view (`ownerId` null) is the workspace's: its creator and admins may change or delete
   it. A personal view is its owner's alone, and only they see it in the app. Personal views are
   a way to keep the sidebar tidy, not a secret: like every entity, they are in each member's

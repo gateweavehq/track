@@ -19,7 +19,7 @@ import type {
 import type { MutationInput } from "./mutations";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";
