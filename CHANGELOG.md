@@ -8,6 +8,35 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.10.0] - 2026-10-31
+
+GitHub: pull requests and commits that name an issue link to it and move it along. Also display
+options in saved views. Updating a self-hosted copy applies two migrations in each workspace's
+database, which run on their own; there is no D1 migration and no new setting. The protocol goes
+to version 14, so open tabs reload and sync again. ([#88], [#89])
+
+### Added
+
+- GitHub connections. An admin adds one in Settings, GitHub, and sets it as a webhook on a
+  repository or an organization. Pull requests link the issues their branch, title or
+  description names, and the issue page lists them with their state. A draft moves its issues to
+  In Progress and an open pull request to In Review. A merge moves the issues it fixes, named by
+  its branch or after "Fixes", "Closes" or "Resolves", to Done, as does a commit to the default
+  branch that says so. Track never moves an issue back, nor out of Done or Canceled, and each
+  move's activity links the pull request or commit. The issue page copies a branch name for the
+  issue, the inbox and webhooks name GitHub as the actor, and MCP's `get_issue` lists an issue's
+  pull requests. The public demo takes no deliveries. ([#89])
+- Display options. A Display menu groups the list and the board by status, priority, assignee,
+  project or nothing, orders them by hand, priority, due date, last update or creation, and
+  picks the properties rows and cards show. The options live in the page's URL and in saved
+  views, so everyone opening a view sees the same page. Dragging an issue into another group
+  sets that field. ([#88])
+
+### Changed
+
+- The table's columns and sort follow the page's URL and saved views instead of one browser's
+  storage, so columns hidden before this version show again. ([#88])
+
 ## [0.9.0] - 2026-10-31
 
 An inbox of your own: people hear of assignments, comments, status changes and agents' proposals
@@ -400,6 +429,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.10.0]: https://github.com/gateweavehq/track/releases/tag/v0.10.0
 [0.9.0]: https://github.com/gateweavehq/track/releases/tag/v0.9.0
 [0.8.0]: https://github.com/gateweavehq/track/releases/tag/v0.8.0
 [0.7.1]: https://github.com/gateweavehq/track/releases/tag/v0.7.1
@@ -476,3 +506,5 @@ The first pre-release.
 [#82]: https://github.com/gateweavehq/track/pull/82
 [#85]: https://github.com/gateweavehq/track/pull/85
 [#86]: https://github.com/gateweavehq/track/pull/86
+[#88]: https://github.com/gateweavehq/track/pull/88
+[#89]: https://github.com/gateweavehq/track/pull/89
