@@ -137,7 +137,7 @@ export function CreateIssueDialog({
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
 			<DialogContent
-				className="top-[20%] max-w-2xl translate-y-0 gap-0 p-0"
+				className="top-[20%] max-h-[calc(80dvh-1rem)] max-w-2xl translate-y-0 gap-0 p-0"
 				onEscapeKeyDown={keepOpenForMentions}
 			>
 				<form onSubmit={onSubmit} onKeyDown={onKeyDown}>
