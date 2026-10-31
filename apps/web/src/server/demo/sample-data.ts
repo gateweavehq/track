@@ -92,6 +92,8 @@ export const PROJECTS: Record<ProjectKey, SampleProject> = {
 export interface SampleIssue {
 	project?: ProjectKey;
 	team: TeamKey;
+	/** Planned into the team's current cycle, which only exists once the workspace is seeded. */
+	cycle?: "current";
 	title: string;
 	labels?: LabelKey[];
 	status: IssueStatus;
@@ -107,6 +109,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Sign-in fails when the email has uppercase letters",
+		cycle: "current",
 		project: "reliability",
 		labels: ["bug"],
 		status: "in_progress",
@@ -142,6 +145,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Search issues by title from the command palette",
+		cycle: "current",
 		labels: ["feature"],
 		status: "in_progress",
 		priority: 2,
@@ -151,6 +155,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Slow first load on large workspaces",
+		cycle: "current",
 		project: "reliability",
 		labels: ["performance"],
 		status: "in_progress",
@@ -171,6 +176,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Flaky test: realtime sync drops the last edit",
+		cycle: "current",
 		project: "reliability",
 		labels: ["bug"],
 		status: "in_review",
@@ -187,6 +193,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Rate limit the sign-up endpoint",
+		cycle: "current",
 		project: "reliability",
 		labels: ["security"],
 		status: "todo",
@@ -248,6 +255,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Upgrade to TypeScript 7",
+		cycle: "current",
 		status: "done",
 		priority: 3,
 		assignee: "sam",
@@ -256,6 +264,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Set up error tracking for the Worker",
+		cycle: "current",
 		project: "reliability",
 		status: "done",
 		priority: 3,
@@ -265,6 +274,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Disabled buttons are hard to read in dark mode",
+		cycle: "current",
 		labels: ["bug", "accessibility"],
 		status: "done",
 		priority: 4,

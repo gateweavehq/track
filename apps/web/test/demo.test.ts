@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { Snapshot } from "@gateweave/track-protocol";
+import { cycleState, type Snapshot } from "@gateweave/track-protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ISSUES, LABELS, PEOPLE, PROJECTS, TEAMS } from "../src/server/demo/sample-data";
 import { startTrack } from "./track-worker";
@@ -109,6 +109,23 @@ describe("on the demo deployment", () => {
 		);
 		const maya = data.members.find((member) => member.email === PEOPLE.maya.email);
 		expect(data.issues.some((issue) => issue.assigneeId === maya?.id)).toBe(true);
+	});
+
+	it("plans sample issues into Engineering's current cycle, some of them done", async () => {
+		const { slug, cookie } = await startVisitor(track, "203.0.113.7");
+		const data = (await (await snapshot(track, slug, cookie)).json()) as Snapshot;
+		const eng = data.teams.find((team) => team.key === "ENG");
+		const today = new Date().toISOString().slice(0, 10);
+		const current = data.cycles.find(
+			(cycle) => cycle.teamId === eng?.id && cycleState(cycle, today) === "current",
+		);
+		expect(current).toBeDefined();
+
+		const planned = data.issues.filter((issue) => issue.cycleId === current?.id);
+		expect(planned).toHaveLength(ISSUES.filter((issue) => issue.cycle === "current").length);
+		expect(planned.length).toBeGreaterThan(3);
+		expect(planned.some((issue) => issue.status === "done")).toBe(true);
+		expect(planned.some((issue) => issue.status !== "done")).toBe(true);
 	});
 
 	it("sends a returning visitor straight back to their sandbox", async () => {
