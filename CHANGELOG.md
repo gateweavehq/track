@@ -8,6 +8,35 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.8.0] - 2026-10-31
+
+Cycles: a team can work in fixed runs of one to four weeks, and Track moves them on by itself.
+Also webhook events for relations, and importing Track's own JSON export. Updating a self-hosted
+copy applies a migration in each workspace's database, which runs on its own; there is no D1
+migration. The protocol goes to version 11, so open tabs reload and sync again. ([#82])
+
+### Added
+
+- Cycles. An admin turns them on for a team, with a length of one to four weeks, the day the next
+  one starts and the time zone its days follow. The workspace keeps two cycles ahead, completes
+  each at midnight after its last day and moves its unfinished issues to the next one, as Track.
+  Issues are planned into a cycle from their page, the new-issue dialog or the table. A team's
+  cycles page lists the current, upcoming and completed ones with their progress, and each cycle
+  has a page with its dates, progress in issues and points, a burn-up and its issues. Filters and
+  saved views can follow the current or next cycle. MCP's `get_workspace` lists open cycles, and
+  `search_issues`, `create_issue` and `update_issue` take `cycle` as `"current"`, `"next"` or a
+  number. Webhook events for the moves Track makes carry an actor of type `system`. ([#82])
+- Webhook events for relations: `relation.created` and `relation.deleted`, with both issues and
+  the relation. New webhooks leave them off until chosen. ([#78])
+- Settings, Import reads Track's own JSON export as well as CSV, so a workspace or a team can move
+  to another workspace, such as from a self-hosted copy to Gateweave Cloud. Issues keep their
+  comments, parents, labels, projects and relations, and the file's teams can be kept. Repeating
+  an import skips what is already there. ([#81])
+
+### Changed
+
+- The JSON export includes cycles. ([#82])
+
 ## [0.7.1] - 2026-10-30
 
 Gets v0.7.0 to production. Updating a self-hosted copy needs nothing beyond what v0.7.0 asks.
@@ -348,6 +377,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.8.0]: https://github.com/gateweavehq/track/releases/tag/v0.8.0
 [0.7.1]: https://github.com/gateweavehq/track/releases/tag/v0.7.1
 [0.7.0]: https://github.com/gateweavehq/track/releases/tag/v0.7.0
 [0.6.0]: https://github.com/gateweavehq/track/releases/tag/v0.6.0
@@ -416,4 +446,7 @@ The first pre-release.
 [#74]: https://github.com/gateweavehq/track/pull/74
 [#75]: https://github.com/gateweavehq/track/pull/75
 [#76]: https://github.com/gateweavehq/track/pull/76
+[#78]: https://github.com/gateweavehq/track/pull/78
 [#79]: https://github.com/gateweavehq/track/pull/79
+[#81]: https://github.com/gateweavehq/track/pull/81
+[#82]: https://github.com/gateweavehq/track/pull/82
