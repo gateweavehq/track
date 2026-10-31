@@ -7,7 +7,7 @@ import {
 	sameDisplay,
 } from "@gateweave/track-protocol";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { FILTER_KEYS } from "#/components/issues/filter-menu";
 import { IssuesPage } from "#/components/issues/issues-page";
 import { Button } from "#/components/ui/button";
@@ -75,12 +75,14 @@ function ViewIssues({ view }: { view: SavedView }) {
 	// Changes not saved yet, kept here rather than in the URL so that the view's link stays the
 	// view. Null while there are none, so a change someone else saves shows up at once.
 	const [draft, setDraft] = useState<Draft | null>(null);
-	const shown: Draft = draft ?? draftOf(view);
+	// Memoized because rows are: options rebuilt on every render would redraw each of them.
+	const saved = useMemo(() => draftOf(view), [view]);
+	const shown: Draft = draft ?? saved;
 
 	const change = useCallback(
 		(update: (current: Draft) => Draft) =>
 			setDraft((current) => {
-				const next = update(current ?? draftOf(view));
+				const next = update(current ?? saved);
 				const filters = compactFilters(next.filters);
 				const display = compactDisplay(next.display);
 				return next.layout === view.layout &&
@@ -89,7 +91,7 @@ function ViewIssues({ view }: { view: SavedView }) {
 					? null
 					: { filters, layout: next.layout, display };
 			}),
-		[view],
+		[view, saved],
 	);
 	const onFiltersChange = useCallback(
 		(update: FiltersUpdate) =>

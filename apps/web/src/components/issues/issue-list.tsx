@@ -20,9 +20,10 @@ import { GroupIcon, useGroupName } from "./group-label";
 import { type IssueField, IssueRow } from "./issue-row";
 
 /**
- * Issues grouped (by status unless the display options say otherwise), driven from the keyboard: J/K or the arrow keys move the selection,
- * Enter opens the issue, S, P and A change the selected issue's status, priority and assignee,
- * and Alt with the arrow keys moves it up or down. Rows can also be dragged.
+ * Issues in groups (by status unless the display options say otherwise), driven from the keyboard:
+ * J/K or the arrow keys move the selection, Enter opens the issue, S, P and A change the selected
+ * issue's status, priority and assignee, and Alt with the arrow keys moves it up or down. Rows can
+ * also be dragged.
  */
 export function IssueList({
 	issues,

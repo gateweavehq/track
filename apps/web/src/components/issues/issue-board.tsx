@@ -38,9 +38,10 @@ import { SubIssueCount } from "./sub-issue-count";
 const CARD_GAP = 8;
 
 /**
- * Issues in one column per group (status unless the display options say otherwise). Cards are dragged within and between columns. From the
- * keyboard, J/K and H/L (or the arrow keys) move the selection, Alt with the arrow keys moves the
- * selected card, and S, P and A change its status, priority and assignee.
+ * Issues in one column per group (by status unless the display options say otherwise). Cards are
+ * dragged within and between columns. From the keyboard, J/K and H/L (or the arrow keys) move the
+ * selection, Alt with the arrow keys moves the selected card, and S, P and A change its status,
+ * priority and assignee.
  */
 export function IssueBoard({
 	issues,
