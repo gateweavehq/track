@@ -266,6 +266,134 @@ describe("subscriptions", () => {
 	});
 });
 
+describe("mentions", () => {
+	const mention = (member: MemberProfile) => `[@${member.name}](mention:${member.id})`;
+
+	it("tells and subscribes the people a comment mentions, once each", async () => {
+		const { workspace, as } = await workspaceWithTeam();
+		await as(owner, createIssue());
+		await as(
+			bob,
+			comment("comment-1", `${mention(alice)} and ${mention(owner)}, ${mention(alice)}?`),
+		);
+
+		expect(await subscriptionOf(workspace, alice)).toMatchObject({ subscribed: true });
+		expect(await itemOf(workspace, alice)).toMatchObject({
+			event: { type: "mention", commentId: "comment-1" },
+			actorId: bob.id,
+			unread: 1,
+		});
+		// The owner follows the issue, and hears of the comment as a mention, not twice.
+		expect(await itemOf(workspace, owner)).toMatchObject({
+			event: { type: "mention", commentId: "comment-1" },
+			unread: 1,
+		});
+		expect(await itemOf(workspace, bob)).toBeUndefined();
+	});
+
+	it("tells only the people an edit newly mentions", async () => {
+		const { workspace, as } = await workspaceWithTeam();
+		await as(owner, createIssue());
+		await as(bob, comment("comment-1", `Over to ${mention(alice)}`));
+		await as(alice, inboxUpdate([{ issueId: ISSUE_ID, seen: Date.now() }], { read: true }));
+		await as(owner, inboxUpdate([{ issueId: ISSUE_ID, seen: Date.now() }], { read: true }));
+
+		await as(bob, {
+			name: "comment.update",
+			args: { id: "comment-1", body: `Over to ${mention(alice)}, or ${mention(owner)}` },
+		});
+		expect(await itemOf(workspace, alice)).toMatchObject({ unread: 0 });
+		expect(await itemOf(workspace, owner)).toMatchObject({
+			event: { type: "mention", commentId: "comment-1" },
+			unread: 1,
+		});
+	});
+
+	it("tells the people a description mentions, except whoever it was just assigned to", async () => {
+		const { workspace, as } = await workspaceWithTeam();
+		await as(owner, {
+			name: "issue.create",
+			args: {
+				id: ISSUE_ID,
+				teamId: TEAM_ID,
+				title: "Ship mentions",
+				description: `For ${mention(alice)} and ${mention(bob)}`,
+				assigneeId: bob.id,
+				sortOrder: "a0",
+			},
+		});
+		expect(await itemOf(workspace, alice)).toMatchObject({
+			event: { type: "mention", commentId: null },
+			actorId: owner.id,
+			unread: 1,
+		});
+		expect(await itemOf(workspace, bob)).toMatchObject({ event: { type: "assigned" }, unread: 1 });
+
+		// Agents, people who are not members, and the writer are mentioned in text alone.
+		const issue = (await workspace.snapshot(owner)).issues.find((row) => row.id === ISSUE_ID);
+		await as(alice, {
+			name: "issue.update",
+			args: {
+				id: ISSUE_ID,
+				baseVersion: issue?.version ?? 0,
+				patch: {
+					description: `For ${mention(alice)} and ${mention(bob)}, with ${mention(triage)}, [@Nobody](mention:user-nobody) and ${mention(owner)}`,
+				},
+			},
+		});
+		expect(await itemOf(workspace, owner)).toMatchObject({
+			event: { type: "mention", commentId: null },
+			actorId: alice.id,
+			unread: 1,
+		});
+		expect(await itemOf(workspace, bob)).toMatchObject({ event: { type: "assigned" }, unread: 1 });
+		expect(await itemOf(workspace, alice)).toMatchObject({ actorId: owner.id, unread: 1 });
+		expect((await workspace.snapshot(triage)).subscriptions).toEqual([]);
+	});
+
+	it("reaches people who unsubscribed, without subscribing them again", async () => {
+		const { workspace, as } = await workspaceWithTeam();
+		await as(owner, createIssue());
+		await as(alice, { name: "issue.subscribe", args: { issueId: ISSUE_ID, subscribed: false } });
+		await as(bob, comment("comment-1", `What do you think, ${mention(alice)}?`));
+		expect(await itemOf(workspace, alice)).toMatchObject({ event: { type: "mention" } });
+		expect(await subscriptionOf(workspace, alice)).toMatchObject({ subscribed: false });
+	});
+
+	it("do nothing for people who turned them off, beyond what they follow", async () => {
+		const { workspace, as } = await workspaceWithTeam();
+		await as(owner, createIssue());
+		await workspace.updateNotificationSettings(alice, { mention: "off" });
+		await as(bob, comment("comment-1", `Thanks, ${mention(alice)}`));
+		expect(await subscriptionOf(workspace, alice)).toBeUndefined();
+		expect(await itemOf(workspace, alice)).toBeUndefined();
+
+		await as(alice, { name: "issue.subscribe", args: { issueId: ISSUE_ID, subscribed: true } });
+		await as(owner, comment("comment-2", `Agreed, ${mention(alice)}`));
+		expect(await itemOf(workspace, alice)).toMatchObject({
+			event: { type: "comment", commentId: "comment-2" },
+			unread: 1,
+		});
+	});
+
+	it("ignores mentions in code and in imported comments", async () => {
+		const { workspace, as } = await workspaceWithTeam();
+		await as(owner, createIssue());
+		await as(bob, comment("comment-1", `Write \`${mention(alice)}\` to mention someone`));
+		await as(owner, {
+			name: "comment.create",
+			args: {
+				id: "comment-2",
+				issueId: ISSUE_ID,
+				body: `From before, ${mention(alice)}`,
+				createdAt: Date.UTC(2024, 0, 1),
+			},
+		});
+		expect(await itemOf(workspace, alice)).toBeUndefined();
+		expect(await subscriptionOf(workspace, alice)).toBeUndefined();
+	});
+});
+
 describe("inbox.update", () => {
 	async function withItem() {
 		const setup = await workspaceWithTeam();
@@ -426,6 +554,8 @@ describe("workspaces from before the inbox", () => {
 		if (!inbox) throw new Error("No inbox migration");
 		await runInDurableObject(workspace, async (_, state) => {
 			const db = drizzle(state.storage, { schema });
+			db.run(sql`drop table due_reminders`);
+			db.run(sql`drop index issues_due_idx`);
 			db.run(sql`drop table notification_settings`);
 			db.run(sql`drop table pull_requests`);
 			db.run(sql`drop table github_connections`);

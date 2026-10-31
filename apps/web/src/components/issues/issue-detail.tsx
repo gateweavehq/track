@@ -8,6 +8,7 @@ import { useReadOnView } from "#/components/inbox/hooks";
 import { SubscribeButton } from "#/components/inbox/subscribe-button";
 import { Markdown } from "#/components/markdown";
 import { MemberAvatar } from "#/components/members/member-avatar";
+import { useMentions } from "#/components/mention-menu";
 import { ProjectStatusIcon } from "#/components/projects/meta";
 import { Button } from "#/components/ui/button";
 import {
@@ -464,10 +465,12 @@ function DescriptionField({ issue }: { issue: Issue }) {
 
 	const [editing, setEditing] = useState(false);
 	const textarea = useRef<HTMLTextAreaElement>(null);
-	const files = useAttachFiles(textarea, (next) => {
+	const insert = (next: string) => {
 		field.start();
 		field.change(next);
-	});
+	};
+	const files = useAttachFiles(textarea, insert);
+	const mentions = useMentions(textarea, insert);
 
 	// Opening the editor from the rendered text puts the caret at its end.
 	useEffect(() => {
@@ -508,33 +511,45 @@ function DescriptionField({ issue }: { issue: Issue }) {
 
 	return (
 		<div>
-			<textarea
-				ref={textarea}
-				value={field.value}
-				onFocus={() => {
-					field.start();
-					setEditing(true);
-				}}
-				onChange={(event) => field.change(event.target.value)}
-				onBlur={() => {
-					// The window losing focus, to the file picker or another app, is not leaving the
-					// field. Focus comes back here with the window; the draft saves meanwhile.
-					if (!document.hasFocus()) return;
-					field.finish();
-					setEditing(false);
-				}}
-				onKeyDown={(event) => {
-					if (event.key === "Escape") event.currentTarget.blur();
-				}}
-				{...files?.handlers}
-				placeholder="Add a description…"
-				aria-label="Description"
-				className="field-sizing-content min-h-40 w-full resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
-			/>
+			<div className="relative">
+				<textarea
+					ref={textarea}
+					value={field.value}
+					onFocus={() => {
+						field.start();
+						setEditing(true);
+					}}
+					onChange={(event) => {
+						field.change(event.target.value);
+						mentions.update(event.currentTarget);
+					}}
+					onSelect={(event) => mentions.update(event.currentTarget)}
+					onBlur={() => {
+						mentions.close();
+						// The window losing focus, to the file picker or another app, is not leaving the
+						// field. Focus comes back here with the window; the draft saves meanwhile.
+						if (!document.hasFocus()) return;
+						field.finish();
+						setEditing(false);
+					}}
+					onKeyDown={(event) => {
+						if (mentions.onKeyDown(event)) return;
+						if (event.key === "Escape") event.currentTarget.blur();
+					}}
+					{...files?.handlers}
+					{...mentions.aria}
+					placeholder="Add a description…"
+					aria-label="Description"
+					className="field-sizing-content min-h-40 w-full resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
+				/>
+				{mentions.menu}
+			</div>
 			{editing && (
 				<div className="flex items-center gap-1 text-xs text-muted-foreground">
 					{files && <AttachButton label="Attach files to the description" onFiles={files.attach} />}
-					<span>Markdown{files && ". Paste or drop files to attach them"}.</span>
+					<span>
+						Markdown. Type @ to mention someone{files && ", paste or drop files to attach them"}.
+					</span>
 				</div>
 			)}
 		</div>

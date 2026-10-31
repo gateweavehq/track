@@ -412,7 +412,11 @@ export type InboxEvent =
 	| { type: "comment"; commentId: string }
 	| { type: "status"; from: IssueStatus; to: IssueStatus }
 	/** An agent proposed a change, which waits for a person to accept or dismiss it. */
-	| { type: "proposal"; proposalId: string; change: ProposedChange };
+	| { type: "proposal"; proposalId: string; change: ProposedChange }
+	/** Someone mentioned the member: in a comment, or in the description when it is null. */
+	| { type: "mention"; commentId: string | null }
+	/** The issue, assigned to the member, is due on `on` (`YYYY-MM-DD`). Track reminds them. */
+	| { type: "due"; on: string };
 
 /**
  * An issue in a member's inbox, private to them. There is one per issue, holding its newest
@@ -425,7 +429,10 @@ export interface InboxItem {
 	issueId: string;
 	memberId: string;
 	event: InboxEvent;
-	/** Who caused the event: a person, an agent, or GitHub ({@link GITHUB_ACTOR_ID}). */
+	/**
+	 * Who caused the event: a person, an agent, GitHub ({@link GITHUB_ACTOR_ID}), or Track
+	 * ({@link SYSTEM_ACTOR_ID}) for a reminder.
+	 */
 	actorId: string;
 	/** Events since the member last read the item; 0 when it is read. */
 	unread: number;

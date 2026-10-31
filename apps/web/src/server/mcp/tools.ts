@@ -94,6 +94,10 @@ const assigneeInput = z
 	.describe('"me", "none", or a member\'s email or id, from get_workspace.');
 const projectNameInput = z.string().trim().min(1).max(64);
 const projectDescriptionInput = z.string().max(100_000).describe("Markdown.");
+/** Issues and comments can mention people, which tells them. */
+const MENTION_HELP =
+	"Markdown. Mention a member with [@Name](mention:<their id>), the id from get_workspace: it tells them.";
+const MENTION_OUTPUT = "Markdown. [@Name](mention:<member id>) is a mention of a member.";
 const projectStatusInput = z.enum(PROJECT_STATUSES);
 const LEAD_HELP = "The project's lead: \"me\", or a person's email or id, from get_workspace.";
 const leadInput = z.string().min(1).describe(LEAD_HELP);
@@ -133,7 +137,7 @@ const issueSummary = z.looseObject({
 	updatedAt: z.string(),
 });
 const issueDetail = issueSummary.extend({
-	description: z.string().nullable().describe("Markdown."),
+	description: z.string().nullable().describe(MENTION_OUTPUT),
 	parent: z.string().nullable().describe("The key of the issue this one is part of."),
 	creator: z.string().nullable().describe("The creator's email."),
 	createdAt: z.string(),
@@ -147,7 +151,7 @@ const relationOutput = z.looseObject({
 });
 const commentOutput = z.looseObject({
 	author: z.string().nullable().describe("The author's email."),
-	body: z.string().describe("Markdown."),
+	body: z.string().describe(MENTION_OUTPUT),
 	createdAt: z.string(),
 	edited: z.boolean(),
 });
@@ -417,7 +421,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				workspace: workspaceInput,
 				team: z.string().describe("The team's key, such as ENG."),
 				title: z.string().trim().min(1).max(512),
-				description: z.string().max(100_000).optional().describe("Markdown."),
+				description: z.string().max(100_000).optional().describe(MENTION_HELP),
 				status: statusInput.default("backlog"),
 				priority: priorityInput.default("none"),
 				assignee: assigneeInput.optional(),
@@ -484,7 +488,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					.max(100_000)
 					.nullable()
 					.optional()
-					.describe("Markdown. Null clears it."),
+					.describe(`${MENTION_HELP} Null clears it.`),
 				status: statusInput.optional(),
 				priority: priorityInput.optional(),
 				assignee: assigneeInput.optional(),
@@ -670,7 +674,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				key: keyInput,
-				body: z.string().trim().min(1).max(100_000).describe("Markdown."),
+				body: z.string().trim().min(1).max(100_000).describe(MENTION_HELP),
 			}),
 			outputSchema: commentOutput,
 			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },

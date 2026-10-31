@@ -73,6 +73,7 @@ import {
 	readDirectory,
 } from "./queries";
 import { MutationRejected } from "./rejected";
+import { nextReminderAt, remindDue } from "./reminders";
 import {
 	activeMember,
 	type Db,
@@ -485,13 +486,14 @@ export class WorkspaceDO extends DurableObject {
 	}
 
 	/**
-	 * Moves teams' cycles on at their boundaries, compacts the log when that is due, and sends the
-	 * webhook deliveries and the inbox digests that are.
+	 * Moves teams' cycles on at their boundaries, reminds assignees of issues due today, compacts
+	 * the log when that is due, and sends the webhook deliveries and the inbox digests that are.
 	 */
 	override async alarm(): Promise<void> {
 		const now = Date.now();
 		// Deliveries this queues go out below, in this same run.
 		this.#broadcast(this.ctx.storage.transactionSync(() => advanceCycles(this.#db, now)));
+		this.#broadcast(this.ctx.storage.transactionSync(() => remindDue(this.#db, now)));
 		if (now >= this.#compactionDue()) {
 			this.ctx.storage.transactionSync(() => {
 				compact(this.#db, now, RETENTION);
@@ -514,16 +516,18 @@ export class WorkspaceDO extends DurableObject {
 				}),
 			),
 		);
-		// Cycles were just moved on, so a boundary that is still due is a clock disagreement:
-		// look again in a minute rather than straight away.
-		const cycles = nextCycleChange(this.#db, Date.now());
+		// Cycles were just moved on and reminders sent, so one that is still due is a clock
+		// disagreement: look again in a minute rather than straight away.
+		const soon = (at: number | null) =>
+			at === null ? Number.POSITIVE_INFINITY : Math.max(at, Date.now() + 60_000);
 		const next = more
 			? Date.now()
 			: Math.min(
 					this.#compactionDue(),
 					nextDeliveryAt(this.#db) ?? Number.POSITIVE_INFINITY,
 					nextDigestAt(this.#db) ?? Number.POSITIVE_INFINITY,
-					cycles === null ? Number.POSITIVE_INFINITY : Math.max(cycles, Date.now() + 60_000),
+					soon(nextCycleChange(this.#db, Date.now())),
+					soon(nextReminderAt(this.#db, Date.now())),
 				);
 		await this.ctx.storage.setAlarm(next);
 	}

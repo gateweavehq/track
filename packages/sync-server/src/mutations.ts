@@ -25,6 +25,7 @@ import {
 	proposesChange,
 } from "./proposals";
 import { MutationRejected } from "./rejected";
+import { movesReminders } from "./reminders";
 import { indexIssue, indexTeamIssues, unindexIssue } from "./search";
 import {
 	activeMember,
@@ -163,10 +164,12 @@ export function applyMutation(
 		.values({ id: mutationId, clientId: actor.clientId, version: result.version, at: now })
 		.run();
 	const queued = queueDeliveries(db, actor.member, changes.events, result.version, now);
-	// The alarm plans the next cycle boundary, which a change to a team's cycles moves, and the
-	// next email.
+	// The alarm plans the next cycle boundary and due-date reminder, which a change to a team's
+	// cycles moves, and the next email.
 	const wake =
-		email || (mutation.name === "team.update" && mutation.args.patch.cycles !== undefined);
+		email ||
+		movesReminders(changes.events) ||
+		(mutation.name === "team.update" && mutation.args.patch.cycles !== undefined);
 	return { ...result, queued, wake, proposed: changes.proposed };
 }
 
@@ -745,7 +748,7 @@ function updateComment(
 	indexIssue(db, comment.issueId);
 	if (row) {
 		changes.put("comment", toComment(row));
-		changes.events.push({ type: "comment.updated", comment: row });
+		changes.events.push({ type: "comment.updated", comment: row, previous: comment });
 	}
 }
 

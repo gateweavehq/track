@@ -10,7 +10,17 @@ import { updateNotificationSettings, type WorkspaceNotifications } from "#/lib/n
 
 const KINDS: { kind: NotificationKind; label: string; description: string }[] = [
 	{ kind: "assigned", label: "Assigned to you", description: "Someone makes you the assignee." },
+	{
+		kind: "mention",
+		label: "Mentions",
+		description: "Someone mentions you in a description or a comment.",
+	},
 	{ kind: "comment", label: "Comments", description: "Someone comments on an issue you follow." },
+	{
+		kind: "due",
+		label: "Due dates",
+		description: "An open issue assigned to you is due today. Track tells you in the morning.",
+	},
 	{
 		kind: "status",
 		label: "Status changes",

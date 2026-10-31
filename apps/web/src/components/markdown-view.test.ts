@@ -53,4 +53,19 @@ describe("MarkdownView", () => {
 		expect(tracker).toContain('href="https://tracker.example/p.gif"');
 		expect(tracker).toContain(">pixel</a>");
 	});
+
+	it("shows mentions under members' current names, and as written for anyone else", () => {
+		const members = new Map([["u-1", { name: "Maya Chen" }]]);
+		const html = renderToStaticMarkup(
+			createElement(MarkdownView, {
+				source: "Ask [@Maya](mention:u-1) or [@Former](mention:u-gone)",
+				members,
+			}),
+		);
+		expect(html).toContain('<span data-mention="u-1"');
+		expect(html).toContain(">@Maya Chen</span>");
+		expect(html).toContain(">@Former</span>");
+		expect(html).not.toContain("<a");
+		expect(html).not.toContain("mention:");
+	});
 });

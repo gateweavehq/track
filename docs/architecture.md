@@ -68,6 +68,7 @@ different protocol versions in production. It also gives self-hosters one thing 
 | Issue activity (history)            | Workspace DO | `sync-server`, from issue writes   |
 | Subscriptions and inbox items       | Workspace DO | `sync-server`, from issue writes   |
 | Notification settings               | Workspace DO | `sync-server`, each person's own   |
+| Due-date reminders sent             | Workspace DO | `sync-server`, from the alarm      |
 | Webhooks, their secrets, deliveries | Workspace DO | `sync-server`, managed by admins   |
 | GitHub connections and secrets      | Workspace DO | `sync-server`, managed by admins   |
 | Pull requests that mention issues   | Workspace DO | `sync-server`, from GitHub         |
@@ -244,7 +245,9 @@ Each tool call resolves the workspace slug to the caller's membership in D1, as 
 does, and then reads or mutates through the Durable Object's RPC (see
 [Server-side clients](#server-side-clients)). A workspace the caller does not belong to is
 reported as not found. The tools themselves live in `apps/web/src/server/mcp/tools.ts`. Agents
-read an issue's comments with `get_issue` and write one with `add_comment`, as the person. An
+read an issue's comments with `get_issue` and write one with `add_comment`, as the person. They
+mention people as the app does, with `[@Name](mention:<member id>)`, which the tools' descriptions
+spell out. An
 agent sets up a fresh workspace's teams with `create_team`, which only admins may use. It makes
 and changes projects with `create_project` and `update_project`, which go through the same
 mutations as the app, so the server's rules apply: an agent member cannot, and a lead must be a
@@ -615,13 +618,14 @@ Each person has an inbox: one item per issue with news for them. The rules live 
 handler, and reads the ops the mutation wrote, so the app, MCP and imports all follow the same
 rules and no client can skip them.
 
-- **Who is subscribed.** Filing an issue, commenting on it or being assigned it subscribes a
-  person. `issue.subscribe` subscribes or unsubscribes by hand, and an assignment subscribes the
-  assignee again even after they unsubscribed.
+- **Who is subscribed.** Filing an issue, commenting on it, being assigned it or being mentioned
+  in it subscribes a person. `issue.subscribe` subscribes or unsubscribes by hand, and an
+  assignment subscribes the assignee again even after they unsubscribed.
 - **Who hears what.** Subscribers hear of comments, status changes and agents' proposals. The new
   assignee hears that they were assigned, and a subscribed former assignee that they were
-  unassigned. Nobody hears of their own changes, and imported issues and comments (those with a
-  `createdAt`) tell no one.
+  unassigned. People mentioned hear of it (see [Mentions](#mentions)), and assignees hear on the
+  morning an issue is due (see [Due-date reminders](#due-date-reminders)). Nobody hears of their
+  own changes, and imported issues and comments (those with a `createdAt`) tell no one.
 - **One item per person and issue** (`privateId(issueId, memberId)`). It shows the latest event
   and counts the events not yet read (`unread`). News takes an item out of the snoozed and
   archived tabs, back into the inbox.
@@ -636,6 +640,37 @@ rules and no client can skip them.
 Subscriptions and items are [private](#versions-and-the-oplog) to their member. Migration `0013`
 subscribed the creators, assignees and commenters of existing issues when the inbox shipped.
 
+#### Mentions
+
+A mention is a Markdown link to a member: `[@Maya Chen](mention:<member id>)`
+(`packages/protocol/src/mentions.ts`). The text is the name when it was written, for whoever reads
+the Markdown as it is, such as an agent over MCP; the app shows the member's current name, so
+renaming someone breaks nothing. Typing `@` in a description or comment box offers the
+workspace's members (`apps/web/src/components/mention-menu.tsx`) and inserts the link.
+The renderer keeps the `mention:` scheme, which react-markdown would otherwise drop, and shows the
+link as a name rather than as a link.
+
+The server reads mentions from the text, so the app, MCP and imports follow the same rules:
+
+- `issue.create` and `comment.create` mention everyone in the description or body; an edit of
+  either mentions only those it adds. Mentions inside code are text.
+- Each person mentioned is subscribed (unless they unsubscribed before) and hears a `mention`
+  event, which names the comment or, for a description, none. They hear of a comment once, as a
+  mention. Someone the same write assigned hears that instead.
+- Mentions of agents, of people who are not members, and of oneself tell nobody. Someone who
+  turned mentions off is neither subscribed nor told by one; if they follow the issue, they hear
+  of a comment as any subscriber does.
+
+#### Due-date reminders
+
+On the day an open, assigned issue is due, from 09:00 (`REMINDER_HOUR`) in its team's time zone,
+which is the one its cycles follow or UTC, Track tells the assignee with a `due` event and the
+`system` actor (`packages/sync-server/src/reminders.ts`). The alarm sends them and plans the next
+one as it plans cycle boundaries; a write that sets a due date, or assigns, reopens or moves an
+issue that has one, has it plan again. `due_reminders` keeps, per issue, the date it last reminded
+of, so an issue reminds once per due date and again when the date moves. A day that passes without
+its reminder, as when the date is set after it, reminds nobody.
+
 The Inbox page (`/$workspace/inbox`) has Inbox, Snoozed and Archived tabs (`?tab=`). It reads the
 replica, so it works offline. An open issue reads its item while it is on screen. The sidebar
 shows the unread count, and so does the installed app's icon (the Badging API).
@@ -644,7 +679,9 @@ shows the unread count, and so does the installed app's icon (the Badging API).
 
 Each person chooses, per workspace, where each kind of news goes (`NOTIFICATION_KINDS` in
 `packages/protocol/src/notifications.ts`): nowhere, to the inbox, or to the inbox and email. By
-default being assigned and comments go to email too, and the rest to the inbox. The choices are
+default being assigned, mentions, comments and due dates go to email too, and the rest to the
+inbox. Settings rows merge with the defaults, so a kind added later starts from its default for
+everyone. The choices are
 rows of `notification_settings` in the workspace's database, read by `notify` in the same
 transaction, so news a person turned off never reaches their inbox (they stay subscribed). They
 are not in the replica: Settings, Notifications reads and changes them over RPC, through the

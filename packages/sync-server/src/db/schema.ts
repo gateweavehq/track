@@ -79,6 +79,7 @@ export const issues = sqliteTable(
 		index("issues_project_idx").on(table.projectId),
 		index("issues_cycle_idx").on(table.cycleId),
 		index("issues_parent_idx").on(table.parentId),
+		index("issues_due_idx").on(table.dueDate),
 	],
 );
 
@@ -303,6 +304,16 @@ export const notificationSettings = sqliteTable("notification_settings", {
 		.notNull(),
 	emailedAt: integer("emailed_at"),
 	updatedAt: integer("updated_at").notNull(),
+});
+
+/**
+ * The due-date reminders Track sent: one per issue, for the due date it reminded of, so an issue
+ * reminds once per date. Never sent to clients.
+ */
+export const dueReminders = sqliteTable("due_reminders", {
+	issueId: text("issue_id").primaryKey(),
+	dueOn: text("due_on").notNull(),
+	sentAt: integer("sent_at").notNull(),
 });
 
 /** Ordered log of every change. `version` is the workspace-wide sequence number. */

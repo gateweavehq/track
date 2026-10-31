@@ -1,26 +1,69 @@
-import type { ComponentProps } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import { MENTION_SCHEME, mentionedId } from "@gateweave/track-protocol";
+import { type ComponentProps, createContext, type ReactNode, useContext } from "react";
+import ReactMarkdown, { type Components, defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { isAttachmentPath } from "#/lib/attachments";
 import { cn } from "#/lib/utils";
 
 // Markdown as people write it in descriptions and comments: GitHub's flavor, with tables, task
 // lists and strikethrough. HTML in the text shows as text, and links keep only safe protocols
-// (react-markdown's defaults). Loaded on its own, through `Markdown`, by the pages that need it.
+// (react-markdown's defaults) and mentions. Loaded on its own, through `Markdown`, by the pages
+// that need it.
 
-/** Renders Markdown. Use `Markdown` from `./markdown`, which loads this when it is needed. */
-export function MarkdownView({ source, className }: { source: string; className?: string }) {
+/** Members' current names, by id, for mentions. */
+export type MemberNames = ReadonlyMap<string, { name: string }>;
+
+const Members = createContext<MemberNames>(new Map());
+
+/**
+ * Renders Markdown, with mentions under the names in `members`. Use `Markdown` from
+ * `./markdown`, which loads this when it is needed.
+ */
+export function MarkdownView({
+	source,
+	className,
+	members = new Map(),
+}: {
+	source: string;
+	className?: string;
+	members?: MemberNames;
+}) {
 	return (
 		<div className={cn("text-sm leading-relaxed break-words", className)}>
-			<ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
-				{source}
-			</ReactMarkdown>
+			<Members value={members}>
+				<ReactMarkdown
+					remarkPlugins={[remarkGfm]}
+					components={COMPONENTS}
+					urlTransform={keepMentions}
+				>
+					{source}
+				</ReactMarkdown>
+			</Members>
 		</div>
+	);
+}
+
+function keepMentions(url: string): string {
+	return url.startsWith(MENTION_SCHEME) ? url : defaultUrlTransform(url);
+}
+
+/** A mention shows the member's name as it is now; one who is not known, as it was written. */
+function Mention({ memberId, children }: { memberId: string; children: ReactNode }) {
+	const member = useContext(Members).get(memberId);
+	return (
+		<span
+			data-mention={memberId}
+			className="rounded-sm bg-primary/10 px-0.5 font-medium text-primary"
+		>
+			{member ? `@${member.name}` : children}
+		</span>
 	);
 }
 
 /** Links to other sites open in a new tab and pass nothing about the page they came from. */
 function MarkdownLink({ href, children, node: _node, ...props }: ComponentProps<"a"> & Node) {
+	const memberId = mentionedId(href);
+	if (memberId !== null) return <Mention memberId={memberId}>{children}</Mention>;
 	// "//host/path" is another site too. Files open in a tab of their own.
 	const inApp = href?.startsWith("/") && !href.startsWith("//") && !isAttachmentPath(href);
 	return (

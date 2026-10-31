@@ -3,9 +3,11 @@ import {
 	EMAIL_INTERVAL_MS,
 	GITHUB_ACTOR_ID,
 	type InboxEvent,
+	mentionsAsText,
 	NOTIFICATION_KINDS,
 	type NotificationSettings,
 	type NotificationSettingsPatch,
+	SYSTEM_ACTOR_ID,
 } from "@gateweave/track-protocol";
 import { and, asc, eq, isNotNull, lte, min } from "drizzle-orm";
 import * as schema from "./db/schema";
@@ -25,11 +27,17 @@ export interface DigestItem {
 	issue: { key: string; title: string };
 	/** The newest event, as the inbox shows it. */
 	event: InboxEvent;
-	/** Who caused it, by name: a member, GitHub, or "Someone" for a member who has left. */
+	/**
+	 * Who caused it, by name: a member, GitHub, Track for a reminder, or "Someone" for a member who
+	 * has left.
+	 */
 	actor: string;
 	unread: number;
 	updatedAt: number;
-	/** The comment's text, for a comment that is still there. */
+	/**
+	 * The text of the comment, or of the one that mentions them, while it is there. Mentions in it
+	 * read `@Name`, with the member's current name.
+	 */
 	comment: string | null;
 }
 
@@ -165,13 +173,16 @@ function describe(db: Db, item: schema.InboxItemRow): DigestItem | undefined {
 		.get();
 	if (!issue || issue.deletedAt !== null) return undefined;
 	let comment: string | null = null;
-	if (item.event.type === "comment") {
+	const commentId = "commentId" in item.event ? item.event.commentId : null;
+	if (commentId !== null) {
 		const row = db
 			.select({ body: schema.comments.body, deletedAt: schema.comments.deletedAt })
 			.from(schema.comments)
-			.where(eq(schema.comments.id, item.event.commentId))
+			.where(eq(schema.comments.id, commentId))
 			.get();
-		comment = row && row.deletedAt === null ? row.body : null;
+		if (row && row.deletedAt === null) {
+			comment = mentionsAsText(row.body, (id) => memberName(db, id));
+		}
 	}
 	return {
 		issue: { key: `${issue.team}-${issue.number}`, title: issue.title },
@@ -185,12 +196,16 @@ function describe(db: Db, item: schema.InboxItemRow): DigestItem | undefined {
 
 function actorName(db: Db, actorId: string): string {
 	if (actorId === GITHUB_ACTOR_ID) return "GitHub";
-	const member = db
+	if (actorId === SYSTEM_ACTOR_ID) return "Track";
+	return memberName(db, actorId) ?? "Someone";
+}
+
+function memberName(db: Db, memberId: string): string | undefined {
+	return db
 		.select({ name: schema.members.name })
 		.from(schema.members)
-		.where(eq(schema.members.userId, actorId))
-		.get();
-	return member?.name ?? "Someone";
+		.where(eq(schema.members.userId, memberId))
+		.get()?.name;
 }
 
 /** The earliest a member may be emailed again from this workspace. */

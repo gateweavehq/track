@@ -43,10 +43,8 @@ export const workspaceLink = z.object({
 export type ChangeEvent =
 	| { type: "issue.created" | "issue.deleted"; issue: schema.IssueRow }
 	| { type: "issue.updated"; issue: schema.IssueRow; previous: schema.IssueRow }
-	| {
-			type: "comment.created" | "comment.updated" | "comment.deleted";
-			comment: schema.CommentRow;
-	  }
+	| { type: "comment.created" | "comment.deleted"; comment: schema.CommentRow }
+	| { type: "comment.updated"; comment: schema.CommentRow; previous: schema.CommentRow }
 	| { type: "proposal.created" | "proposal.updated"; proposal: schema.ProposalRow }
 	// The row as decided: it carries who decided it and when.
 	| { type: "proposal.accepted" | "proposal.dismissed"; proposal: schema.ProposalRow }

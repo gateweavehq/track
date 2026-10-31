@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import { useMembersById } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 
 // The Markdown renderer is most of a chunk on its own, and only issue pages need it, so it loads
@@ -8,6 +9,7 @@ const MarkdownView = lazy(() =>
 );
 
 export function Markdown({ source, className }: { source: string; className?: string }) {
+	const members = useMembersById();
 	return (
 		<Suspense
 			fallback={
@@ -16,7 +18,7 @@ export function Markdown({ source, className }: { source: string; className?: st
 				</div>
 			}
 		>
-			<MarkdownView source={source} className={className} />
+			<MarkdownView source={source} className={className} members={members} />
 		</Suspense>
 	);
 }

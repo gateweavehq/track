@@ -8,6 +8,8 @@ export const NOTIFICATION_KINDS = [
 	"comment",
 	"status",
 	"proposal",
+	"mention",
+	"due",
 ] as const satisfies readonly InboxEvent["type"][];
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -23,13 +25,18 @@ export type NotificationLevel = (typeof NOTIFICATION_LEVELS)[number];
 /** A person's choices in one workspace. Private to them. */
 export type NotificationSettings = Record<NotificationKind, NotificationLevel>;
 
-/** What a person gets until they choose: email for what asks something of them. */
+/**
+ * What a person gets until they choose: email for what asks something of them. Kinds added later
+ * reach people who changed other kinds with these defaults too, as their settings merge with them.
+ */
 export const DEFAULT_NOTIFICATIONS: NotificationSettings = {
 	assigned: "email",
 	unassigned: "inbox",
 	comment: "email",
 	status: "inbox",
 	proposal: "inbox",
+	mention: "email",
+	due: "email",
 };
 
 /** A change to a person's settings. Kinds left out stay as they are. */

@@ -3,10 +3,20 @@ import {
 	type InboxEvent,
 	type InboxItem,
 	type Issue,
+	mentionsAsText,
+	SYSTEM_ACTOR_ID,
 } from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link } from "@tanstack/react-router";
-import { Archive, ArchiveRestore, Check, Clock, GitPullRequest, Mail } from "lucide-react";
+import {
+	Archive,
+	ArchiveRestore,
+	CalendarClock,
+	Check,
+	Clock,
+	GitPullRequest,
+	Mail,
+} from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { PRIORITY_META, STATUS_META } from "#/components/issues/meta";
 import { MemberAvatar } from "#/components/members/member-avatar";
@@ -21,7 +31,7 @@ import {
 import { useWorkspace } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
 import { actorName } from "#/lib/actors";
-import { formatDateTime, formatRelative } from "#/lib/dates";
+import { formatDateTime, formatRelative, formatShortDay, today } from "#/lib/dates";
 import { useHotkeys } from "#/lib/hotkeys";
 import {
 	commentPreview,
@@ -214,6 +224,7 @@ function InboxRow({
 	const key = issueKey(teams.get(issue.teamId), issue);
 	const actor = members.get(item.actorId);
 	const github = item.actorId === GITHUB_ACTOR_ID;
+	const reminder = item.actorId === SYSTEM_ACTOR_ID;
 	const unread = item.unread > 0;
 
 	return (
@@ -234,6 +245,8 @@ function InboxRow({
 					aria-hidden
 					className="mt-0.5 size-6 shrink-0 p-0.5 text-muted-foreground"
 				/>
+			) : reminder ? (
+				<CalendarClock aria-hidden className="mt-0.5 size-6 shrink-0 p-0.5 text-muted-foreground" />
 			) : (
 				<MemberAvatar member={actor} className="mt-0.5 size-6" />
 			)}
@@ -344,8 +357,12 @@ function EventText({ event, issue }: { event: InboxEvent; issue: Issue }) {
 	const members = useMembersById();
 	const labels = useLabelsById();
 	const projects = useProjectsById();
-	const comment = useCommentBody(event.type === "comment" ? event.commentId : null);
+	const comment = useCommentBody(
+		event.type === "comment" || event.type === "mention" ? event.commentId : null,
+	);
 	const name = (id: string | null) => (id ? (members.get(id)?.name ?? "someone") : "nobody");
+	const preview = (body: string) =>
+		commentPreview(mentionsAsText(body, (id) => members.get(id)?.name));
 
 	switch (event.type) {
 		case "assigned":
@@ -357,7 +374,7 @@ function EventText({ event, issue }: { event: InboxEvent; issue: Issue }) {
 				<>assigned it to {name(issue.assigneeId)}</>
 			);
 		case "comment":
-			return comment === null ? <>commented</> : <>commented: {commentPreview(comment)}</>;
+			return comment === null ? <>commented</> : <>commented: {preview(comment)}</>;
 		case "status":
 			return (
 				<>
@@ -366,6 +383,23 @@ function EventText({ event, issue }: { event: InboxEvent; issue: Issue }) {
 			);
 		case "proposal":
 			return <>proposes {proposalText(event.change, name, labels, projects)}</>;
+		case "mention":
+			if (event.commentId === null) return <>mentioned you in the description</>;
+			return comment === null ? (
+				<>mentioned you in a comment</>
+			) : (
+				<>mentioned you: {preview(comment)}</>
+			);
+		case "due": {
+			const day = today();
+			if (event.on === day) return <>reminds you it is due today</>;
+			const when = formatShortDay(event.on);
+			return event.on < day ? (
+				<>reminds you it was due {when}</>
+			) : (
+				<>reminds you it is due {when}</>
+			);
+		}
 	}
 }
 

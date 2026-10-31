@@ -118,6 +118,30 @@ describe("inboxDigestEmail", () => {
 		expect(email.text).toContain("Triage proposed a change to ENG-15");
 	});
 
+	it("tells of mentions with the comment, and of due dates by the day", () => {
+		const email = inboxDigestEmail({
+			...base,
+			items: [
+				{
+					...entry,
+					event: { type: "mention", commentId: "c1" },
+					comment: "Thoughts, @Lena?",
+				},
+				{ ...entry, key: "ENG-13", event: { type: "mention", commentId: null } },
+				{ ...entry, key: "ENG-14", actor: "Track", event: { type: "due", on: "2026-10-31" } },
+			],
+		});
+		expect(email.text).toContain("Maya Chen mentioned you in ENG-12\n> Thoughts, @Lena?");
+		expect(email.text).toContain("Maya Chen mentioned you in ENG-13\n");
+		expect(email.text).toContain("ENG-14 is due Saturday, October 31\n");
+
+		const due = inboxDigestEmail({
+			...base,
+			items: [{ ...entry, event: { type: "due", on: "2026-11-02" } }],
+		});
+		expect(due.subject).toBe("ENG-12: Export issues as CSV is due Monday, November 2");
+	});
+
 	it("escapes what members typed, and keeps it short", () => {
 		const email = inboxDigestEmail({
 			...base,
