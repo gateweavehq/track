@@ -8,6 +8,26 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.11.0] - 2026-10-31
+
+Inbox news you leave unread can follow you by email, and you choose what reaches your inbox and
+your email. Updating a self-hosted copy applies a migration in each workspace's database, which
+runs on its own; there is no D1 migration, no new setting and no protocol change. Email follows
+`EMAIL_FROM` as before. ([#91])
+
+### Added
+
+- Notification settings. Settings, Notifications lets each person choose, per workspace, where
+  each kind of news goes: being assigned or unassigned, comments, status changes and agents'
+  proposals reach the inbox and email, the inbox alone, or nowhere. Being assigned and comments
+  are emailed until you choose otherwise. News turned off stays out of the inbox, and you stay
+  subscribed to the issue. ([#91])
+- Inbox email. News you want by email that stays unread for ten minutes is emailed, with that
+  of other issues, at most once an hour per workspace. Reading, archiving or snoozing it in Track
+  first keeps it out of your email. Email goes only to verified addresses, and each one has a
+  link that turns it off without signing in, which mail clients offer as one-click unsubscribe
+  when Track is served over HTTPS. ([#91])
+
 ## [0.10.0] - 2026-10-31
 
 GitHub: pull requests and commits that name an issue link to it and move it along. Also display
@@ -429,6 +449,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.11.0]: https://github.com/gateweavehq/track/releases/tag/v0.11.0
 [0.10.0]: https://github.com/gateweavehq/track/releases/tag/v0.10.0
 [0.9.0]: https://github.com/gateweavehq/track/releases/tag/v0.9.0
 [0.8.0]: https://github.com/gateweavehq/track/releases/tag/v0.8.0
@@ -508,3 +529,4 @@ The first pre-release.
 [#86]: https://github.com/gateweavehq/track/pull/86
 [#88]: https://github.com/gateweavehq/track/pull/88
 [#89]: https://github.com/gateweavehq/track/pull/89
+[#91]: https://github.com/gateweavehq/track/pull/91
