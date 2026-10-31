@@ -8,6 +8,16 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.13.1] - 2026-10-31
+
+Dialogs stay within a short window. Updating a self-hosted copy needs nothing: no migration, no
+new setting and no protocol change.
+
+### Fixed
+
+- A dialog taller than the window, such as a new issue with a long description or a webhook with
+  many events, scrolls inside itself, so its title and its buttons stay in reach. ([#97], [#98])
+
 ## [0.13.0] - 2026-10-31
 
 The MCP server's `get_workspace` says who is calling, so an agent can find the issues assigned to
@@ -484,6 +494,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.13.1]: https://github.com/gateweavehq/track/releases/tag/v0.13.1
 [0.13.0]: https://github.com/gateweavehq/track/releases/tag/v0.13.0
 [0.12.0]: https://github.com/gateweavehq/track/releases/tag/v0.12.0
 [0.11.0]: https://github.com/gateweavehq/track/releases/tag/v0.11.0
@@ -569,3 +580,5 @@ The first pre-release.
 [#91]: https://github.com/gateweavehq/track/pull/91
 [#93]: https://github.com/gateweavehq/track/pull/93
 [#95]: https://github.com/gateweavehq/track/pull/95
+[#97]: https://github.com/gateweavehq/track/pull/97
+[#98]: https://github.com/gateweavehq/track/pull/98
