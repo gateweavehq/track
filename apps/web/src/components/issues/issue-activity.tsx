@@ -1,12 +1,12 @@
 import type {
 	Activity,
 	ActivityChange,
+	ActivitySource,
 	Comment,
 	Issue,
 	Label,
 	RelationKind,
 } from "@gateweave/track-protocol";
-import { SYSTEM_ACTOR_ID } from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import {
@@ -39,6 +39,7 @@ import { Kbd } from "#/components/ui/kbd";
 import { Textarea } from "#/components/ui/textarea";
 import { ConfirmDialog } from "#/components/workspace/confirm-dialog";
 import { isAdmin, useMyRole, useWorkspace } from "#/components/workspace/context";
+import { actorName } from "#/lib/actors";
 import { cycleName } from "#/lib/cycles";
 import { formatDateTime, formatDay, formatRelative } from "#/lib/dates";
 import { MOD_LABEL } from "#/lib/hotkeys";
@@ -102,6 +103,7 @@ export function IssueActivity({ issue }: { issue: Issue }) {
 								actorId={entry.kind === "created" ? entry.actorId : entry.activity.actorId}
 								change={entry.kind === "created" ? null : entry.activity.change}
 								proposedBy={entry.kind === "created" ? null : entry.activity.proposedBy}
+								source={entry.kind === "created" ? null : entry.activity.source}
 								at={entry.at}
 							/>
 						)}
@@ -118,12 +120,15 @@ function HistoryItem({
 	actorId,
 	change,
 	proposedBy,
+	source,
 	at,
 }: {
 	actorId: string;
 	change: ActivityChange | null;
 	/** The agent whose proposal the actor accepted. */
 	proposedBy: string | null;
+	/** The pull request or commit on GitHub that made the change. */
+	source: ActivitySource | null;
 	at: number;
 }) {
 	const members = useMembersById();
@@ -132,10 +137,7 @@ function HistoryItem({
 	const issues = useIssuesById();
 	const teams = useTeamsById();
 	const cycles = useCyclesById();
-	const name = (id: string | null) => {
-		if (id === SYSTEM_ACTOR_ID) return "Track";
-		return id ? (members.get(id)?.name ?? "Someone") : "nobody";
-	};
+	const name = (id: string | null) => (id ? actorName(id, members) : "nobody");
 	const projectName = (id: string | null) =>
 		id ? (projects.get(id)?.name ?? "a deleted project") : "no project";
 	const cycleTitle = (id: string | null) => {
@@ -160,6 +162,20 @@ function HistoryItem({
 			<p className="min-w-0 flex-1 leading-5">
 				<span className="font-medium text-foreground">{name(actorId)}</span> {text}
 				{proposedBy && <>, as {name(proposedBy)} proposed</>}
+				{source && (
+					<>
+						{" "}
+						via{" "}
+						<a
+							href={source.url}
+							target="_blank"
+							rel="noreferrer"
+							className="font-mono text-foreground hover:underline"
+						>
+							{source.label}
+						</a>
+					</>
+				)}
 				<span aria-hidden> · </span>
 				<time dateTime={new Date(at).toISOString()} title={formatDateTime(at)}>
 					{formatRelative(at)}

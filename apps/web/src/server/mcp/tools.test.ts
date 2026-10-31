@@ -9,6 +9,7 @@ import type {
 	MutationInput,
 	Project,
 	Proposal,
+	PullRequest,
 	Team,
 } from "@gateweave/track-protocol";
 import { addDays, dayIn, mutationSchema } from "@gateweave/track-protocol";
@@ -62,6 +63,7 @@ class FakeWorkspace implements WorkspaceAccess {
 	projects: Project[] = [];
 	proposals_: Proposal[] = [];
 	relations_: IssueRelation[] = [];
+	pullRequests_: PullRequest[] = [];
 	cycles: Cycle[] = [];
 	queries: IssueQuery[] = [];
 	#version = 10;
@@ -98,6 +100,9 @@ class FakeWorkspace implements WorkspaceAccess {
 	}
 	async proposals(issueId: string) {
 		return this.proposals_.filter((proposal) => proposal.issueId === issueId);
+	}
+	async pullRequests(issueId: string) {
+		return this.pullRequests_.filter((pullRequest) => pullRequest.issueIds.includes(issueId));
 	}
 	async relations(issueId: string) {
 		return this.relations_.filter(
@@ -677,9 +682,45 @@ describe("Track MCP tools", () => {
 			key: "ENG-1",
 			description: "Body",
 			proposals: [],
+			pullRequests: [],
 		});
 		expect(missing.content).toEqual([{ type: "text", text: "Issue ENG-9 not found." }]);
 		expect(malformed.isError).toBe(true);
+	});
+
+	it("lists the pull requests that mention an issue", async () => {
+		await created({ title: "Fix login" });
+		const issueId = workspace.issues_[0]?.id ?? "";
+		workspace.pullRequests_.push({
+			id: "github:1",
+			repository: "acme/app",
+			number: 7,
+			title: "Fix login",
+			url: "https://github.com/acme/app/pull/7",
+			state: "open",
+			branch: "eng-1-fix-login",
+			author: "octocat",
+			issueIds: [issueId],
+			closingIssueIds: [issueId],
+			createdAt: 1,
+			updatedAt: 1,
+		});
+
+		const read = await call("get_issue", { workspace: "acme", key: "ENG-1" });
+
+		expect(read.structuredContent).toMatchObject({
+			pullRequests: [
+				{
+					repository: "acme/app",
+					number: 7,
+					title: "Fix login",
+					state: "open",
+					fixes: true,
+					author: "octocat",
+					url: "https://github.com/acme/app/pull/7",
+				},
+			],
+		});
 	});
 
 	it("comments on an issue, and reads comments along with it", async () => {

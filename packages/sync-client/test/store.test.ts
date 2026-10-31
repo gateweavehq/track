@@ -58,6 +58,7 @@ const snapshot: Snapshot = {
 	members: [],
 	subscriptions: [],
 	inbox: [],
+	pullRequests: [],
 };
 
 function replica(): Replica {
@@ -642,6 +643,7 @@ describe("Replica", () => {
 					actorId: "alice",
 					change: { type: "status", from: "backlog", to: "todo" },
 					proposedBy: null,
+					source: null,
 					createdAt: 4,
 					updatedAt: 4,
 				},

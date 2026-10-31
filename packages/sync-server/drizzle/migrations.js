@@ -13,6 +13,7 @@ import m0011 from "./0011_cycles.sql";
 import m0012 from "./0012_inbox.sql";
 import m0013 from "./0013_subscribe_existing.sql";
 import m0014 from "./0014_colossal_spacker_dave.sql";
+import m0015 from "./0015_github.sql";
 import journal from "./meta/_journal.json";
 
 export default {
@@ -33,5 +34,6 @@ export default {
 		m0012,
 		m0013,
 		m0014,
+		m0015,
 	},
 };

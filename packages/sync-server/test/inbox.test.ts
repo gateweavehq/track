@@ -420,17 +420,19 @@ describe("workspaces from before the inbox", () => {
 		});
 		await as(owner, { name: "issue.delete", args: { id: "issue-2" } });
 
-		// Undo the inbox's migrations, then run them again, as when a workspace wakes up after the
-		// deploy that brings the inbox.
+		// Undo the inbox's migrations and those after it, then run them again, as when a workspace
+		// wakes up after the deploy that brings the inbox.
 		const inbox = migrations.journal.entries.find((entry) => entry.tag === "0012_inbox");
 		if (!inbox) throw new Error("No inbox migration");
 		await runInDurableObject(workspace, async (_, state) => {
 			const db = drizzle(state.storage, { schema });
+			db.run(sql`drop table pull_requests`);
+			db.run(sql`drop table github_connections`);
+			db.run(sql`alter table activities drop column source`);
+			db.run(sql`alter table views drop column display`);
 			db.run(sql`drop table inbox_items`);
 			db.run(sql`drop table subscriptions`);
 			db.run(sql`alter table oplog drop column audience`);
-			// Later migrations run again too.
-			db.run(sql`alter table views drop column display`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${inbox.when}`);
 			await migrate(db, migrations);
 		});

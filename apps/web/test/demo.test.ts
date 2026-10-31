@@ -165,6 +165,24 @@ describe("on the demo deployment", () => {
 		expect(upload.status).toBe(403);
 	});
 
+	it("takes no deliveries from GitHub", async () => {
+		const visitor = await startVisitor(track, "203.0.113.10");
+		const workspace = await track.db
+			.prepare("select id from organization where slug = ?")
+			.bind(visitor.slug)
+			.first<{ id: string }>();
+		const delivery = await track.fetch(`${origin}/api/github/${workspace?.id}/any`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				"x-github-event": "ping",
+				"x-github-delivery": crypto.randomUUID(),
+			},
+			body: "{}",
+		});
+		expect(delivery.status).toBe(404);
+	});
+
 	it("refuses to create or sign in to accounts over HTTP", async () => {
 		const attempt = (path: string, body: object) =>
 			track.fetch(`${origin}/api/auth${path}`, {

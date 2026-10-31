@@ -96,6 +96,13 @@ Webhooks need no setup either: each workspace's Durable Object sends them itself
 or other binding. Admins add them under Settings, Webhooks. They must use `https`, except when
 the app itself runs on plain `http`, and cannot point at the app's own host.
 
+### GitHub pull requests and commits
+
+Connecting repositories needs no app or secret on the server. An admin adds a connection under
+Settings, GitHub, and adds a webhook on GitHub with the payload URL and secret shown there:
+content type `application/json`, and the Pull requests and Pushes events. GitHub must be able to
+reach your address, so a local `http://localhost` cannot receive deliveries.
+
 ### Sign in with GitHub
 
 Create a [GitHub OAuth app](https://github.com/settings/developers) with the callback URL

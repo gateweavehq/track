@@ -151,6 +151,7 @@ function accessFor(
 				comments: (issueId) => stub.comments(issueId),
 				proposals: (issueId) => stub.proposals(issueId),
 				relations: (issueId) => stub.relations(issueId),
+				pullRequests: (issueId) => stub.pullRequests(issueId),
 				lastSortOrder: () => stub.lastSortOrder(),
 				mutate: (mutation: MutationInput) =>
 					stub.mutate(membership.profile, clientId, uuidv7(), mutation),

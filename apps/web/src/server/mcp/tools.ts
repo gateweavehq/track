@@ -15,6 +15,7 @@ import {
 	mutationSchema,
 	PROJECT_STATUSES,
 	type Proposal,
+	type PullRequest,
 	RELATION_KINDS,
 	relationFrom,
 	relationOf,
@@ -60,6 +61,8 @@ export interface WorkspaceAccess {
 	proposals(issueId: string): Promise<Proposal[]>;
 	/** A live issue's relations, from either side, oldest first. */
 	relations(issueId: string): Promise<IssueRelation[]>;
+	/** The pull requests on GitHub that mention a live issue, oldest first. */
+	pullRequests(issueId: string): Promise<PullRequest[]>;
 	lastSortOrder(): Promise<string | null>;
 	/** Applies a mutation as the user, through the same validation as the app's. */
 	mutate(mutation: MutationInput): Promise<MutateResult>;
@@ -147,6 +150,15 @@ const commentOutput = z.looseObject({
 	body: z.string().describe("Markdown."),
 	createdAt: z.string(),
 	edited: z.boolean(),
+});
+const pullRequestOutput = z.looseObject({
+	repository: z.string().describe("Such as acme/app."),
+	number: z.number(),
+	title: z.string(),
+	state: z.string().describe('"draft", "open", "merged" or "closed".'),
+	fixes: z.boolean().describe("Whether merging it moves the issue to done."),
+	author: z.string().nullable().describe("The author's GitHub login."),
+	url: z.string(),
 });
 // A string rather than an enum, so kinds of change added later do not fail cached schemas.
 const proposalOutput = z.looseObject({
@@ -350,13 +362,14 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Get issue",
 			description:
-				"Reads one issue, including its description, its sub-issues, its relations to other issues, its comments, oldest first, and the changes agents proposed that wait for a person.",
+				"Reads one issue, including its description, its sub-issues, its relations to other issues, its comments, oldest first, the changes agents proposed that wait for a person, and the pull requests on GitHub that mention it.",
 			inputSchema: z.object({ workspace: workspaceInput, key: keyInput }),
 			outputSchema: issueDetail.extend({
 				subIssues: z.array(issueSummary),
 				relations: z.array(relationOutput),
 				comments: z.array(commentOutput),
 				proposals: z.array(openProposalOutput),
+				pullRequests: z.array(pullRequestOutput),
 			}),
 			annotations: { readOnlyHint: true, openWorldHint: false },
 		},
@@ -365,11 +378,12 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				const workspace = await open(access, slug);
 				const directory = await workspace.directory();
 				const issue = await findIssue(workspace, key);
-				const [subIssues, relations, comments, proposals] = await Promise.all([
+				const [subIssues, relations, comments, proposals, pullRequests] = await Promise.all([
 					workspace.issues({ parentId: issue.id, limit: MAX_SUB_ISSUES }),
 					relationViews(access, workspace, directory, issue.id),
 					workspace.comments(issue.id),
 					workspace.proposals(issue.id),
+					workspace.pullRequests(issue.id),
 				]);
 				return {
 					...(await detail(access, workspace, directory, issue)),
@@ -380,6 +394,15 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						...proposalView(directory, proposal),
 						by: emailOf(directory, proposal.agentId),
 						createdAt: new Date(proposal.createdAt).toISOString(),
+					})),
+					pullRequests: pullRequests.map((pullRequest) => ({
+						repository: pullRequest.repository,
+						number: pullRequest.number,
+						title: pullRequest.title,
+						state: pullRequest.state,
+						fixes: pullRequest.closingIssueIds.includes(issue.id),
+						author: pullRequest.author,
+						url: pullRequest.url,
 					})),
 				};
 			}),

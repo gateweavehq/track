@@ -88,7 +88,8 @@ export type WebhookPatch = z.input<typeof webhookPatch>;
 
 /**
  * Who made a change. Agents are members that act for an AI agent, over MCP with a key. `system`
- * is Track itself, with the id `system`, as when it moves unfinished issues to the next cycle.
+ * is Track itself, with the id `system`, as when it moves unfinished issues to the next cycle, or
+ * GitHub, with the id `github`, when a pull request or commit moves an issue.
  */
 export interface WebhookActor {
 	id: string;

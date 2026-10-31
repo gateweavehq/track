@@ -97,10 +97,14 @@ function readLink(db: Db): WorkspaceLink | undefined {
 	return row ? workspaceLink.parse(JSON.parse(row.value)) : undefined;
 }
 
-/** Queues a delivery of each event to each active webhook that wants it. Returns how many. */
+/**
+ * Queues a delivery of each event to each active webhook that wants it. Returns how many. The
+ * actor is the member who made the change, or who made it on the server's side: Track itself when
+ * null, or an integration such as GitHub.
+ */
 export function queueDeliveries(
 	db: Db,
-	actor: schema.MemberRow | null,
+	actor: schema.MemberRow | WebhookActor | null,
 	events: readonly ChangeEvent[],
 	version: number,
 	now: number,
@@ -120,7 +124,7 @@ export function queueDeliveries(
 			if (!webhook.events.includes(event.type)) continue;
 			if (webhook.teamId !== null && !built.teamIds.includes(webhook.teamId)) continue;
 			// An agent's own changes would set it off again.
-			if (actor && webhook.agentId === actor.userId) continue;
+			if (actor && "userId" in actor && webhook.agentId === actor.userId) continue;
 			insertDelivery(db, webhook.id, event.type, built.body, now);
 			queued += 1;
 		}
@@ -159,13 +163,15 @@ class Payloads {
 	constructor(
 		private readonly db: Db,
 		private readonly link: WorkspaceLink,
-		actor: schema.MemberRow | null,
+		actor: schema.MemberRow | WebhookActor | null,
 		private readonly version: number,
 		now: number,
 	) {
-		this.#actor = actor
-			? { id: actor.userId, name: actor.name, type: actor.role === "agent" ? "agent" : "person" }
-			: { id: SYSTEM_ACTOR_ID, name: "Track", type: "system" };
+		if (actor === null) this.#actor = { id: SYSTEM_ACTOR_ID, name: "Track", type: "system" };
+		else if ("userId" in actor) {
+			const type = actor.role === "agent" ? "agent" : "person";
+			this.#actor = { id: actor.userId, name: actor.name, type };
+		} else this.#actor = actor;
 		this.#timestamp = new Date(now).toISOString();
 	}
 

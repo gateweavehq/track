@@ -3,6 +3,7 @@ import {
 	CloseCode,
 	type Comment,
 	clientMessage,
+	type GitHubConnection,
 	type HelloMessage,
 	ISSUE_STATUSES,
 	type Issue,
@@ -14,6 +15,7 @@ import {
 	PONG,
 	PROTOCOL_VERSION,
 	type Proposal,
+	type PullRequest,
 	type RejectReason,
 	type ServerMessage,
 	type Snapshot,
@@ -28,6 +30,15 @@ import { z } from "zod";
 import migrations from "../drizzle/migrations";
 import { advanceCycles, nextCycleChange } from "./cycles";
 import * as schema from "./db/schema";
+import {
+	applyGitHubDelivery,
+	createGitHubConnection,
+	deleteGitHubConnection,
+	githubDelivery,
+	listGitHubConnections,
+	rotateGitHubSecret,
+	verifyGitHubDelivery,
+} from "./github";
 import {
 	compact,
 	currentVersion,
@@ -44,6 +55,7 @@ import {
 	findIssueById,
 	findIssueByKey,
 	findIssues,
+	findPullRequests,
 	findRelations,
 	type IssueQuery,
 	lastSortOrder,
@@ -118,10 +130,16 @@ export type MutateResult =
 	| { ok: true; version: number; proposed: Proposal[] }
 	| { ok: false; reason: RejectReason; message: string };
 
-/** The outcome of managing webhooks, which only admins may do. */
+/** The outcome of managing webhooks or GitHub connections, which only admins may do. */
 export type WebhookResult<T> =
 	| { ok: true; value: T }
 	| { ok: false; reason: RejectReason; message: string };
+
+/**
+ * How a GitHub delivery went, as the HTTP status to answer GitHub with: accepted, not shaped like
+ * a delivery, a signature that does not match, or no such connection.
+ */
+export type GitHubDeliveryResult = { status: 202 | 400 | 401 | 404 };
 
 /** Per-socket state. Stored as an attachment so it survives hibernation. */
 interface SocketState {
@@ -207,6 +225,11 @@ export class WorkspaceDO extends DurableObject {
 		return issueProposals(this.#db, shortId.parse(issueId));
 	}
 
+	/** The pull requests on GitHub that mention an issue, oldest first. */
+	pullRequests(issueId: string): PullRequest[] {
+		return findPullRequests(this.#db, shortId.parse(issueId));
+	}
+
 	lastSortOrder(): string | null {
 		return lastSortOrder(this.#db);
 	}
@@ -290,6 +313,56 @@ export class WorkspaceDO extends DurableObject {
 		});
 		if (result.ok) this.#alarmSoon();
 		return result;
+	}
+
+	// RPC for GitHub connections. Settings come through a gateway with the verified member, as for
+	// webhooks. Deliveries come from GitHub through the GitHub gateway, which knows nothing about
+	// them: they are authenticated here, by their signature, before their body is read.
+
+	githubConnections(member: MemberProfile): WebhookResult<GitHubConnection[]> {
+		return this.#manage(member, () => listGitHubConnections(this.#db), "GitHub connections");
+	}
+
+	/** Adds a connection. Its secret is in the result, and never again. */
+	createGitHubConnection(
+		member: MemberProfile,
+	): WebhookResult<{ connection: GitHubConnection; secret: string }> {
+		return this.#manage(
+			member,
+			() => createGitHubConnection(this.#db, member.id, Date.now()),
+			"GitHub connections",
+		);
+	}
+
+	rotateGitHubSecret(member: MemberProfile, id: string): WebhookResult<string> {
+		return this.#manage(
+			member,
+			() => rotateGitHubSecret(this.#db, shortId.parse(id)),
+			"GitHub connections",
+		);
+	}
+
+	deleteGitHubConnection(member: MemberProfile, id: string): WebhookResult<null> {
+		return this.#manage(
+			member,
+			() => {
+				deleteGitHubConnection(this.#db, shortId.parse(id));
+				return null;
+			},
+			"GitHub connections",
+		);
+	}
+
+	/** A delivery from a GitHub connection's webhook. */
+	async github(input: unknown): Promise<GitHubDeliveryResult> {
+		const parsed = githubDelivery.safeParse(input);
+		if (!parsed.success) return { status: 400 };
+		const delivery = parsed.data;
+		const verified = await verifyGitHubDelivery(this.#db, delivery);
+		if (verified === null) return { status: 404 };
+		if (!verified) return { status: 401 };
+		this.#write(() => applyGitHubDelivery(this.#db, delivery, Date.now()));
+		return { status: 202 };
 	}
 
 	/** Follows a change of the workspace's slug, so webhook payloads link to the right place. */
@@ -448,8 +521,8 @@ export class WorkspaceDO extends DurableObject {
 		}
 	}
 
-	/** Runs an admin's webhook change in a transaction. Anyone else is refused. */
-	#manage<T>(member: MemberProfile, fn: () => T): WebhookResult<T> {
+	/** Runs an admin's change to the workspace's settings in a transaction. Anyone else is refused. */
+	#manage<T>(member: MemberProfile, fn: () => T, what = "webhooks"): WebhookResult<T> {
 		const profile = memberProfile.parse(member);
 		this.#write(() => upsertMember(this.#db, profile, Date.now()));
 		const row = activeMember(this.#db, profile.id);
@@ -457,7 +530,7 @@ export class WorkspaceDO extends DurableObject {
 			return {
 				ok: false,
 				reason: "forbidden",
-				message: "Only workspace admins can manage webhooks",
+				message: `Only workspace admins can manage ${what}`,
 			};
 		}
 		try {

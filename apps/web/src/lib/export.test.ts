@@ -95,6 +95,7 @@ function activity(id: string, issueId: string): Activity {
 		actorId: "u1",
 		change: { type: "status", from: "backlog", to: "done" },
 		proposedBy: null,
+		source: null,
 		createdAt: 1,
 		updatedAt: 1,
 	};

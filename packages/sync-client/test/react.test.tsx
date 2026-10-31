@@ -21,6 +21,7 @@ const snapshot: Snapshot = {
 	members: [],
 	subscriptions: [],
 	inbox: [],
+	pullRequests: [],
 };
 
 /** Serves a snapshot but never connects, so every mutation stays pending. */

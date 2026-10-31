@@ -9,6 +9,7 @@ import type {
 	Member,
 	Project,
 	Proposal,
+	PullRequest,
 	SavedView,
 	Snapshot,
 	Subscription,
@@ -51,6 +52,8 @@ export const toRelation = (relation: schema.RelationRow): IssueRelation => relat
 
 export const toView = (view: schema.ViewRow): SavedView => view;
 
+export const toPullRequest = (pullRequest: schema.PullRequestRow): PullRequest => pullRequest;
+
 export const toMember = ({ userId, ...member }: schema.MemberRow): Member => ({
 	id: userId,
 	...member,
@@ -65,15 +68,17 @@ export const toInboxItem = (item: schema.InboxItemRow): InboxItem => item;
  * of deleted issues are removed with them.
  */
 export function readSnapshot(db: Db, memberId: string): Snapshot {
+	const issues = db
+		.select()
+		.from(schema.issues)
+		.where(isNull(schema.issues.deletedAt))
+		.all()
+		.map(toIssue);
+	const live = new Set(issues.map((issue) => issue.id));
 	return {
 		version: currentVersion(db),
 		teams: db.select().from(schema.teams).all().map(toTeam),
-		issues: db
-			.select()
-			.from(schema.issues)
-			.where(isNull(schema.issues.deletedAt))
-			.all()
-			.map(toIssue),
+		issues,
 		labels: db
 			.select()
 			.from(schema.labels)
@@ -144,6 +149,13 @@ export function readSnapshot(db: Db, memberId: string): Snapshot {
 			.where(eq(schema.inboxItems.memberId, memberId))
 			.all()
 			.map(toInboxItem),
+		pullRequests: db
+			.select()
+			.from(schema.pullRequests)
+			.orderBy(asc(schema.pullRequests.createdAt), asc(schema.pullRequests.id))
+			.all()
+			.filter((pullRequest) => pullRequest.issueIds.some((id) => live.has(id)))
+			.map(toPullRequest),
 	};
 }
 

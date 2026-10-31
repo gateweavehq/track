@@ -84,7 +84,8 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   - Start dates, due dates and estimates.
   - Saved views, and table, calendar and timeline layouts.
 - Email for unread inbox items, and notification settings per person.
-- GitHub integration: link pull requests and close issues from commits.
+- GitHub integration: link pull requests and close issues from commits. The first part, over a
+  webhook per repository or organization, is in the next release; a GitHub App comes later.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations
   people use (see [ecosystem.md](ecosystem.md#agents-are-members)). It runs in Gateweave Agents,
   on the agent members and webhooks above.

@@ -69,6 +69,7 @@ function activity(issueId: string, at: number, change: ActivityChange): Activity
 		actorId: "u1",
 		change,
 		proposedBy: null,
+		source: null,
 		createdAt: at,
 		updatedAt: at,
 	};

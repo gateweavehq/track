@@ -1,4 +1,4 @@
-import type { ActivityChange } from "@gateweave/track-protocol";
+import type { ActivityChange, ActivitySource } from "@gateweave/track-protocol";
 import { eq, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
 import type { ChangeSet } from "./log";
@@ -23,6 +23,7 @@ interface LatestEntry {
 	actorId: string;
 	change: ActivityChange;
 	proposedBy: string | null;
+	source?: ActivitySource | null;
 	updatedAt: number;
 }
 
@@ -36,7 +37,8 @@ interface IssueOrigin {
  * clicking through statuses or toggling a label then reads as one change, and a change that is
  * put back leaves no trace. Edits to the title and description right after creating an issue
  * are part of writing it, so they are not recorded at all. An accepted proposal is always an
- * entry of its own, so the history keeps whose idea it was.
+ * entry of its own, so the history keeps whose idea it was, and so is a change from GitHub, which
+ * keeps the pull request or commit it came from.
  */
 export function mergeActivity(
 	latest: LatestEntry | undefined,
@@ -45,8 +47,9 @@ export function mergeActivity(
 	change: ActivityChange,
 	now: number,
 	proposedBy: string | null = null,
+	source: ActivitySource | null = null,
 ): MergeDecision {
-	if (proposedBy !== null) return append;
+	if (proposedBy !== null || source !== null) return append;
 	if (!latest) {
 		const drafting =
 			actorId === issue.creatorId &&
@@ -57,6 +60,7 @@ export function mergeActivity(
 	if (
 		latest.actorId !== actorId ||
 		latest.proposedBy !== null ||
+		(latest.source ?? null) !== null ||
 		now - latest.updatedAt > ACTIVITY_MERGE_WINDOW_MS
 	) {
 		return { kind: "append" };
@@ -107,7 +111,8 @@ function retarget(change: Extract<ActivityChange, { from: unknown }>): MergeDeci
 
 /**
  * Adds a change to an issue's history. Runs inside the mutation's transaction. `proposedBy` is
- * the agent whose proposal the actor accepted, if any.
+ * the agent whose proposal the actor accepted, if any, and `source` the pull request or commit
+ * behind a change GitHub made.
  */
 export function recordActivity(
 	db: Db,
@@ -116,6 +121,7 @@ export function recordActivity(
 	actorId: string,
 	change: ActivityChange,
 	proposedBy: string | null = null,
+	source: ActivitySource | null = null,
 ): void {
 	const latest = db
 		.select()
@@ -125,7 +131,7 @@ export function recordActivity(
 		.limit(1)
 		.get();
 
-	const decision = mergeActivity(latest, issue, actorId, change, changes.now, proposedBy);
+	const decision = mergeActivity(latest, issue, actorId, change, changes.now, proposedBy, source);
 	if (decision.kind === "skip") return;
 
 	if (decision.kind === "append" || !latest) {
@@ -135,6 +141,7 @@ export function recordActivity(
 			actorId,
 			change,
 			proposedBy,
+			source,
 			createdAt: changes.now,
 			updatedAt: changes.now,
 		};

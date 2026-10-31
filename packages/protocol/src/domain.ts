@@ -60,6 +60,12 @@ export const CLOSED_STATUSES: readonly IssueStatus[] = ["done", "canceled"];
  */
 export const SYSTEM_ACTOR_ID = "system";
 
+/**
+ * The actor of the changes a workspace's GitHub connection makes, such as moving an issue to Done
+ * when the pull request that fixes it merges. It is never a member's id.
+ */
+export const GITHUB_ACTOR_ID = "github";
+
 export interface Team {
 	id: string;
 	/** Short uppercase prefix for issue identifiers, e.g. `ENG` in `ENG-42`. */
@@ -273,6 +279,44 @@ export interface Activity {
 	change: ActivityChange;
 	/** The agent whose proposal this was, when the actor accepted one. */
 	proposedBy: string | null;
+	/** The pull request or commit behind a change GitHub made. */
+	source: ActivitySource | null;
+	createdAt: number;
+	updatedAt: number;
+}
+
+/** Where a change made through an integration came from. */
+export interface ActivitySource {
+	type: "pull_request" | "commit";
+	/** How to show it, such as `gateweavehq/track#86` or `gateweavehq/track@1a2b3c4`. */
+	label: string;
+	url: string;
+}
+
+export const PULL_REQUEST_STATES = ["draft", "open", "merged", "closed"] as const;
+export type PullRequestState = (typeof PULL_REQUEST_STATES)[number];
+
+/**
+ * A pull request on GitHub that mentions issues of the workspace, as a GitHub connection last
+ * reported it. The server writes these; clients never do. It links to the issues whose keys are
+ * in its branch name, title or body, and when it merges it closes those named in its branch name
+ * or after a closing word ("fixes", "closes", "resolves").
+ */
+export interface PullRequest {
+	/** `github:` and GitHub's id for the pull request, which outlives renaming the repository. */
+	id: string;
+	/** `owner/name`. */
+	repository: string;
+	number: number;
+	title: string;
+	url: string;
+	state: PullRequestState;
+	branch: string;
+	/** The GitHub login of whoever opened it. */
+	author: string | null;
+	issueIds: string[];
+	/** The linked issues it moves to Done when it merges. */
+	closingIssueIds: string[];
 	createdAt: number;
 	updatedAt: number;
 }
@@ -381,7 +425,7 @@ export interface InboxItem {
 	issueId: string;
 	memberId: string;
 	event: InboxEvent;
-	/** Who caused the event: a person or an agent. */
+	/** Who caused the event: a person, an agent, or GitHub ({@link GITHUB_ACTOR_ID}). */
 	actorId: string;
 	/** Events since the member last read the item; 0 when it is read. */
 	unread: number;
@@ -411,6 +455,7 @@ export interface Entities {
 	member: Member;
 	subscription: Subscription;
 	inbox: InboxItem;
+	pullRequest: PullRequest;
 }
 export type EntityName = keyof Entities;
 export const ENTITY_NAMES = [
@@ -427,6 +472,7 @@ export const ENTITY_NAMES = [
 	"member",
 	"subscription",
 	"inbox",
+	"pullRequest",
 ] as const satisfies readonly EntityName[];
 
 /**

@@ -7,6 +7,7 @@ import type {
 	Label,
 	Member,
 	Project,
+	PullRequest,
 	Team,
 } from "@gateweave/track-protocol";
 import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from "drizzle-orm";
@@ -20,6 +21,7 @@ import {
 	toLabel,
 	toMember,
 	toProject,
+	toPullRequest,
 	toRelation,
 	toTeam,
 } from "./state";
@@ -171,6 +173,19 @@ export function findComments(db: Db, issueId: string): Comment[] {
 		.orderBy(asc(schema.comments.createdAt), asc(schema.comments.id))
 		.all()
 		.map(toComment);
+}
+
+/** The pull requests that mention a live issue, oldest first. */
+export function findPullRequests(db: Db, issueId: string): PullRequest[] {
+	if (!findIssueById(db, issueId)) return [];
+	const { issueIds } = schema.pullRequests;
+	return db
+		.select()
+		.from(schema.pullRequests)
+		.where(sql`exists (select 1 from json_each(${issueIds}) where value = ${issueId})`)
+		.orderBy(asc(schema.pullRequests.createdAt), asc(schema.pullRequests.id))
+		.all()
+		.map(toPullRequest);
 }
 
 /** A live issue's relations, oldest first, from either side. */

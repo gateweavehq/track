@@ -42,6 +42,7 @@ import {
 	ProjectPicker,
 	StatusPicker,
 } from "./pickers";
+import { CopyBranchButton, PullRequests } from "./pull-requests";
 import { Relations } from "./relations";
 import { SubIssues } from "./sub-issues";
 
@@ -102,6 +103,7 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 				<ChevronRight className="size-4 text-muted-foreground" />
 				<span className="font-mono text-xs">{key}</span>
 				<div className="ml-auto" />
+				<CopyBranchButton issueKey={key} title={issue.title} />
 				<SubscribeButton issueId={issue.id} />
 				<Button
 					variant="ghost"
@@ -136,6 +138,7 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 						<SubIssues issue={issue} />
 						<Relations issue={issue} />
 					</div>
+					<PullRequests issue={issue} />
 					<IssueProposals issue={issue} />
 					<IssueActivity issue={issue} />
 				</article>
