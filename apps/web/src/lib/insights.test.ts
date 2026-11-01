@@ -215,6 +215,8 @@ describe("projectInsights", () => {
 			issue("ops", { projectId: "p1", teamId: "t2", status: "in_progress", assigneeId: "u1" }),
 			issue("ops-open", { projectId: "p1", teamId: "t2", status: "todo", labelIds: ["bug"] }),
 			issue("elsewhere", { projectId: "p2", status: "todo" }),
+			// A request still in intake: nobody has taken it on yet.
+			issue("request", { projectId: "p1", status: "todo", intake: true }),
 			issue("none", { status: "todo" }),
 		];
 		const activities = [

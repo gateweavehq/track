@@ -2111,6 +2111,40 @@ describe("project updates", () => {
 	});
 });
 
+describe("insight source", () => {
+	it("reads a team's or a project's live issues and only their status changes", async () => {
+		const { workspace, admin } = await withTeam();
+		await admin.apply({ name: "team.create", args: { id: "team-ops", key: "OPS", name: "Ops" } });
+		await admin.apply({ name: "project.create", args: { id: "project-1", name: "Launch" } });
+		await createIssue(admin, "issue-1");
+		await admin.apply({
+			name: "issue.create",
+			args: {
+				id: "issue-2",
+				teamId: "team-ops",
+				title: "Ops",
+				sortOrder: "a1",
+				projectId: "project-1",
+			},
+		});
+		await createIssue(admin, "issue-3");
+		await admin.apply({
+			name: "issue.update",
+			args: { id: "issue-1", baseVersion: 0, patch: { status: "in_progress", priority: 2 } },
+		});
+		await admin.apply({ name: "issue.delete", args: { id: "issue-3" } });
+
+		const team = await workspace.insightSource({ teamId: TEAM_ID });
+		expect(team.issues.map((issue) => issue.id)).toEqual(["issue-1"]);
+		expect(team.activities.map((activity) => activity.change)).toEqual([
+			{ type: "status", from: "backlog", to: "in_progress" },
+		]);
+		const project = await workspace.insightSource({ projectId: "project-1" });
+		expect(project.issues.map((issue) => issue.id)).toEqual(["issue-2"]);
+		expect(project.activities).toEqual([]);
+	});
+});
+
 describe("comments", () => {
 	async function comment(client: TestClient, id: string, issueId: string, body = "Looks good") {
 		return client.apply({ name: "comment.create", args: { id, issueId, body } });

@@ -1,4 +1,5 @@
 import {
+	type Activity,
 	type Comment,
 	type Cycle,
 	compareStatuses,
@@ -32,6 +33,7 @@ import * as schema from "./db/schema";
 import { issueSearch, issueSearchDocs, matchExpression, matches, RANK } from "./search";
 import {
 	type Db,
+	toActivity,
 	toComment,
 	toCycle,
 	toIssue,
@@ -214,6 +216,43 @@ export function findIssueByKey(db: Db, teamKey: string, number: number): Issue |
 		)
 		.get();
 	return row && toIssue(row.issue);
+}
+
+/** Whose issues insights are worked out over: one team's, or one project's from any team. */
+export type InsightScope = { teamId: string } | { projectId: string };
+
+/**
+ * What insights are worked out from: the live issues of a team or a project, archived ones too,
+ * and their status changes, the only history insights read.
+ */
+export function findInsightSource(
+	db: Db,
+	scope: InsightScope,
+): { issues: Issue[]; activities: Activity[] } {
+	const inScope =
+		"teamId" in scope
+			? eq(schema.issues.teamId, scope.teamId)
+			: eq(schema.issues.projectId, scope.projectId);
+	const issues = db
+		.select()
+		.from(schema.issues)
+		.where(and(inScope, isNull(schema.issues.deletedAt)))
+		.all()
+		.map(toIssue);
+	const activities = db
+		.select({ activity: schema.activities })
+		.from(schema.activities)
+		.innerJoin(schema.issues, eq(schema.issues.id, schema.activities.issueId))
+		.where(
+			and(
+				inScope,
+				isNull(schema.issues.deletedAt),
+				sql`json_extract(${schema.activities.change}, '$.type') = 'status'`,
+			),
+		)
+		.all()
+		.map(({ activity }) => toActivity(activity));
+	return { issues, activities };
 }
 
 /** A live issue's comments, oldest first. Empty for a deleted or unknown issue. */

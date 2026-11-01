@@ -660,6 +660,12 @@ with its own team's statuses. An issue moved out of the project takes its histor
 issues are counted by team instead of by status, since each team has its own. A project has no
 time zone, so its weeks are the viewer's.
 
+Over MCP, `get_insights` gives an agent the same numbers for a team or a project, to write a
+status summary or a project update from. It runs the same code on the server's reading of the
+Durable Object (`insightSource`: the scope's live issues and only their status changes), with
+keys, names and emails instead of ids. A team with cycles counts its weeks in their time zone;
+anything else in UTC, since an agent has no time zone of its own.
+
 ### Projects
 
 A project groups issues from any team toward a goal. It has a name, a description, a status

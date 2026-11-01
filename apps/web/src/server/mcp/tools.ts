@@ -1,4 +1,5 @@
 import {
+	type Activity,
 	type Comment,
 	calendarDate,
 	cycleState,
@@ -27,6 +28,7 @@ import {
 import { uuidv7 } from "@gateweave/track-sync-client";
 import type {
 	Directory,
+	InsightScope,
 	IssueQuery,
 	MemberProfile,
 	MutateResult,
@@ -34,6 +36,7 @@ import type {
 import { type CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
+import { INSIGHT_RANGES, type Insights, projectInsights, teamInsights } from "#/lib/insights";
 import { issueKey, parseIssueKey } from "#/lib/issues";
 import { defaultLabelColor, findLabelByName } from "#/lib/labels";
 import { suggestKey } from "#/lib/teams";
@@ -63,6 +66,8 @@ export interface WorkspaceAccess {
 	comments(issueId: string): Promise<Comment[]>;
 	/** A live project's updates, the latest first. */
 	projectUpdates(projectId: string): Promise<ProjectUpdate[]>;
+	/** A team's or a project's live issues, archived ones too, and their status changes. */
+	insightSource(scope: InsightScope): Promise<{ issues: Issue[]; activities: Activity[] }>;
 	/** A live issue's open proposals, oldest first. */
 	proposals(issueId: string): Promise<Proposal[]>;
 	/** A live issue's relations, from either side, oldest first. */
@@ -184,6 +189,37 @@ const projectUpdateOutput = z.looseObject({
 	body: z.string().describe("Markdown."),
 	createdAt: z.string(),
 	edited: z.boolean(),
+});
+const insightsOutput = z.looseObject({
+	team: z.string().optional().describe("The team's key, for a team's insights."),
+	project: z.string().optional().describe("The project's name, for a project's insights."),
+	timeZone: z
+		.string()
+		.describe("The time zone weeks are counted in: the team's cycles' if it has cycles, else UTC."),
+	weeks: z
+		.array(z.looseObject({ start: z.string(), created: z.number(), closed: z.number() }))
+		.describe(
+			"Oldest first, each starting on Monday (YYYY-MM-DD); the last is the week not yet over. Closed counts moves into a completed or canceled status.",
+		),
+	created: z.number(),
+	closed: z.number(),
+	open: z.number().describe("Issues open now."),
+	cycleTime: z.looseObject({
+		medianDays: z
+			.number()
+			.nullable()
+			.describe("From first started to done, over issues done in the range and still done."),
+		issues: z.number().describe("How many issues the median is over."),
+	}),
+	openByStatus: z
+		.array(z.looseObject({ status: z.string(), category: z.string(), count: z.number() }))
+		.optional()
+		.describe("A team's open issues by status, in its workflow order."),
+	openByTeam: z.array(z.looseObject({ team: z.string(), count: z.number() })),
+	openByAssignee: z
+		.array(z.looseObject({ assignee: z.string().nullable(), count: z.number() }))
+		.describe("By the assignee's email; null for unassigned."),
+	openByLabel: z.array(z.looseObject({ label: z.string().nullable(), count: z.number() })),
 });
 const pullRequestOutput = z.looseObject({
 	repository: z.string().describe("Such as acme/app."),
@@ -1179,7 +1215,103 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			}),
 	);
 
+	server.registerTool(
+		"get_insights",
+		{
+			title: "Get insights",
+			description:
+				"How a team's or a project's work has gone over the last weeks: issues created and closed each week, the median cycle time (from first started to done), and where the open issues are now. Give a team or a project, not both. Use it to write a status summary, such as a project update.",
+			inputSchema: z.object({
+				workspace: workspaceInput,
+				team: z.string().min(1).optional().describe("A team key, such as ENG."),
+				project: projectInput.optional(),
+				weeks: z
+					.literal(INSIGHT_RANGES)
+					.default(12)
+					.describe("How many weeks back to look, this one included: 4, 12 or 26."),
+			}),
+			outputSchema: insightsOutput,
+			annotations: { readOnlyHint: true, openWorldHint: false },
+		},
+		(input) =>
+			run(async () => {
+				if ((input.team === undefined) === (input.project === undefined)) {
+					throw new ToolError("Give a team or a project, not both.");
+				}
+				const workspace = await open(access, input.workspace);
+				const directory = await workspace.directory();
+				const statuses = new Map(directory.statuses.map((status) => [status.id, status]));
+				const now = Date.now();
+				if (input.team !== undefined) {
+					const id = teamId(directory, input.team);
+					const team = directory.teams.find((team) => team.id === id);
+					// A team that works in cycles counts its weeks in their time zone; others in UTC.
+					const timeZone = team?.cycles?.timeZone ?? "UTC";
+					const source = await workspace.insightSource({ teamId: id });
+					const insights = teamInsights({
+						teamId: id,
+						...source,
+						statuses,
+						timeZone,
+						now,
+						weeks: input.weeks,
+					});
+					return {
+						...insightsView(directory, insights, timeZone),
+						team: team?.key ?? input.team,
+						openByStatus: insights.byStatus.map(({ key, count }) => ({
+							status: key.name,
+							category: key.category,
+							count,
+						})),
+					};
+				}
+				const id = projectId(directory, input.project ?? "");
+				const source = await workspace.insightSource({ projectId: id });
+				const insights = projectInsights({
+					projectId: id,
+					...source,
+					statuses,
+					timeZone: "UTC",
+					now,
+					weeks: input.weeks,
+				});
+				return {
+					...insightsView(directory, insights, "UTC"),
+					project: directory.projects.find((project) => project.id === id)?.name ?? "",
+				};
+			}),
+	);
+
 	return server;
+}
+
+/** Insights in the tools' terms: keys, names and emails instead of ids, days as numbers. */
+function insightsView(directory: Directory, insights: Insights, timeZone: string) {
+	const round = (days: number | null) => (days === null ? null : Math.round(days * 100) / 100);
+	return {
+		timeZone,
+		weeks: insights.weeks,
+		created: insights.created,
+		closed: insights.closed,
+		open: insights.open,
+		cycleTime: {
+			medianDays: round(insights.cycleTime.medianDays),
+			issues: insights.cycleTime.issues,
+		},
+		openByTeam: insights.byTeam.map(({ key, count }) => ({
+			team: directory.teams.find((team) => team.id === key)?.key ?? key,
+			count,
+		})),
+		openByAssignee: insights.byAssignee.map(({ key, count }) => ({
+			assignee: emailOf(directory, key),
+			count,
+		})),
+		openByLabel: insights.byLabel.map(({ key, count }) => ({
+			label: directory.labels.find((label) => label.id === key)?.name ?? null,
+			count,
+		})),
+	};
 }
 
 /** A project as the tools describe it, read back after a change. */
