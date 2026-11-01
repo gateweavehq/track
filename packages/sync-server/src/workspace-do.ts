@@ -97,6 +97,7 @@ import {
 	removeMember,
 	upsertMember,
 } from "./state";
+import { releaseFileStorage, reserveFileStorage, type StorageReservation } from "./storage";
 import {
 	createWebhook,
 	deleteWebhook,
@@ -155,6 +156,12 @@ const issueQuery = z.object({
 	intake: z.boolean().optional(),
 	text: z.string().max(200).optional(),
 	limit: z.number().int().min(1).max(MAX_QUERY_LIMIT),
+});
+
+const storageInput = z.object({
+	bytes: z.number().int().nonnegative(),
+	limit: z.number().nonnegative(),
+	seed: z.number().int().nonnegative().optional(),
 });
 
 const insightScope = z.union([
@@ -256,6 +263,18 @@ export class WorkspaceDO extends DurableObject {
 
 	comments(issueId: string): Comment[] {
 		return findComments(this.#db, shortId.parse(issueId));
+	}
+
+	/**
+	 * Takes `bytes` of the workspace's file quota for an upload, if `limit` allows. The gateway
+	 * calls it before storing a file and gives the space back if storing fails.
+	 */
+	reserveFileStorage(input: { bytes: number; limit: number; seed?: number }): StorageReservation {
+		return reserveFileStorage(this.#db, storageInput.parse(input));
+	}
+
+	releaseFileStorage(bytes: number): void {
+		releaseFileStorage(this.#db, z.number().int().nonnegative().parse(bytes));
 	}
 
 	/** A team's or a project's issues and their status changes, for insights. */

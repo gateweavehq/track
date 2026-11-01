@@ -73,6 +73,7 @@ pnpm wrangler secret put BETTER_AUTH_URL
 | `GITHUB_CLIENT_ID`     | Turns on "Sign in with GitHub", with `GITHUB_CLIENT_SECRET`.               |
 | `GITHUB_CLIENT_SECRET` | The client secret of the same GitHub OAuth app.                            |
 | `EMAIL_FROM`           | Turns on email, such as `Gateweave Track <track@example.com>`.             |
+| `ATTACHMENT_QUOTA_MB`  | Limits each workspace's attached files, such as `1024`. Unlimited unset.   |
 
 ### Your own domain
 

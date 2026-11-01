@@ -17,6 +17,7 @@ import {
 import { db } from "./auth";
 import { schema } from "./db";
 import { demoEnabled } from "./demo/mode";
+import { releaseFileStorage, reserveFileStorage } from "./file-quota";
 import { mediaType } from "./files";
 import { limitEmailedRequests } from "./rate-limit";
 import { workspaceStub } from "./workspaces";
@@ -100,7 +101,7 @@ export async function handleIntakeEmail(message: ForwardableEmailMessage): Promi
 	});
 	if (filed) return;
 	// The address was turned off a moment ago: nothing links the files, so they go too.
-	if (bucket && kept.length > 0) await bucket.delete(kept.map((file) => file.key));
+	if (bucket) await dropAttachments(bucket, workspace.id, kept);
 	message.setReject("No such address");
 }
 
@@ -129,8 +130,24 @@ async function fileReply(
 	const body = [text, ...kept.map((file) => file.markdown)].filter(Boolean).join("\n\n");
 	if (!body) return;
 	if (await stub.fileReply({ key, from, body })) return;
-	if (bucket && kept.length > 0) await bucket.delete(kept.map((file) => file.key));
+	if (bucket) await dropAttachments(bucket, workspaceId, kept);
 	message.setReject("No such address");
+}
+
+interface KeptFile {
+	key: string;
+	size: number;
+	markdown: string;
+}
+
+/** Deletes kept files nothing links after all, and gives their space back. */
+async function dropAttachments(bucket: R2Bucket, workspaceId: string, kept: KeptFile[]) {
+	if (kept.length === 0) return;
+	await bucket.delete(kept.map((file) => file.key));
+	await releaseFileStorage(
+		workspaceId,
+		kept.reduce((total, file) => total + file.size, 0),
+	);
 }
 
 /**
@@ -142,8 +159,8 @@ async function keepAttachments(
 	bucket: R2Bucket,
 	workspaceId: string,
 	attachments: Attachment[],
-): Promise<{ key: string; markdown: string }[]> {
-	const kept: { key: string; markdown: string }[] = [];
+): Promise<KeptFile[]> {
+	const kept: KeptFile[] = [];
 	for (const attachment of attachments) {
 		if (kept.length >= MAX_INTAKE_ATTACHMENTS) break;
 		const content = attachment.content;
@@ -153,12 +170,20 @@ async function keepAttachments(
 		const name = attachmentName(attachment.filename ?? "attachment");
 		const type = mediaType(attachment.mimeType);
 		const key = `${workspaceId}/${fileId}/${name}`;
-		await bucket.put(key, content, {
-			httpMetadata: { contentType: type },
-			customMetadata: { uploadedBy: "email" },
-		});
+		// Past the workspace's quota, the request still comes in, without the files that do not fit.
+		if (!(await reserveFileStorage(bucket, workspaceId, size))) continue;
+		try {
+			await bucket.put(key, content, {
+				httpMetadata: { contentType: type },
+				customMetadata: { uploadedBy: "email" },
+			});
+		} catch (cause) {
+			await releaseFileStorage(workspaceId, size);
+			throw cause;
+		}
 		kept.push({
 			key,
+			size,
 			markdown: attachmentMarkdown(name, attachmentPath(workspaceId, fileId, name), type),
 		});
 	}

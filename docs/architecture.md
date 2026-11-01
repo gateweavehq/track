@@ -926,8 +926,14 @@ workspace's files are one prefix in the bucket.
   `nosniff`, sandboxed by its Content-Security-Policy and same-origin only. Files cache in the
   browser for a year, privately: a link always means the same bytes.
 - **Deleting a workspace deletes its files**, after the response, a page of keys at a time.
-  There is no quota yet, and a file stays when the text that linked it changes. The demo has no
-  bucket and refuses uploads.
+  A file stays when the text that linked it changes. The demo has no bucket and refuses uploads.
+- **A deployment may set a quota** per workspace, `ATTACHMENT_QUOTA_MB`
+  (`apps/web/src/server/file-quota.ts`). The workspace's Durable Object counts its files' bytes
+  (`packages/sync-server/src/storage.ts`): the gateway reserves a file's length there before
+  storing it, so uploads that arrive together cannot both take the last of the space, and gives
+  it back if storing fails. The count starts from a listing of the bucket the first time it is
+  needed. Past the quota an upload gets 413, and an emailed request comes in without the files
+  that do not fit.
 
 ### Proposals
 
