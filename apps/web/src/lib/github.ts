@@ -81,5 +81,12 @@ export const deleteGitHubConnection = createServerFn({ method: "POST" })
 	.handler(async ({ data }): Promise<WebhookOutcome<null>> => {
 		const { access: found } = await access(data.workspace);
 		if (!found) return notMember;
-		return found.stub.deleteGitHubConnection(found.member, data.id);
+		const result = await found.stub.deleteGitHubConnection(found.member, data.id);
+		// An app installation's connection also lets go of the installation, which another
+		// workspace may then connect without waiting for a delivery to show it is gone.
+		if (result.ok) {
+			const { forgetGitHubInstallation } = await import("#/server/github-app");
+			await forgetGitHubInstallation(found.link.id, data.id);
+		}
+		return result;
 	});

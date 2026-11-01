@@ -1272,18 +1272,28 @@ it has one. The code is `packages/sync-server/src/github.ts`, with the gateways 
   nothing is connected there: the admin is sent on to authorize the app, with a second state that
   also names the installation, and comes back to `/api/github/app/callback` with an OAuth code.
   The installation is connected only when the same admin is signed in at both steps, is still an
-  admin, and the user token the code buys lists the installation among those they can reach. The
-  token is not kept. It then becomes a connection of the workspace, with no secret of its own
-  (`installation_id` in `github_connections`), and D1's `github_installation` says which
-  workspace and connection have it: one workspace at a time.
+  admin, and the user token the code buys lists the installation, on an account the person
+  controls on GitHub. Being listed is not enough, since GitHub lists an organization's
+  installation for anyone who can read one of its repositories: for an organization,
+  `GET /user/memberships/orgs/{org}` must say they are an `active` `admin` (an organization
+  owner); for a user account, the account must be the person's own (`GET /user`). The account is
+  the one `/user/installations` gives for the installation. The token is not kept. It then becomes
+  a connection of the workspace, with no secret of its own (`installation_id` in
+  `github_connections`), and D1's `github_installation` says which workspace and connection have
+  it: one workspace at a time.
+  - **Claiming.** The workspace claims the installation in one statement after the object
+    connects it: an insert that, on conflict, takes over the row only where this workspace has it
+    already. When no row changes, another workspace has the installation: the page says so (409)
+    and the object's new connection is removed, so two workspaces connecting at once leave one
+    whole row and one connection.
   - **Deliveries.** All installations' deliveries come to `/api/github/app`. The gateway reads
     the installation's id from the body only to find the workspace; the Durable Object checks the
     signature with the app's secret, which every installation shares, and then that the delivery
     is about the connection's own installation. They are then applied like a webhook's.
   - **Uninstalling.** GitHub's `installation` delivery with `deleted` removes the connection, and
     the gateway forgets the installation. Deleting the connection in settings stops its
-    deliveries; the next one makes the gateway forget it, and the app stays installed on GitHub
-    until someone uninstalls it there.
+    deliveries and forgets the installation at once, so another workspace can connect it; the app
+    stays installed on GitHub until someone uninstalls it there.
   - Self-hosters without an app keep the webhook, since an app has to be registered per
     deployment.
 - **Copy branch name.** The issue page copies a branch name such as `eng-12-fix-the-login-form`,

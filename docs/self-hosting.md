@@ -115,12 +115,15 @@ address in place of `https://track.example.com`:
 - **Callback URL:** `https://track.example.com/api/github/app/callback`. Leave "Expire user
   authorization tokens" on, and "Request user authorization (OAuth) during installation" off: it
   would replace the setup URL. Track sends the admin to authorize the app itself, and connects an
-  installation only once GitHub lists it among the installations they can reach.
+  installation only once GitHub lists it among the installations they can reach, on an account
+  they control: an organization they are an owner of, or their own user account.
 - **Setup URL:** `https://track.example.com/api/github/app/setup`, with "Redirect on update" on,
   so that choosing other repositories comes back to Track too.
 - **Webhook:** active, with the URL `https://track.example.com/api/github/app` and a secret you
   make, such as one from `openssl rand -hex 32`.
-- **Permissions:** Pull requests and Contents, read-only, and Metadata, read-only.
+- **Permissions:** Pull requests and Contents, read-only, and Metadata, read-only, on
+  repositories; and Members, read-only, on organizations, which lets Track ask GitHub whether the
+  person connecting an organization's installation is its owner.
 - **Events:** Pull request and Push.
 - **Where it can be installed:** any account, unless only your own organization uses it.
 
@@ -128,7 +131,12 @@ Then set `GITHUB_APP_SLUG` to the app's name in its URL (`github.com/apps/<slug>
 `GITHUB_APP_CLIENT_ID` to its client ID, and the client secret and webhook secret as secrets:
 `pnpm wrangler secret put GITHUB_APP_CLIENT_SECRET` and
 `pnpm wrangler secret put GITHUB_APP_WEBHOOK_SECRET`. Settings, GitHub then offers "Install GitHub
-App" next to adding a webhook. An installation belongs to one workspace at a time.
+App" next to adding a webhook. Only an owner or admin of the workspace who is also an owner of
+the GitHub organization the app is installed on (or the GitHub user, for an installation on a
+personal account) can connect it; someone who can only read some of its repositories cannot. An
+installation belongs to one workspace at a time; disconnecting it in Settings, GitHub frees it
+for another workspace at once. An app registered before Members was in its permissions has to
+ask its installations to accept the new permission, under the app's Permissions & events.
 
 ### Request forms
 

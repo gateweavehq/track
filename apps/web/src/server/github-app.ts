@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { isAdminRole } from "@gateweave/track-protocol";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, getAuth } from "./auth";
 import { readText } from "./body";
@@ -19,8 +19,8 @@ import { findMembershipById, workspaceStub } from "./workspaces";
  *
  * An installation id in a request is anyone's to make up, so one is connected to a workspace only
  * once GitHub vouches for it: back from installing the app, the admin is sent on to authorize it,
- * and the user token the code from that buys must list the installation among those the person
- * can reach. Each step carries a state of its own, signed, naming the workspace and the admin. Deliveries
+ * and the user token the code from that buys must list the installation, on an account the person
+ * controls: an organization they are an admin of, or their own. Each step carries a state of its own, signed, naming the workspace and the admin. Deliveries
  * carry no workspace; D1 says which one has the installation, and the workspace's Durable Object
  * checks the signature with the app's secret, and that the delivery is about that installation.
  */
@@ -136,37 +136,35 @@ async function callback(
 		);
 	}
 
-	const reachable = await reachableInstallation(app, code, installationId);
-	if (reachable === undefined) {
+	const controlled = await controlledInstallation(app, code, installationId);
+	if (controlled === undefined) {
 		return page(502, "GitHub could not be reached", "Try again in a moment.");
 	}
-	if (reachable === null) {
+	if (controlled === "unreachable") {
 		return page(
 			403,
 			"That installation is not yours",
 			"GitHub does not list it among the installations you can reach.",
 		);
 	}
-
-	const taken = await db
-		.select({ organizationId: schema.githubInstallation.organizationId })
-		.from(schema.githubInstallation)
-		.where(eq(schema.githubInstallation.installationId, installationId))
-		.get();
-	if (taken && taken.organizationId !== state.workspaceId) {
+	if (controlled === "not_admin") {
 		return page(
-			409,
-			"Another workspace has this installation",
-			"An installation of the app belongs to one workspace. Disconnect it there first, or install the app again on other repositories.",
+			403,
+			"Only the account's admins connect it",
+			"Connecting an installation of the app takes an owner of the GitHub organization it is installed on, or the GitHub user it is installed for.",
 		);
 	}
 
-	const connected = await workspaceStub(state.workspaceId).connectGitHubApp(membership.profile, {
+	const stub = workspaceStub(state.workspaceId);
+	const connected = await stub.connectGitHubApp(membership.profile, {
 		id: installationId,
-		account: reachable.account,
+		account: controlled.account,
 	});
 	if (!connected.ok) return page(400, "GitHub was not connected", connected.message);
-	await db
+	// The claim is the one check of who has the installation: insert, or take over the row only
+	// where this workspace already has it, in one statement, so two workspaces connecting at
+	// once cannot both pass a check and leave a row that is half one's and half the other's.
+	const claimed = await db
 		.insert(schema.githubInstallation)
 		.values({
 			installationId,
@@ -177,8 +175,24 @@ async function callback(
 		.onConflictDoUpdate({
 			target: schema.githubInstallation.installationId,
 			set: { connectionId: connected.value.id },
+			setWhere: eq(schema.githubInstallation.organizationId, state.workspaceId),
 		})
-		.run();
+		.returning({ installationId: schema.githubInstallation.installationId })
+		.get();
+	if (!claimed) {
+		// Another workspace has it: the connection just made would never get a delivery.
+		const undone = await stub.deleteGitHubConnection(membership.profile, connected.value.id);
+		if (!undone.ok) {
+			console.error("A GitHub App connection that lost its claim was not removed", {
+				reason: undone.reason,
+			});
+		}
+		return page(
+			409,
+			"Another workspace has this installation",
+			"An installation of the app belongs to one workspace. Disconnect it there first, or install the app again on other repositories.",
+		);
+	}
 
 	const workspace = await db
 		.select({ slug: schema.organization.slug })
@@ -190,21 +204,40 @@ async function callback(
 }
 
 const tokenResponse = z.object({ access_token: z.string().min(1) });
+const installationAccount = z.object({
+	login: z.string().min(1),
+	id: z.number().int(),
+	type: z.string(),
+});
 const installationsResponse = z.object({
 	installations: z.array(
-		z.object({ id: z.number().int(), account: z.object({ login: z.string() }).nullish() }),
+		z.object({
+			id: z.number().int(),
+			// Kept loose here: an installation the person cannot control may have any account.
+			account: z.unknown(),
+		}),
 	),
+});
+const userResponse = z.object({ id: z.number().int() });
+const membershipResponse = z.object({
+	state: z.string(),
+	role: z.string(),
+	organization: z.object({ id: z.number().int() }),
 });
 
 /**
- * The installation as the person can reach it on GitHub: their user token, bought with the code,
- * lists it. Null when it does not; undefined when GitHub could not be asked.
+ * The installation as the person controls it on GitHub, asked with their user token, bought with
+ * the code. Being able to reach it is not enough: GitHub lists an organization's installation for
+ * anyone who can read one of its repositories, so the person must be an active admin of the
+ * organization it is installed on, or be the user it is installed for. "unreachable" when the
+ * token does not list it (or GitHub does not take the code), "not_admin" when the person does not
+ * control its account, undefined when GitHub could not be asked.
  */
-async function reachableInstallation(
+async function controlledInstallation(
 	app: NonNullable<ReturnType<typeof githubApp>>,
 	code: string,
 	installationId: string,
-): Promise<{ account: string | null } | null | undefined> {
+): Promise<{ account: string } | "unreachable" | "not_admin" | undefined> {
 	try {
 		const exchanged = await fetch(`${GITHUB}/login/oauth/access_token`, {
 			method: "POST",
@@ -213,25 +246,58 @@ async function reachableInstallation(
 		});
 		const token = tokenResponse.safeParse(exchanged.ok ? await exchanged.json() : null);
 		// A code that GitHub does not take is one nobody can vouch for.
-		if (!token.success) return null;
+		if (!token.success) return "unreachable";
 		const headers = {
 			Accept: "application/vnd.github+json",
 			Authorization: `Bearer ${token.data.access_token}`,
 			"User-Agent": "Gateweave Track",
 			"X-GitHub-Api-Version": "2022-11-28",
 		};
-		for (let page = 1; page <= 10; page += 1) {
-			const listed = await fetch(`${GITHUB_API}/user/installations?per_page=100&page=${page}`, {
+		let listed: unknown;
+		for (let page = 1; page <= 10 && listed === undefined; page += 1) {
+			const response = await fetch(`${GITHUB_API}/user/installations?per_page=100&page=${page}`, {
 				headers,
 			});
-			if (!listed.ok) return undefined;
-			const parsed = installationsResponse.safeParse(await listed.json());
+			if (!response.ok) return undefined;
+			const parsed = installationsResponse.safeParse(await response.json());
 			if (!parsed.success) return undefined;
 			const found = parsed.data.installations.find(({ id }) => String(id) === installationId);
-			if (found) return { account: found.account?.login ?? null };
-			if (parsed.data.installations.length < 100) return null;
+			if (found) listed = found.account ?? null;
+			else if (parsed.data.installations.length < 100) return "unreachable";
 		}
-		return null;
+		if (listed === undefined) return "unreachable";
+		// An installation on an enterprise, or with no account, is not one Track connects.
+		const account = installationAccount.safeParse(listed);
+		if (!account.success) return "not_admin";
+		const { login, id, type } = account.data;
+
+		if (type === "User") {
+			const response = await fetch(`${GITHUB_API}/user`, { headers });
+			if (!response.ok) return undefined;
+			const user = userResponse.safeParse(await response.json());
+			if (!user.success) return undefined;
+			return user.data.id === id ? { account: login } : "not_admin";
+		}
+		if (type !== "Organization") return "not_admin";
+		// Needs the app's "Members: read" organization permission. GitHub answers 404 to someone
+		// who is not a member.
+		const response = await fetch(
+			`${GITHUB_API}/user/memberships/orgs/${encodeURIComponent(login)}`,
+			{ headers },
+		);
+		if (response.status === 404) return "not_admin";
+		if (!response.ok) {
+			console.error("GitHub would not say whether a person is an organization's admin", {
+				status: response.status,
+			});
+			return undefined;
+		}
+		const membership = membershipResponse.safeParse(await response.json());
+		if (!membership.success) return undefined;
+		const { state, role, organization } = membership.data;
+		return state === "active" && role === "admin" && organization.id === id
+			? { account: login }
+			: "not_admin";
 	} catch (error) {
 		console.error("GitHub could not be asked about an installation", {
 			error: error instanceof Error ? error.name : typeof error,
@@ -286,10 +352,7 @@ async function deliver(request: Request): Promise<Response> {
 	// The workspace dropped the connection, or the app was uninstalled: forget the installation.
 	const uninstalled = status === 202 && event === "installation" && about.action === "deleted";
 	if (status === 404 || uninstalled) {
-		await db
-			.delete(schema.githubInstallation)
-			.where(eq(schema.githubInstallation.installationId, installationId))
-			.run();
+		await forgetGitHubInstallation(found.organizationId, found.connectionId);
 	}
 	switch (status) {
 		case 202:
@@ -301,6 +364,26 @@ async function deliver(request: Request): Promise<Response> {
 		case 404:
 			return answer(202, "No workspace has connected this installation");
 	}
+}
+
+/**
+ * Forgets which installation a workspace's connection has, once the connection is gone, so that
+ * another workspace can connect the installation at once. Only that workspace's row for that
+ * connection goes: by then another may have claimed the installation.
+ */
+export async function forgetGitHubInstallation(
+	workspaceId: string,
+	connectionId: string,
+): Promise<void> {
+	await db
+		.delete(schema.githubInstallation)
+		.where(
+			and(
+				eq(schema.githubInstallation.organizationId, workspaceId),
+				eq(schema.githubInstallation.connectionId, connectionId),
+			),
+		)
+		.run();
 }
 
 // The state that goes to GitHub and back: workspace, admin and expiry, signed with the app's
