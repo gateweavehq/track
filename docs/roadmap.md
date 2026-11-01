@@ -104,7 +104,7 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   the same insights per project: shipped in v0.18.0.
 - GitHub integration: link pull requests and close issues from commits. The first part, over a
   webhook per repository or organization, shipped in v0.10.0. A GitHub App that admins install
-  instead is next to ship.
+  instead: shipped in v0.19.0.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations
   people use (see [ecosystem.md](ecosystem.md#agents-are-members)). It runs in Gateweave Agents,
   on the agent members and webhooks above.
