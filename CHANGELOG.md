@@ -8,6 +8,33 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.17.0] - 2026-11-01
+
+Teams can keep issue templates, and each team has an insights page. Updating a self-hosted copy
+applies a migration in each workspace's database, which runs on its own; there is no D1
+migration and no new setting. The protocol goes to version 19, so open tabs reload and sync
+again. ([#112])
+
+### Added
+
+- Issue templates per team, kept by any member under Settings, Templates: a name and the title,
+  description, priority, assignee and labels a new issue starts with, up to 50 per team. Start
+  an issue from one in the create dialog's Template menu or with "Create issue from …" in the
+  command palette. ([#112])
+- Over MCP, `get_workspace` lists each team's templates, and `create_issue` takes one by name.
+  Fields given in the call win over the template's. ([#112])
+- Team insights, from a button in the team header: open, created and closed counts and the
+  median cycle time over the last 4, 12 or 26 weeks, issues created and closed by week in the
+  team's time zone, and open issues by status, assignee and label. ([#111])
+- A JSON import that keeps the file's teams brings along their own statuses, such as
+  "Ready for QA", instead of moving those issues to the first status of the same category.
+  ([#110])
+
+### Fixed
+
+- An issue's Labels menu offers "Create label" when no label matches what was typed, including
+  in a workspace with no labels yet. ([#112])
+
 ## [0.16.0] - 2026-11-01
 
 Teams can have Track archive closed issues and close stale ones on its own. Updating a self-hosted
@@ -579,6 +606,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.17.0]: https://github.com/gateweavehq/track/releases/tag/v0.17.0
 [0.16.0]: https://github.com/gateweavehq/track/releases/tag/v0.16.0
 [0.15.0]: https://github.com/gateweavehq/track/releases/tag/v0.15.0
 [0.14.1]: https://github.com/gateweavehq/track/releases/tag/v0.14.1
@@ -676,3 +704,6 @@ The first pre-release.
 [#103]: https://github.com/gateweavehq/track/pull/103
 [#105]: https://github.com/gateweavehq/track/pull/105
 [#107]: https://github.com/gateweavehq/track/pull/107
+[#110]: https://github.com/gateweavehq/track/pull/110
+[#111]: https://github.com/gateweavehq/track/pull/111
+[#112]: https://github.com/gateweavehq/track/pull/112
