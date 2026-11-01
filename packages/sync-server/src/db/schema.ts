@@ -389,6 +389,23 @@ export const dueReminders = sqliteTable("due_reminders", {
 	sentAt: integer("sent_at").notNull(),
 });
 
+/**
+ * Who filed a request through a team's form or email address, when they left an address, so
+ * they can be told once a person decides on it. Never sent to clients: the address is the
+ * requester's, though the request's description names it too. A row goes once they are told.
+ */
+export const requesters = sqliteTable("requesters", {
+	issueId: text("issue_id").primaryKey(),
+	/** The workspace, as the gateway that filed the request named it, for the email to name. */
+	workspaceId: text("workspace_id").notNull(),
+	email: text("email").notNull(),
+	/** A decision waiting to be emailed, or null while there is none. */
+	notice: text("notice", { enum: ["accepted", "declined"] }),
+	/** The reply that came with a decline, as Markdown. */
+	reply: text("reply"),
+	createdAt: integer("created_at").notNull(),
+});
+
 /** Ordered log of every change. `version` is the workspace-wide sequence number. */
 export const oplog = sqliteTable("oplog", {
 	version: integer("version").primaryKey(),

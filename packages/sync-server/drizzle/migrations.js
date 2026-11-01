@@ -23,6 +23,7 @@ import m0021 from "./0021_lethal_marauders.sql";
 import m0022 from "./0022_young_kinsey_walden.sql";
 import m0023 from "./0023_intake.sql";
 import m0024 from "./0024_project_updates.sql";
+import m0025 from "./0025_requesters.sql";
 import journal from "./meta/_journal.json";
 
 export default {
@@ -53,5 +54,6 @@ export default {
 		m0022,
 		m0023,
 		m0024,
+		m0025,
 	},
 };

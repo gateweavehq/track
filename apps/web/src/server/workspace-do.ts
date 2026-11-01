@@ -1,12 +1,22 @@
-import { type InboxDigest, WorkspaceDO as SyncWorkspaceDO } from "@gateweave/track-sync-server";
+import {
+	type InboxDigest,
+	type RequesterNotice,
+	WorkspaceDO as SyncWorkspaceDO,
+} from "@gateweave/track-sync-server";
 import { emailInboxDigest } from "./inbox-email";
+import { emailRequester } from "./requester-email";
 
 /**
  * A workspace's Durable Object, as `sync-server` defines it, with what only the app can do: email
- * people the inbox news they leave unread.
+ * people the inbox news they leave unread, and tell whoever filed a request through a form or by
+ * email what the team decided.
  */
 export class WorkspaceDO extends SyncWorkspaceDO {
 	protected override sendInboxDigest(digest: InboxDigest): Promise<void> {
 		return emailInboxDigest(digest);
+	}
+
+	protected override sendRequesterNotice(notice: RequesterNotice): Promise<void> {
+		return emailRequester(notice);
 	}
 }

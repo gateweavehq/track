@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import * as schema from "./db/schema";
 import { ChangeSet, type WriteResult } from "./log";
+import { recordRequester } from "./requesters";
 import { indexIssue } from "./search";
 import { type Db, toIssue } from "./state";
 import { defaultStatusKey, isClosedStatus } from "./statuses";
@@ -42,6 +43,14 @@ export const intakeRequest = z.object({
 	title: z.string().trim().min(1).max(512),
 	description: z.string().max(100_000).nullable(),
 	sortOrder: z.string().min(1).max(64),
+	/**
+	 * Whoever filed it, to tell of the decision on it, if they left an address; with the
+	 * workspace's id, which the gateway checked in D1, for the email to name it.
+	 */
+	requester: z
+		.object({ workspaceId: z.string().min(1).max(64), email: z.email().max(254) })
+		.nullable()
+		.default(null),
 });
 export type IntakeRequest = z.infer<typeof intakeRequest>;
 
@@ -112,6 +121,7 @@ export function fileRequest(
 		deletedAt: null,
 	};
 	db.insert(schema.issues).values(row).run();
+	if (request.requester) recordRequester(db, row.id, request.requester, now);
 	indexIssue(db, row.id);
 	changes.put("issue", toIssue(row));
 	changes.events.push({ type: "issue.created", issue: row });
