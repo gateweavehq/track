@@ -25,14 +25,14 @@ Every product follows the same principles as Track:
 
 ## Products
 
-| Product    | What it does                                          | Status             |
-| ---------- | ----------------------------------------------------- | ------------------ |
-| **Track**  | Issues, projects and planning for product teams       | In development     |
-| **Agents** | AI agents that work inside every product as members   | Next, inside Track |
-| **ID**     | Single sign-on, passkeys and access to internal apps  | Proposed           |
-| **Mail**   | Shared inboxes, and email in and out of every product | Proposed           |
-| **CRM**    | Contacts, companies and deals                         | Proposed           |
-| **ERP**    | Invoicing, inventory and orders, one module at a time | Later              |
+| Product    | What it does                                                      | Status                                                                     |
+| ---------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| **Track**  | Issues, projects and planning for product teams                   | Early access                                                               |
+| **Agents** | Coding agents' setups, and agents and teams that run on their own | Early access ([gateweavehq/agents](https://github.com/gateweavehq/agents)) |
+| **ID**     | Single sign-on, passkeys and access to internal apps              | Proposed                                                                   |
+| **Mail**   | Shared inboxes, and email in and out of every product             | Proposed                                                                   |
+| **CRM**    | Contacts, companies and deals                                     | Proposed                                                                   |
+| **ERP**    | Invoicing, inventory and orders, one module at a time             | Later                                                                      |
 
 ## Shared platform
 
