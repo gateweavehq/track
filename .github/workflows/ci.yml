@@ -48,8 +48,16 @@ jobs:
 
   check:
     needs: changes
+    # A required check that is skipped counts as passed, so `check` runs even when `changes`
+    # fails, and then fails itself rather than letting a pull request merge unchecked.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
+      - name: Require the change detection
+        if: needs.changes.result != 'success'
+        run: |
+          echo "::error::The changes job ended as '${{ needs.changes.result }}', so nothing was checked."
+          exit 1
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
