@@ -58,6 +58,8 @@ export interface IssueDefaults {
 	projectId?: string | null;
 	cycleId?: string | null;
 	labelIds?: string[];
+	/** A template of the team to start from, which fills in the fields it has. */
+	templateId?: string;
 }
 
 /** Workspace-wide actions, available to pages, the sidebar and keyboard shortcuts. */

@@ -9,6 +9,7 @@ const TABS = [
 	{ to: "/$workspace/settings/agents", label: "Agents" },
 	{ to: "/$workspace/settings/teams", label: "Teams" },
 	{ to: "/$workspace/settings/labels", label: "Labels" },
+	{ to: "/$workspace/settings/templates", label: "Templates" },
 	{ to: "/$workspace/settings/webhooks", label: "Webhooks" },
 	{ to: "/$workspace/settings/github", label: "GitHub" },
 	{ to: "/$workspace/settings/import", label: "Import" },

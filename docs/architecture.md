@@ -481,6 +481,26 @@ The workspace's alarm applies them (`packages/sync-server/src/automations.ts`).
 
 Automations are a breaking change to the protocol (version 18), as the team entity gained them.
 
+### Issue templates
+
+A team keeps templates for the issues it files often (`IssueTemplate`, at most 50 a team): a
+name, unique in the team ignoring case, and the title, description, priority, assignee and labels
+a new issue starts with. Any member keeps them, under Settings, Templates, with `template.create`,
+`template.update` and `template.delete` (`packages/sync-server/src/templates.ts`).
+
+- **Using one is the client's business.** The create dialog's Template menu and the command
+  palette's "Create issue from …" fill in the draft (`apps/web/src/lib/templates.ts`), and the
+  person changes what they like before `issue.create` checks it like any other. A template with an
+  empty title or description leaves what was typed. The title is not trimmed, so "Bug: " keeps
+  its space for the rest of the title.
+- **What an issue cannot have is left out.** Deleting a label takes it off templates, as it does
+  issues. An assignee who has since left the workspace stays in the template but is not assigned.
+- **Elsewhere.** `get_workspace` over MCP lists each team's templates, and `create_issue` takes a
+  `template` by name: it fills in the description, priority, assignee and labels the call leaves
+  out.
+
+Templates are a breaking change to the protocol (version 19), as the snapshot gained them.
+
 ### Projects
 
 A project groups issues from any team toward a goal. It has a name, a description, a status

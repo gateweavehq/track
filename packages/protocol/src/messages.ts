@@ -8,6 +8,7 @@ import type {
 	InboxItem,
 	Issue,
 	IssueRelation,
+	IssueTemplate,
 	Label,
 	Member,
 	Project,
@@ -21,7 +22,7 @@ import type { MutationInput } from "./mutations";
 import type { WorkflowStatus } from "./statuses";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 18;
+export const PROTOCOL_VERSION = 19;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";
@@ -115,6 +116,8 @@ export interface Snapshot {
 	relations: IssueRelation[];
 	/** Every saved view, personal ones included. */
 	views: SavedView[];
+	/** Every team's issue templates. */
+	templates: IssueTemplate[];
 	members: Member[];
 	/** The member's own subscriptions and inbox, of live issues; nobody else's. */
 	subscriptions: Subscription[];
@@ -136,6 +139,7 @@ export const SNAPSHOT_KEYS = {
 	proposal: "proposals",
 	relation: "relations",
 	view: "views",
+	template: "templates",
 	member: "members",
 	subscription: "subscriptions",
 	inbox: "inbox",
