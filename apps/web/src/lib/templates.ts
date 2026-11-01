@@ -1,6 +1,29 @@
-import type { IssuePriority, IssueTemplate, Label, Member } from "@gateweave/track-protocol";
+import type {
+	IssuePriority,
+	IssueTemplate,
+	Label,
+	Member,
+	TemplateRepeat,
+} from "@gateweave/track-protocol";
 
-// Issue templates in the app: their order, and what using one puts in a new issue.
+// Issue templates in the app: their order, what using one puts in a new issue, and their
+// schedules.
+
+/** "Every week" or "Every 3 months": how often a schedule makes an issue. */
+export function repeatLabel(repeat: Pick<TemplateRepeat, "every" | "unit">): string {
+	return repeat.every === 1 ? `Every ${repeat.unit}` : `Every ${repeat.every} ${repeat.unit}s`;
+}
+
+/** Whether two schedules are the same, so that saving a template sends one only when it changed. */
+export function sameRepeat(a: TemplateRepeat | null, b: TemplateRepeat | null): boolean {
+	if (a === null || b === null) return a === b;
+	return (
+		a.every === b.every &&
+		a.unit === b.unit &&
+		a.startsOn === b.startsOn &&
+		a.timeZone === b.timeZone
+	);
+}
 
 /** By name, as people look for them. */
 export function compareTemplates(a: IssueTemplate, b: IssueTemplate): number {

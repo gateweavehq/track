@@ -11,6 +11,7 @@ import {
 	RELATION_TYPES,
 } from "./domain";
 import { issueFilters } from "./filters";
+import { MAX_REPEAT_EVERY, REPEAT_UNITS } from "./repeat";
 import { STATUS_CATEGORIES, STATUS_KEY_PATTERN } from "./statuses";
 
 /** Client-generated ids. UUIDv7 is recommended so ids sort by creation time. */
@@ -63,6 +64,14 @@ const templateName = z.string().trim().min(1).max(64);
  * written, so a prefix such as "Bug: " keeps its space; the issue's title is trimmed as always.
  */
 const templateTitle = z.string().max(512);
+const timeZone = z.string().min(1).max(64).refine(isTimeZone, "Not a time zone");
+/** A template's schedule. One that repeats needs a title, which the server checks. */
+const templateRepeat = z.object({
+	every: z.number().int().min(1).max(MAX_REPEAT_EVERY),
+	unit: z.enum(REPEAT_UNITS),
+	startsOn: calendarDate,
+	timeZone,
+});
 const templateFields = {
 	name: templateName,
 	title: templateTitle,
@@ -70,6 +79,7 @@ const templateFields = {
 	priority,
 	labelIds: z.array(id).max(MAX_LABELS_PER_ISSUE),
 	assigneeId: id.nullable(),
+	repeat: templateRepeat.nullable(),
 };
 const cycleName = z.string().trim().min(1).max(64);
 /**
@@ -78,7 +88,7 @@ const cycleName = z.string().trim().min(1).max(64);
  */
 const cycleSettings = z.object({
 	weeks: z.number().int().min(1).max(MAX_CYCLE_WEEKS),
-	timeZone: z.string().min(1).max(64).refine(isTimeZone, "Not a time zone"),
+	timeZone,
 	startsOn: calendarDate,
 });
 const nonEmpty = (patch: object) => Object.keys(patch).length > 0;
@@ -336,6 +346,7 @@ export const mutationSchema = z.discriminatedUnion("name", [
 			priority: priority.default(0),
 			labelIds: templateFields.labelIds.default([]),
 			assigneeId: id.nullable().default(null),
+			repeat: templateRepeat.nullable().default(null),
 		}),
 	}),
 	z.object({

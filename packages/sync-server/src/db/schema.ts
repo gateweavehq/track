@@ -21,6 +21,7 @@ import {
 	PULL_REQUEST_STATES,
 	RELATION_TYPES,
 	STATUS_CATEGORIES,
+	type TemplateRepeat,
 	type WebhookDelivery,
 	type WebhookEventType,
 } from "@gateweave/track-protocol";
@@ -271,6 +272,11 @@ export const templates = sqliteTable(
 		priority: integer("priority").$type<IssuePriority>().notNull(),
 		labelIds: text("label_ids", { mode: "json" }).$type<string[]>().notNull(),
 		assigneeId: text("assignee_id"),
+		repeat: text("repeat", { mode: "json" }).$type<TemplateRepeat>(),
+		/** The day of its next issue, in the schedule's time zone. */
+		nextOn: text("next_on"),
+		/** The day it last made an issue, so a changed schedule does not make a second that day. */
+		repeatedOn: text("repeated_on"),
 		createdAt: integer("created_at").notNull(),
 		updatedAt: integer("updated_at").notNull(),
 	},

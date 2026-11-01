@@ -200,11 +200,13 @@ export function applyMutation(
 		.run();
 	const queued = queueDeliveries(db, actor.member, changes.events, result.version, now);
 	// The alarm plans the next cycle boundary and due-date reminder, which a change to a team's
-	// cycles moves, and the next email.
+	// cycles moves, the next email, and the next issue of a template on a schedule.
 	const wake =
 		email ||
 		movesReminders(changes.events) ||
-		(mutation.name === "team.update" && changesSchedule(mutation.args.patch));
+		(mutation.name === "team.update" && changesSchedule(mutation.args.patch)) ||
+		(mutation.name === "template.create" && mutation.args.repeat !== null) ||
+		(mutation.name === "template.update" && mutation.args.patch.repeat !== undefined);
 	return { ...result, queued, wake, proposed: changes.proposed };
 }
 

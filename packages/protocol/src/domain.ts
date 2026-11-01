@@ -5,6 +5,7 @@
 
 import type { IssueDisplay } from "./display";
 import type { IssueFilters } from "./filters";
+import type { TemplateRepeat } from "./repeat";
 import type { WorkflowStatus } from "./statuses";
 
 /** The key of one of a team's statuses: see `WorkflowStatus`. */
@@ -387,7 +388,8 @@ export type IssueLayout = (typeof ISSUE_LAYOUTS)[number];
 
 /**
  * A team's starting point for new issues: the title, description, priority, labels and assignee
- * an issue made from it begins with. Anyone may change them before creating the issue.
+ * an issue made from it begins with. Anyone may change them before creating the issue. A template
+ * with a schedule also makes an issue on its own on each day the schedule falls on.
  */
 export interface IssueTemplate {
 	id: string;
@@ -402,6 +404,13 @@ export interface IssueTemplate {
 	labelIds: string[];
 	/** Someone who has since left the workspace is not assigned. */
 	assigneeId: string | null;
+	/** When it makes issues on its own, or null when only people use it. */
+	repeat: TemplateRepeat | null;
+	/**
+	 * The day it makes its next issue, in the schedule's time zone, or null without a schedule.
+	 * The server sets it.
+	 */
+	nextOn: string | null;
 	createdAt: number;
 	updatedAt: number;
 }

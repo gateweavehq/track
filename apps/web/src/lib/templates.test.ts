@@ -1,6 +1,12 @@
 import type { IssueTemplate, Label, Member } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
-import { applyTemplate, compareTemplates, type IssueDraft } from "./templates";
+import {
+	applyTemplate,
+	compareTemplates,
+	type IssueDraft,
+	repeatLabel,
+	sameRepeat,
+} from "./templates";
 
 function template(fields: Partial<IssueTemplate> = {}): IssueTemplate {
 	return {
@@ -12,6 +18,8 @@ function template(fields: Partial<IssueTemplate> = {}): IssueTemplate {
 		priority: 2,
 		labelIds: ["bug"],
 		assigneeId: "maya",
+		repeat: null,
+		nextOn: null,
 		createdAt: 0,
 		updatedAt: 0,
 		...fields,
@@ -90,5 +98,22 @@ describe("compareTemplates", () => {
 			.sort(compareTemplates)
 			.map((each) => each.name);
 		expect(names).toEqual(["Bug", "Chore"]);
+	});
+});
+
+describe("schedules", () => {
+	const weekly = { every: 1, unit: "week" as const, startsOn: "2026-11-02", timeZone: "UTC" };
+
+	it("say how often they make an issue", () => {
+		expect(repeatLabel(weekly)).toBe("Every week");
+		expect(repeatLabel({ every: 3, unit: "month" })).toBe("Every 3 months");
+	});
+
+	it("are the same only when every part is", () => {
+		expect(sameRepeat(null, null)).toBe(true);
+		expect(sameRepeat(weekly, { ...weekly })).toBe(true);
+		expect(sameRepeat(weekly, null)).toBe(false);
+		expect(sameRepeat(weekly, { ...weekly, timeZone: "Europe/Istanbul" })).toBe(false);
+		expect(sameRepeat(weekly, { ...weekly, every: 2 })).toBe(false);
 	});
 });

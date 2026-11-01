@@ -594,11 +594,27 @@ describe("Track MCP tools", () => {
 			// A label deleted since is left out.
 			labelIds: ["bug", "gone"],
 			assigneeId: sam.id,
+			repeat: null,
+			nextOn: null,
 			createdAt: 0,
 			updatedAt: 0,
 		};
-		// Its assignee has left the workspace.
-		const chore = { ...bug, id: "t-chore", name: "Chore", title: "", description: null };
+		// Its assignee has left the workspace, and Track files it every Monday.
+		const weekly = {
+			every: 1,
+			unit: "week" as const,
+			startsOn: "2026-11-02",
+			timeZone: "Europe/Istanbul",
+		};
+		const chore = {
+			...bug,
+			id: "t-chore",
+			name: "Chore",
+			title: "Weekly chores",
+			description: null,
+			repeat: weekly,
+			nextOn: "2026-11-09",
+		};
 		workspace.templates = [bug, { ...chore, priority: 0, labelIds: [], assigneeId: "user-gone" }];
 
 		expect((await call("get_workspace", { workspace: "acme" })).structuredContent).toMatchObject({
@@ -613,14 +629,18 @@ describe("Track MCP tools", () => {
 							priority: "high",
 							assignee: sam.id,
 							labels: ["Bug"],
+							repeat: null,
+							nextOn: null,
 						},
 						{
 							name: "Chore",
-							title: "",
+							title: "Weekly chores",
 							description: null,
 							priority: "none",
 							assignee: null,
 							labels: [],
+							repeat: weekly,
+							nextOn: "2026-11-09",
 						},
 					],
 				},

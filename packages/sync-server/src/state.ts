@@ -55,7 +55,8 @@ export const toProposal = ({
 export const toRelation = (relation: schema.RelationRow): IssueRelation => relation;
 
 export const toView = (view: schema.ViewRow): SavedView => view;
-export const toTemplate = (template: schema.TemplateRow): IssueTemplate => template;
+export const toTemplate = ({ repeatedOn: _, ...template }: schema.TemplateRow): IssueTemplate =>
+	template;
 
 export const toPullRequest = (pullRequest: schema.PullRequestRow): PullRequest => pullRequest;
 

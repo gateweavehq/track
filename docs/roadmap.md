@@ -91,7 +91,8 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - Archive: closed issues can be archived out of lists and boards, and restored, with an archive
   page per team: shipped in v0.15.0. Team automations that archive closed issues and close
   stale ones after a number of months untouched: shipped in v0.16.0. Issue templates per
-  team, in the app and over MCP: shipped in v0.17.0. Recurring issues follow.
+  team, in the app and over MCP: shipped in v0.17.0. Recurring issues, made by templates on a
+  schedule, are next to ship.
 - Insights: a page per team with issues created and closed by week, cycle time and where open
   issues are, worked out from the local copy: shipped in v0.17.0. Project updates (on track, at
   risk, off track, as a history and to webhooks) come next.

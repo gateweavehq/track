@@ -60,6 +60,9 @@ describe("issue templates", () => {
 				// Once each.
 				labelIds: ["bug", "ui"],
 				assigneeId: bob.id,
+				// Only people use it until it is given a schedule.
+				repeat: null,
+				nextOn: null,
 				createdAt: expect.any(Number),
 				updatedAt: expect.any(Number),
 			},
