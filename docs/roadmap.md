@@ -90,8 +90,8 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   five fixed categories that decide what they mean everywhere else. Shipped in v0.14.0.
 - Archive: closed issues can be archived out of lists and boards, and restored, with an archive
   page per team: shipped in v0.15.0. Team automations that archive closed issues and close
-  stale ones after a number of months untouched: shipped in v0.16.0. Issue templates and
-  recurring issues come next.
+  stale ones after a number of months untouched: shipped in v0.16.0. Issue templates per
+  team, in the app and over MCP, are next to ship; recurring issues follow.
 - GitHub integration: link pull requests and close issues from commits. The first part, over a
   webhook per repository or organization, shipped in v0.10.0; a GitHub App comes later.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations

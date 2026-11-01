@@ -5,6 +5,7 @@ import type {
 	InboxItem,
 	Issue,
 	IssueRelation,
+	IssueTemplate,
 	Label,
 	Member,
 	Project,
@@ -54,6 +55,7 @@ export const toProposal = ({
 export const toRelation = (relation: schema.RelationRow): IssueRelation => relation;
 
 export const toView = (view: schema.ViewRow): SavedView => view;
+export const toTemplate = (template: schema.TemplateRow): IssueTemplate => template;
 
 export const toPullRequest = (pullRequest: schema.PullRequestRow): PullRequest => pullRequest;
 
@@ -140,6 +142,12 @@ export function readSnapshot(db: Db, memberId: string): Snapshot {
 			.orderBy(asc(schema.views.createdAt), asc(schema.views.id))
 			.all()
 			.map(toView),
+		templates: db
+			.select()
+			.from(schema.templates)
+			.orderBy(asc(schema.templates.createdAt), asc(schema.templates.id))
+			.all()
+			.map(toTemplate),
 		members: db.select().from(schema.members).all().map(toMember),
 		subscriptions: db
 			.select()

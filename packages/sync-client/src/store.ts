@@ -18,6 +18,7 @@ export interface SyncState {
 	readonly proposals: ReadonlyMap<string, Entities["proposal"]>;
 	readonly relations: ReadonlyMap<string, Entities["relation"]>;
 	readonly views: ReadonlyMap<string, Entities["view"]>;
+	readonly templates: ReadonlyMap<string, Entities["template"]>;
 	readonly members: ReadonlyMap<string, Entities["member"]>;
 	/** This member's own subscriptions and inbox, by id. Nobody else's reach the replica. */
 	readonly subscriptions: ReadonlyMap<string, Entities["subscription"]>;
@@ -59,6 +60,7 @@ const EMPTY: Tables = {
 	proposal: new Map(),
 	relation: new Map(),
 	view: new Map(),
+	template: new Map(),
 	member: new Map(),
 	subscription: new Map(),
 	inbox: new Map(),
@@ -160,6 +162,7 @@ export class Replica {
 			proposal: new Map(snapshot.proposals.map((row) => [row.id, row])),
 			relation: new Map(snapshot.relations.map((row) => [row.id, row])),
 			view: new Map(snapshot.views.map((row) => [row.id, row])),
+			template: new Map(snapshot.templates.map((row) => [row.id, row])),
 			member: new Map(snapshot.members.map((row) => [row.id, row])),
 			subscription: new Map(snapshot.subscriptions.map((row) => [row.id, row])),
 			inbox: new Map(snapshot.inbox.map((row) => [row.id, row])),
@@ -225,6 +228,7 @@ export class Replica {
 			proposals: [...this.#confirmed.proposal.values()],
 			relations: [...this.#confirmed.relation.values()],
 			views: [...this.#confirmed.view.values()],
+			templates: [...this.#confirmed.template.values()],
 			members: [...this.#confirmed.member.values()],
 			subscriptions: [...this.#confirmed.subscription.values()],
 			inbox: [...this.#confirmed.inbox.values()],
@@ -258,6 +262,7 @@ function toState(tables: Tables, version: number): SyncState {
 		proposals: tables.proposal,
 		relations: tables.relation,
 		views: tables.view,
+		templates: tables.template,
 		members: tables.member,
 		subscriptions: tables.subscription,
 		inbox: tables.inbox,

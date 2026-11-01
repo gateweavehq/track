@@ -8,6 +8,7 @@ import {
 	Bot,
 	CircleUserRound,
 	Download,
+	FileText,
 	Inbox,
 	IterationCcw,
 	Keyboard,
@@ -34,7 +35,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "#/compone
 import { MOD_LABEL } from "#/lib/hotkeys";
 import { issueKey, matchesQuery, parseIssueKey } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
-import { useProjectList, useTeams, useTeamsById } from "#/lib/queries";
+import { useProjectList, useTeams, useTeamsById, useTemplates } from "#/lib/queries";
 import { search } from "#/lib/search";
 import { useExportIssues } from "#/lib/use-export";
 import { isAdmin, useMyRole, useWorkspace, useWorkspaceActions } from "./context";
@@ -71,6 +72,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 	const actions = useWorkspaceActions();
 	const teams = useTeams();
 	const teamsById = useTeamsById();
+	const templates = useTemplates();
 	const issues = useQuery(selectRecentIssues, shallowEqual);
 	const state = useQuery(selectState);
 	const [query, setQuery] = useState("");
@@ -101,6 +103,16 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 			keywords: ["new"],
 			run: actions.createProject,
 		},
+		...templates.map((template) => {
+			const team = teamsById.get(template.teamId);
+			return {
+				id: `template-${template.id}`,
+				label: `Create issue from ${template.name}`,
+				icon: FileText,
+				keywords: ["new", "template", ...(team ? [team.key, team.name] : [])],
+				run: () => actions.createIssue({ teamId: template.teamId, templateId: template.id }),
+			};
+		}),
 		...(screenIssue
 			? [
 					{

@@ -257,6 +257,26 @@ export const views = sqliteTable("views", {
 	updatedAt: integer("updated_at").notNull(),
 });
 
+/** Each team's starting points for new issues. Deleting one removes its row. */
+export const templates = sqliteTable(
+	"templates",
+	{
+		id: text("id").primaryKey(),
+		teamId: text("team_id")
+			.notNull()
+			.references(() => teams.id),
+		name: text("name").notNull(),
+		title: text("title").notNull(),
+		description: text("description"),
+		priority: integer("priority").$type<IssuePriority>().notNull(),
+		labelIds: text("label_ids", { mode: "json" }).$type<string[]>().notNull(),
+		assigneeId: text("assignee_id"),
+		createdAt: integer("created_at").notNull(),
+		updatedAt: integer("updated_at").notNull(),
+	},
+	(table) => [index("templates_team_idx").on(table.teamId)],
+);
+
 export const members = sqliteTable("members", {
 	userId: text("user_id").primaryKey(),
 	name: text("name").notNull(),
@@ -457,6 +477,7 @@ export type ActivityRow = typeof activities.$inferSelect;
 export type ProposalRow = typeof proposals.$inferSelect;
 export type RelationRow = typeof relations.$inferSelect;
 export type ViewRow = typeof views.$inferSelect;
+export type TemplateRow = typeof templates.$inferSelect;
 export type MemberRow = typeof members.$inferSelect;
 export type SubscriptionRow = typeof subscriptions.$inferSelect;
 export type InboxItemRow = typeof inboxItems.$inferSelect;

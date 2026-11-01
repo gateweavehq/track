@@ -59,6 +59,8 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 							projectId: first(defaults.projectId, page.projectId, routeProjectId),
 							cycleId: first(defaults.cycleId, page.cycleId),
 							labelIds: first(defaults.labelIds, page.labelIds),
+							// Only the caller asks for a template; it fills in over the rest.
+							templateId: defaults.templateId,
 						},
 					});
 				} else if (admin) {

@@ -5,6 +5,7 @@ import {
 	type Issue,
 	type IssueRelation,
 	type IssueStatus,
+	type IssueTemplate,
 	type Label,
 	type Member,
 	type Project,
@@ -39,6 +40,7 @@ import {
 	toRelation,
 	toStatus,
 	toTeam,
+	toTemplate,
 } from "./state";
 
 // Reads for server-side clients, which ask for a slice of the workspace instead of a replica.
@@ -77,6 +79,8 @@ export interface Directory {
 	/** Every team's cycles, in order. */
 	cycles: Cycle[];
 	members: Member[];
+	/** Every team's issue templates, by name. */
+	templates: IssueTemplate[];
 }
 
 export function readDirectory(db: Db): Directory {
@@ -104,6 +108,12 @@ export function readDirectory(db: Db): Directory {
 			.all()
 			.map(toCycle),
 		members: db.select().from(schema.members).orderBy(schema.members.name).all().map(toMember),
+		templates: db
+			.select()
+			.from(schema.templates)
+			.orderBy(schema.templates.teamId, schema.templates.name)
+			.all()
+			.map(toTemplate),
 	};
 }
 
