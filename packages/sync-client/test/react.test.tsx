@@ -31,6 +31,7 @@ const snapshot: Snapshot = {
 	activities: [],
 	proposals: [],
 	relations: [],
+	projectUpdates: [],
 	views: [],
 	templates: [],
 	members: [],

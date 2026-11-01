@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Comment, Issue, IssueRelation, Proposal } from "./domain";
+import type { Comment, Issue, IssueRelation, Project, ProjectUpdate, Proposal } from "./domain";
 import type { StatusCategory } from "./statuses";
 
 /**
@@ -20,6 +20,9 @@ export const WEBHOOK_EVENTS = [
 	"proposal.dismissed",
 	"relation.created",
 	"relation.deleted",
+	"project_update.created",
+	"project_update.updated",
+	"project_update.deleted",
 ] as const;
 export type WebhookEventType = (typeof WEBHOOK_EVENTS)[number];
 
@@ -33,7 +36,10 @@ export interface Webhook {
 	id: string;
 	url: string;
 	events: WebhookEventType[];
-	/** Only this team's issues and their comments, or every team's when null. */
+	/**
+	 * Only this team's issues and their comments, or every team's when null. Projects belong to no
+	 * team, so only a webhook for every team hears of project updates.
+	 */
 	teamId: string | null;
 	/** The agent member this webhook sets off. Its own changes are not sent, so it cannot loop. */
 	agentId: string | null;
@@ -124,6 +130,11 @@ export interface WebhookProposal extends Proposal {
 	issueKey: string;
 }
 
+export interface WebhookProject extends Project {
+	/** Where people open the project. */
+	url: string;
+}
+
 interface Change {
 	workspace: WebhookWorkspace;
 	/** The workspace version after the change. A later change has a higher version. */
@@ -169,6 +180,16 @@ export type WebhookPayload =
 				/** The issue at the other end. `issue` is the relation's `issueId` side, such as the blocker. */
 				relatedIssue: WebhookIssue;
 				relation: IssueRelation;
+			}
+	  >
+	| Envelope<
+			"project_update.created" | "project_update.updated" | "project_update.deleted",
+			{
+				workspace: WebhookWorkspace;
+				version: number;
+				actor: WebhookActor;
+				project: WebhookProject;
+				update: ProjectUpdate;
 			}
 	  >
 	| Envelope<typeof WEBHOOK_TEST_EVENT, { workspace: WebhookWorkspace; webhookId: string }>;

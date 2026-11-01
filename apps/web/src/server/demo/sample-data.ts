@@ -5,6 +5,7 @@ import type {
 	IssuePriority,
 	IssueStatus,
 	PersonRole,
+	ProjectHealth,
 	ProjectStatus,
 } from "@gateweave/track-protocol";
 
@@ -61,6 +62,8 @@ export interface SampleProject {
 	lead: PersonKey | null;
 	/** Days from now to the target date, so the sample never goes stale. */
 	targetInDays: number | null;
+	/** Posts on how it is going, oldest first; the last gives it its health. */
+	updates?: { by: PersonKey; health: ProjectHealth; body: string }[];
 }
 
 export const PROJECTS: Record<ProjectKey, SampleProject> = {
@@ -72,6 +75,20 @@ export const PROJECTS: Record<ProjectKey, SampleProject> = {
 		status: "started",
 		lead: "maya",
 		targetInDays: 45,
+		updates: [
+			{
+				by: "maya",
+				health: "on_track",
+				body: "Scope is set: the site, two guides, the demo and the launch post. Copy is next.",
+			},
+			{
+				by: "maya",
+				health: "at_risk",
+				body:
+					"The demo workspace still needs a nightly reset, and the launch post waits on it.\n\n" +
+					"- **Blocked:** the reset job\n- **Next:** pricing page draft, self-hosting guide",
+			},
+		],
 	},
 	reliability: {
 		name: "Sync reliability",
@@ -79,6 +96,13 @@ export const PROJECTS: Record<ProjectKey, SampleProject> = {
 		status: "started",
 		lead: "sam",
 		targetInDays: 21,
+		updates: [
+			{
+				by: "sam",
+				health: "on_track",
+				body: "Reconnects are fixed. Large workspaces open from the local copy in well under a second.",
+			},
+		],
 	},
 	polish: {
 		name: "Design polish",

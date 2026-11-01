@@ -13,6 +13,7 @@ import {
 	PROJECTS,
 	type ProjectKey,
 	type SampleIssue,
+	type SampleProject,
 	TEAMS,
 	type TeamKey,
 } from "./sample-data";
@@ -79,7 +80,8 @@ export interface SampleOptions {
 /**
  * Every write that builds the sample workspace, in an order that is valid: teams and labels
  * first (only admins create them, and turn on Engineering's two-week cycles), then the projects, then the issues in listed order so they
- * are numbered that way, then their comments, then any generated filler.
+ * are numbered that way, then their comments, then the projects' updates, then any generated
+ * filler.
  */
 export function sampleSteps({
 	userIds,
@@ -137,10 +139,7 @@ export function sampleSteps({
 	}
 
 	const projectIds = {} as Record<ProjectKey, string>;
-	for (const [key, project] of Object.entries(PROJECTS) as [
-		ProjectKey,
-		(typeof PROJECTS)[ProjectKey],
-	][]) {
+	for (const [key, project] of Object.entries(PROJECTS) as [ProjectKey, SampleProject][]) {
 		projectIds[key] = newId();
 		steps.push({
 			person: maya,
@@ -201,6 +200,23 @@ export function sampleSteps({
 				mutation: {
 					name: "comment.create",
 					args: { id: newId(), issueId: id, body: comment.body },
+				},
+			});
+		}
+	}
+	// Last of the sample, so the latest update of each project is the one listed last.
+	for (const [key, project] of Object.entries(PROJECTS) as [ProjectKey, SampleProject][]) {
+		for (const update of project.updates ?? []) {
+			steps.push({
+				person: update.by,
+				mutation: {
+					name: "projectUpdate.create",
+					args: {
+						id: newId(),
+						projectId: projectIds[key],
+						health: update.health,
+						body: update.body,
+					},
 				},
 			});
 		}

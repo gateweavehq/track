@@ -9,6 +9,7 @@ import type {
 	Label,
 	Member,
 	Project,
+	ProjectUpdate,
 	Proposal,
 	PullRequest,
 	SavedView,
@@ -38,6 +39,11 @@ export const toIssue = ({ fieldStamps: _, deletedAt: __, ...issue }: schema.Issu
 export const toLabel = ({ deletedAt: _, ...label }: schema.LabelRow): Label => label;
 
 export const toProject = ({ deletedAt: _, ...project }: schema.ProjectRow): Project => project;
+
+export const toProjectUpdate = ({
+	deletedAt: _,
+	...update
+}: schema.ProjectUpdateRow): ProjectUpdate => update;
 
 export const toCycle = (cycle: schema.CycleRow): Cycle => cycle;
 
@@ -98,6 +104,14 @@ export function readSnapshot(db: Db, memberId: string): Snapshot {
 			.orderBy(asc(schema.projects.createdAt), asc(schema.projects.id))
 			.all()
 			.map(toProject),
+		// Deleting a project deletes its updates, so every one that is left is a live project's.
+		projectUpdates: db
+			.select()
+			.from(schema.projectUpdates)
+			.where(isNull(schema.projectUpdates.deletedAt))
+			.orderBy(asc(schema.projectUpdates.createdAt), asc(schema.projectUpdates.id))
+			.all()
+			.map(toProjectUpdate),
 		cycles: db
 			.select()
 			.from(schema.cycles)
