@@ -1229,9 +1229,10 @@ team, and optionally the agent member it sets off. The payload types and input s
 
 A GitHub connection is a webhook on GitHub, on one repository or a whole organization, that tells
 a workspace of pull requests and pushes. Pull requests and commits that name an issue's key, such
-as `ENG-12`, are linked to it and move it along. There is no GitHub App yet: an admin adds a
-connection on Settings › GitHub and pastes its payload URL and secret into GitHub. The code is
-`packages/sync-server/src/github.ts`, with the gateway in `apps/web/src/server/github.ts`.
+as `ENG-12`, are linked to it and move it along. An admin adds a connection on Settings › GitHub
+and pastes its payload URL and secret into GitHub, or installs the deployment's GitHub App, when
+it has one. The code is `packages/sync-server/src/github.ts`, with the gateways in
+`apps/web/src/server/github.ts` and `apps/web/src/server/github-app.ts`.
 
 - **A connection is an id and a secret in the workspace's Durable Object.** The secret is shown
   once, when the connection is made or its secret replaced, and is never sent anywhere. A
@@ -1264,6 +1265,37 @@ connection on Settings › GitHub and pastes its payload URL and secret into Git
   offline edit to the status made before GitHub's change conflicts instead of undoing it.
   Subscribers' inboxes and webhooks hear of the change like any other, with a `system` actor
   named GitHub in webhook payloads.
+- **The GitHub App** (TRK-58), when the deployment registers one (`GITHUB_APP_*`, see
+  `docs/self-hosting.md`). An admin sets out from settings with a state that names the workspace
+  and them, signed with `BETTER_AUTH_SECRET` and good for an hour, and GitHub sends them back to
+  `/api/github/app/setup` with the installation's id. Anyone can call that address with any id, so
+  nothing is connected there: the admin is sent on to authorize the app, with a second state that
+  also names the installation, and comes back to `/api/github/app/callback` with an OAuth code.
+  The installation is connected only when the same admin is signed in at both steps, is still an
+  admin, and the user token the code buys lists the installation, on an account the person
+  controls on GitHub. Being listed is not enough, since GitHub lists an organization's
+  installation for anyone who can read one of its repositories: for an organization,
+  `GET /user/memberships/orgs/{org}` must say they are an `active` `admin` (an organization
+  owner); for a user account, the account must be the person's own (`GET /user`). The account is
+  the one `/user/installations` gives for the installation. The token is not kept. It then becomes
+  a connection of the workspace, with no secret of its own (`installation_id` in
+  `github_connections`), and D1's `github_installation` says which workspace and connection have
+  it: one workspace at a time.
+  - **Claiming.** The workspace claims the installation in one statement after the object
+    connects it: an insert that, on conflict, takes over the row only where this workspace has it
+    already. When no row changes, another workspace has the installation: the page says so (409)
+    and the object's new connection is removed, so two workspaces connecting at once leave one
+    whole row and one connection.
+  - **Deliveries.** All installations' deliveries come to `/api/github/app`. The gateway reads
+    the installation's id from the body only to find the workspace; the Durable Object checks the
+    signature with the app's secret, which every installation shares, and then that the delivery
+    is about the connection's own installation. They are then applied like a webhook's.
+  - **Uninstalling.** GitHub's `installation` delivery with `deleted` removes the connection, and
+    the gateway forgets the installation. Deleting the connection in settings stops its
+    deliveries and forgets the installation at once, so another workspace can connect it; the app
+    stays installed on GitHub until someone uninstalls it there.
+  - Self-hosters without an app keep the webhook, since an app has to be registered per
+    deployment.
 - **Copy branch name.** The issue page copies a branch name such as `eng-12-fix-the-login-form`,
   so a pull request from it links to the issue, and closes it when merged.
 - The public demo takes no deliveries, as it sends no webhooks.

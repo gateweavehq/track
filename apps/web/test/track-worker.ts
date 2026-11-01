@@ -51,6 +51,106 @@ export function solveTurnstileOn(hostname: string): void {
 export const INTAKE_EMAIL_DOMAIN = "requests.track.test";
 const TURNSTILE_HOST = "challenges.cloudflare.com";
 
+/** The tests' GitHub App, which GitHub's stand-in in `outboundService` knows. */
+export const GITHUB_APP = {
+	slug: "track-test",
+	clientId: "Iv1.track-test",
+	clientSecret: "github-app-client-secret",
+	webhookSecret: "github-app-webhook-secret",
+};
+
+/** An account an installation of the app is on, as GitHub describes it. */
+export interface GitHubAccount {
+	login: string;
+	id: number;
+	type: "User" | "Organization";
+}
+
+/** A person on GitHub, as the stand-in in `outboundService` answers for their user token. */
+export interface GitHubPerson {
+	/** Their user id, as `GET /user` gives it. */
+	id: number;
+	/** The installations `GET /user/installations` lists for them. */
+	installations: { id: number; account: GitHubAccount | null }[];
+	/** Their membership of organizations, by login, as `GET /user/memberships/orgs/{org}` gives it. */
+	memberships?: Record<string, { state: "active" | "pending"; role: "admin" | "member" }>;
+	/** Awaited before their installations are listed, so a test can line up two people. */
+	hold?: () => Promise<void>;
+}
+
+const githubPeople = new Map<string, GitHubPerson>();
+
+/**
+ * The code GitHub hands back after `person` authorizes the app. GitHub's stand-in swaps it for a
+ * token that answers as them.
+ */
+export function githubPersonCode(person: GitHubPerson): string {
+	const code = `code-${randomBytes(8).toString("hex")}`;
+	githubPeople.set(code, person);
+	return code;
+}
+
+/** The organization `acme-<id>`, which installation `id` is on in `githubCode`. */
+export function githubOrg(id: number): GitHubAccount {
+	return { login: `acme-${id}`, id: 1000 + id, type: "Organization" };
+}
+
+/**
+ * The code GitHub hands back after a person installs the app, for an admin of the organizations
+ * the installations `ids` are on, `acme-<id>` each.
+ */
+export function githubCode(...ids: number[]): string {
+	return githubPersonCode({
+		id: 1,
+		installations: ids.map((id) => ({ id, account: githubOrg(id) })),
+		memberships: Object.fromEntries(
+			ids.map((id) => [githubOrg(id).login, { state: "active", role: "admin" }]),
+		),
+	});
+}
+
+/** GitHub, for the app: an OAuth code becomes a token, and the token answers as its person. */
+async function githubStandIn(request: Request, url: URL): Promise<Response | null> {
+	if (url.host === "github.com" && url.pathname === "/login/oauth/access_token") {
+		const { client_id, client_secret, code } = (await request.json()) as Record<string, string>;
+		const known =
+			client_id === GITHUB_APP.clientId &&
+			client_secret === GITHUB_APP.clientSecret &&
+			githubPeople.has(code ?? "");
+		return Response.json(
+			known
+				? { access_token: `token-${code}`, token_type: "bearer" }
+				: { error: "bad_verification_code" },
+		);
+	}
+	if (url.host !== "api.github.com") return null;
+	const code = /^Bearer token-(.+)$/.exec(request.headers.get("authorization") ?? "")?.[1];
+	const person = code === undefined ? undefined : githubPeople.get(code);
+	if (!person) return Response.json({ message: "Bad credentials" }, { status: 401 });
+	if (url.pathname === "/user")
+		return Response.json({ id: person.id, login: `person-${person.id}` });
+	if (url.pathname === "/user/installations") {
+		await person.hold?.();
+		return Response.json({
+			total_count: person.installations.length,
+			installations: person.installations,
+		});
+	}
+	const org = /^\/user\/memberships\/orgs\/([^/]+)$/.exec(url.pathname)?.[1];
+	if (org !== undefined) {
+		const login = decodeURIComponent(org);
+		const membership = person.memberships?.[login];
+		const account = person.installations.find((each) => each.account?.login === login)?.account;
+		if (!membership || !account) return Response.json({ message: "Not Found" }, { status: 404 });
+		return Response.json({
+			...membership,
+			organization: { login, id: account.id },
+			user: { id: person.id },
+		});
+	}
+	return Response.json({ message: "Not Found" }, { status: 404 });
+}
+
 /** The address Track sends from in tests. */
 export const EMAIL_FROM = { name: "Gateweave Track", email: "track@track.test" };
 
@@ -171,6 +271,10 @@ export async function startTrack(
 									TURNSTILE_SITE_KEY,
 									TURNSTILE_SECRET_KEY: "turnstile-test-secret",
 									INTAKE_EMAIL_DOMAIN,
+									GITHUB_APP_SLUG: GITHUB_APP.slug,
+									GITHUB_APP_CLIENT_ID: GITHUB_APP.clientId,
+									GITHUB_APP_CLIENT_SECRET: GITHUB_APP.clientSecret,
+									GITHUB_APP_WEBHOOK_SECRET: GITHUB_APP.webhookSecret,
 								}),
 						...vars,
 					},
@@ -195,6 +299,8 @@ export async function startTrack(
 							// Turnstile names the host the challenge was solved on.
 							return Response.json({ success, hostname: TURNSTILE_HOSTNAME });
 						}
+						const github = await githubStandIn(request, url);
+						if (github) return github;
 						if (url.host === RECEIVER_HOST) {
 							received.push({
 								url: request.url,
@@ -270,6 +376,8 @@ export async function startTrack(
 	}
 
 	return {
+		/** The Worker's `BETTER_AUTH_SECRET`, for tests that sign what the app signs with it. */
+		authSecret: secret,
 		/** A `fetch` that reaches the Worker directly. Redirects are returned, not followed. */
 		fetch: (input: string | URL | Request, init?: RequestInit) => fetchIn(0, input, init),
 		fetchIn,

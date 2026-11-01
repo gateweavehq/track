@@ -13,6 +13,11 @@ export interface WorkspaceGitHub {
 	/** Where the workspace's connections receive deliveries; each adds its id. */
 	endpoint: string;
 	connections: GitHubConnection[];
+	/**
+	 * Where an admin installs the deployment's GitHub App for this workspace, a link that works
+	 * for an hour; null where the server has no app.
+	 */
+	installUrl: string | null;
 }
 
 const slug = z.string().min(1);
@@ -42,10 +47,13 @@ export const getWorkspaceGitHub = createServerFn({ method: "GET" })
 		const { access: found, enabled } = await access(workspace);
 		if (!found) return null;
 		const endpoint = `${found.link.origin}/api/github/${found.link.id}`;
-		const none = { admin: false, enabled, endpoint, connections: [] };
+		const none = { admin: false, enabled, endpoint, connections: [], installUrl: null };
 		if (!found.admin) return none;
 		const result = await found.stub.githubConnections(found.member);
-		return result.ok ? { admin: true, enabled, endpoint, connections: result.value } : none;
+		if (!result.ok) return none;
+		const { githubAppInstallUrl } = await import("#/server/github-app");
+		const installUrl = await githubAppInstallUrl(found.link.id, found.member.id);
+		return { admin: true, enabled, endpoint, connections: result.value, installUrl };
 	});
 
 export const createGitHubConnection = createServerFn({ method: "POST" })
@@ -73,5 +81,12 @@ export const deleteGitHubConnection = createServerFn({ method: "POST" })
 	.handler(async ({ data }): Promise<WebhookOutcome<null>> => {
 		const { access: found } = await access(data.workspace);
 		if (!found) return notMember;
-		return found.stub.deleteGitHubConnection(found.member, data.id);
+		const result = await found.stub.deleteGitHubConnection(found.member, data.id);
+		// An app installation's connection also lets go of the installation, which another
+		// workspace may then connect without waiting for a delivery to show it is gone.
+		if (result.ok) {
+			const { forgetGitHubInstallation } = await import("#/server/github-app");
+			await forgetGitHubInstallation(found.link.id, data.id);
+		}
+		return result;
 	});

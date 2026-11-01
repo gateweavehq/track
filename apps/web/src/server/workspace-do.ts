@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import {
 	type InboxDigest,
 	type RequesterNotice,
@@ -8,8 +9,8 @@ import { emailRequester } from "./requester-email";
 
 /**
  * A workspace's Durable Object, as `sync-server` defines it, with what only the app can do: email
- * people the inbox news they leave unread, and tell whoever filed a request through a form or by
- * email what the team decided.
+ * people the inbox news they leave unread, tell whoever filed a request through a form or by
+ * email what the team decided, and check the GitHub App's deliveries with its secret.
  */
 export class WorkspaceDO extends SyncWorkspaceDO {
 	protected override sendInboxDigest(digest: InboxDigest): Promise<void> {
@@ -18,5 +19,9 @@ export class WorkspaceDO extends SyncWorkspaceDO {
 
 	protected override sendRequesterNotice(notice: RequesterNotice): Promise<void> {
 		return emailRequester(notice);
+	}
+
+	protected override githubAppSecret(): string | null {
+		return env.GITHUB_APP_WEBHOOK_SECRET || null;
 	}
 }

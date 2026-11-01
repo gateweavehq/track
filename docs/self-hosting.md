@@ -66,14 +66,18 @@ Everything except `BETTER_AUTH_SECRET` is optional. Set them in the Cloudflare d
 pnpm wrangler secret put BETTER_AUTH_URL
 ```
 
-| Name                   | What it does                                                               |
-| ---------------------- | -------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`   | Signs sessions. Required.                                                  |
-| `BETTER_AUTH_URL`      | The address people use, such as `https://track.example.com`. Turns on MCP. |
-| `GITHUB_CLIENT_ID`     | Turns on "Sign in with GitHub", with `GITHUB_CLIENT_SECRET`.               |
-| `GITHUB_CLIENT_SECRET` | The client secret of the same GitHub OAuth app.                            |
-| `EMAIL_FROM`           | Turns on email, such as `Gateweave Track <track@example.com>`.             |
-| `ATTACHMENT_QUOTA_MB`  | Limits each workspace's attached files, such as `1024`. Unlimited unset.   |
+| Name                        | What it does                                                               |
+| --------------------------- | -------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`        | Signs sessions. Required.                                                  |
+| `BETTER_AUTH_URL`           | The address people use, such as `https://track.example.com`. Turns on MCP. |
+| `GITHUB_CLIENT_ID`          | Turns on "Sign in with GitHub", with `GITHUB_CLIENT_SECRET`.               |
+| `GITHUB_CLIENT_SECRET`      | The client secret of the same GitHub OAuth app.                            |
+| `GITHUB_APP_SLUG`           | Turns on the GitHub App, with the three below. See below.                  |
+| `GITHUB_APP_CLIENT_ID`      | The GitHub App's client ID.                                                |
+| `GITHUB_APP_CLIENT_SECRET`  | The GitHub App's client secret.                                            |
+| `GITHUB_APP_WEBHOOK_SECRET` | The secret that signs the GitHub App's deliveries.                         |
+| `EMAIL_FROM`                | Turns on email, such as `Gateweave Track <track@example.com>`.             |
+| `ATTACHMENT_QUOTA_MB`       | Limits each workspace's attached files, such as `1024`. Unlimited unset.   |
 
 ### Your own domain
 
@@ -103,6 +107,36 @@ Connecting repositories needs no app or secret on the server. An admin adds a co
 Settings, GitHub, and adds a webhook on GitHub with the payload URL and secret shown there:
 content type `application/json`, and the Pull requests and Pushes events. GitHub must be able to
 reach your address, so a local `http://localhost` cannot receive deliveries.
+
+Instead, admins can install a GitHub App on the repositories they choose, once you register one
+for your deployment. Create it under GitHub's Settings, Developer settings, GitHub Apps, with your
+address in place of `https://track.example.com`:
+
+- **Callback URL:** `https://track.example.com/api/github/app/callback`. Leave "Expire user
+  authorization tokens" on, and "Request user authorization (OAuth) during installation" off: it
+  would replace the setup URL. Track sends the admin to authorize the app itself, and connects an
+  installation only once GitHub lists it among the installations they can reach, on an account
+  they control: an organization they are an owner of, or their own user account.
+- **Setup URL:** `https://track.example.com/api/github/app/setup`, with "Redirect on update" on,
+  so that choosing other repositories comes back to Track too.
+- **Webhook:** active, with the URL `https://track.example.com/api/github/app` and a secret you
+  make, such as one from `openssl rand -hex 32`.
+- **Permissions:** Pull requests and Contents, read-only, and Metadata, read-only, on
+  repositories; and Members, read-only, on organizations, which lets Track ask GitHub whether the
+  person connecting an organization's installation is its owner.
+- **Events:** Pull request and Push.
+- **Where it can be installed:** any account, unless only your own organization uses it.
+
+Then set `GITHUB_APP_SLUG` to the app's name in its URL (`github.com/apps/<slug>`),
+`GITHUB_APP_CLIENT_ID` to its client ID, and the client secret and webhook secret as secrets:
+`pnpm wrangler secret put GITHUB_APP_CLIENT_SECRET` and
+`pnpm wrangler secret put GITHUB_APP_WEBHOOK_SECRET`. Settings, GitHub then offers "Install GitHub
+App" next to adding a webhook. Only an owner or admin of the workspace who is also an owner of
+the GitHub organization the app is installed on (or the GitHub user, for an installation on a
+personal account) can connect it; someone who can only read some of its repositories cannot. An
+installation belongs to one workspace at a time; disconnecting it in Settings, GitHub frees it
+for another workspace at once. An app registered before Members was in its permissions has to
+ask its installations to accept the new permission, under the app's Permissions & events.
 
 ### Request forms
 

@@ -71,6 +71,6 @@ export async function handleGitHubRequest(request: Request): Promise<Response> {
 	}
 }
 
-function answer(status: number, message: string, headers?: HeadersInit): Response {
+export function answer(status: number, message: string, headers?: HeadersInit): Response {
 	return Response.json(status < 400 ? { message } : { error: message }, { status, headers });
 }
