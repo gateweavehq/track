@@ -82,7 +82,13 @@ import {
 import { nextRecurringAt, runRecurring } from "./recurring";
 import { MutationRejected } from "./rejected";
 import { nextReminderAt, remindDue } from "./reminders";
-import { hasRequesterNotices, type RequesterNotice, takeRequesterNotices } from "./requesters";
+import {
+	fileReply,
+	hasRequesterNotices,
+	type RequesterNotice,
+	requesterReply,
+	takeRequesterNotices,
+} from "./requesters";
 import {
 	activeMember,
 	type Db,
@@ -480,6 +486,23 @@ export class WorkspaceDO extends DurableObject {
 			const outcome = fileRequest(this.#db, request, Date.now());
 			filed = outcome !== null;
 			return outcome?.result ?? { version: currentVersion(this.#db), ops: [] };
+		});
+		return filed;
+	}
+
+	/**
+	 * Files a requester's reply to the decision on their request as a comment on it. False for a
+	 * key no request has, another sender, a deleted request, or a reply that is invalid.
+	 */
+	fileReply(input: unknown): boolean {
+		const parsed = requesterReply.safeParse(input);
+		if (!parsed.success) return false;
+		const reply = parsed.data;
+		let filed = false;
+		this.#write(() => {
+			const outcome = fileReply(this.#db, reply, Date.now());
+			filed = outcome !== null;
+			return outcome ?? { version: currentVersion(this.#db), ops: [] };
 		});
 		return filed;
 	}

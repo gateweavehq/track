@@ -409,6 +409,11 @@ export const requesters = sqliteTable("requesters", {
 	notice: text("notice", { enum: ["accepted", "declined"] }),
 	/** The reply that came with a decline, as Markdown. */
 	reply: text("reply"),
+	/**
+	 * The secret in the address the decision is sent with, where the requester's reply becomes a
+	 * comment on the request. Made when the decision is first emailed.
+	 */
+	replyKey: text("reply_key").unique(),
 	createdAt: integer("created_at").notNull(),
 });
 

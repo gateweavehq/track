@@ -3,14 +3,18 @@ import type { Email } from "postal-mime";
 /** The longest description an emailed request keeps; the rest of the text is cut. */
 export const MAX_EMAILED_TEXT = 20_000;
 
-/** Where an intake email address leads: a workspace, by its id, and a team's secret key. */
+/**
+ * Where an intake email address leads: a workspace, by its id, and a secret key. A team's key
+ * files a request into its intake; a request's longer key files a reply to the decision on it.
+ */
 export interface IntakeAddress {
 	/** Lowercase, as mail systems may change the case of an address. */
 	workspaceId: string;
+	kind: "team" | "reply";
 	key: string;
 }
 
-const LOCAL_PART = /^([a-z0-9_-]{1,40})\.([a-z2-7]{16})$/;
+const LOCAL_PART = /^([a-z0-9_-]{1,40})\.([a-z2-7]{16}|[a-z2-7]{26})$/;
 
 /**
  * A team's intake email address: the workspace's id, a dot and the team's key, at the domain
@@ -26,7 +30,7 @@ export function parseIntakeAddress(to: string, domain: string): IntakeAddress | 
 	if (at < 0 || to.slice(at + 1).toLowerCase() !== domain.toLowerCase()) return null;
 	const match = LOCAL_PART.exec(to.slice(0, at).toLowerCase());
 	if (!match?.[1] || !match[2]) return null;
-	return { workspaceId: match[1], key: match[2] };
+	return { workspaceId: match[1], kind: match[2].length === 16 ? "team" : "reply", key: match[2] };
 }
 
 /**
@@ -70,6 +74,35 @@ export function requestFromEmail(
 	}
 	const parts = [text, kept.join("\n\n"), notes.join(" ")].filter((part) => part.length > 0);
 	return { title, description: parts.join("\n\n") };
+}
+
+/**
+ * The text of a reply, without what it quotes: the lines a mail client marks with `>`, and
+ * everything from the line that introduces the quoted message ("On … wrote:", "-----Original
+ * Message-----") on. Cut short past MAX_EMAILED_TEXT.
+ */
+export function replyFromEmail(email: Pick<Email, "text" | "html">): string {
+	const text = (email.text ?? (email.html ? textOfHtml(email.html) : "")).replace(/\r\n?/g, "\n");
+	const lines = text.split("\n");
+	const kept: string[] = [];
+	for (const [index, line] of lines.entries()) {
+		const trimmed = line.trim();
+		// Some clients wrap the introduction onto a second line.
+		const next = `${trimmed} ${lines[index + 1]?.trim() ?? ""}`;
+		if (
+			/^-{2,}\s*original message\s*-{2,}$/i.test(trimmed) ||
+			/^on\s.*\swrote:$/i.test(trimmed) ||
+			(/^on\s/i.test(trimmed) && /\swrote:$/i.test(next))
+		) {
+			break;
+		}
+		if (trimmed.startsWith(">")) continue;
+		kept.push(line);
+	}
+	let reply = kept.join("\n").trim();
+	if (reply.length > MAX_EMAILED_TEXT)
+		reply = `${reply.slice(0, MAX_EMAILED_TEXT)}…\n\n(Cut short.)`;
+	return reply;
 }
 
 /** The text of an HTML-only email, roughly: tags out, paragraphs kept, entities read. */
