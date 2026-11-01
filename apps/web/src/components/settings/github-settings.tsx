@@ -1,5 +1,5 @@
 import { useRouter } from "@tanstack/react-router";
-import { Copy, Ellipsis, Plus } from "lucide-react";
+import { Copy, Ellipsis, Plug, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
@@ -42,7 +42,7 @@ export function GitHubSettings({ data }: { data: WorkspaceGitHub }) {
 	const router = useRouter();
 	const [newSecret, setNewSecret] = useState<NewSecret | null>(null);
 	const [pending, setPending] = useState(false);
-	const { admin, enabled, endpoint, connections } = data;
+	const { admin, enabled, endpoint, connections, installUrl } = data;
 
 	async function add() {
 		setPending(true);
@@ -71,7 +71,9 @@ export function GitHubSettings({ data }: { data: WorkspaceGitHub }) {
 						GitHub
 					</h2>
 					<p className="text-sm text-muted-foreground">
-						Connect a repository, or every repository of an organization, with a webhook on GitHub.
+						{installUrl
+							? "Install Track's GitHub App on the repositories you choose, or connect a repository, or every repository of an organization, with a webhook on GitHub."
+							: "Connect a repository, or every repository of an organization, with a webhook on GitHub."}{" "}
 						Pull requests and commits that name an issue, such as ENG-12, are linked to it and move
 						it along:
 					</p>
@@ -93,10 +95,20 @@ export function GitHubSettings({ data }: { data: WorkspaceGitHub }) {
 					</p>
 				</div>
 				{admin && enabled && (
-					<Button onClick={add} disabled={pending}>
-						<Plus />
-						Add connection
-					</Button>
+					<div className="flex shrink-0 flex-col items-stretch gap-2">
+						{installUrl && (
+							<Button asChild>
+								<a href={installUrl}>
+									<Plug />
+									Install GitHub App
+								</a>
+							</Button>
+						)}
+						<Button variant={installUrl ? "outline" : "default"} onClick={add} disabled={pending}>
+							<Plus />
+							{installUrl ? "Add webhook" : "Add connection"}
+						</Button>
+					</div>
 				)}
 			</div>
 			{!enabled && (
@@ -217,7 +229,10 @@ function ConnectionRow({
 	const members = useMembersById();
 	const [action, setAction] = useState<"rotate" | "delete" | null>(null);
 	const creator = members.get(connection.createdBy);
-	const name = connection.lastRepository ?? "Waiting for the first delivery";
+	const { installation } = connection;
+	const name = installation
+		? `GitHub App on ${installation.account ?? `installation ${installation.id}`}`
+		: (connection.lastRepository ?? "Waiting for the first delivery");
 
 	async function rotate() {
 		const result = await rotateGitHubSecret({ data: { workspace: slug, id: connection.id } });
@@ -274,11 +289,21 @@ function ConnectionRow({
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end">
-					<DropdownMenuItem onSelect={() => copy(url, "Payload URL")}>
-						Copy payload URL
-					</DropdownMenuItem>
-					{enabled && (
-						<DropdownMenuItem onSelect={() => setAction("rotate")}>New secret</DropdownMenuItem>
+					{installation ? (
+						<DropdownMenuItem asChild>
+							<a href="https://github.com/settings/installations" target="_blank" rel="noreferrer">
+								Choose repositories on GitHub
+							</a>
+						</DropdownMenuItem>
+					) : (
+						<>
+							<DropdownMenuItem onSelect={() => copy(url, "Payload URL")}>
+								Copy payload URL
+							</DropdownMenuItem>
+							{enabled && (
+								<DropdownMenuItem onSelect={() => setAction("rotate")}>New secret</DropdownMenuItem>
+							)}
+						</>
 					)}
 					<DropdownMenuSeparator />
 					<DropdownMenuItem
@@ -307,8 +332,9 @@ function ConnectionRow({
 					onConfirm={remove}
 					onClose={() => setAction(null)}
 				>
-					Track stops listening to its webhook. Pull requests it linked stay on their issues; delete
-					the webhook on GitHub too.
+					{installation
+						? "Track stops listening to the app's installation. Pull requests it linked stay on their issues; uninstall the app on GitHub too."
+						: "Track stops listening to its webhook. Pull requests it linked stay on their issues; delete the webhook on GitHub too."}
 				</ConfirmDialog>
 			)}
 		</li>

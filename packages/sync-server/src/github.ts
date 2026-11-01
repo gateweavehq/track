@@ -50,6 +50,12 @@ export const githubDelivery = z.object({
 });
 export type GitHubDelivery = z.infer<typeof githubDelivery>;
 
+/** An installation of the GitHub App, as the gateway hands it over once GitHub vouched for it. */
+export const githubInstallation = z.object({
+	id: z.string().regex(/^\d{1,20}$/),
+	account: z.string().min(1).max(100).nullable(),
+});
+
 // Settings, for admins. A secret is shown when it is made and never again.
 
 export function listGitHubConnections(db: Db): GitHubConnection[] {
@@ -66,6 +72,44 @@ export function createGitHubConnection(
 	memberId: string,
 	now: number,
 ): { connection: GitHubConnection; secret: string } {
+	const row = newConnection(db, memberId, now, { secret: newSecret() });
+	return { connection: toConnection(row), secret: row.secret };
+}
+
+/**
+ * Connects an installation of the deployment's GitHub App, which the gateway has checked the
+ * member can reach on GitHub. Its deliveries are signed with the app's secret. Connecting one
+ * already connected keeps it, with its account's current name.
+ */
+export function connectGitHubApp(
+	db: Db,
+	installation: { id: string; account: string | null },
+	memberId: string,
+	now: number,
+): GitHubConnection {
+	const existing = db
+		.update(schema.githubConnections)
+		.set({ installationAccount: installation.account })
+		.where(eq(schema.githubConnections.installationId, installation.id))
+		.returning()
+		.get();
+	if (existing) return toConnection(existing);
+	return toConnection(
+		newConnection(db, memberId, now, {
+			secret: "",
+			installationId: installation.id,
+			installationAccount: installation.account,
+		}),
+	);
+}
+
+function newConnection(
+	db: Db,
+	memberId: string,
+	now: number,
+	fields: Pick<schema.GitHubConnectionRow, "secret"> &
+		Partial<Pick<schema.GitHubConnectionRow, "installationId" | "installationAccount">>,
+): schema.GitHubConnectionRow {
 	const existing = db.select({ n: count() }).from(schema.githubConnections).get();
 	if ((existing?.n ?? 0) >= MAX_GITHUB_CONNECTIONS) {
 		throw new MutationRejected(
@@ -75,15 +119,17 @@ export function createGitHubConnection(
 	}
 	const row: schema.GitHubConnectionRow = {
 		id: crypto.randomUUID(),
-		secret: newSecret(),
 		createdBy: memberId,
 		createdAt: now,
 		lastDeliveryAt: null,
 		lastEvent: null,
 		lastRepository: null,
+		installationId: null,
+		installationAccount: null,
+		...fields,
 	};
 	db.insert(schema.githubConnections).values(row).run();
-	return { connection: toConnection(row), secret: row.secret };
+	return row;
 }
 
 export function rotateGitHubSecret(db: Db, id: string): string {
@@ -91,7 +137,9 @@ export function rotateGitHubSecret(db: Db, id: string): string {
 	const row = db
 		.update(schema.githubConnections)
 		.set({ secret })
-		.where(eq(schema.githubConnections.id, id))
+		.where(
+			and(eq(schema.githubConnections.id, id), isNull(schema.githubConnections.installationId)),
+		)
 		.returning({ id: schema.githubConnections.id })
 		.get();
 	if (!row) throw new MutationRejected("not_found", "GitHub connection not found");
@@ -111,31 +159,50 @@ export function deleteGitHubConnection(db: Db, id: string): void {
 
 /**
  * Whether the delivery is signed with its connection's secret: GitHub's `X-Hub-Signature-256`,
- * an HMAC-SHA256 of the body. Null when there is no such connection.
+ * an HMAC-SHA256 of the body. An app installation's deliveries are signed with the app's secret,
+ * `appSecret`, which every installation shares, so one also has to be about its own installation.
+ * Null when there is no such connection.
  */
 export async function verifyGitHubDelivery(
 	db: Db,
 	delivery: GitHubDelivery,
+	appSecret: string | null = null,
 ): Promise<boolean | null> {
 	const connection = db
-		.select({ secret: schema.githubConnections.secret })
+		.select({
+			secret: schema.githubConnections.secret,
+			installationId: schema.githubConnections.installationId,
+		})
 		.from(schema.githubConnections)
 		.where(eq(schema.githubConnections.id, delivery.connectionId))
 		.get();
 	if (!connection) return null;
+	const secret = connection.installationId === null ? connection.secret : appSecret;
+	if (!secret) return false;
 	const hex = /^sha256=([0-9a-f]{64})$/i.exec(delivery.signature ?? "")?.[1];
 	if (!hex) return false;
 	const encoder = new TextEncoder();
 	const key = await crypto.subtle.importKey(
 		"raw",
-		encoder.encode(connection.secret),
+		encoder.encode(secret),
 		{ name: "HMAC", hash: "SHA-256" },
 		false,
 		["verify"],
 	);
 	// `verify` compares in constant time.
-	return crypto.subtle.verify("HMAC", key, fromHex(hex), encoder.encode(delivery.body));
+	const signed = await crypto.subtle.verify(
+		"HMAC",
+		key,
+		fromHex(hex),
+		encoder.encode(delivery.body),
+	);
+	if (!signed || connection.installationId === null) return signed;
+	const about = installationOf.safeParse(parseJson(delivery.body));
+	return about.success && String(about.data.installation.id) === connection.installationId;
 }
+
+/** The installation an app's delivery is about. */
+const installationOf = z.object({ installation: z.object({ id: z.number().int() }) });
 
 /** Acts on a delivery whose signature checked out. Runs in one transaction. */
 export function applyGitHubDelivery(db: Db, delivery: GitHubDelivery, now: number): WriteResult {
@@ -162,6 +229,13 @@ export function applyGitHubDelivery(db: Db, delivery: GitHubDelivery, now: numbe
 		.where(eq(schema.githubConnections.id, delivery.connectionId))
 		.run();
 
+	// The app was uninstalled: its installation, and so its connection, are gone.
+	if (delivery.event === "installation" && uninstalled.safeParse(body).success) {
+		db.delete(schema.githubConnections)
+			.where(eq(schema.githubConnections.id, delivery.connectionId))
+			.run();
+	}
+
 	const changes = new ChangeSet(db, GITHUB_ACTOR_ID, now);
 	const github = new GitHubEvents(db, changes);
 	if (delivery.event === "pull_request") {
@@ -182,6 +256,8 @@ export function applyGitHubDelivery(db: Db, delivery: GitHubDelivery, now: numbe
 }
 
 // The parts of GitHub's payloads that matter here.
+
+const uninstalled = z.object({ action: z.literal("deleted") });
 
 /** Where any delivery came from: a repository, or for an organization's ping, the organization. */
 const origin = z.object({
@@ -472,8 +548,17 @@ function samePullRequest(a: schema.PullRequestRow, b: schema.PullRequestRow): bo
 	);
 }
 
-function toConnection({ secret: _, ...row }: schema.GitHubConnectionRow): GitHubConnection {
-	return row;
+function toConnection({
+	secret: _,
+	installationId,
+	installationAccount,
+	...row
+}: schema.GitHubConnectionRow): GitHubConnection {
+	return {
+		...row,
+		installation:
+			installationId === null ? null : { id: installationId, account: installationAccount },
+	};
 }
 
 function newSecret(): string {

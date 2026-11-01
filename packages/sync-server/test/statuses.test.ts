@@ -306,6 +306,8 @@ describe("statuses", () => {
 			db.run(sql`drop table templates`);
 			db.run(sql`drop table requesters`);
 			db.run(sql`drop table project_updates`);
+			db.run(sql`alter table github_connections drop column installation_id`);
+			db.run(sql`alter table github_connections drop column installation_account`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${first.when}`);
 			await migrate(db, migrations);
 		});

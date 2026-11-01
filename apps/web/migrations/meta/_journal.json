@@ -22,6 +22,13 @@
       "when": 1793221802948,
       "tag": "0002_brown_lila_cheney",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793571138708,
+      "tag": "0003_github_installation",
+      "breakpoints": true
     }
   ]
 }

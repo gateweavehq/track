@@ -489,6 +489,13 @@ export const githubConnections = sqliteTable("github_connections", {
 	lastDeliveryAt: integer("last_delivery_at"),
 	lastEvent: text("last_event"),
 	lastRepository: text("last_repository"),
+	/**
+	 * The GitHub App installation it stands for, whose deliveries are signed with the app's
+	 * secret rather than `secret`, which is then empty. Null for a webhook an admin added.
+	 */
+	installationId: text("installation_id"),
+	/** The account the app was installed on, such as `acme`. */
+	installationAccount: text("installation_account"),
 });
 
 /**

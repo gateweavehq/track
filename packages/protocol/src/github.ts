@@ -15,6 +15,11 @@ export interface GitHubConnection {
 	 * repositories, and its first delivery, a ping, names only the organization.
 	 */
 	lastRepository: string | null;
+	/**
+	 * The GitHub App installation it stands for, and the account it is on; null for a webhook an
+	 * admin added. GitHub owns an installation's secret, so it has none to replace.
+	 */
+	installation: { id: string; account: string | null } | null;
 }
 
 export const MAX_GITHUB_CONNECTIONS = 10;
