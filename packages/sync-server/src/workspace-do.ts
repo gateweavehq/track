@@ -37,9 +37,11 @@ import { advanceCycles, nextCycleChange } from "./cycles";
 import * as schema from "./db/schema";
 import {
 	applyGitHubDelivery,
+	connectGitHubApp,
 	createGitHubConnection,
 	deleteGitHubConnection,
 	githubDelivery,
+	githubInstallation,
 	listGitHubConnections,
 	rotateGitHubSecret,
 	verifyGitHubDelivery,
@@ -387,6 +389,22 @@ export class WorkspaceDO extends DurableObject {
 		);
 	}
 
+	/**
+	 * Connects an installation of the deployment's GitHub App. The gateway has checked, with
+	 * GitHub, that the member can reach the installation; only an admin may connect one.
+	 */
+	connectGitHubApp(
+		member: MemberProfile,
+		installation: { id: string; account: string | null },
+	): WebhookResult<GitHubConnection> {
+		const { id, account } = githubInstallation.parse(installation);
+		return this.#manage(
+			member,
+			() => connectGitHubApp(this.#db, { id, account }, member.id, Date.now()),
+			"GitHub connections",
+		);
+	}
+
 	rotateGitHubSecret(member: MemberProfile, id: string): WebhookResult<string> {
 		return this.#manage(
 			member,
@@ -450,12 +468,20 @@ export class WorkspaceDO extends DurableObject {
 	 */
 	protected async sendRequesterNotice(_notice: RequesterNotice): Promise<void> {}
 
+	/**
+	 * The secret that signs the deployment's GitHub App's deliveries, or null where there is no
+	 * app. None here; the app's Worker overrides it with its setting.
+	 */
+	protected githubAppSecret(): string | null {
+		return null;
+	}
+
 	/** A delivery from a GitHub connection's webhook. */
 	async github(input: unknown): Promise<GitHubDeliveryResult> {
 		const parsed = githubDelivery.safeParse(input);
 		if (!parsed.success) return { status: 400 };
 		const delivery = parsed.data;
-		const verified = await verifyGitHubDelivery(this.#db, delivery);
+		const verified = await verifyGitHubDelivery(this.#db, delivery, this.githubAppSecret());
 		if (verified === null) return { status: 404 };
 		if (!verified) return { status: 401 };
 		this.#write(() => applyGitHubDelivery(this.#db, delivery, Date.now()));

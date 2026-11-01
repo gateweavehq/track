@@ -9,6 +9,14 @@ BETTER_AUTH_SECRET=
 # GITHUB_CLIENT_ID=
 # GITHUB_CLIENT_SECRET=
 
+# Optional: the deployment's GitHub App, which admins install on their repositories instead of
+# adding a webhook by hand. Needs all four; see docs/self-hosting.md. GitHub must reach the app's
+# address, so a local http://localhost receives no deliveries.
+# GITHUB_APP_SLUG=
+# GITHUB_APP_CLIENT_ID=
+# GITHUB_APP_CLIENT_SECRET=
+# GITHUB_APP_WEBHOOK_SECRET=
+
 # Optional: pins the app's URL, which also turns on the MCP endpoint for AI agents
 # (http://localhost:4710/mcp). Leave it out to accept any host, for example from your phone.
 # BETTER_AUTH_URL=

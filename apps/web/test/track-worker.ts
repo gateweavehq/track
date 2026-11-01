@@ -51,6 +51,23 @@ export function solveTurnstileOn(hostname: string): void {
 export const INTAKE_EMAIL_DOMAIN = "requests.track.test";
 const TURNSTILE_HOST = "challenges.cloudflare.com";
 
+/** The tests' GitHub App, which GitHub's stand-in in `outboundService` knows. */
+export const GITHUB_APP = {
+	slug: "track-test",
+	clientId: "Iv1.track-test",
+	clientSecret: "github-app-client-secret",
+	webhookSecret: "github-app-webhook-secret",
+};
+
+/**
+ * The code GitHub hands back after a person installs the app, for a person who can reach the
+ * installations `ids`. GitHub's stand-in swaps it for a token that lists them, each on the
+ * account `acme-<id>`.
+ */
+export function githubCode(...ids: number[]): string {
+	return `code-${ids.join("-")}`;
+}
+
 /** The address Track sends from in tests. */
 export const EMAIL_FROM = { name: "Gateweave Track", email: "track@track.test" };
 
@@ -165,6 +182,10 @@ export async function startTrack(
 									TURNSTILE_SITE_KEY,
 									TURNSTILE_SECRET_KEY: "turnstile-test-secret",
 									INTAKE_EMAIL_DOMAIN,
+									GITHUB_APP_SLUG: GITHUB_APP.slug,
+									GITHUB_APP_CLIENT_ID: GITHUB_APP.clientId,
+									GITHUB_APP_CLIENT_SECRET: GITHUB_APP.clientSecret,
+									GITHUB_APP_WEBHOOK_SECRET: GITHUB_APP.webhookSecret,
 								}),
 					},
 					// Nor any bucket for attached files.
@@ -187,6 +208,35 @@ export async function startTrack(
 								form.get("response") === TURNSTILE_PASS;
 							// Turnstile names the host the challenge was solved on.
 							return Response.json({ success, hostname: TURNSTILE_HOSTNAME });
+						}
+						// GitHub, for the app: an OAuth code becomes a token, and the token lists the
+						// installations its person can reach.
+						if (url.host === "github.com" && url.pathname === "/login/oauth/access_token") {
+							const { client_id, client_secret, code } = (await request.json()) as Record<
+								string,
+								string
+							>;
+							const known =
+								client_id === GITHUB_APP.clientId &&
+								client_secret === GITHUB_APP.clientSecret &&
+								/^code-[\d-]+$/.test(code ?? "");
+							return Response.json(
+								known
+									? { access_token: `token-${code?.slice(5)}`, token_type: "bearer" }
+									: { error: "bad_verification_code" },
+							);
+						}
+						if (url.host === "api.github.com" && url.pathname === "/user/installations") {
+							const token = /^Bearer token-([\d-]+)$/.exec(
+								request.headers.get("authorization") ?? "",
+							);
+							if (!token?.[1])
+								return Response.json({ message: "Bad credentials" }, { status: 401 });
+							const ids = token[1].split("-").filter(Boolean).map(Number);
+							return Response.json({
+								total_count: ids.length,
+								installations: ids.map((id) => ({ id, account: { login: `acme-${id}` } })),
+							});
 						}
 						if (url.host === RECEIVER_HOST) {
 							received.push({
@@ -263,6 +313,8 @@ export async function startTrack(
 	}
 
 	return {
+		/** The Worker's `BETTER_AUTH_SECRET`, for tests that sign what the app signs with it. */
+		authSecret: secret,
 		/** A `fetch` that reaches the Worker directly. Redirects are returned, not followed. */
 		fetch: (input: string | URL | Request, init?: RequestInit) => fetchIn(0, input, init),
 		fetchIn,

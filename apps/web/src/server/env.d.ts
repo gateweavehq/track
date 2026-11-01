@@ -23,6 +23,16 @@ declare namespace Cloudflare {
 		 * are off.
 		 */
 		INTAKE_EMAIL_DOMAIN?: string;
+		/**
+		 * The deployment's GitHub App, which admins install on their repositories instead of adding
+		 * a webhook by hand: its URL name (`github.com/apps/<slug>`), its OAuth client id and
+		 * secret, which show GitHub's word on who may reach an installation, and the secret that
+		 * signs its deliveries. Without all four, the app is off and webhooks still work.
+		 */
+		GITHUB_APP_SLUG?: string;
+		GITHUB_APP_CLIENT_ID?: string;
+		GITHUB_APP_CLIENT_SECRET?: string;
+		GITHUB_APP_WEBHOOK_SECRET?: string;
 		/** "1" on the public demo deployment only (the `demo` environment in wrangler.jsonc). */
 		TRACK_DEMO?: string;
 	}

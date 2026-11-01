@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MemberProfile, WebhookResult, WorkspaceLink } from "../src";
 import { mentions } from "../src/github";
 import { freshWorkspace, type Workspace } from "./client";
+import { GITHUB_APP_SECRET } from "./worker";
 
 const owner: MemberProfile = {
 	id: "user-owner",
@@ -536,5 +537,88 @@ describe("GitHub's changes", () => {
 		});
 		expect(result).toMatchObject({ ok: false, reason: "conflict" });
 		expect((await statuses(workspace))["issue-1"]).toBe("in_review");
+	});
+});
+
+describe("the GitHub App", () => {
+	const installation = { id: "4242", account: "acme" };
+
+	/** Sends a delivery about `installationId`, signed with `key`, to the connection `connectionId`. */
+	async function deliverAs(
+		workspace: Workspace,
+		connectionId: string,
+		event: string,
+		payload: object,
+		{ key = GITHUB_APP_SECRET, installationId = 4242, deliveryId = crypto.randomUUID() } = {},
+	) {
+		const body = JSON.stringify({ ...payload, installation: { id: installationId } });
+		return workspace.github({
+			connectionId,
+			deliveryId,
+			event,
+			signature: `sha256=${await hmac(key, body)}`,
+			body,
+		});
+	}
+
+	it("connects an installation for admins only, once, with no secret of its own", async () => {
+		const { workspace } = await setup();
+		expect(await workspace.connectGitHubApp(alice, installation)).toMatchObject({
+			ok: false,
+			reason: "forbidden",
+		});
+		const connected = ok(await workspace.connectGitHubApp(owner, installation));
+		expect(connected.installation).toEqual(installation);
+		// Connecting it again keeps the one connection, with the account's current name.
+		const again = ok(
+			await workspace.connectGitHubApp(owner, { ...installation, account: "acme-inc" }),
+		);
+		expect(again.id).toBe(connected.id);
+		const connections = ok(await workspace.githubConnections(owner));
+		expect(connections.filter((each) => each.installation !== null)).toEqual([
+			{ ...connected, installation: { id: "4242", account: "acme-inc" } },
+		]);
+		// GitHub keeps the app's secret: there is none here to replace.
+		expect(await workspace.rotateGitHubSecret(owner, connected.id)).toMatchObject({
+			ok: false,
+			reason: "not_found",
+		});
+	});
+
+	it("takes deliveries signed with the app's secret, about its own installation only", async () => {
+		const { workspace } = await setup();
+		const { id } = ok(await workspace.connectGitHubApp(owner, installation));
+		// A signature with any other secret is refused.
+		expect(
+			await deliverAs(workspace, id, "pull_request", pullRequest("opened"), { key: "guess" }),
+		).toEqual({ status: 401 });
+		// Another installation's delivery is signed with the same secret, and is not this one's.
+		expect(
+			await deliverAs(workspace, id, "pull_request", pullRequest("opened"), {
+				installationId: 9999,
+			}),
+		).toEqual({ status: 401 });
+		expect((await statuses(workspace))["issue-1"]).toBe("backlog");
+
+		expect(await deliverAs(workspace, id, "pull_request", pullRequest("opened"))).toEqual({
+			status: 202,
+		});
+		expect((await statuses(workspace))["issue-1"]).toBe("in_review");
+	});
+
+	it("drops the connection when the app is uninstalled", async () => {
+		const { workspace } = await setup();
+		const { id } = ok(await workspace.connectGitHubApp(owner, installation));
+		expect(await deliverAs(workspace, id, "installation", { action: "suspend" })).toEqual({
+			status: 202,
+		});
+		expect(ok(await workspace.githubConnections(owner)).some((each) => each.id === id)).toBe(true);
+		expect(await deliverAs(workspace, id, "installation", { action: "deleted" })).toEqual({
+			status: 202,
+		});
+		expect(ok(await workspace.githubConnections(owner)).some((each) => each.id === id)).toBe(false);
+		expect(await deliverAs(workspace, id, "pull_request", pullRequest("opened"))).toEqual({
+			status: 404,
+		});
 	});
 });

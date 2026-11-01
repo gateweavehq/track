@@ -3,6 +3,7 @@ import { getAuth } from "./server/auth";
 import { demoEnabled } from "./server/demo/mode";
 import { handleFileRequest, isFileRequest } from "./server/files";
 import { handleGitHubRequest, isGitHubRequest } from "./server/github";
+import { handleGitHubAppRequest, isGitHubAppRequest } from "./server/github-app";
 import { handleIntakeEmail } from "./server/intake-email";
 import { handleIntakeFormRequest, isIntakeFormRequest } from "./server/intake-form";
 import { handleMcpRequest, isMcpRequest } from "./server/mcp";
@@ -25,6 +26,7 @@ export default {
 		// Uploads stream to R2 as they arrive, without TanStack Start reading the body first.
 		if (isFileRequest(url)) return handleFileRequest(request);
 		// GitHub signs the raw body, so it reaches the workspace unread.
+		if (isGitHubAppRequest(url)) return handleGitHubAppRequest(request);
 		if (isGitHubRequest(url)) return handleGitHubRequest(request);
 		// Mail clients post here for one-click unsubscribe, with no session.
 		if (isUnsubscribeRequest(url)) return handleUnsubscribeRequest(request);
