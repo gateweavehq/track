@@ -23,6 +23,12 @@ declare namespace Cloudflare {
 		 * are off.
 		 */
 		INTAKE_EMAIL_DOMAIN?: string;
+		/**
+		 * The most megabytes of attached files each workspace may keep, such as `1024`. Uploads
+		 * past it are refused, and an emailed request's attachments past it are left out.
+		 * Unlimited when unset.
+		 */
+		ATTACHMENT_QUOTA_MB?: string;
 		/** "1" on the public demo deployment only (the `demo` environment in wrangler.jsonc). */
 		TRACK_DEMO?: string;
 	}

@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { attachmentName, isFileId, isInlineType, MAX_FILE_BYTES } from "#/lib/attachments";
 import { db, getAuth } from "./auth";
 import { demoEnabled } from "./demo/mode";
+import { releaseFileStorage, reserveFileStorage } from "./file-quota";
 import { findMembershipById } from "./workspaces";
 
 const FILE_ROUTE = /^\/api\/files\/([^/]+)\/([^/]+)\/([^/]+)$/;
@@ -48,13 +49,14 @@ export async function handleFileRequest(request: Request): Promise<Response> {
 	const bucket = env.FILES;
 	if (!bucket) return error(503, "File uploads are not set up on this deployment");
 	const key = `${membership.workspaceId}/${fileId}/${name}`;
-	if (write) return upload(request, bucket, key, session.user.id);
+	if (write) return upload(request, bucket, membership.workspaceId, key, session.user.id);
 	return serve(request, bucket, key, name);
 }
 
 async function upload(
 	request: Request,
 	bucket: R2Bucket,
+	workspaceId: string,
 	key: string,
 	userId: string,
 ): Promise<Response> {
@@ -69,10 +71,21 @@ async function upload(
 	// trying to replace someone else's file. Either way the file stays as it is.
 	if (await bucket.head(key)) return error(409, "That file already exists");
 
-	await bucket.put(key, request.body, {
-		httpMetadata: { contentType: mediaType(request.headers.get("Content-Type")) },
-		customMetadata: { uploadedBy: userId },
-	});
+	if (!(await reserveFileStorage(bucket, workspaceId, length))) {
+		return error(
+			413,
+			"This workspace's files are full. Delete some or ask an admin for more space",
+		);
+	}
+	try {
+		await bucket.put(key, request.body, {
+			httpMetadata: { contentType: mediaType(request.headers.get("Content-Type")) },
+			customMetadata: { uploadedBy: userId },
+		});
+	} catch (cause) {
+		await releaseFileStorage(workspaceId, length);
+		throw cause;
+	}
 	return Response.json({ size: length }, { status: 201 });
 }
 
