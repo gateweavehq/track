@@ -8,7 +8,14 @@ export interface SyncState {
 	readonly teams: ReadonlyMap<string, Entities["team"]>;
 	/** Every team's statuses, removed ones included, so history still names them. */
 	readonly statuses: ReadonlyMap<string, Entities["status"]>;
+	/** Every issue, archived ones included, so links, history and progress still find them. */
 	readonly issues: ReadonlyMap<string, Entities["issue"]>;
+	/**
+	 * The issues that are not archived: what lists, boards and calendars go through. A team that
+	 * archives a lot keeps its archive out of their way, and a change to an archived issue leaves
+	 * this map, and the selectors over it, as they were.
+	 */
+	readonly activeIssues: ReadonlyMap<string, Entities["issue"]>;
 	readonly labels: ReadonlyMap<string, Entities["label"]>;
 	readonly projects: ReadonlyMap<string, Entities["project"]>;
 	readonly projectUpdates: ReadonlyMap<string, Entities["projectUpdate"]>;
@@ -121,7 +128,7 @@ export class Replica {
 	#version = 0;
 	#hasData = false;
 	#pending: PendingMutation[] = [];
-	#state: SyncState = toState(EMPTY, 0);
+	#state: SyncState = toState(EMPTY, 0, EMPTY.issue);
 	readonly #listeners = new Set<() => void>();
 
 	constructor(private readonly userId: string) {}
@@ -140,6 +147,23 @@ export class Replica {
 	}
 
 	getState = (): SyncState => this.#state;
+
+	/**
+	 * The issues that are not archived, kept as the same map while they are the same rows: an
+	 * edit to an archived issue changes the issues table, and nothing the lists read.
+	 */
+	#activeIssues(issues: Tables["issue"]): Tables["issue"] {
+		const last = this.#state;
+		if (issues === last.issues) return last.activeIssues;
+		const active = new Map<string, Entities["issue"]>();
+		let same = true;
+		for (const issue of issues.values()) {
+			if (issue.archivedAt !== null) continue;
+			active.set(issue.id, issue);
+			if (same && last.activeIssues.get(issue.id) !== issue) same = false;
+		}
+		return same && active.size === last.activeIssues.size ? last.activeIssues : active;
+	}
 
 	subscribe = (listener: () => void): (() => void) => {
 		this.#listeners.add(listener);
@@ -247,17 +271,18 @@ export class Replica {
 			for (const pending of this.#pending) applyOptimistic(draft, pending, this.userId);
 			tables = draft.finish();
 		}
-		this.#state = toState(tables, this.#version);
+		this.#state = toState(tables, this.#version, this.#activeIssues(tables.issue));
 		for (const listener of [...this.#listeners]) listener();
 	}
 }
 
-function toState(tables: Tables, version: number): SyncState {
+function toState(tables: Tables, version: number, activeIssues: Tables["issue"]): SyncState {
 	return {
 		version,
 		teams: tables.team,
 		statuses: tables.status,
 		issues: tables.issue,
+		activeIssues,
 		labels: tables.label,
 		projects: tables.project,
 		projectUpdates: tables.projectUpdate,
