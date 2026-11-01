@@ -27,6 +27,7 @@ import {
 } from "./proposals";
 import { MutationRejected } from "./rejected";
 import { movesReminders } from "./reminders";
+import { forgetRequester, noteDecision } from "./requesters";
 import { indexIssue, indexTeamIssues, unindexIssue } from "./search";
 import {
 	activeMember,
@@ -208,8 +209,11 @@ export function applyMutation(
 	const queued = queueDeliveries(db, actor.member, changes.events, result.version, now);
 	// The alarm plans the next cycle boundary and due-date reminder, which a change to a team's
 	// cycles moves, and the next email.
+	// A decision on a request may have someone to email, whom the alarm tells.
+	const decided = mutation.name === "issue.accept" || mutation.name === "issue.decline";
 	const wake =
 		email ||
+		decided ||
 		movesReminders(changes.events) ||
 		(mutation.name === "team.update" && changesSchedule(mutation.args.patch));
 	return { ...result, queued, wake, proposed: changes.proposed };
@@ -519,6 +523,7 @@ function acceptIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		}
 	}
 	leaveIntake(db, changes, actor, issue, args.status ?? issue.status, true);
+	noteDecision(db, issue.id, true, null);
 }
 
 /**
@@ -546,6 +551,7 @@ function declineIssue(
 		createComment(db, changes, actor, { ...args.reply, issueId: issue.id });
 	}
 	leaveIntake(db, changes, actor, issue, canceled.key, false);
+	noteDecision(db, issue.id, false, args.reply?.body ?? null);
 }
 
 function alreadyDecided() {
@@ -656,6 +662,7 @@ function issueChanges(before: schema.IssueRow, patch: Partial<schema.IssueRow>):
 function deleteIssue(db: Db, changes: ChangeSet, args: MutationArgs<"issue.delete">) {
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
+	forgetRequester(db, issue.id);
 
 	// Its sub-issues stay, as top-level issues: one op each, before the issue's own delete op.
 	// Like deleting a project, this writes no history.

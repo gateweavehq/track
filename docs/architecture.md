@@ -126,6 +126,7 @@ HTML-escaped and squeezed onto one short line.
 | Invitation     | An admin with a verified address invites someone or presses Resend                                     | Admins share the link |
 | Verification   | Someone signs up, or asks on an invitation or the members page. The link works for 24 hours            | Nobody is verified    |
 | Inbox digest   | News a person wants by email stays unread for 10 minutes; at most once an hour per workspace           | The inbox alone       |
+| Request answer | A person accepts or declines a request filed through a form or by email with an address                | Nobody is told        |
 
 Better Auth sends email after the response, through `waitUntil`. Reset requests therefore take
 the same time whether or not the account exists. Invitations put text chosen by a stranger,
@@ -515,6 +516,21 @@ team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search fi
   any change to it, so an offline edit made before them conflicts.
 - **History says it**, as `{ type: "intake", accepted }`, with the status change as an entry of
   its own. Both send `issue.updated` webhooks, with `intake` in `updatedFrom`.
+- **The people who follow it hear of it**, as an `intake` event in their inbox (a kind of its own
+  in notification settings, inbox only by default), in place of the status change it made. A
+  decline that a change to the workflow makes tells nobody, as the change itself does not.
+- **Whoever filed it through a form or by email is emailed the decision**, with the reply to a
+  decline, when they left an address (`packages/sync-server/src/requesters.ts`). The Durable
+  Object keeps the address and the workspace's id, which the gateway checked in D1, in a
+  `requesters` table that never reaches clients. A decision marks the row, and the alarm takes
+  every marked row in one transaction, deleting it, and hands each to `sendRequesterNotice`,
+  which the app's Worker overrides (`apps/web/src/server/requester-email.ts`), as it does inbox
+  digests: each is emailed at most once, and a failure loses it rather than sending it twice. The
+  email names the team, the workspace and the request, links nowhere, and goes only where email
+  is on, never from the public demo, within the cap on emails to one address. Deleting the
+  request forgets the address. An email's sender can be forged, so a stranger could have a
+  decision sent to someone else's address; what it says is the team's, and it is one email per
+  request.
 - **Out of the way of automations.** A request is not archived, by hand or by a team's
   automations, and automations do not close it: it waits for a person.
 - **Elsewhere.** Over MCP, `create_issue` and `search_issues` take `intake`, every issue says
@@ -574,10 +590,10 @@ sends every address at the domain to the Worker's `email` handler, from one catc
   actor named "Email".
 
 Without `INTAKE_EMAIL_DOMAIN`, and on the public demo, every address is refused, and the dialog
-in the app says why. Replying to the sender by email is a later step.
+in the app says why. The address that mail came from hears of the decision (above).
 
 Intake is a breaking change to the protocol (version 20), as the issue and team entities gained
-it.
+it, and so is its inbox event (version 21).
 
 ### Issue templates
 
@@ -861,7 +877,8 @@ rules and no client can skip them.
 - **Who is subscribed.** Filing an issue, commenting on it, being assigned it or being mentioned
   in it subscribes a person. `issue.subscribe` subscribes or unsubscribes by hand, and an
   assignment subscribes the assignee again even after they unsubscribed.
-- **Who hears what.** Subscribers hear of comments, status changes and agents' proposals. The new
+- **Who hears what.** Subscribers hear of comments, status changes, agents' proposals and
+  decisions on requests ([Intake](#intake)). The new
   assignee hears that they were assigned, and a subscribed former assignee that they were
   unassigned. People mentioned hear of it (see [Mentions](#mentions)), and assignees hear on the
   morning an issue is due (see [Due-date reminders](#due-date-reminders)). Nobody hears of their

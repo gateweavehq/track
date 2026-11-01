@@ -1,5 +1,5 @@
 import type { Snapshot } from "@gateweave/track-protocol";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { solveTurnstileOn, startTrack, TURNSTILE_PASS, TURNSTILE_SITE_KEY } from "./track-worker";
 
 // A team's public request form (TRK-41) in the built Worker: a page of its own, without a
@@ -138,6 +138,35 @@ describe("request form", () => {
 			solveTurnstileOn("track.test");
 		}
 		expect((await snapshot()).issues.some((issue) => issue.title === "From elsewhere")).toBe(false);
+	});
+
+	it("emails the person who left an address what the team decided", async () => {
+		const key = await turnOn();
+		const sent = await submit(key, {
+			title: "Offline mode",
+			email: "kim@customer.test",
+			"cf-turnstile-response": TURNSTILE_PASS,
+		});
+		expect(sent.status).toBe(201);
+		await sent.text();
+		const request = (await snapshot()).issues.find((issue) => issue.title === "Offline mode");
+		if (!request) throw new Error("Not filed");
+		await track.mutate(workspaceId, owner, {
+			name: "issue.decline",
+			args: {
+				id: request.id,
+				reply: { id: crypto.randomUUID(), body: "It already works offline." },
+			},
+		});
+		await vi.waitFor(async () => {
+			const emails = (await track.emails()).filter((email) => email.to === "kim@customer.test");
+			expect(emails).toEqual([
+				expect.objectContaining({
+					subject: "Your request was declined: Offline mode",
+					text: expect.stringContaining("> It already works offline."),
+				}),
+			]);
+		});
 	});
 
 	it("files nothing once the form is off or its link replaced", async () => {

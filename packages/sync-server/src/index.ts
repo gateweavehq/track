@@ -3,6 +3,7 @@ export type { IntakeRequest, IntakeTarget } from "./intake";
 export type { RetentionPolicy } from "./log";
 export type { DigestItem, InboxDigest } from "./notifications";
 export { type Directory, type IssueQuery, MAX_QUERY_LIMIT } from "./queries";
+export type { RequesterNotice } from "./requesters";
 export type { MemberProfile } from "./state";
 export type { WebhookList, WorkspaceLink } from "./webhooks";
 export {

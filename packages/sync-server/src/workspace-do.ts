@@ -76,6 +76,7 @@ import {
 } from "./queries";
 import { MutationRejected } from "./rejected";
 import { nextReminderAt, remindDue } from "./reminders";
+import { hasRequesterNotices, type RequesterNotice, takeRequesterNotices } from "./requesters";
 import {
 	activeMember,
 	type Db,
@@ -416,6 +417,12 @@ export class WorkspaceDO extends DurableObject {
 	 */
 	protected async sendInboxDigest(_digest: InboxDigest): Promise<void> {}
 
+	/**
+	 * Emails whoever filed a request through a form or by email the decision on it. Does nothing
+	 * here; the app's Worker overrides it, as it does `sendInboxDigest`.
+	 */
+	protected async sendRequesterNotice(_notice: RequesterNotice): Promise<void> {}
+
 	/** A delivery from a GitHub connection's webhook. */
 	async github(input: unknown): Promise<GitHubDeliveryResult> {
 		const parsed = githubDelivery.safeParse(input);
@@ -550,6 +557,16 @@ export class WorkspaceDO extends DurableObject {
 				}),
 			),
 		);
+		if (hasRequesterNotices(this.#db)) {
+			const notices = this.ctx.storage.transactionSync(() => takeRequesterNotices(this.#db));
+			await Promise.all(
+				notices.map((notice) =>
+					this.sendRequesterNotice(notice).catch((error) => {
+						console.error("email: decision on a request not sent", error);
+					}),
+				),
+			);
+		}
 		// Cycles were just moved on, reminders sent and automations run, so one that is still due is
 		// a clock disagreement: look again in a minute rather than straight away.
 		const soon = (at: number | null) =>

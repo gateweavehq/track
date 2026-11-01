@@ -14,6 +14,7 @@ import type { ChangeSet } from "./log";
 import { readSettings } from "./notifications";
 import { MutationRejected } from "./rejected";
 import { type Db, toInboxItem, toSubscription } from "./state";
+import { isClosedStatus } from "./statuses";
 
 /**
  * Subscriptions and inboxes. People subscribed to an issue hear of what others do to it: the
@@ -50,7 +51,11 @@ export function notify(db: Db, changes: ChangeSet, actorId: string, imported: bo
 			case "issue.updated": {
 				const { issue, previous } = event;
 				if (event.quiet) break;
-				if (issue.status !== previous.status) {
+				// A decision on a request says what the move to its status meant.
+				if (previous.intake && !issue.intake) {
+					const accepted = !isClosedStatus(db, issue.teamId, issue.status);
+					inbox.tellSubscribers(issue.id, { type: "intake", accepted });
+				} else if (issue.status !== previous.status) {
 					inbox.tellSubscribers(issue.id, {
 						type: "status",
 						from: previous.status,

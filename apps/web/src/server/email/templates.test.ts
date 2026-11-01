@@ -4,10 +4,39 @@ import {
 	inboxDigestEmail,
 	invitationEmail,
 	passwordResetEmail,
+	requestDecisionEmail,
 	verificationEmail,
 } from "./templates";
 
 const DAY = 24 * 60 * 60 * 1000;
+
+describe("requestDecisionEmail", () => {
+	it("says what the team decided, with the reply to a decline, and links nowhere", () => {
+		const declined = requestDecisionEmail({
+			workspace: "Acme",
+			team: "Engineering",
+			title: "Export <to> PDF",
+			accepted: false,
+			reply: "Not this year.\r\nAsk [@Olivia](mention:u-1) later.",
+		});
+		expect(declined.subject).toBe("Your request was declined: Export <to> PDF");
+		expect(declined.text).toContain('Engineering at Acme declined your request "Export <to> PDF".');
+		expect(declined.text).toContain("> Not this year.\n> Ask @Olivia later.");
+		expect(declined.html).toContain("Export &lt;to&gt; PDF");
+		expect(declined.html).not.toContain("<a ");
+
+		const accepted = requestDecisionEmail({
+			workspace: "Acme",
+			team: "Engineering",
+			title: "Export to PDF",
+			accepted: true,
+			reply: null,
+		});
+		expect(accepted.subject).toBe("Your request was accepted: Export to PDF");
+		expect(accepted.text).toContain("accepted your request");
+		expect(accepted.text).not.toContain(">");
+	});
+});
 
 describe("invitationEmail", () => {
 	const now = Date.UTC(2026, 9, 28);
