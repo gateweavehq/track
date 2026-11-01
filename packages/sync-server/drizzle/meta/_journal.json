@@ -148,6 +148,13 @@
       "when": 1793548913684,
       "tag": "0020_pretty_phalanx",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1793551421484,
+      "tag": "0021_lethal_marauders",
+      "breakpoints": true
     }
   ]
 }

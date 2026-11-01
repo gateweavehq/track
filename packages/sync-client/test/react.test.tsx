@@ -8,7 +8,18 @@ import { make, waitFor } from "./harness";
 
 const snapshot: Snapshot = {
 	version: 1,
-	teams: [{ id: "t1", key: "ENG", name: "Engineering", cycles: null, createdAt: 1, updatedAt: 1 }],
+	teams: [
+		{
+			id: "t1",
+			key: "ENG",
+			name: "Engineering",
+			cycles: null,
+			archiveAfterMonths: null,
+			closeAfterMonths: null,
+			createdAt: 1,
+			updatedAt: 1,
+		},
+	],
 	statuses: defaultStatuses("t1", 1),
 	issues: [],
 	labels: [],

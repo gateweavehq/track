@@ -2526,6 +2526,8 @@ describe("search", () => {
 			db.run(sql`drop index issues_parent_idx`);
 			db.run(sql`alter table issues drop column parent_id`);
 			db.run(sql`alter table issues drop column archived_at`);
+			db.run(sql`alter table teams drop column archive_after_months`);
+			db.run(sql`alter table teams drop column close_after_months`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${search.when}`);
 			await migrate(db, migrations);
 		});

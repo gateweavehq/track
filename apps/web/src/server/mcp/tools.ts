@@ -257,6 +257,18 @@ export function createTrackServer(access: TrackAccess): McpServer {
 							.looseObject({ weeks: z.number(), timeZone: z.string() })
 							.nullable()
 							.describe("How long the team's cycles are, and the time zone they run in."),
+						archiveAfterMonths: z
+							.number()
+							.nullable()
+							.describe(
+								"How many months (of 30 days) after anyone last touched them Track archives the team's closed issues, if it does.",
+							),
+						closeAfterMonths: z
+							.number()
+							.nullable()
+							.describe(
+								"How many months after anyone last touched them Track cancels the team's backlog and unstarted issues, if it does.",
+							),
 						statuses: z
 							.array(
 								z.looseObject({
@@ -308,10 +320,12 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				const { teams, statuses, cycles, labels, projects, members } = await opened.directory();
 				const now = Date.now();
 				return {
-					teams: teams.map(({ id, key, name, cycles }) => ({
+					teams: teams.map(({ id, key, name, cycles, archiveAfterMonths, closeAfterMonths }) => ({
 						key,
 						name,
 						cycles,
+						archiveAfterMonths,
+						closeAfterMonths,
 						statuses: liveStatuses(statuses.filter((status) => status.teamId === id)).map(
 							({ key, name, category }) => ({ key, name, category }),
 						),

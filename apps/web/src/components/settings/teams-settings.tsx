@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { CycleSettingsDialog } from "#/components/cycles/cycle-settings-dialog";
+import { AutomationsDialog } from "#/components/teams/automations-dialog";
 import { EditTeamDialog } from "#/components/teams/edit-team-dialog";
 import { StatusesDialog } from "#/components/teams/statuses-dialog";
 import { Button } from "#/components/ui/button";
@@ -23,6 +24,7 @@ export function TeamsSettings() {
 	const [editing, setEditing] = useState<Team | null>(null);
 	const [planning, setPlanning] = useState<Team | null>(null);
 	const [workflow, setWorkflow] = useState<Team | null>(null);
+	const [automating, setAutomating] = useState<Team | null>(null);
 
 	return (
 		<section aria-labelledby="teams-heading" className="space-y-4">
@@ -52,14 +54,14 @@ export function TeamsSettings() {
 					{teams.map((team) => {
 						const count = counts.get(team.id) ?? 0;
 						return (
-							<li key={team.id} className="flex items-center gap-3 px-4 py-3">
+							<li key={team.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
 								<span className="w-16 shrink-0 font-mono text-xs text-muted-foreground">
 									{team.key}
 								</span>
 								<Link
 									to="/$workspace/team/$teamKey"
 									params={{ workspace: slug, teamKey: team.key }}
-									className="min-w-0 flex-1 truncate text-sm font-medium hover:underline"
+									className="min-w-24 flex-1 truncate text-sm font-medium hover:underline"
 								>
 									{team.name}
 								</Link>
@@ -75,8 +77,9 @@ export function TeamsSettings() {
 								<span className="text-xs text-muted-foreground tabular-nums">
 									{count === 1 ? "1 issue" : `${count} issues`}
 								</span>
+								{/* On a narrow screen the actions wrap below the name rather than push it out. */}
 								{admin && (
-									<>
+									<div className="-mr-2 ml-auto flex shrink-0">
 										<Button
 											variant="ghost"
 											size="sm"
@@ -93,10 +96,18 @@ export function TeamsSettings() {
 										>
 											Cycles
 										</Button>
+										<Button
+											variant="ghost"
+											size="sm"
+											onClick={() => setAutomating(team)}
+											aria-label={`Automations for ${team.name}`}
+										>
+											Automations
+										</Button>
 										<Button variant="ghost" size="sm" onClick={() => setEditing(team)}>
 											Edit
 										</Button>
-									</>
+									</div>
 								)}
 							</li>
 						);
@@ -106,6 +117,7 @@ export function TeamsSettings() {
 			{editing && <EditTeamDialog team={editing} onClose={() => setEditing(null)} />}
 			{planning && <CycleSettingsDialog team={planning} onClose={() => setPlanning(null)} />}
 			{workflow && <StatusesDialog team={workflow} onClose={() => setWorkflow(null)} />}
+			{automating && <AutomationsDialog team={automating} onClose={() => setAutomating(null)} />}
 		</section>
 	);
 }

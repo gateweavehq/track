@@ -19,6 +19,7 @@ import m0017 from "./0017_due_reminders.sql";
 import m0018 from "./0018_ambiguous_maggott.sql";
 import m0019 from "./0019_default_statuses.sql";
 import m0020 from "./0020_pretty_phalanx.sql";
+import m0021 from "./0021_lethal_marauders.sql";
 import journal from "./meta/_journal.json";
 
 export default {
@@ -45,5 +46,6 @@ export default {
 		m0018,
 		m0019,
 		m0020,
+		m0021,
 	},
 };
