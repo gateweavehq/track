@@ -50,6 +50,7 @@ const team: Team = {
 	archiveAfterMonths: null,
 	closeAfterMonths: null,
 	intakeFormKey: null,
+	intakeEmailKey: null,
 	createdAt: 0,
 	updatedAt: 0,
 };

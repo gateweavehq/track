@@ -58,17 +58,20 @@ test("an admin turns the team's request form on, shares its link, and turns it o
 }) => {
 	const { slug } = await startWorkspace(page);
 	await page.goto(`/${slug}/team/ENG/intake`);
-	await page.getByRole("button", { name: "Request form" }).click();
-	const dialog = page.getByRole("dialog", { name: "Request form for Engineering" });
-	await expect(dialog.getByText("The form is off.")).toBeVisible();
-	// The test server has no Turnstile keys, so the dialog says the form cannot take requests.
-	await expect(dialog.getByRole("alert")).toContainText("TURNSTILE_SITE_KEY");
+	await page.getByRole("button", { name: "Form and email" }).click();
+	const dialog = page.getByRole("dialog", { name: "Intake for Engineering" });
+	const form = dialog.getByRole("region", { name: "Request form" });
+	const email = dialog.getByRole("region", { name: "Email address" });
+	await expect(form.getByText("The form is off.")).toBeVisible();
+	// The test server has neither Turnstile keys nor an email domain, and the dialog says so.
+	await expect(form.getByRole("alert")).toContainText("TURNSTILE_SITE_KEY");
+	await expect(email.getByRole("alert")).toContainText("INTAKE_EMAIL_DOMAIN");
 
-	await dialog.getByRole("button", { name: "Turn on" }).click();
-	const link = dialog.getByLabel("Form link");
+	await form.getByRole("button", { name: "Turn on" }).click();
+	const link = form.getByLabel("Form link");
 	await expect(link).toHaveValue(/\/request\/[\w-]+\/[0-9a-f]{32}$/);
 	const first = await link.inputValue();
-	await dialog.getByRole("button", { name: "New link" }).click();
+	await form.getByRole("button", { name: "New link" }).click();
 	await expect(link).not.toHaveValue(first);
 	await expect(syncBadge(page)).toHaveText("Live");
 
@@ -76,8 +79,12 @@ test("an admin turns the team's request form on, shares its link, and turns it o
 	const response = await page.request.get(await link.inputValue());
 	expect(response.status()).toBe(404);
 
-	await dialog.getByRole("button", { name: "Turn off" }).click();
-	await expect(dialog.getByText("The form is off.")).toBeVisible();
-	await page.keyboard.press("Escape");
-	await expect(page.getByRole("button", { name: "Request form" })).toBeVisible();
+	await form.getByRole("button", { name: "Turn off" }).click();
+	await expect(form.getByText("The form is off.")).toBeVisible();
+
+	// The address turns on too, though this server does not say where it is.
+	await email.getByRole("button", { name: "Turn on" }).click();
+	await expect(email.getByText("It is on, but this server does not say where.")).toBeVisible();
+	await email.getByRole("button", { name: "Turn off" }).click();
+	await expect(email.getByText("The address is off.")).toBeVisible();
 });

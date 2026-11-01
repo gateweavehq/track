@@ -42,6 +42,8 @@ export const teams = sqliteTable("teams", {
 	closeAfterMonths: integer("close_after_months"),
 	/** The secret in the link to the team's public request form; null while the form is off. */
 	intakeFormKey: text("intake_form_key").unique(),
+	/** The secret in the team's intake email address; null while it is off. */
+	intakeEmailKey: text("intake_email_key").unique(),
 	issueCounter: integer("issue_counter").notNull().default(0),
 	createdAt: integer("created_at").notNull(),
 	updatedAt: integer("updated_at").notNull(),

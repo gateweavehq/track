@@ -24,6 +24,7 @@ const eng: Team = {
 	archiveAfterMonths: null,
 	closeAfterMonths: null,
 	intakeFormKey: null,
+	intakeEmailKey: null,
 	createdAt: 1,
 	updatedAt: 1,
 };
@@ -35,6 +36,7 @@ const ops: Team = {
 	archiveAfterMonths: null,
 	closeAfterMonths: null,
 	intakeFormKey: null,
+	intakeEmailKey: null,
 	createdAt: 1,
 	updatedAt: 1,
 };

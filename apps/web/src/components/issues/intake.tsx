@@ -4,7 +4,7 @@ import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link } from "@tanstack/react-router";
 import { Ban, Check, Inbox, Link2, Plus } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
-import { RequestFormDialog } from "#/components/teams/request-form-dialog";
+import { IntakeChannelsDialog } from "#/components/teams/intake-channels-dialog";
 import { Button } from "#/components/ui/button";
 import {
 	Dialog,
@@ -183,11 +183,14 @@ export function TeamIntake({ team }: { team: Team }) {
 				<span className="text-sm text-muted-foreground tabular-nums">{issues.length}</span>
 				<div className="ml-auto" />
 				{admin && (
-					<Button variant="ghost" size="sm" onClick={() => setSharing(true)}>
+					<Button
+						variant="ghost"
+						size="sm"
+						aria-label="Form and email"
+						onClick={() => setSharing(true)}
+					>
 						<Link2 />
-						<span className="hidden sm:inline">
-							{team.intakeFormKey === null ? "Request form" : "Form is on"}
-						</span>
+						<span className="hidden sm:inline">Form and email</span>
 					</Button>
 				)}
 				<Button variant="ghost" size="sm" onClick={fileRequest}>
@@ -204,8 +207,8 @@ export function TeamIntake({ team }: { team: Team }) {
 						</Button>
 					}
 				>
-					Requests filed here, through the team's request form, or by agents over MCP, wait for
-					someone to accept them into the team's workflow or decline them.
+					Requests filed here, through the team's form or email address, or by agents over MCP, wait
+					for someone to accept them into the team's workflow or decline them.
 				</Notice>
 			) : (
 				<ul aria-label={`${team.name} intake`} className="divide-y">
@@ -240,7 +243,7 @@ export function TeamIntake({ team }: { team: Team }) {
 					})}
 				</ul>
 			)}
-			{sharing && <RequestFormDialog team={team} onClose={() => setSharing(false)} />}
+			{sharing && <IntakeChannelsDialog team={team} onClose={() => setSharing(false)} />}
 		</div>
 	);
 }

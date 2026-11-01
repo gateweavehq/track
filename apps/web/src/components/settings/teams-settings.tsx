@@ -5,7 +5,7 @@ import { useState } from "react";
 import { CycleSettingsDialog } from "#/components/cycles/cycle-settings-dialog";
 import { AutomationsDialog } from "#/components/teams/automations-dialog";
 import { EditTeamDialog } from "#/components/teams/edit-team-dialog";
-import { RequestFormDialog } from "#/components/teams/request-form-dialog";
+import { IntakeChannelsDialog } from "#/components/teams/intake-channels-dialog";
 import { StatusesDialog } from "#/components/teams/statuses-dialog";
 import { Button } from "#/components/ui/button";
 import {
@@ -110,9 +110,9 @@ export function TeamsSettings() {
 											variant="ghost"
 											size="sm"
 											onClick={() => setSharing(team)}
-											aria-label={`Request form for ${team.name}`}
+											aria-label={`Intake for ${team.name}`}
 										>
-											Form
+											Intake
 										</Button>
 										<Button variant="ghost" size="sm" onClick={() => setEditing(team)}>
 											Edit
@@ -128,7 +128,7 @@ export function TeamsSettings() {
 			{planning && <CycleSettingsDialog team={planning} onClose={() => setPlanning(null)} />}
 			{workflow && <StatusesDialog team={workflow} onClose={() => setWorkflow(null)} />}
 			{automating && <AutomationsDialog team={automating} onClose={() => setAutomating(null)} />}
-			{sharing && <RequestFormDialog team={sharing} onClose={() => setSharing(null)} />}
+			{sharing && <IntakeChannelsDialog team={sharing} onClose={() => setSharing(null)} />}
 		</section>
 	);
 }

@@ -93,9 +93,9 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   stale ones after a number of months untouched: shipped in v0.16.0. Issue templates and
   recurring issues come next.
 - Intake: requests from outside a team wait in its intake until a person accepts or declines
-  them, and an agent triages them through proposals. The queue, filed in the app, over MCP and
-  through each team's public request form (behind Turnstile), comes first; an email address
-  (Email Routing) follows.
+  them, and an agent triages them through proposals. Requests come in from the app, over MCP,
+  through each team's public request form (behind Turnstile) and to its intake email address
+  (Email Routing). Replying to requesters by email and the triage agent's proposals come next.
 - GitHub integration: link pull requests and close issues from commits. The first part, over a
   webhook per repository or organization, shipped in v0.10.0; a GitHub App comes later.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations

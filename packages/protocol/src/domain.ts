@@ -63,6 +63,12 @@ export const GITHUB_ACTOR_ID = "github";
  */
 export const INTAKE_FORM_ACTOR_ID = "form";
 
+/**
+ * The actor of the requests sent to a team's intake email address, from someone who need not be
+ * a member. It is never a member's id.
+ */
+export const INTAKE_EMAIL_ACTOR_ID = "email";
+
 export interface Team {
 	id: string;
 	/** Short uppercase prefix for issue identifiers, e.g. `ENG` in `ENG-42`. */
@@ -86,6 +92,11 @@ export interface Team {
 	 * turned on, so turning it off and on again retires the old link.
 	 */
 	intakeFormKey: string | null;
+	/**
+	 * The secret part of the team's intake email address, which files the email it gets into the
+	 * team's intake, or null when it is off. Like the form's key, a new one each time it is turned on.
+	 */
+	intakeEmailKey: string | null;
 	createdAt: number;
 	updatedAt: number;
 }

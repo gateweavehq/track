@@ -88,7 +88,8 @@ export async function handleIntakeFormRequest(request: Request): Promise<Respons
 
 	const { title, description, email } = parsed.data;
 	const filed = await stub.fileRequest({
-		formKey,
+		via: "form",
+		key: formKey,
 		title,
 		description: describe(description, email),
 		sortOrder: generateKeyBetween(await stub.lastSortOrder(), null),

@@ -235,9 +235,9 @@ export function workspaceToJson(
 			version: EXPORT_VERSION,
 			exportedAt: exportedAt.toISOString(),
 			workspace: { slug: source.workspace.slug, name: source.workspace.name },
-			// A request form's key admits strangers to file requests, so it stays out of files
-			// that travel.
-			teams: slice.teams.map(({ intakeFormKey: _, ...team }) => team),
+			// The keys of a team's request form and intake address admit strangers to file
+			// requests, so they stay out of files that travel.
+			teams: slice.teams.map(({ intakeFormKey: _, intakeEmailKey: __, ...team }) => team),
 			statuses: slice.statuses,
 			members: slice.members.map(({ id, name, email, role }) => ({ id, name, email, role })),
 			labels: slice.labels,

@@ -17,6 +17,7 @@ const snapshot: Snapshot = {
 			archiveAfterMonths: null,
 			closeAfterMonths: null,
 			intakeFormKey: null,
+			intakeEmailKey: null,
 			createdAt: 1,
 			updatedAt: 1,
 		},

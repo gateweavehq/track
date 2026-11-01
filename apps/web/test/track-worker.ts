@@ -40,6 +40,8 @@ export const RECEIVER_HOST = "hooks.test";
 /** Stands in for Turnstile: a token of this value passes its challenge, and any other fails. */
 export const TURNSTILE_PASS = "pass";
 export const TURNSTILE_SITE_KEY = "1x00000000000000000000AA";
+/** The domain whose Email Routing sends every address to the Worker in tests. */
+export const INTAKE_EMAIL_DOMAIN = "requests.track.test";
 const TURNSTILE_HOST = "challenges.cloudflare.com";
 
 /** The address Track sends from in tests. */
@@ -109,7 +111,8 @@ function builtModules(): V4ModuleDefinition[] {
  * Track needs no outside service for sign-in or MCP, so code that only works because local dev
  * can reach itself fails here instead of in production. Email is on, and lands in `emails()`.
  * Webhooks may point at `RECEIVER_HOST`, whose requests land in `received`. Turnstile is set up,
- * and its stand-in passes the token `TURNSTILE_PASS` only.
+ * and its stand-in passes the token `TURNSTILE_PASS` only. Email Routing sends every address at
+ * `INTAKE_EMAIL_DOMAIN` to the Worker, through `email`.
  *
  * With `isolates` above 1, more copies of the Worker share the database and Durable Objects but
  * nothing in memory, as isolates in production do. `fetchIn` reaches a given one.
@@ -128,6 +131,8 @@ export async function startTrack(
 	// Miniflare 5 still takes its documented v4 options through this converter.
 	const mf = new Miniflare(
 		convertV4MiniflareOptions({
+			// Lets `email` hand the Worker a message, as Email Routing would.
+			unsafeTriggerHandlers: true,
 			// Keep what the Worker logs for `logs`, and still show it as Miniflare would.
 			handleStructuredLogs: (log) => {
 				logs.push(log);
@@ -152,6 +157,7 @@ export async function startTrack(
 									EMAIL_FROM: `${EMAIL_FROM.name} <${EMAIL_FROM.email}>`,
 									TURNSTILE_SITE_KEY,
 									TURNSTILE_SECRET_KEY: "turnstile-test-secret",
+									INTAKE_EMAIL_DOMAIN,
 								}),
 					},
 					// Nor any bucket for attached files.
@@ -306,6 +312,27 @@ export async function startTrack(
 				body: JSON.stringify({ method, args }),
 			});
 			return (await response.json()) as T;
+		},
+		/**
+		 * Hands the Worker an email, as Email Routing would, and says whether it took it or refused
+		 * it, with the reason it gave.
+		 */
+		async email(
+			from: string,
+			to: string,
+			raw: string,
+		): Promise<{ outcome: string; rejectReason?: string }> {
+			const params = new URLSearchParams({ from, to });
+			const response = await mf.dispatchFetch(`http://localhost/cdn-cgi/local/email?${params}`, {
+				method: "POST",
+				body: raw,
+			});
+			// Miniflare answers in words: 200 when the Worker took it, 400 with its reason otherwise.
+			const text = await response.text();
+			const rejected = /^Worker rejected email with the following reason: (.*)$/s.exec(text);
+			if (rejected) return { outcome: "rejected", rejectReason: rejected[1] };
+			if (response.ok) return { outcome: "ok" };
+			throw new Error(`The email handler failed: ${text}`);
 		},
 		/** The D1 database, for setting up state the app has no endpoint for. */
 		db,

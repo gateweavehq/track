@@ -225,6 +225,7 @@ function createTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 		archiveAfterMonths: null,
 		closeAfterMonths: null,
 		intakeFormKey: null,
+		intakeEmailKey: null,
 		issueCounter: 0,
 		createdAt: changes.now,
 		updatedAt: changes.now,
@@ -240,15 +241,18 @@ function updateTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 	if (!team) throw new MutationRejected("not_found", "Team not found");
 	if (args.patch.key && args.patch.key !== team.key) assertTeamKeyFree(db, args.patch.key, team.id);
 
-	const { cycles: schedule, intakeForm, ...patch } = args.patch;
+	const { cycles: schedule, intakeForm, intakeEmail, ...patch } = args.patch;
 	const settings = schedule && { weeks: schedule.weeks, timeZone: schedule.timeZone };
 	// Turned on, the form gets a new link, which retires any it had before.
 	const form = intakeForm === undefined ? {} : { intakeFormKey: intakeForm ? newFormKey() : null };
+	const email =
+		intakeEmail === undefined ? {} : { intakeEmailKey: intakeEmail ? newEmailKey() : null };
 	const row = db
 		.update(schema.teams)
 		.set({
 			...patch,
 			...form,
+			...email,
 			...(schedule !== undefined && { cycles: settings }),
 			updatedAt: changes.now,
 		})
@@ -266,6 +270,16 @@ function updateTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 /** The secret in a request form's link: 128 random bits, as 32 hex digits. */
 function newFormKey(): string {
 	return crypto.randomUUID().replaceAll("-", "");
+}
+
+/**
+ * The secret in an intake email address: 80 random bits as 16 lowercase base32 letters and
+ * digits, which survive mail systems that change the case of addresses.
+ */
+function newEmailKey(): string {
+	const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+	const bytes = crypto.getRandomValues(new Uint8Array(16));
+	return Array.from(bytes, (byte) => alphabet[byte % 32]).join("");
 }
 
 function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"issue.create">) {

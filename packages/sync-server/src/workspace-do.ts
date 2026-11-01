@@ -42,7 +42,7 @@ import {
 	rotateGitHubSecret,
 	verifyGitHubDelivery,
 } from "./github";
-import { fileRequest, findIntakeForm, type IntakeForm, intakeRequest } from "./intake-form";
+import { fileRequest, findIntake, type IntakeTarget, intakeRequest } from "./intake";
 import {
 	compact,
 	currentVersion,
@@ -428,15 +428,16 @@ export class WorkspaceDO extends DurableObject {
 		return { status: 202 };
 	}
 
-	// Requests filed through a team's public form. The gateway has checked the workspace exists
-	// and that the person passed Turnstile; the form's key in the link is what admits them.
+	// Requests from people who need not be members, through a team's public form or its intake
+	// email address. The gateway has checked the workspace exists and who may send them; the
+	// channel's key is what admits them.
 
 	/** The team a request form's key opens, or null for a form that is off or never was. */
-	intakeForm(key: string): IntakeForm | null {
-		return findIntakeForm(this.#db, z.string().max(64).parse(key));
+	intakeForm(key: string): IntakeTarget | null {
+		return findIntake(this.#db, "form", z.string().max(64).parse(key));
 	}
 
-	/** Files a request through a team's form. False when the form is off, or the request invalid. */
+	/** Files a request through a team's channel. False when it is off, or the request invalid. */
 	fileRequest(input: unknown): boolean {
 		const parsed = intakeRequest.safeParse(input);
 		if (!parsed.success) return false;

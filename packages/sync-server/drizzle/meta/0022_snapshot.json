@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ce2fe35f-9c1d-4eeb-ab8e-66e79bc80c8f",
+  "id": "70f2460d-bb2a-4da2-af2f-c0f5b1a54bdd",
   "prevId": "0e3f806e-f0d2-4ee2-bb1a-3e05991a9594",
   "tables": {
     "activities": {
@@ -1579,6 +1579,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "intake_email_key": {
+          "name": "intake_email_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "issue_counter": {
           "name": "issue_counter",
           "type": "integer",
@@ -1614,6 +1621,13 @@
           "name": "teams_intake_form_key_unique",
           "columns": [
             "intake_form_key"
+          ],
+          "isUnique": true
+        },
+        "teams_intake_email_key_unique": {
+          "name": "teams_intake_email_key_unique",
+          "columns": [
+            "intake_email_key"
           ],
           "isUnique": true
         }

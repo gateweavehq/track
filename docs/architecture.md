@@ -491,7 +491,7 @@ team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search fi
 - **Filing.** `issue.create` takes `intake: true`. The intake page files requests, and so does
   the C shortcut while it is on screen; agents file them over MCP. Anyone who may create an issue
   may file one, agent members included. People without an account use the team's request form
-  (below).
+  or email address (below).
 - **Accepting** (`issue.accept`) takes the request out of intake in its status, or in an open one
   it names: a closed status is refused, since declining is how a request closes.
 - **Declining** (`issue.decline`) moves it to the team's first canceled status, after posting an
@@ -535,8 +535,37 @@ TanStack Start and serves the form as a small page of its own:
   Content-Security-Policy that allows only Turnstile's script and frame and posts only to itself,
   cannot be framed, and escapes everything it shows. The service worker leaves `/request/` alone.
 
-An email address that files requests is a later step. Intake is a breaking change to the protocol
-(version 19), as the issue and team entities gained it.
+#### Intake email
+
+An admin can also give a team an intake email address (`team.update` with `intakeEmail`):
+`<workspace id>.<key>@<INTAKE_EMAIL_DOMAIN>`, where the key is 80 random bits as 16 lowercase
+base32 characters (`Team.intakeEmailKey`), new each time the address is turned on. The address
+is lowercase, since mail systems may change its case, and the gateway finds the workspace by its
+id ignoring case. Teams usually forward their support address to it. Cloudflare Email Routing
+sends every address at the domain to the Worker's `email` handler, from one catch-all rule
+(`apps/web/src/server/intake-email.ts`):
+
+- **Mail to an address that leads nowhere is refused** (`setReject`), so its sender hears it went
+  nowhere: another domain or form, a workspace that does not exist, or a key no team has.
+- **Mail a machine sent on its own is dropped without a bounce**: `Auto-Submitted` other than
+  `no`, `Precedence` of bulk, junk, list or auto_reply, auto-reply headers and mailing lists. An
+  out-of-office reply to everyone who wrote would otherwise fill the intake.
+- **Limits.** Each sender files at most 10 requests an hour and 30 a day, and each team's address
+  takes at most 60 an hour and 300 a day, whoever sends them, in the `RateLimiter` Durable Object.
+  Mail over 1 MiB is refused.
+- **What is kept.** postal-mime parses the message. The subject is the title (or "Email from"
+  the sender), and the plain text, or the text of an HTML-only message, the description, cut at
+  20,000 characters and signed with the sender's address. Attachments are not kept; the
+  description says how many were left out.
+- **The address is the creator** (`INTAKE_EMAIL_ACTOR_ID`, `email`, shown as "Email"), with the
+  same rules as the form: the team's first status, nobody's inbox, webhooks with a `system`
+  actor named "Email".
+
+Without `INTAKE_EMAIL_DOMAIN`, and on the public demo, every address is refused, and the dialog
+in the app says why. Replying to the sender by email is a later step.
+
+Intake is a breaking change to the protocol (version 19), as the issue and team entities gained
+it.
 
 ### Projects
 

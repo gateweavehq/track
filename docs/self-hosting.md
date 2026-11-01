@@ -116,6 +116,22 @@ account file requests into the team's intake. Forms take requests only once
 Without both, admins can still turn a form on, but its link says the form is not open. Each
 client network can file 10 requests an hour and 30 a day across all forms.
 
+### Intake email
+
+Each team can also have an intake email address, which files the email it gets as requests in
+the team's intake. Teams usually forward their support address to it. To turn addresses on:
+
+1. Pick a domain or subdomain that receives no other mail, such as `requests.example.com`, in a
+   zone on Cloudflare, and enable [Email Routing](https://developers.cloudflare.com/email-routing/)
+   on it.
+2. Add a catch-all rule that sends every address to the Worker (`gateweave-track`, or your
+   Worker's name).
+3. Set `INTAKE_EMAIL_DOMAIN` to that domain.
+
+Admins then turn on each team's address next to its form. Each sender can file 10 requests an
+hour and 30 a day, and each address takes at most 60 an hour and 300 a day. Attachments are not
+kept.
+
 ### Sign in with GitHub
 
 Create a [GitHub OAuth app](https://github.com/settings/developers) with the callback URL

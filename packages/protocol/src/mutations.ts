@@ -90,6 +90,8 @@ export const mutationSchema = z.discriminatedUnion("name", [
 					closeAfterMonths: automationMonths.nullable(),
 					/** Turns the team's public request form on, with a new link, or off. */
 					intakeForm: z.boolean(),
+					/** Turns the team's intake email address on, with a new address, or off. */
+					intakeEmail: z.boolean(),
 				})
 				.partial()
 				.refine(nonEmpty, "Empty patch"),

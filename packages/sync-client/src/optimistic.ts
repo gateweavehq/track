@@ -41,6 +41,7 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 				archiveAfterMonths: null,
 				closeAfterMonths: null,
 				intakeFormKey: null,
+				intakeEmailKey: null,
 				createdAt: now,
 				updatedAt: now,
 			});
@@ -103,14 +104,15 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			const team = draft.get("team", mutation.args.id);
 			if (!team) return;
 			// The cycles themselves are the server's to date, make and remove, and the request
-			// form's link is the server's to make.
-			const { cycles, intakeForm, ...patch } = mutation.args.patch;
+			// form's link and the intake email address are the server's to make.
+			const { cycles, intakeForm, intakeEmail, ...patch } = mutation.args.patch;
 			const settings = cycles && { weeks: cycles.weeks, timeZone: cycles.timeZone };
 			draft.put("team", {
 				...team,
 				...patch,
 				...(cycles === undefined ? {} : { cycles: settings }),
 				...(intakeForm === false && { intakeFormKey: null }),
+				...(intakeEmail === false && { intakeEmailKey: null }),
 				updatedAt: now,
 			});
 			return;

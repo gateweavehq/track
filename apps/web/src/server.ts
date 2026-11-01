@@ -3,6 +3,7 @@ import { getAuth } from "./server/auth";
 import { demoEnabled } from "./server/demo/mode";
 import { handleFileRequest, isFileRequest } from "./server/files";
 import { handleGitHubRequest, isGitHubRequest } from "./server/github";
+import { handleIntakeEmail } from "./server/intake-email";
 import { handleIntakeFormRequest, isIntakeFormRequest } from "./server/intake-form";
 import { handleMcpRequest, isMcpRequest } from "./server/mcp";
 import { handleSyncRequest, isSyncRequest } from "./server/sync";
@@ -31,6 +32,10 @@ export default {
 		if (isIntakeFormRequest(url)) return handleIntakeFormRequest(request);
 		if (OAUTH_DISCOVERY.test(url.pathname)) return getAuth().handler(request);
 		return handler.fetch(request);
+	},
+	// Email Routing sends mail for teams' intake addresses here (INTAKE_EMAIL_DOMAIN).
+	async email(message) {
+		await handleIntakeEmail(message);
 	},
 	// The demo deployment has a Cron Trigger; nothing else schedules this.
 	async scheduled() {

@@ -719,7 +719,13 @@ describe("intake", () => {
 		const turn = (client: TestClient, intakeForm: boolean) =>
 			client.mutate({ name: "team.update", args: { id: TEAM_ID, patch: { intakeForm } } });
 		const file = (formKey: string, title: string) =>
-			workspace.fileRequest({ formKey, title, description: "From the site", sortOrder: "a5" });
+			workspace.fileRequest({
+				via: "form",
+				key: formKey,
+				title,
+				description: "From the site",
+				sortOrder: "a5",
+			});
 
 		expect(await formOf()).toBeNull();
 		expect(await turn(member, true)).toMatchObject({ type: "reject", reason: "forbidden" });
@@ -754,6 +760,34 @@ describe("intake", () => {
 		expect((await snapshotOf(workspace)).issues.map((issue) => issue.title)).toEqual([
 			"Export to PDF",
 		]);
+	});
+
+	it("files emailed requests while the team's address is on, each channel by its own key", async () => {
+		const { workspace, admin } = await withTeam();
+		const team = async () =>
+			(await snapshotOf(workspace)).teams.find((each) => each.id === TEAM_ID);
+		const turn = (patch: { intakeEmail?: boolean; intakeForm?: boolean }) =>
+			admin.apply({ name: "team.update", args: { id: TEAM_ID, patch } });
+		const file = (via: "form" | "email", key: string, title: string) =>
+			workspace.fileRequest({ via, key, title, description: null, sortOrder: "a5" });
+
+		await turn({ intakeEmail: true, intakeForm: true });
+		const { intakeEmailKey: emailKey, intakeFormKey: formKey } = (await team()) ?? {};
+		expect(emailKey).toMatch(/^[a-z2-7]{16}$/);
+		if (!emailKey || !formKey) throw new Error("No channels");
+
+		expect(await file("email", emailKey, "Broken export")).toBe(true);
+		// A key opens only its own channel.
+		expect(await file("form", emailKey, "Wrong way in")).toBe(false);
+		expect(await file("email", formKey, "Wrong way in")).toBe(false);
+		expect((await snapshotOf(workspace)).issues).toEqual([
+			expect.objectContaining({ title: "Broken export", creatorId: "email", intake: true }),
+		]);
+
+		await turn({ intakeEmail: false });
+		expect((await team())?.intakeEmailKey).toBeNull();
+		expect((await team())?.intakeFormKey).toBe(formKey);
+		expect(await file("email", emailKey, "Late")).toBe(false);
 	});
 
 	it("keeps a request out of the archive until someone decides on it", async () => {
@@ -2724,6 +2758,8 @@ describe("search", () => {
 			db.run(sql`alter table issues drop column intake`);
 			db.run(sql`drop index teams_intake_form_key_unique`);
 			db.run(sql`alter table teams drop column intake_form_key`);
+			db.run(sql`drop index teams_intake_email_key_unique`);
+			db.run(sql`alter table teams drop column intake_email_key`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${search.when}`);
 			await migrate(db, migrations);
 		});
