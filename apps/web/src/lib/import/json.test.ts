@@ -7,6 +7,7 @@ import {
 	type Member,
 	type MutationInput,
 	type Project,
+	type ProjectUpdate,
 	type Team,
 	type WorkflowStatus,
 } from "@gateweave/track-protocol";
@@ -130,6 +131,15 @@ const blocks: IssueRelation = {
 	creatorId: "u1",
 	createdAt: 40,
 };
+const atRisk: ProjectUpdate = {
+	id: "u1",
+	projectId: "p1",
+	authorId: "u2",
+	health: "at_risk",
+	body: "The outage slowed us down.",
+	createdAt: 50,
+	updatedAt: 50,
+};
 const exported: ExportSource = {
 	workspace: { slug: "acme", name: "Acme" },
 	teams: [eng, ops],
@@ -143,6 +153,7 @@ const exported: ExportSource = {
 	members: [ada, grace],
 	labels: [bug],
 	projects: [launch],
+	projectUpdates: [atRisk],
 	issues: [epicIssue, outageIssue],
 	comments: [reply],
 	activities: [],
@@ -178,7 +189,13 @@ describe("readJsonImport", () => {
 		const { source } = readJsonImport(workspaceToJson(exported));
 		expect(source.name).toBe("Acme");
 		const plan = await planImport(source, elsewhere(), "home-eng");
-		expect(plan).toMatchObject({ issues: 2, comments: 1, relations: 1, skipped: 0 });
+		expect(plan).toMatchObject({
+			issues: 2,
+			comments: 1,
+			relations: 1,
+			projectUpdates: 1,
+			skipped: 0,
+		});
 		expect(plan.newLabels).toEqual(["Bug"]);
 		expect(plan.newProjects).toEqual(["Launch"]);
 		expect(plan.newTeams).toEqual([]);
@@ -214,6 +231,16 @@ describe("readJsonImport", () => {
 			body: "_Grace wrote in Acme:_\n\nOn it.",
 			createdAt: 30,
 		});
+		const [update] = argsOf(plan.mutations, "projectUpdate.create");
+		expect(update).toEqual({
+			id: await importId("track:u1"),
+			projectId: project?.id,
+			health: "at_risk",
+			body: "_Grace wrote in Acme:_\n\nThe outage slowed us down.",
+			createdAt: 50,
+		});
+		const names = plan.mutations.map((mutation) => mutation.name);
+		expect(names.indexOf("project.create")).toBeLessThan(names.indexOf("projectUpdate.create"));
 		const [relation] = argsOf(plan.mutations, "relation.create");
 		expect(relation).toEqual({
 			id: await importId("track:r1"),
@@ -326,10 +353,40 @@ describe("readJsonImport", () => {
 			issues: new Map(ids("issue.create").map((id) => [id, issue({ id, teamId: "t", number: 1 })])),
 			comments: new Map(ids("comment.create").map((id) => [id, { ...reply, id }])),
 			relations: new Map(ids("relation.create").map((id) => [id, { ...blocks, id }])),
+			// The first run made the project, so its updates are matched to it by name.
+			projects: [{ ...launch, id: "home-launch" }],
+			projectUpdates: new Map(
+				argsOf(first.mutations, "projectUpdate.create").map((args) => [
+					args.id,
+					{ ...atRisk, id: args.id, projectId: "home-launch" },
+				]),
+			),
 		});
 		const again = await planImport(source, done, "home-eng");
 		expect(again.mutations).toEqual([]);
-		expect(again).toMatchObject({ issues: 0, comments: 0, relations: 0, skipped: 4 });
+		expect(again).toMatchObject({
+			issues: 0,
+			comments: 0,
+			relations: 0,
+			projectUpdates: 0,
+			skipped: 5,
+		});
+	});
+
+	it("reads an export from before project updates, and leaves out a health it does not know", () => {
+		const doc = JSON.parse(workspaceToJson(exported));
+		delete doc.projectUpdates;
+		expect(readJsonImport(JSON.stringify(doc)).source.projects?.[0]?.updates).toEqual([]);
+
+		doc.projectUpdates = [
+			{ ...atRisk, id: "u2", health: "great" },
+			{ ...atRisk, id: "u3", health: "off_track" },
+		];
+		expect(
+			readJsonImport(JSON.stringify(doc)).source.projects?.[0]?.updates?.map(
+				(update) => update.sourceId,
+			),
+		).toEqual(["track:u3"]);
 	});
 
 	it("reads an export from before relations, and leaves out what points outside the file", () => {

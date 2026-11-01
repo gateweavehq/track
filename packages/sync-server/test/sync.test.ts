@@ -1486,6 +1486,186 @@ describe("imports", () => {
 	});
 });
 
+describe("project updates", () => {
+	const agent: MemberProfile = { ...owner, id: "user-bot", name: "Bot", role: "agent" };
+	const AGENT = "mcp:test-agent";
+
+	async function withProject() {
+		const { workspace, admin } = await withTeam();
+		await admin.apply({ name: "project.create", args: { id: "project-1", name: "Launch" } });
+		return { workspace, admin };
+	}
+
+	async function post(client: TestClient, id: string, body = "On schedule") {
+		return client.apply({
+			name: "projectUpdate.create",
+			args: { id, projectId: "project-1", health: "on_track", body },
+		});
+	}
+
+	it("lets any member post, agents included, and only the author edit", async () => {
+		const { workspace, admin } = await withProject();
+		const member = await TestClient.live(workspace, alice);
+		await workspace.syncMember(agent);
+
+		await post(member, "update-1", "  Design is done.  ");
+		const byAgent = await workspace.mutate(agent, AGENT, "m-1", {
+			name: "projectUpdate.create",
+			args: { id: "update-2", projectId: "project-1", health: "at_risk", body: "Two blockers" },
+		});
+		const byAdmin = await admin.mutate({
+			name: "projectUpdate.update",
+			args: { id: "update-1", patch: { body: "Rewritten" } },
+		});
+		const edited = await member.apply({
+			name: "projectUpdate.update",
+			args: { id: "update-1", patch: { health: "off_track" } },
+		});
+		const same = await member.apply({
+			name: "projectUpdate.update",
+			args: { id: "update-1", patch: { health: "off_track", body: "Design is done." } },
+		});
+
+		expect(
+			await admin.op(
+				(op) => op.entity === "projectUpdate" && op.op === "put" && op.id === "update-1",
+			),
+		).toMatchObject({
+			data: {
+				projectId: "project-1",
+				authorId: alice.id,
+				health: "on_track",
+				body: "Design is done.",
+			},
+		});
+		expect(byAgent).toMatchObject({ ok: true });
+		expect(byAdmin).toMatchObject({ type: "reject", reason: "forbidden" });
+		// An edit that changes nothing writes nothing.
+		expect(same.version).toBe(edited.version);
+		expect((await snapshotOf(workspace)).projectUpdates).toMatchObject([
+			{ id: "update-1", health: "off_track", body: "Design is done.", authorId: alice.id },
+			{ id: "update-2", health: "at_risk", authorId: agent.id },
+		]);
+	});
+
+	it("lets the author or an admin delete an update", async () => {
+		const { workspace, admin } = await withProject();
+		const author = await TestClient.live(workspace, alice);
+		const other = await TestClient.live(workspace, bob);
+		await post(author, "update-1");
+		await post(author, "update-2");
+
+		const byOther = await other.mutate({ name: "projectUpdate.delete", args: { id: "update-1" } });
+		await author.apply({ name: "projectUpdate.delete", args: { id: "update-1" } });
+		await admin.apply({ name: "projectUpdate.delete", args: { id: "update-2" } });
+		const editDeleted = await author.mutate({
+			name: "projectUpdate.update",
+			args: { id: "update-1", patch: { body: "Back" } },
+		});
+
+		expect(byOther).toMatchObject({ type: "reject", reason: "forbidden" });
+		expect(
+			await other.op(
+				(op) => op.entity === "projectUpdate" && op.op === "delete" && op.id === "update-2",
+			),
+		).toBeTruthy();
+		expect(editDeleted).toMatchObject({ type: "reject", reason: "not_found" });
+		expect((await snapshotOf(workspace)).projectUpdates).toEqual([]);
+	});
+
+	it("rejects empty posts, unknown health, reused ids and missing projects", async () => {
+		const { admin } = await withProject();
+		await post(admin, "update-1");
+
+		const empty = await admin.mutate({
+			name: "projectUpdate.create",
+			args: { id: "update-2", projectId: "project-1", health: "on_track", body: "  " },
+		});
+		const health = await admin.mutate({
+			name: "projectUpdate.create",
+			// @ts-expect-error: a health the protocol does not know
+			args: { id: "update-3", projectId: "project-1", health: "great", body: "Hi" },
+		});
+		const reused = await admin.mutate({
+			name: "projectUpdate.create",
+			args: { id: "update-1", projectId: "project-1", health: "on_track", body: "Again" },
+		});
+		const missing = await admin.mutate({
+			name: "projectUpdate.create",
+			args: { id: "update-4", projectId: "project-missing", health: "on_track", body: "Hello?" },
+		});
+		const emptyPatch = await admin.mutate({
+			name: "projectUpdate.update",
+			args: { id: "update-1", patch: {} },
+		});
+
+		expect(empty).toMatchObject({ type: "reject", reason: "invalid" });
+		expect(health).toMatchObject({ type: "reject", reason: "invalid" });
+		expect(reused).toMatchObject({ type: "reject", reason: "invalid" });
+		expect(missing).toMatchObject({ type: "reject", reason: "not_found" });
+		expect(emptyPatch).toMatchObject({ type: "reject", reason: "invalid" });
+	});
+
+	it("keeps an imported update's original date for an admin only", async () => {
+		const { workspace, admin } = await withProject();
+		const member = await TestClient.live(workspace, alice);
+		const then = Date.UTC(2025, 5, 1);
+
+		await admin.apply({
+			name: "projectUpdate.create",
+			args: {
+				id: "update-1",
+				projectId: "project-1",
+				health: "on_track",
+				body: "Old",
+				createdAt: then,
+			},
+		});
+		const byMember = await member.mutate({
+			name: "projectUpdate.create",
+			args: {
+				id: "update-2",
+				projectId: "project-1",
+				health: "on_track",
+				body: "Old",
+				createdAt: then,
+			},
+		});
+
+		expect(byMember).toMatchObject({ type: "reject", reason: "forbidden" });
+		expect((await snapshotOf(workspace)).projectUpdates).toMatchObject([
+			{ id: "update-1", createdAt: then },
+		]);
+	});
+
+	it("deletes a project's updates along with the project, before it", async () => {
+		const { workspace, admin } = await withProject();
+		const viewer = await TestClient.live(workspace, alice);
+		await post(admin, "update-1");
+		await post(admin, "update-2");
+
+		await admin.apply({ name: "project.delete", args: { id: "project-1" } });
+		await viewer.op((op) => op.entity === "project" && op.op === "delete");
+		const deletes = viewer
+			.ops()
+			.filter(
+				(op) => op.op === "delete" && (op.entity === "project" || op.entity === "projectUpdate"),
+			)
+			.map((op) => `${op.entity}:${op.id}`);
+		expect(deletes).toEqual([
+			"projectUpdate:update-1",
+			"projectUpdate:update-2",
+			"project:project-1",
+		]);
+		expect((await snapshotOf(workspace)).projectUpdates).toEqual([]);
+		const late = await admin.mutate({
+			name: "projectUpdate.update",
+			args: { id: "update-1", patch: { body: "Too late" } },
+		});
+		expect(late).toMatchObject({ type: "reject", reason: "not_found" });
+	});
+});
+
 describe("comments", () => {
 	async function comment(client: TestClient, id: string, issueId: string, body = "Looks good") {
 		return client.apply({ name: "comment.create", args: { id, issueId, body } });
@@ -2494,6 +2674,7 @@ describe("search", () => {
 		if (!search) throw new Error("No search migration");
 		await runInDurableObject(workspace, async (_, state) => {
 			const db = drizzle(state.storage, { schema });
+			db.run(sql`drop table project_updates`);
 			db.run(sql`drop table statuses`);
 			db.run(sql`drop table due_reminders`);
 			db.run(sql`drop index issues_due_idx`);

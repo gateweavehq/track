@@ -246,7 +246,44 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 				if (issue.projectId === id)
 					draft.put("issue", { ...issue, projectId: null, updatedAt: now });
 			}
+			for (const update of [...draft.values("projectUpdate")]) {
+				if (update.projectId === id) draft.delete("projectUpdate", update.id);
+			}
 			draft.delete("project", id);
+			return;
+		}
+		case "projectUpdate.create": {
+			const { id, projectId, health, body } = mutation.args;
+			if (draft.get("projectUpdate", id) || !draft.get("project", projectId)) return;
+			draft.put("projectUpdate", {
+				id,
+				projectId,
+				authorId: userId,
+				health,
+				body,
+				createdAt: Math.min(mutation.args.createdAt ?? now, now),
+				updatedAt: now,
+			});
+			return;
+		}
+		case "projectUpdate.update": {
+			const update = draft.get("projectUpdate", mutation.args.id);
+			if (!update || update.authorId !== userId) return;
+			const { patch } = mutation.args;
+			if (
+				(patch.health ?? update.health) === update.health &&
+				(patch.body ?? update.body) === update.body
+			)
+				return;
+			draft.put("projectUpdate", { ...update, ...patch, updatedAt: now });
+			return;
+		}
+		case "projectUpdate.delete": {
+			const update = draft.get("projectUpdate", mutation.args.id);
+			if (!update) return;
+			const role = draft.get("member", userId)?.role;
+			if (update.authorId !== userId && (role === undefined || !isAdminRole(role))) return;
+			draft.delete("projectUpdate", update.id);
 			return;
 		}
 		case "cycle.update": {

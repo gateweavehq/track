@@ -15,6 +15,7 @@ import {
 	PING,
 	PONG,
 	PROTOCOL_VERSION,
+	type ProjectUpdate,
 	type Proposal,
 	type PullRequest,
 	type RejectReason,
@@ -66,6 +67,7 @@ import {
 	findIssueById,
 	findIssueByKey,
 	findIssues,
+	findProjectUpdates,
 	findPullRequests,
 	findRelations,
 	type IssueQuery,
@@ -236,6 +238,11 @@ export class WorkspaceDO extends DurableObject {
 
 	comments(issueId: string): Comment[] {
 		return findComments(this.#db, shortId.parse(issueId));
+	}
+
+	/** A live project's updates, the latest first. */
+	projectUpdates(projectId: string): ProjectUpdate[] {
+		return findProjectUpdates(this.#db, shortId.parse(projectId));
 	}
 
 	/** An issue's relations, from either side. */

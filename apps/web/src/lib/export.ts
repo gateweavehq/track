@@ -7,6 +7,7 @@ import type {
 	Label,
 	Member,
 	Project,
+	ProjectUpdate,
 	Team,
 	WorkflowStatus,
 } from "@gateweave/track-protocol";
@@ -50,6 +51,8 @@ export interface ExportSource {
 	members: Iterable<Member>;
 	labels: Iterable<Label>;
 	projects: Iterable<Project>;
+	/** Exported whole, with their projects. Sources from before project updates have none. */
+	projectUpdates?: Iterable<ProjectUpdate>;
 	cycles: Iterable<Cycle>;
 	issues: Iterable<Issue>;
 	comments: Iterable<Comment>;
@@ -69,6 +72,7 @@ export function exportSourceFrom(
 		members: state.members.values(),
 		labels: state.labels.values(),
 		projects: state.projects.values(),
+		projectUpdates: state.projectUpdates.values(),
 		cycles: state.cycles.values(),
 		issues: state.issues.values(),
 		comments: state.comments.values(),
@@ -86,6 +90,7 @@ interface Slice {
 	members: Member[];
 	labels: Label[];
 	projects: Project[];
+	projectUpdates: ProjectUpdate[];
 	/** The cycles of the slice's teams, so every issue's cycle is in the file. */
 	cycles: Cycle[];
 	issues: Issue[];
@@ -131,6 +136,7 @@ function sliceOf(source: ExportSource, teamId: string | null): Slice {
 		members,
 		labels,
 		projects,
+		projectUpdates: [...(source.projectUpdates ?? [])].sort((a, b) => a.createdAt - b.createdAt),
 		cycles: [...source.cycles]
 			.filter((cycle) => teamId === null || cycle.teamId === teamId)
 			.sort(
@@ -240,6 +246,7 @@ export function workspaceToJson(
 			members: slice.members.map(({ id, name, email, role }) => ({ id, name, email, role })),
 			labels: slice.labels,
 			projects: slice.projects,
+			projectUpdates: slice.projectUpdates,
 			cycles: slice.cycles,
 			issues: slice.issues.map((issue) => ({
 				...issue,

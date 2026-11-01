@@ -572,6 +572,56 @@ describe("delivery", () => {
 		]);
 	});
 
+	it("sends project updates with their project, only to webhooks for every team", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await mutate(workspace, owner, {
+			name: "project.create",
+			args: { id: "project-1", name: "Launch" },
+		});
+		const events = [
+			"project_update.created",
+			"project_update.updated",
+			"project_update.deleted",
+		] as const;
+		await createHook(workspace, { events: [...events] });
+		await createHook(workspace, {
+			url: "https://hooks.test/eng",
+			events: [...events],
+			teamId: "team-eng",
+		});
+
+		await mutate(workspace, alice, {
+			name: "projectUpdate.create",
+			args: { id: "update-1", projectId: "project-1", health: "at_risk", body: "Blocked" },
+		});
+		await mutate(workspace, alice, {
+			name: "projectUpdate.update",
+			args: { id: "update-1", patch: { health: "on_track" } },
+		});
+		await mutate(workspace, alice, { name: "projectUpdate.delete", args: { id: "update-1" } });
+		await deliver(workspace);
+
+		expect(received.every((request) => request.url === HOOK_URL)).toBe(true);
+		expect(payloads(received)).toMatchObject([
+			{
+				type: "project_update.created",
+				data: {
+					workspace: { slug: "acme" },
+					actor: { id: alice.id, type: "person" },
+					project: {
+						id: "project-1",
+						name: "Launch",
+						url: "https://track.test/acme/project/project-1",
+					},
+					update: { id: "update-1", health: "at_risk", body: "Blocked", authorId: alice.id },
+				},
+			},
+			{ type: "project_update.updated", data: { update: { health: "on_track" } } },
+			{ type: "project_update.deleted", data: { update: { id: "update-1" } } },
+		]);
+	});
+
 	it("retries a failed delivery with backoff, then gives up", async () => {
 		const received = receiver(() => 503);
 		const workspace = await workspaceWithTeams();

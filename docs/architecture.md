@@ -547,6 +547,33 @@ The Projects page (`/$workspace/projects`) lists them with their lead, target da
 and a project's page (`/$workspace/project/$projectId`) edits its fields above the project's
 issues, shown with the same list and board as a team's.
 
+### Project updates
+
+A project update (`ProjectUpdate`) says how a project is going: a health (`on_track`, `at_risk`
+or `off_track`) and a Markdown body, by its author. A project's updates are the history of how it
+went; the latest gives the project its health, which is not stored on the project.
+
+- `projectUpdate.create` is open to every member, agents included: an update changes nothing but
+  the record, as a comment does, so an agent can report on a project it cannot edit. Only the
+  author changes one (`projectUpdate.update`, a patch of `health` and `body`; the last edit
+  wins); the author or an admin deletes one (`projectUpdate.delete`).
+- Deleting a project deletes its updates, one delete op each, before the project's own.
+- The project's page shows the latest update under its details, with the earlier ones a click
+  away and a form to post one; the Projects page shows each project's latest health. A health
+  always comes with its icon and its words. Mentions in an update tell no one: the inbox is
+  about issues.
+- Webhooks send `project_update.created`, `project_update.updated` and
+  `project_update.deleted`, with the project (and its URL) and the update. A project belongs to
+  no team, so only a webhook for every team hears them.
+- Over MCP, `post_project_update` posts one and `list_project_updates` reads them, the latest
+  first; `get_workspace` gives each project's `health`.
+- JSON exports carry every project's updates, and an import brings in those of the projects its
+  issues are in, as the importer's with the author named in the text. The sample workspace
+  (`pnpm dev:seed`, the demo) has a few.
+
+Project updates came with protocol version 20 and the Durable Object migration
+`0023_project_updates`.
+
 ### Cycles
 
 A team can work in cycles: fixed runs of one to four weeks, back to back, in a time zone an admin
@@ -932,8 +959,8 @@ A webhook posts each change to a URL, such as an agent's trigger, so that a serv
 new issues without holding a socket open. Admins manage them on Settings › Webhooks: a URL, the
 events it wants (`issue.created`, `issue.updated`, `issue.deleted`, `comment.created`,
 `comment.updated`, `comment.deleted`, `proposal.created`, `proposal.updated`,
-`proposal.accepted`, `proposal.dismissed`, `relation.created`, `relation.deleted`), an
-optional team, and optionally the agent member it sets off. The payload types and input schemas are in `packages/protocol/src/webhooks.ts`; the rest
+`proposal.accepted`, `proposal.dismissed`, `relation.created`, `relation.deleted`,
+`project_update.created`, `project_update.updated`, `project_update.deleted`), an optional team, and optionally the agent member it sets off. The payload types and input schemas are in `packages/protocol/src/webhooks.ts`; the rest
 is `packages/sync-server/src/webhooks.ts`.
 
 - **The workspace's Durable Object delivers them, from an outbox.** Mutation handlers add what
@@ -1045,21 +1072,24 @@ the oldest issues first, so numbers follow the source's order. Nothing on the se
 imports, so validation, permissions and fan-out are the ordinary ones.
 
 - **A JSON export moves a workspace or a team** to another workspace, such as from a self-hosted
-  copy to Gateweave Cloud: issues with their comments, parents and relations, and labels and
-  projects with their colors and details. The import can keep the file's teams, matched by key
-  or created, instead of putting everything in one team. Statuses are matched as above, not
-  created: the file names each issue's status and its category. History stays behind, since
-  activity belongs to the people who made it. Relations are sent last, once both issues exist.
+  copy to Gateweave Cloud: issues with their comments, parents and relations, labels and
+  projects with their colors and details, and the updates of the projects its issues are in.
+  The import can keep the file's teams, matched by key or created, instead of putting everything
+  in one team; it then also adds each team's live statuses that the team here lacks. Otherwise
+  statuses are matched as above: the file names each issue's status and its category. History
+  stays behind, since activity belongs to the people who made it. Relations are sent last, once
+  both issues exist.
 - **Repeating an import is safe.** An imported issue's or comment's id is made from its id in
   the source (`import-` and a SHA-256 prefix), and the plan skips ids the workspace already has.
-  Relations from a JSON export are made the same way.
+  Relations and project updates from a JSON export are made the same way.
   A run that stopped part way is finished by running it again.
-- **Original dates are an admin's to keep.** `issue.create` and `comment.create` take an optional
-  `createdAt`, which only owners and admins may send, and the server never lets it be later than
-  the mutation. Everyone else's items are created now, as before.
+- **Original dates are an admin's to keep.** `issue.create`, `comment.create` and
+  `projectUpdate.create` take an optional `createdAt`, which only owners and admins may send, and
+  the server never lets it be later than the mutation. Everyone else's items are created now, as
+  before.
 - **Where the item came from stays in its text.** Imported issues and comments belong to the
-  importer, so a link to the source, an assignee with no matching member and a comment's original
-  author are noted in the Markdown.
+  importer, so a link to the source, an assignee with no matching member and a comment's or
+  project update's original author are noted in the Markdown.
 - **The importer keeps a window of mutations in flight**, about forty, because every pending
   mutation is replayed on each change from the server. Closing the page stops the import; what
   was sent still lands.

@@ -299,6 +299,7 @@ describe("statuses", () => {
 			db.run(sql`alter table teams drop column archive_after_months`);
 			db.run(sql`alter table teams drop column close_after_months`);
 			db.run(sql`drop table templates`);
+			db.run(sql`drop table project_updates`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${first.when}`);
 			await migrate(db, migrations);
 		});

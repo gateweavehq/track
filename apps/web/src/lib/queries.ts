@@ -9,6 +9,7 @@ import {
 	type Label,
 	type Member,
 	type Project,
+	type ProjectUpdate,
 	type Proposal,
 	type PullRequest,
 	privateId,
@@ -308,6 +309,58 @@ export function useIssueComments(issueId: string): Comment[] {
 		// Changes to other issues regroup the table but leave this issue's rows as they were.
 		shallowEqual,
 	);
+}
+
+const projectUpdateGroups = new WeakMap<
+	ReadonlyMap<string, ProjectUpdate>,
+	ReadonlyMap<string, ProjectUpdate[]>
+>();
+
+/** Each project's updates, the latest first, by project id. */
+function updatesByProject(state: SyncState): ReadonlyMap<string, ProjectUpdate[]> {
+	let groups = projectUpdateGroups.get(state.projectUpdates);
+	if (!groups) {
+		const grouped = new Map<string, ProjectUpdate[]>();
+		for (const update of state.projectUpdates.values()) {
+			const rows = grouped.get(update.projectId);
+			if (rows) rows.push(update);
+			else grouped.set(update.projectId, [update]);
+		}
+		for (const rows of grouped.values()) {
+			rows.sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : -1));
+		}
+		groups = grouped;
+		projectUpdateGroups.set(state.projectUpdates, groups);
+	}
+	return groups;
+}
+
+/** A project's updates, the latest first. */
+export function useProjectUpdates(projectId: string): ProjectUpdate[] {
+	return useQuery(
+		useCallback((state: SyncState) => updatesByProject(state).get(projectId) ?? NONE, [projectId]),
+		shallowEqual,
+	);
+}
+
+const selectLatestUpdates = (state: SyncState) => {
+	const latest = new Map<string, ProjectUpdate>();
+	for (const [projectId, updates] of updatesByProject(state)) {
+		const first = updates[0];
+		if (first) latest.set(projectId, first);
+	}
+	return latest;
+};
+
+function latestEqual(a: ReadonlyMap<string, ProjectUpdate>, b: ReadonlyMap<string, ProjectUpdate>) {
+	if (a.size !== b.size) return false;
+	for (const [key, update] of a) if (b.get(key) !== update) return false;
+	return true;
+}
+
+/** Each project's latest update, which says how it is going now, by project id. */
+export function useLatestProjectUpdates(): ReadonlyMap<string, ProjectUpdate> {
+	return useQuery(selectLatestUpdates, latestEqual);
 }
 
 const proposalGroups = new WeakMap<

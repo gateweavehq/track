@@ -7,6 +7,7 @@ import {
 	ISSUE_PRIORITIES,
 	MAX_AUTOMATION_MONTHS,
 	MAX_LABELS_PER_ISSUE,
+	PROJECT_HEALTHS,
 	PROJECT_STATUSES,
 	RELATION_TYPES,
 } from "./domain";
@@ -35,6 +36,7 @@ const labelName = z.string().trim().min(1).max(64);
 const labelColor = z.string().regex(/^#[0-9a-f]{6}$/, "A lowercase hex color, like #e5484d");
 const projectName = z.string().trim().min(1).max(64);
 const projectStatus = z.enum(PROJECT_STATUSES);
+const projectHealth = z.enum(PROJECT_HEALTHS);
 /** `YYYY-MM-DD`, and a day that exists: 2026-02-30 is refused. */
 export const calendarDate = z
 	.string()
@@ -47,8 +49,8 @@ export const calendarDate = z
 export const estimate = z.number().int().min(0).max(1000);
 const commentBody = z.string().trim().min(1).max(100_000);
 /**
- * When an issue or comment was first written, in the tracker it is imported from (epoch ms).
- * Only admins may set it, and the server keeps it no later than its own clock.
+ * When an issue, comment or project update was first written, in the tracker it is imported
+ * from (epoch ms). Only admins may set it, and the server keeps it no later than its own clock.
  */
 const importedCreatedAt = z
 	.number()
@@ -253,6 +255,32 @@ export const mutationSchema = z.discriminatedUnion("name", [
 	}),
 	z.object({
 		name: z.literal("project.delete"),
+		args: z.object({ id }),
+	}),
+	// Any member posts an update, agents included. Only the author edits one, so the last edit
+	// wins; the author or an admin deletes one.
+	z.object({
+		name: z.literal("projectUpdate.create"),
+		args: z.object({
+			id,
+			projectId: id,
+			health: projectHealth,
+			body: commentBody,
+			createdAt: importedCreatedAt,
+		}),
+	}),
+	z.object({
+		name: z.literal("projectUpdate.update"),
+		args: z.object({
+			id,
+			patch: z
+				.object({ health: projectHealth, body: commentBody })
+				.partial()
+				.refine(nonEmpty, "Empty patch"),
+		}),
+	}),
+	z.object({
+		name: z.literal("projectUpdate.delete"),
 		args: z.object({ id }),
 	}),
 	// The server makes cycles; people only name them. A null name puts the number back.

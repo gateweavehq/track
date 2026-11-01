@@ -149,6 +149,7 @@ function accessFor(
 				issue: (id) => stub.issue(id),
 				issueByKey: (teamKey, number) => stub.issueByKey(teamKey, number),
 				comments: (issueId) => stub.comments(issueId),
+				projectUpdates: (projectId) => stub.projectUpdates(projectId),
 				proposals: (issueId) => stub.proposals(issueId),
 				relations: (issueId) => stub.relations(issueId),
 				pullRequests: (issueId) => stub.pullRequests(issueId),

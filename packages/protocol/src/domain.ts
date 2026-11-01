@@ -169,6 +169,26 @@ export interface Project {
 	updatedAt: number;
 }
 
+export const PROJECT_HEALTHS = ["on_track", "at_risk", "off_track"] as const;
+export type ProjectHealth = (typeof PROJECT_HEALTHS)[number];
+
+/**
+ * A post on how a project is going: its health as its author sees it, and what they have to say.
+ * A project's updates are its history of how it went; the latest says how it is going now. Any
+ * member posts them, agents included, and only the author edits one.
+ */
+export interface ProjectUpdate {
+	id: string;
+	projectId: string;
+	authorId: string;
+	health: ProjectHealth;
+	/** Markdown. */
+	body: string;
+	createdAt: number;
+	/** Later than `createdAt` once the update has been edited. */
+	updatedAt: number;
+}
+
 /** A workspace-wide tag for issues, such as "Bug". Names are unique, ignoring case. */
 export interface Label {
 	id: string;
@@ -496,6 +516,7 @@ export interface Entities {
 	issue: Issue;
 	label: Label;
 	project: Project;
+	projectUpdate: ProjectUpdate;
 	cycle: Cycle;
 	comment: Comment;
 	activity: Activity;
@@ -515,6 +536,7 @@ export const ENTITY_NAMES = [
 	"issue",
 	"label",
 	"project",
+	"projectUpdate",
 	"cycle",
 	"comment",
 	"activity",

@@ -9,6 +9,7 @@ import type {
 	Mutation,
 	MutationInput,
 	Project,
+	ProjectUpdate,
 	Proposal,
 	PullRequest,
 	Team,
@@ -73,6 +74,7 @@ class FakeWorkspace implements WorkspaceAccess {
 	/** What the server would turn into proposals rather than make, as for an agent set so. */
 	proposing = new Set<"status" | "assigneeId" | "labels" | "projectId">();
 	projects: Project[] = [];
+	projectUpdates_: ProjectUpdate[] = [];
 	proposals_: Proposal[] = [];
 	relations_: IssueRelation[] = [];
 	pullRequests_: PullRequest[] = [];
@@ -89,7 +91,17 @@ class FakeWorkspace implements WorkspaceAccess {
 			cycles: this.cycles,
 			members: [{ ...me, proposes: [], removedAt: null }, sam],
 			templates: this.templates,
+			projectHealth: Object.fromEntries(
+				[...this.projectUpdates_]
+					.sort((a, b) => a.createdAt - b.createdAt)
+					.map((update) => [update.projectId, update.health]),
+			),
 		};
+	}
+	async projectUpdates(projectId: string) {
+		return this.projectUpdates_
+			.filter((update) => update.projectId === projectId)
+			.sort((a, b) => b.createdAt - a.createdAt);
 	}
 	async issues(query: IssueQuery) {
 		this.queries.push(query);
@@ -265,6 +277,14 @@ class FakeWorkspace implements WorkspaceAccess {
 			this.relations_.push({ ...mutation.args, creatorId: me.id, createdAt: version });
 		} else if (mutation.name === "relation.delete") {
 			this.relations_ = this.relations_.filter((relation) => relation.id !== mutation.args.id);
+		} else if (mutation.name === "projectUpdate.create") {
+			const at = Date.UTC(2026, 9, 28) + version;
+			this.projectUpdates_.push({
+				...mutation.args,
+				authorId: me.id,
+				createdAt: at,
+				updatedAt: at,
+			});
 		} else if (mutation.name === "comment.create") {
 			const at = Date.UTC(2026, 9, 28);
 			this.comments_.push({ ...mutation.args, authorId: me.id, createdAt: at, updatedAt: at });
@@ -314,7 +334,9 @@ describe("Track MCP tools", () => {
 			"get_issue",
 			"get_workspace",
 			"link_issues",
+			"list_project_updates",
 			"list_workspaces",
+			"post_project_update",
 			"search_issues",
 			"unlink_issues",
 			"update_issue",
@@ -1258,6 +1280,67 @@ describe("Track MCP tools", () => {
 		expect(created.content).toEqual([{ type: "text", text: "Agents cannot create projects" }]);
 		expect(updated.content).toEqual([{ type: "text", text: "Agents cannot change projects" }]);
 		expect(workspace.projects.map((project) => project.status)).toEqual(["planned"]);
+	});
+
+	it("posts project updates, lists them latest first, and gives the project its health", async () => {
+		workspace.projects.push({
+			id: "p-docs",
+			name: "Docs",
+			description: null,
+			status: "started",
+			leadId: null,
+			targetDate: null,
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		// Agents post updates too: it changes nothing about the project but its record.
+		workspace.me = { ...me, role: "agent" };
+		const first = await call("post_project_update", {
+			workspace: "acme",
+			project: "docs",
+			health: "at_risk",
+			body: "The API reference is behind.",
+		});
+		const second = await call("post_project_update", {
+			workspace: "acme",
+			project: "p-docs",
+			health: "on_track",
+			body: "Caught up.",
+		});
+		const listed = await call("list_project_updates", { workspace: "acme", project: "Docs" });
+		const unknown = await call("post_project_update", {
+			workspace: "acme",
+			project: "Nope",
+			health: "on_track",
+			body: "Hello",
+		});
+		const health = await call("post_project_update", {
+			workspace: "acme",
+			project: "Docs",
+			health: "great",
+			body: "Hello",
+		});
+		const { structuredContent } = await call("get_workspace", { workspace: "acme" });
+
+		expect(first.structuredContent).toMatchObject({
+			health: "at_risk",
+			author: me.email,
+			body: "The API reference is behind.",
+			edited: false,
+		});
+		expect(second.isError).toBeFalsy();
+		expect(listed.structuredContent).toMatchObject({
+			updates: [
+				{ health: "on_track", body: "Caught up." },
+				{ health: "at_risk", body: "The API reference is behind." },
+			],
+		});
+		expect(unknown.isError).toBe(true);
+		expect(health.isError).toBe(true);
+		expect(workspace.mutations.filter((m) => m.name === "projectUpdate.create")).toHaveLength(2);
+		expect(structuredContent).toMatchObject({
+			projects: [{ id: "p-docs", name: "Docs", status: "started", health: "on_track" }],
+		});
 	});
 
 	it("says when an agent proposed a project instead of setting it", async () => {
