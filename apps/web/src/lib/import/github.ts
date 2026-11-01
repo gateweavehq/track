@@ -1,5 +1,10 @@
-import type { IssueStatus } from "@gateweave/track-protocol";
-import type { ImportedComment, ImportedIssue, ImportSource, ReadOptions } from "./plan";
+import type {
+	ImportedComment,
+	ImportedIssue,
+	ImportedStatus,
+	ImportSource,
+	ReadOptions,
+} from "./plan";
 
 // Issues from a GitHub repository, read in the browser with GitHub's REST API, which allows it.
 // Pull requests are left out. A public repository needs no token, but GitHub then allows only 60
@@ -139,11 +144,12 @@ export async function readGitHubImport(
 	return { name: "GitHub", issues, labelColors, pullRequests };
 }
 
-function toStatus(issue: GitHubIssue): IssueStatus {
-	if (issue.state === "open") return "todo";
+/** GitHub has open and closed: the built-in statuses' names, for the teams that keep them. */
+function toStatus(issue: GitHubIssue): ImportedStatus {
+	if (issue.state === "open") return { name: "Todo", category: "unstarted" };
 	return issue.state_reason === "not_planned" || issue.state_reason === "duplicate"
-		? "canceled"
-		: "done";
+		? { name: "Canceled", category: "canceled" }
+		: { name: "Done", category: "completed" };
 }
 
 /** Every page of a list, following GitHub's `Link` header. */

@@ -4,10 +4,10 @@ import {
 	cycleState,
 	dayIn,
 	estimate,
-	ISSUE_STATUSES,
 	type Issue,
 	type IssuePriority,
 	type IssueRelation,
+	liveStatuses,
 	MAX_LABELS_PER_ISSUE,
 	MEMBER_ROLES,
 	type Member,
@@ -19,6 +19,7 @@ import {
 	RELATION_KINDS,
 	relationFrom,
 	relationOf,
+	statusId,
 } from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import type {
@@ -78,7 +79,13 @@ const workspaceInput = z
 	.min(1)
 	.describe("The workspace's slug, from list_workspaces. It is the first segment of app URLs.");
 const keyInput = z.string().min(1).describe("The issue's key, such as ENG-42.");
-const statusInput = z.enum(ISSUE_STATUSES);
+const statusInput = z
+	.string()
+	.trim()
+	.min(1)
+	.describe(
+		"A status of the issue's team: its key or its name (ignoring case), from get_workspace.",
+	);
 const priorityInput = z.enum(PRIORITIES);
 const labelsInput = z
 	.array(z.string().min(1))
@@ -124,7 +131,8 @@ const ESTIMATE_HELP = "Its size in points, a whole number from 0 to 1000.";
 const issueSummary = z.looseObject({
 	key: z.string(),
 	title: z.string(),
-	status: statusInput,
+	status: z.string().describe("The key of the team's status it is in."),
+	statusName: z.string().describe("What the team calls that status."),
 	priority: priorityInput,
 	assignee: z.string().nullable().describe("The assignee's email."),
 	labels: z.array(z.string()).describe("Label names."),
@@ -146,7 +154,8 @@ const relationOutput = z.looseObject({
 	relation: z.string().describe(RELATION_HELP),
 	key: z.string().describe("The other issue's key."),
 	title: z.string(),
-	status: statusInput,
+	status: z.string(),
+	statusName: z.string(),
 	url: z.string(),
 });
 const commentOutput = z.looseObject({
@@ -245,6 +254,21 @@ export function createTrackServer(access: TrackAccess): McpServer {
 							.looseObject({ weeks: z.number(), timeZone: z.string() })
 							.nullable()
 							.describe("How long the team's cycles are, and the time zone they run in."),
+						statuses: z
+							.array(
+								z.looseObject({
+									key: z.string(),
+									name: z.string(),
+									category: z
+										.string()
+										.describe(
+											'"backlog", "unstarted", "started", "completed" or "canceled". Completed and canceled close an issue.',
+										),
+								}),
+							)
+							.describe(
+								"The team's statuses, in its workflow order. A new issue without a status gets the first.",
+							),
 					}),
 				),
 				cycles: z.array(
@@ -278,10 +302,17 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		({ workspace }) =>
 			run(async () => {
 				const opened = await open(access, workspace);
-				const { teams, cycles, labels, projects, members } = await opened.directory();
+				const { teams, statuses, cycles, labels, projects, members } = await opened.directory();
 				const now = Date.now();
 				return {
-					teams: teams.map(({ key, name, cycles }) => ({ key, name, cycles })),
+					teams: teams.map(({ id, key, name, cycles }) => ({
+						key,
+						name,
+						cycles,
+						statuses: liveStatuses(statuses.filter((status) => status.teamId === id)).map(
+							({ key, name, category }) => ({ key, name, category }),
+						),
+					})),
 					cycles: teams.flatMap((team) => {
 						if (!team.cycles) return [];
 						const today = dayIn(team.cycles.timeZone, now);
@@ -317,7 +348,10 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				team: z.string().optional().describe("A team key, such as ENG."),
-				status: z.array(statusInput).optional().describe("Any of these statuses."),
+				status: z
+					.array(z.string().trim().min(1))
+					.optional()
+					.describe("Any of these statuses: keys or names (ignoring case), from get_workspace."),
 				assignee: assigneeInput.optional(),
 				label: z.string().min(1).optional().describe("A label name."),
 				project: projectInput.optional().describe("Only issues in this project: its name or id."),
@@ -350,7 +384,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				const issues = await workspace.issues({
 					teamId: team,
 					cycleIds,
-					statuses: input.status,
+					statuses: input.status && statusesToSearch(directory, team, input.status),
 					assigneeId:
 						input.assignee === undefined
 							? undefined
@@ -427,7 +461,11 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				team: z.string().describe("The team's key, such as ENG."),
 				title: z.string().trim().min(1).max(512),
 				description: z.string().max(100_000).optional().describe(MENTION_HELP),
-				status: statusInput.default("backlog"),
+				status: statusInput
+					.optional()
+					.describe(
+						"A status of the team: its key or its name (ignoring case), from get_workspace. Without one, the team's first.",
+					),
 				priority: priorityInput.default("none"),
 				assignee: assigneeInput.optional(),
 				project: projectInput.optional(),
@@ -454,7 +492,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						teamId: team,
 						title: input.title,
 						description: input.description?.trim() ? input.description : null,
-						status: input.status,
+						...(input.status !== undefined && { status: statusKey(directory, team, input.status) }),
 						priority: priorityValue(input.priority),
 						assigneeId:
 							input.assignee === undefined
@@ -542,7 +580,9 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					...(input.description !== undefined && {
 						description: input.description?.trim() ? input.description : null,
 					}),
-					...(input.status !== undefined && { status: input.status }),
+					...(input.status !== undefined && {
+						status: statusKey(directory, issue.teamId, input.status),
+					}),
 					...(input.priority !== undefined && { priority: priorityValue(input.priority) }),
 					...(input.assignee !== undefined && {
 						assigneeId: resolveAssignee(directory, workspace.me, input.assignee),
@@ -994,6 +1034,51 @@ function cyclesToSearch(
 	});
 }
 
+/** A team's status, by its key or its name, ignoring case. */
+function statusKey(directory: Directory, teamId: string, value: string): string {
+	const statuses = liveStatuses(directory.statuses.filter((status) => status.teamId === teamId));
+	const wanted = value.trim().toLowerCase();
+	const status =
+		statuses.find((status) => status.key === wanted) ??
+		statuses.find((status) => status.name.toLowerCase() === wanted);
+	if (!status) {
+		const team = directory.teams.find((team) => team.id === teamId);
+		const names = statuses.map((status) => status.name).join(", ") || "none";
+		throw new ToolError(`Team ${team?.key} has no status "${value}". Its statuses: ${names}.`);
+	}
+	return status.key;
+}
+
+/** The keys a search for statuses means: of one team, or of any team that has them. */
+function statusesToSearch(
+	directory: Directory,
+	teamId: string | undefined,
+	values: readonly string[],
+): string[] {
+	if (teamId !== undefined) return values.map((value) => statusKey(directory, teamId, value));
+	const statuses = liveStatuses(directory.statuses);
+	return [
+		...new Set(
+			values.flatMap((value) => {
+				const wanted = value.trim().toLowerCase();
+				const keys = statuses
+					.filter((status) => status.key === wanted || status.name.toLowerCase() === wanted)
+					.map((status) => status.key);
+				if (keys.length === 0) {
+					throw new ToolError(`No team has a status "${value}". See get_workspace.`);
+				}
+				return keys;
+			}),
+		),
+	];
+}
+
+/** What the issue's team calls the status it is in. Removed statuses keep their names. */
+function statusName(directory: Directory, issue: Pick<Issue, "teamId" | "status">): string {
+	const id = statusId(issue.teamId, issue.status);
+	return directory.statuses.find((status) => status.id === id)?.name ?? issue.status;
+}
+
 function labelId(directory: Directory, name: string): string {
 	const label = findLabelByName(directory.labels, name);
 	if (!label) {
@@ -1035,6 +1120,7 @@ function summarize(
 		key,
 		title: issue.title,
 		status: issue.status,
+		statusName: statusName(directory, issue),
 		priority: priorityName(issue.priority),
 		assignee: emailOf(directory, issue.assigneeId),
 		labels: issue.labelIds
@@ -1080,8 +1166,13 @@ async function relationViews(
 			const { kind, otherId } = relationFrom(relation, issueId);
 			const other = await workspace.issue(otherId);
 			if (!other) return null;
-			const { key, title, status, url } = summarize(access, workspace, directory, other);
-			return { relation: kind, key, title, status, url };
+			const { key, title, status, statusName, url } = summarize(
+				access,
+				workspace,
+				directory,
+				other,
+			);
+			return { relation: kind, key, title, status, statusName, url };
 		}),
 	);
 	return views.filter((view) => view !== null);

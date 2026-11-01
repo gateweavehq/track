@@ -62,7 +62,7 @@ function PullRequestRow({ pullRequest, issueId }: { pullRequest: PullRequest; is
 			{fixes && (
 				<span
 					className="shrink-0 rounded-full border px-1.5 text-xs text-muted-foreground"
-					title="Merging it moves this issue to Done"
+					title="Merging it completes this issue"
 				>
 					Fixes
 				</span>

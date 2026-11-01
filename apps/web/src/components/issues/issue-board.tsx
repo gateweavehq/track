@@ -17,11 +17,14 @@ import { useUpdateIssue } from "#/lib/mutations";
 import type { ProjectProgress } from "#/lib/projects";
 import {
 	useBlockedIssueIds,
+	useIssueStatus,
 	useMembersById,
 	useProjectsById,
+	useStatuses,
 	useSubIssueProgress,
 	useTeamsById,
 } from "#/lib/queries";
+import { groupingTeams } from "#/lib/statuses";
 import { cn } from "#/lib/utils";
 import { BlockedMark } from "./blocked-mark";
 import { useDragAutoScroll, useDraggableIssue, useIssueDropZone, useIssueMoves } from "./dnd";
@@ -29,7 +32,7 @@ import { DropIndicator } from "./drop-indicator";
 import { GroupIcon, useGroupName } from "./group-label";
 import { type IssueField, RowButton } from "./issue-row";
 import { LabelChips } from "./labels";
-import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
+import { PRIORITY_META, PriorityIcon, StatusIcon } from "./meta";
 import { AssigneePicker, PriorityPicker, StatusPicker } from "./pickers";
 import { DueDate, Estimate } from "./schedule";
 import { SubIssueCount } from "./sub-issue-count";
@@ -65,9 +68,14 @@ export function IssueBoard({
 	const orderBy = orderByOf(display);
 	const groupBy = groupByOf(display);
 	const properties = useMemo(() => shownProperties(display), [display]);
+	const statuses = useStatuses();
+	const teamIds = useMemo(
+		() => groupingTeams(issues, teams, defaults.teamId),
+		[issues, teams, defaults.teamId],
+	);
 	const columns = useMemo(
-		() => groupIssues(issues, groupBy, orderBy, "board", { members, projects }),
-		[issues, groupBy, orderBy, members, projects],
+		() => groupIssues(issues, groupBy, orderBy, "board", { members, projects, statuses, teamIds }),
+		[issues, groupBy, orderBy, members, projects, statuses, teamIds],
 	);
 	const moveIssue = useIssueMoves(columns, orderBy === "manual");
 	const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -274,6 +282,7 @@ const IssueCard = memo(function IssueCard({
 }: IssueCardProps) {
 	const { slug } = useWorkspace();
 	const update = useUpdateIssue();
+	const issueStatus = useIssueStatus(issue);
 	const key = issueKey(team, issue);
 	const [cardRef, drag] = useDraggableIssue<HTMLDivElement>(issue.id);
 	const menuProps = (field: IssueField) => ({
@@ -294,12 +303,13 @@ const IssueCard = memo(function IssueCard({
 			<div className="flex items-center gap-1">
 				{properties.has("status") && (
 					<StatusPicker
+						teamId={issue.teamId}
 						value={issue.status}
 						onChange={(status) => update(issue, { status })}
 						{...menuProps("status")}
 					>
-						<RowButton label={`Status: ${STATUS_META[issue.status].label}`}>
-							<StatusIcon status={issue.status} />
+						<RowButton label={`Status: ${issueStatus.name}`}>
+							<StatusIcon status={issueStatus} />
 						</RowButton>
 					</StatusPicker>
 				)}

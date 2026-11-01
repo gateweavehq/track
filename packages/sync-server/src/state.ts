@@ -14,6 +14,7 @@ import type {
 	Snapshot,
 	Subscription,
 	Team,
+	WorkflowStatus,
 } from "@gateweave/track-protocol";
 import { and, asc, eq, getTableColumns, isNull, sql } from "drizzle-orm";
 import type { DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
@@ -27,6 +28,8 @@ export type Db = DrizzleSqliteDODatabase<typeof schema>;
 export type MemberProfile = Omit<Member, "removedAt" | "proposes">;
 
 export const toTeam = ({ issueCounter: _, ...team }: schema.TeamRow): Team => team;
+
+export const toStatus = (row: schema.StatusRow): WorkflowStatus => row;
 
 export const toIssue = ({ fieldStamps: _, deletedAt: __, ...issue }: schema.IssueRow): Issue =>
 	issue;
@@ -78,6 +81,7 @@ export function readSnapshot(db: Db, memberId: string): Snapshot {
 	return {
 		version: currentVersion(db),
 		teams: db.select().from(schema.teams).all().map(toTeam),
+		statuses: db.select().from(schema.statuses).all().map(toStatus),
 		issues,
 		labels: db
 			.select()

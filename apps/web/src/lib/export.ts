@@ -8,10 +8,13 @@ import type {
 	Member,
 	Project,
 	Team,
+	WorkflowStatus,
 } from "@gateweave/track-protocol";
+import { compareStatuses } from "@gateweave/track-protocol";
 import type { SyncState } from "@gateweave/track-sync-client";
-import { PRIORITY_META, STATUS_META } from "#/components/issues/meta";
+import { PRIORITY_META } from "#/components/issues/meta";
 import { issueKey } from "./issues";
+import { statusOf } from "./statuses";
 
 // Exports are built in the browser from the local replica: no server route, so nothing new
 // can leak data, and it works offline. These functions only turn data into the file's text.
@@ -43,6 +46,7 @@ export const CSV_COLUMNS = [
 export interface ExportSource {
 	workspace: { slug: string; name: string };
 	teams: Iterable<Team>;
+	statuses: Iterable<WorkflowStatus>;
 	members: Iterable<Member>;
 	labels: Iterable<Label>;
 	projects: Iterable<Project>;
@@ -61,6 +65,7 @@ export function exportSourceFrom(
 	return {
 		workspace,
 		teams: state.teams.values(),
+		statuses: state.statuses.values(),
 		members: state.members.values(),
 		labels: state.labels.values(),
 		projects: state.projects.values(),
@@ -75,6 +80,9 @@ export function exportSourceFrom(
 /** The slice of the workspace an export holds: all of it, or one team's issues. */
 interface Slice {
 	teams: Team[];
+	/** The statuses of the slice's teams, removed ones too, as history still names them. */
+	statuses: WorkflowStatus[];
+	statusesById: Map<string, WorkflowStatus>;
 	members: Member[];
 	labels: Label[];
 	projects: Project[];
@@ -109,8 +117,17 @@ function sliceOf(source: ExportSource, teamId: string | null): Slice {
 	const members = [...source.members];
 	const labels = [...source.labels];
 	const projects = [...source.projects];
+	const statuses = [...source.statuses]
+		.filter((status) => teamId === null || status.teamId === teamId)
+		.sort(
+			(a, b) =>
+				(rank.get(a.teamId) ?? Number.MAX_SAFE_INTEGER) -
+					(rank.get(b.teamId) ?? Number.MAX_SAFE_INTEGER) || compareStatuses(a, b),
+		);
 	return {
 		teams,
+		statuses,
+		statusesById: new Map(statuses.map((status) => [status.id, status])),
 		members,
 		labels,
 		projects,
@@ -170,7 +187,7 @@ export function issuesToCsv(source: ExportSource, teamId: string | null = null):
 			issue.title,
 			issue.description ?? "",
 			team?.name ?? "",
-			STATUS_META[issue.status].label,
+			statusOf(slice.statusesById, issue).name,
 			PRIORITY_META[issue.priority].label,
 			emailOf(slice, issue.assigneeId),
 			emailOf(slice, issue.creatorId),
@@ -203,8 +220,8 @@ function emailOf(slice: Slice, id: string | null): string {
 
 /**
  * The whole export as one document, in the protocol's entity shapes. Teams, members, labels and
- * projects stay whole when `teamId` limits the issues, so every reference resolves; cycles are
- * the team's.
+ * projects stay whole when `teamId` limits the issues, so every reference resolves; cycles and
+ * statuses are the team's.
  */
 export function workspaceToJson(
 	source: ExportSource,
@@ -219,6 +236,7 @@ export function workspaceToJson(
 			exportedAt: exportedAt.toISOString(),
 			workspace: { slug: source.workspace.slug, name: source.workspace.name },
 			teams: slice.teams,
+			statuses: slice.statuses,
 			members: slice.members.map(({ id, name, email, role }) => ({ id, name, email, role })),
 			labels: slice.labels,
 			projects: slice.projects,

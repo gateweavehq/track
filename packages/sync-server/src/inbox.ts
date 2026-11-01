@@ -49,6 +49,7 @@ export function notify(db: Db, changes: ChangeSet, actorId: string, imported: bo
 			}
 			case "issue.updated": {
 				const { issue, previous } = event;
+				if (event.quiet) break;
 				if (issue.status !== previous.status) {
 					inbox.tellSubscribers(issue.id, {
 						type: "status",

@@ -1,13 +1,11 @@
-import type { Issue } from "@gateweave/track-protocol";
+import { defaultStatuses, type Issue } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import {
-	BOARD_STATUS_ORDER,
 	compareIssues,
 	estimateLabel,
 	groupByStatus,
 	isIssueOverdue,
 	issueKey,
-	LIST_STATUS_ORDER,
 	matchesDue,
 	matchesQuery,
 	parseIssueKey,
@@ -15,6 +13,9 @@ import {
 	sortOrderAfter,
 	sortOrderAt,
 } from "./issues";
+import { statusColumns } from "./statuses";
+
+const statuses = new Map(defaultStatuses("team", 1).map((status) => [status.id, status]));
 
 function issue(overrides: Partial<Issue>): Issue {
 	return {
@@ -83,15 +84,26 @@ describe("ordering and grouping", () => {
 	});
 
 	it("groups by status in list order, keeping every status", () => {
-		const groups = groupByStatus([
-			issue({ id: "done", status: "done" }),
-			issue({ id: "doing-2", status: "in_progress", sortOrder: "a2" }),
-			issue({ id: "doing-1", status: "in_progress", sortOrder: "a1" }),
+		const groups = groupByStatus(
+			[
+				issue({ id: "done", status: "done" }),
+				issue({ id: "doing-2", status: "in_progress", sortOrder: "a2" }),
+				issue({ id: "doing-1", status: "in_progress", sortOrder: "a1" }),
+			],
+			statusColumns(statuses, ["team"], "list"),
+			statuses,
+		);
+		expect(groups.map((group) => group.status.key)).toEqual([
+			"in_progress",
+			"in_review",
+			"todo",
+			"backlog",
+			"done",
+			"canceled",
 		]);
-		expect(groups.map((group) => group.status)).toEqual([...LIST_STATUS_ORDER]);
 		expect(groups[0]?.issues.map((i) => i.id)).toEqual(["doing-1", "doing-2"]);
-		expect(groups.find((group) => group.status === "done")?.issues).toHaveLength(1);
-		expect(groups.find((group) => group.status === "todo")?.issues).toEqual([]);
+		expect(groups.find((group) => group.status.key === "done")?.issues).toHaveLength(1);
+		expect(groups.find((group) => group.status.key === "todo")?.issues).toEqual([]);
 	});
 
 	it("places new issues after every existing one", () => {
@@ -105,9 +117,16 @@ describe("ordering and grouping", () => {
 		expect(sortOrderAfter([])).toEqual(expect.any(String));
 	});
 
-	it("groups in a custom order", () => {
-		const groups = groupByStatus([], BOARD_STATUS_ORDER);
-		expect(groups.map((group) => group.status)).toEqual([...BOARD_STATUS_ORDER]);
+	it("groups in a board's order", () => {
+		const groups = groupByStatus([], statusColumns(statuses, ["team"], "board"), statuses);
+		expect(groups.map((group) => group.status.key)).toEqual([
+			"backlog",
+			"todo",
+			"in_progress",
+			"in_review",
+			"done",
+			"canceled",
+		]);
 	});
 });
 
@@ -184,29 +203,28 @@ describe("due dates and estimates", () => {
 	const now = new Date(2026, 10, 30, 12, 0);
 
 	it("calls an open issue overdue the day after its due date", () => {
-		expect(isIssueOverdue(issue({ dueDate: "2026-11-29", status: "todo" }), now)).toBe(true);
-		expect(isIssueOverdue(issue({ dueDate: "2026-11-30", status: "todo" }), now)).toBe(false);
-		expect(isIssueOverdue(issue({ dueDate: null, status: "todo" }), now)).toBe(false);
+		expect(isIssueOverdue(issue({ dueDate: "2026-11-29" }), false, now)).toBe(true);
+		expect(isIssueOverdue(issue({ dueDate: "2026-11-30" }), false, now)).toBe(false);
+		expect(isIssueOverdue(issue({ dueDate: null }), false, now)).toBe(false);
 	});
 
-	it("never calls a done or canceled issue overdue", () => {
-		expect(isIssueOverdue(issue({ dueDate: "2026-01-01", status: "done" }), now)).toBe(false);
-		expect(isIssueOverdue(issue({ dueDate: "2026-01-01", status: "canceled" }), now)).toBe(false);
+	it("never calls a closed issue overdue", () => {
+		expect(isIssueOverdue(issue({ dueDate: "2026-01-01" }), true, now)).toBe(false);
 	});
 
 	it("filters by due date", () => {
-		const open = (dueDate: string | null) => issue({ dueDate, status: "in_progress" });
-		expect(matchesDue(open("2026-11-29"), "overdue", now)).toBe(true);
-		expect(matchesDue(open("2026-11-30"), "overdue", now)).toBe(false);
+		const open = (dueDate: string | null) => issue({ dueDate });
+		expect(matchesDue(open("2026-11-29"), false, "overdue", now)).toBe(true);
+		expect(matchesDue(open("2026-11-30"), false, "overdue", now)).toBe(false);
 
-		expect(matchesDue(open("2026-11-30"), "week", now)).toBe(true);
-		expect(matchesDue(open("2026-12-06"), "week", now)).toBe(true);
-		expect(matchesDue(open("2026-12-07"), "week", now)).toBe(false);
-		expect(matchesDue(open("2026-11-29"), "week", now)).toBe(false);
-		expect(matchesDue(issue({ dueDate: "2026-12-01", status: "done" }), "week", now)).toBe(false);
+		expect(matchesDue(open("2026-11-30"), false, "week", now)).toBe(true);
+		expect(matchesDue(open("2026-12-06"), false, "week", now)).toBe(true);
+		expect(matchesDue(open("2026-12-07"), false, "week", now)).toBe(false);
+		expect(matchesDue(open("2026-11-29"), false, "week", now)).toBe(false);
+		expect(matchesDue(open("2026-12-01"), true, "week", now)).toBe(false);
 
-		expect(matchesDue(open(null), "none", now)).toBe(true);
-		expect(matchesDue(open("2026-12-01"), "none", now)).toBe(false);
+		expect(matchesDue(open(null), false, "none", now)).toBe(true);
+		expect(matchesDue(open("2026-12-01"), false, "none", now)).toBe(false);
 	});
 
 	it("labels estimates in points", () => {

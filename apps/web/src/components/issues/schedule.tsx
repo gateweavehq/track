@@ -2,6 +2,8 @@ import type { Issue } from "@gateweave/track-protocol";
 import { CalendarClock, Gauge } from "lucide-react";
 import { formatDay, formatShortDay } from "#/lib/dates";
 import { estimateLabel, isIssueOverdue } from "#/lib/issues";
+import { useStatuses } from "#/lib/queries";
+import { isIssueClosed } from "#/lib/statuses";
 import { cn } from "#/lib/utils";
 
 /** An issue's due date, in red once it has passed. Nothing when it has none. */
@@ -9,11 +11,12 @@ export function DueDate({
 	issue,
 	className,
 }: {
-	issue: Pick<Issue, "dueDate" | "status">;
+	issue: Pick<Issue, "dueDate" | "teamId" | "status">;
 	className?: string;
 }) {
+	const statuses = useStatuses();
 	if (!issue.dueDate) return null;
-	const overdue = isIssueOverdue(issue);
+	const overdue = isIssueOverdue(issue, isIssueClosed(statuses, issue));
 	const label = `${overdue ? "Overdue, due" : "Due"} ${formatDay(issue.dueDate)}`;
 	return (
 		<span

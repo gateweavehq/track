@@ -192,6 +192,9 @@ describe("delivery", () => {
 					key: "ENG-1",
 					title: "Issue issue-1",
 					url: "https://track.test/acme/issue/ENG-1",
+					status: "backlog",
+					statusName: "Backlog",
+					statusCategory: "backlog",
 				},
 			},
 		});
@@ -339,6 +342,38 @@ describe("delivery", () => {
 						{ id: "label-bug", name: "Defect" },
 					],
 				},
+			},
+		]);
+	});
+
+	it("name the issue's status as its team does, and report what removing a status moves", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await createIssue(workspace, owner, "issue-1");
+		await createHook(workspace, { events: ["issue.updated"] });
+		await mutate(workspace, owner, {
+			name: "status.create",
+			args: { teamId: "team-eng", key: "qa", name: "QA", category: "started", sortOrder: "a2" },
+		});
+		await mutate(workspace, owner, {
+			name: "issue.update",
+			args: { id: "issue-1", baseVersion: 0, patch: { status: "qa" } },
+		});
+		await mutate(workspace, owner, {
+			name: "status.delete",
+			args: { teamId: "team-eng", key: "qa", moveTo: "done" },
+		});
+		await deliver(workspace);
+
+		expect(payloads(received).map((payload) => payload.data)).toMatchObject([
+			{
+				issue: { status: "qa", statusName: "QA", statusCategory: "started" },
+				updatedFrom: { status: "backlog" },
+			},
+			{
+				actor: { id: owner.id },
+				issue: { status: "done", statusName: "Done", statusCategory: "completed" },
+				updatedFrom: { status: "qa" },
 			},
 		]);
 	});

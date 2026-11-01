@@ -338,7 +338,7 @@ const CHANGE_KIND_LABELS: Record<AgentChangeKind, string> = {
 	title: "Title",
 	description: "Description",
 	status: "Status",
-	close: "Closing, as Done or Canceled",
+	close: "Closing, into a completed or canceled status",
 	priority: "Priority",
 	assignee: "Assignee",
 	labels: "Labels",

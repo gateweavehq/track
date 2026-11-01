@@ -301,6 +301,23 @@ describe("the cycle step", () => {
 		if (!current || !next) throw new Error("Cycles were not made");
 		await createIssue(admin, "open", { cycleId: current.id });
 		await createIssue(admin, "done", { cycleId: current.id, status: "done" });
+		// A team's own statuses finish an issue by their category.
+		await admin.apply({
+			name: "status.create",
+			args: {
+				teamId: TEAM_ID,
+				key: "shipped",
+				name: "Shipped",
+				category: "completed",
+				sortOrder: "a1",
+			},
+		});
+		await admin.apply({
+			name: "status.create",
+			args: { teamId: TEAM_ID, key: "qa", name: "QA", category: "started", sortOrder: "a2" },
+		});
+		await createIssue(admin, "shipped", { cycleId: current.id, status: "shipped" });
+		await createIssue(admin, "qa", { cycleId: current.id, status: "qa" });
 		const midnight = startOfDay(ZONE, addDays(current.endsOn, 1));
 
 		// Not a moment early.
@@ -318,12 +335,19 @@ describe("the cycle step", () => {
 		// The next cycle is now the current one, so another is made to keep two ahead.
 		expect(cycles.map((cycle) => cycle.number)).toEqual([1, 2, 3, 4]);
 		const cycleOf = (id: string) => snapshot.issues.find((issue) => issue.id === id)?.cycleId;
-		expect([cycleOf("open"), cycleOf("done")]).toEqual([next.id, current.id]);
-		expect(snapshot.activities.at(-1)).toMatchObject({
-			issueId: "open",
-			actorId: SYSTEM_ACTOR_ID,
-			change: { type: "cycle", from: current.id, to: next.id },
-		});
+		expect([cycleOf("open"), cycleOf("done"), cycleOf("shipped"), cycleOf("qa")]).toEqual([
+			next.id,
+			current.id,
+			current.id,
+			next.id,
+		]);
+		expect(snapshot.activities).toContainEqual(
+			expect.objectContaining({
+				issueId: "open",
+				actorId: SYSTEM_ACTOR_ID,
+				change: { type: "cycle", from: current.id, to: next.id },
+			}),
+		);
 
 		// Running again changes nothing.
 		const version = snapshot.version;

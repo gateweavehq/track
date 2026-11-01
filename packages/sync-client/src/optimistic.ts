@@ -1,6 +1,8 @@
 import {
 	AGENT_CHANGE_KINDS,
+	defaultStatuses,
 	displayToStore,
+	firstStatus,
 	type Issue,
 	isAdminRole,
 	MAX_LABELS_PER_ISSUE,
@@ -9,6 +11,8 @@ import {
 	type ProposedChange,
 	privateId,
 	type SavedView,
+	statusId,
+	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import type { Draft, PendingMutation } from "./store";
 
@@ -28,6 +32,49 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			const { id, key, name } = mutation.args;
 			if (draft.get("team", id)) return;
 			draft.put("team", { id, key, name, cycles: null, createdAt: now, updatedAt: now });
+			for (const status of defaultStatuses(id, now)) draft.put("status", status);
+			return;
+		}
+		case "status.create": {
+			const { teamId, key, ...fields } = mutation.args;
+			const id = statusId(teamId, key);
+			if (!isAdmin(draft, userId) || !draft.get("team", teamId) || draft.get("status", id)) return;
+			if (sameName(teamStatuses(draft, teamId), fields.name)) return;
+			draft.put("status", {
+				...fields,
+				id,
+				teamId,
+				key,
+				createdAt: now,
+				updatedAt: now,
+				removedAt: null,
+			});
+			return;
+		}
+		case "status.update": {
+			const { teamId, key, patch } = mutation.args;
+			const status = draft.get("status", statusId(teamId, key));
+			if (!isAdmin(draft, userId) || !status || status.removedAt !== null) return;
+			const others = teamStatuses(draft, teamId).filter((other) => other.key !== key);
+			if (patch.name !== undefined && sameName(others, patch.name)) return;
+			if (patch.category !== undefined && !keepsCompleted(others, status, patch.category)) return;
+			draft.put("status", { ...status, ...patch, updatedAt: now });
+			return;
+		}
+		case "status.delete": {
+			const { teamId, key, moveTo } = mutation.args;
+			const status = draft.get("status", statusId(teamId, key));
+			const target = draft.get("status", statusId(teamId, moveTo));
+			if (!isAdmin(draft, userId) || !status || status.removedAt !== null) return;
+			if (!target || target.removedAt !== null || moveTo === key) return;
+			const others = teamStatuses(draft, teamId).filter((other) => other.key !== key);
+			if (!keepsCompleted(others, status, null)) return;
+			draft.put("status", { ...status, removedAt: now, updatedAt: now });
+			for (const issue of [...draft.values("issue")]) {
+				if (issue.teamId === teamId && issue.status === key) {
+					draft.put("issue", { ...issue, status: moveTo, updatedAt: now });
+				}
+			}
 			return;
 		}
 		case "team.update": {
@@ -47,11 +94,14 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 		case "issue.create": {
 			const args = mutation.args;
 			if (draft.get("issue", args.id) || !draft.get("team", args.teamId)) return;
+			const status = args.status ?? firstStatus(teamStatuses(draft, args.teamId))?.key;
+			if (status === undefined || !isLiveStatus(draft, args.teamId, status)) return;
 			if (args.labelIds.some((labelId) => !draft.get("label", labelId))) return;
 			if (args.projectId !== null && !draft.get("project", args.projectId)) return;
 			if (args.cycleId !== null && !isJoinable(draft, args.cycleId, args.teamId)) return;
 			draft.put("issue", {
 				...args,
+				status,
 				labelIds: [...new Set(args.labelIds)],
 				// The server assigns the real number; this guess is replaced when the issue arrives.
 				number: nextIssueNumber(draft, args.teamId),
@@ -70,6 +120,7 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			if (patch.cycleId && patch.cycleId !== issue.cycleId) {
 				if (!isJoinable(draft, patch.cycleId, issue.teamId)) return;
 			}
+			if (patch.status !== undefined && !isLiveStatus(draft, issue.teamId, patch.status)) return;
 			draft.put("issue", { ...issue, ...patch, updatedAt: now });
 			return;
 		}
@@ -314,6 +365,7 @@ function withChange(draft: Draft, issue: Issue, change: ProposedChange, now: num
 		case "description":
 			return { ...issue, description: change.to, updatedAt: now };
 		case "status":
+			if (!isLiveStatus(draft, issue.teamId, change.to)) return null;
 			return { ...issue, status: change.to, updatedAt: now };
 		case "priority":
 			return { ...issue, priority: change.to, updatedAt: now };
@@ -336,6 +388,39 @@ function withChange(draft: Draft, issue: Issue, change: ProposedChange, now: num
 function isJoinable(draft: Draft, cycleId: string, teamId: string): boolean {
 	const cycle = draft.get("cycle", cycleId);
 	return cycle !== undefined && cycle.teamId === teamId && cycle.completedAt === null;
+}
+
+function isAdmin(draft: Draft, userId: string): boolean {
+	const role = draft.get("member", userId)?.role;
+	return role !== undefined && isAdminRole(role);
+}
+
+/** A team's live statuses. */
+function teamStatuses(draft: Draft, teamId: string): WorkflowStatus[] {
+	return [...draft.values("status")].filter(
+		(status) => status.teamId === teamId && status.removedAt === null,
+	);
+}
+
+function isLiveStatus(draft: Draft, teamId: string, key: string): boolean {
+	const status = draft.get("status", statusId(teamId, key));
+	return status !== undefined && status.removedAt === null;
+}
+
+/** The server's rule: names are unique in a team, ignoring case. */
+function sameName(statuses: WorkflowStatus[], name: string): boolean {
+	const wanted = name.trim().toLowerCase();
+	return statuses.some((status) => status.name.toLowerCase() === wanted);
+}
+
+/** The server's rule: a team keeps a completed status. `category` is null for a removal. */
+function keepsCompleted(
+	others: WorkflowStatus[],
+	status: WorkflowStatus,
+	category: WorkflowStatus["category"] | null,
+): boolean {
+	if (status.category !== "completed" || category === "completed") return true;
+	return others.some((other) => other.category === "completed");
 }
 
 function isAgent(draft: Draft, userId: string): boolean {

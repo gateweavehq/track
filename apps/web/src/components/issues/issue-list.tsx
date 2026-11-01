@@ -10,9 +10,11 @@ import {
 	useBlockedIssueIds,
 	useMembersById,
 	useProjectsById,
+	useStatuses,
 	useSubIssueProgress,
 	useTeamsById,
 } from "#/lib/queries";
+import { groupingTeams } from "#/lib/statuses";
 import { markIssueListShown } from "#/lib/timing";
 import { cn } from "#/lib/utils";
 import { useIssueDropZone, useIssueMoves } from "./dnd";
@@ -47,9 +49,14 @@ export function IssueList({
 	const groupBy = groupByOf(display);
 	const orderBy = orderByOf(display);
 	const properties = useMemo(() => shownProperties(display), [display]);
+	const statuses = useStatuses();
+	const teamIds = useMemo(
+		() => groupingTeams(issues, teams, defaults.teamId),
+		[issues, teams, defaults.teamId],
+	);
 	const allGroups = useMemo(
-		() => groupIssues(issues, groupBy, orderBy, "list", { members, projects }),
-		[issues, groupBy, orderBy, members, projects],
+		() => groupIssues(issues, groupBy, orderBy, "list", { members, projects, statuses, teamIds }),
+		[issues, groupBy, orderBy, members, projects, statuses, teamIds],
 	);
 	const groups = allGroups.filter((group) => group.issues.length > 0);
 	const moveIssue = useIssueMoves(allGroups, orderBy === "manual");

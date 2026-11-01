@@ -11,8 +11,15 @@ import type {
 	Proposal,
 	PullRequest,
 	Team,
+	WorkflowStatus,
 } from "@gateweave/track-protocol";
-import { addDays, dayIn, mutationSchema } from "@gateweave/track-protocol";
+import {
+	addDays,
+	dayIn,
+	defaultStatuses,
+	firstStatus,
+	mutationSchema,
+} from "@gateweave/track-protocol";
 import type { IssueQuery, MemberProfile, MutateResult } from "@gateweave/track-sync-server";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createMcpHandler } from "@modelcontextprotocol/server";
@@ -53,6 +60,7 @@ class FakeWorkspace implements WorkspaceAccess {
 	readonly slug = "acme";
 	me: MemberProfile = me;
 	teams: Team[] = [team];
+	statuses: WorkflowStatus[] = defaultStatuses(team.id, 0);
 	issues_: Issue[] = [];
 	labels: Label[] = [];
 	comments_: Comment[] = [];
@@ -71,6 +79,7 @@ class FakeWorkspace implements WorkspaceAccess {
 	async directory() {
 		return {
 			teams: this.teams,
+			statuses: this.statuses,
 			labels: this.labels,
 			projects: this.projects,
 			cycles: this.cycles,
@@ -172,8 +181,13 @@ class FakeWorkspace implements WorkspaceAccess {
 		};
 		if (mutation.name === "issue.create") {
 			const args = mutation.args;
+			const status =
+				args.status ??
+				firstStatus(this.statuses.filter((status) => status.teamId === args.teamId))?.key ??
+				"backlog";
 			this.issues_.push({
 				...{ ...args },
+				status,
 				number: this.issues_.length + 1,
 				creatorId: me.id,
 				version,
@@ -371,7 +385,21 @@ describe("Track MCP tools", () => {
 			workspaces: [{ slug: "acme", name: "Acme", role: "owner" }],
 		});
 		expect((await call("get_workspace", { workspace: "acme" })).structuredContent).toEqual({
-			teams: [{ key: "ENG", name: "Engineering", cycles: null }],
+			teams: [
+				{
+					key: "ENG",
+					name: "Engineering",
+					cycles: null,
+					statuses: [
+						{ key: "backlog", name: "Backlog", category: "backlog" },
+						{ key: "todo", name: "Todo", category: "unstarted" },
+						{ key: "in_progress", name: "In Progress", category: "started" },
+						{ key: "in_review", name: "In Review", category: "started" },
+						{ key: "done", name: "Done", category: "completed" },
+						{ key: "canceled", name: "Canceled", category: "canceled" },
+					],
+				},
+			],
 			cycles: [],
 			labels: [],
 			projects: [],
@@ -545,6 +573,7 @@ describe("Track MCP tools", () => {
 					key: "ENG-2",
 					title: "Mockups",
 					status: "backlog",
+					statusName: "Backlog",
 					url: "https://track.example.com/acme/issue/ENG-2",
 				},
 			],
@@ -656,6 +685,55 @@ describe("Track MCP tools", () => {
 		const result = await call("update_issue", { workspace: "acme", key: "ENG-1" });
 		expect(result.isError).toBe(true);
 		expect(workspace.mutations).toHaveLength(1);
+	});
+
+	it("takes a team's own statuses by key or by name, and names them back", async () => {
+		const qa: WorkflowStatus = {
+			id: `${team.id}/qa`,
+			teamId: team.id,
+			key: "qa",
+			name: "Ready for QA",
+			category: "started",
+			color: null,
+			sortOrder: "a3V",
+			createdAt: 0,
+			updatedAt: 0,
+			removedAt: null,
+		};
+		workspace.statuses = [...workspace.statuses, qa];
+
+		const made = await call("create_issue", {
+			workspace: "acme",
+			team: "ENG",
+			title: "Login",
+			status: "ready for qa",
+		});
+		expect(made.structuredContent).toMatchObject({ status: "qa", statusName: "Ready for QA" });
+		expect(workspace.mutations.at(-1)).toMatchObject({
+			name: "issue.create",
+			args: { status: "qa" },
+		});
+
+		// Without a status, the server gives the team's first, so the tool sends none.
+		await call("create_issue", { workspace: "acme", team: "ENG", title: "Later" });
+		expect(workspace.mutations.at(-1)?.args).not.toHaveProperty("status");
+
+		await call("update_issue", { workspace: "acme", key: "ENG-2", status: "Shipping" }).then(
+			(result) =>
+				expect(result).toMatchObject({
+					isError: true,
+					content: [
+						{
+							type: "text",
+							text: 'Team ENG has no status "Shipping". Its statuses: Backlog, Todo, In Progress, In Review, Ready for QA, Done, Canceled.',
+						},
+					],
+				}),
+		);
+
+		const found = await call("search_issues", { workspace: "acme", status: ["Ready for QA"] });
+		expect(found.structuredContent).toMatchObject({ issues: [{ key: "ENG-1" }] });
+		expect(workspace.queries.at(-1)?.statuses).toEqual(["qa"]);
 	});
 
 	it("searches by status and assignee", async () => {

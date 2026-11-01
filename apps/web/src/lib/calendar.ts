@@ -1,6 +1,7 @@
 import type { Issue } from "@gateweave/track-protocol";
 import { addDays, parseDay, toDay } from "./dates";
-import { compareIssues, LIST_STATUS_ORDER } from "./issues";
+import { compareIssues } from "./issues";
+import { compareForList, type StatusMap, statusOf } from "./statuses";
 
 // The calendar layout's pure parts. A month is `YYYY-MM` and a day `YYYY-MM-DD`, both plain text
 // so that nothing shifts with the viewer's time zone.
@@ -40,13 +41,6 @@ export function monthWeeks(month: string): string[][] {
 	return weeks;
 }
 
-/** Issues in the order of the list: by status group, then by manual order. */
-function compareForCalendar(a: Issue, b: Issue): number {
-	return (
-		LIST_STATUS_ORDER.indexOf(a.status) - LIST_STATUS_ORDER.indexOf(b.status) || compareIssues(a, b)
-	);
-}
-
 export interface DueDates {
 	/** Issues by due date, each day's in list order. */
 	byDay: Map<string, Issue[]>;
@@ -54,11 +48,17 @@ export interface DueDates {
 	undated: number;
 }
 
-/** Groups issues by the day they are due. */
-export function groupByDueDate(issues: readonly Issue[]): DueDates {
+/** Groups issues by the day they are due, each day's in the order of the list's status groups. */
+export function groupByDueDate(
+	issues: readonly Issue[],
+	statuses: StatusMap = new Map(),
+): DueDates {
 	const byDay = new Map<string, Issue[]>();
 	let undated = 0;
-	for (const issue of [...issues].sort(compareForCalendar)) {
+	const sorted = [...issues].sort(
+		(a, b) => compareForList(statusOf(statuses, a), statusOf(statuses, b)) || compareIssues(a, b),
+	);
+	for (const issue of sorted) {
 		if (!issue.dueDate) {
 			undated++;
 			continue;

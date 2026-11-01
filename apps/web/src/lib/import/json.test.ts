@@ -1,12 +1,13 @@
-import type {
-	Comment,
-	Issue,
-	IssueRelation,
-	Label,
-	Member,
-	MutationInput,
-	Project,
-	Team,
+import {
+	type Comment,
+	defaultStatuses,
+	type Issue,
+	type IssueRelation,
+	type Label,
+	type Member,
+	type MutationInput,
+	type Project,
+	type Team,
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import { type ExportSource, workspaceToJson } from "#/lib/export";
@@ -111,6 +112,13 @@ const blocks: IssueRelation = {
 const exported: ExportSource = {
 	workspace: { slug: "acme", name: "Acme" },
 	teams: [eng, ops],
+	// Acme calls In Progress "Doing", and the import finds it in the other workspace by category.
+	statuses: [
+		...defaultStatuses("t1", 1).map((status) =>
+			status.key === "in_progress" ? { ...status, name: "Doing" } : status,
+		),
+		...defaultStatuses("t2", 1),
+	],
 	members: [ada, grace],
 	labels: [bug],
 	projects: [launch],
@@ -128,6 +136,7 @@ function elsewhere(overrides: Partial<ImportTarget> = {}): ImportTarget {
 		comments: new Map(),
 		relations: new Map(),
 		teams: [{ ...eng, id: "home-eng", name: "Core" }],
+		statuses: defaultStatuses("home-eng", 1),
 		labels: [],
 		projects: [],
 		members: [{ ...grace, id: "home-grace" }],

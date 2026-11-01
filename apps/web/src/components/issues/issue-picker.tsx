@@ -13,7 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover
 import { issueKey, matchesQuery } from "#/lib/issues";
 import { useIssuesById, useTeamsById } from "#/lib/queries";
 import { ADDABLE_RELATIONS, RELATION_META } from "#/lib/relations";
-import { StatusIcon } from "./meta";
+import { IssueStatusIcon } from "./meta";
 
 /** Workspaces can hold thousands of issues, so the menu lists the best matches only. */
 const MAX_SHOWN = 50;
@@ -197,7 +197,7 @@ function IssueOptions({
 							value={candidate.id}
 							onSelect={() => onSelect(candidate.id)}
 						>
-							<StatusIcon status={candidate.status} />
+							<IssueStatusIcon issue={candidate} />
 							<span className="w-16 shrink-0 font-mono text-xs text-muted-foreground">{key}</span>
 							<span className="truncate">{candidate.title}</span>
 							{candidate.id === value && <Check className="ml-auto size-4 shrink-0" />}

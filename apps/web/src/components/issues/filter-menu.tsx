@@ -1,10 +1,4 @@
-import {
-	type Cycle,
-	ISSUE_STATUSES,
-	type IssueFilterKey,
-	type IssueFilters,
-	type Team,
-} from "@gateweave/track-protocol";
+import type { Cycle, IssueFilterKey, IssueFilters, Team } from "@gateweave/track-protocol";
 import {
 	Boxes,
 	CalendarClock,
@@ -43,12 +37,14 @@ import {
 	useMembersById,
 	useProjectList,
 	useProjectsById,
+	useStatuses,
 	useTeams,
 	useTeamsById,
 } from "#/lib/queries";
+import { statusColumns, statusName } from "#/lib/statuses";
 import { cn } from "#/lib/utils";
 import { LabelDot } from "./labels";
-import { PRIORITY_META, PRIORITY_ORDER, STATUS_META } from "./meta";
+import { PRIORITY_META, PRIORITY_ORDER, StatusIcon } from "./meta";
 
 /** The filters in the order the menu offers them. */
 export const FILTER_KEYS = [
@@ -89,15 +85,21 @@ function useFilterOptions(): Record<IssueFilterKey, FilterOption[]> {
 	const teams = useTeams();
 	const teamsById = useTeamsById();
 	const cycles = useCyclesById();
+	const statuses = useStatuses();
 	const metaIcon = ({ icon: Icon, className }: { icon: LucideIcon; className: string }) => (
 		<Icon aria-hidden className={cn("size-4", className)} />
 	);
 	return {
-		statuses: ISSUE_STATUSES.map((status) => ({
-			id: status,
-			value: status,
-			label: STATUS_META[status].label,
-			icon: metaIcon(STATUS_META[status]),
+		// Every team's statuses, one per key, as a board of all teams would show them.
+		statuses: statusColumns(
+			statuses,
+			teams.map((team) => team.id),
+			"board",
+		).map((status) => ({
+			id: status.key,
+			value: status.key,
+			label: status.name,
+			icon: <StatusIcon status={status} />,
 		})),
 		priorities: PRIORITY_ORDER.map((priority) => ({
 			id: String(priority),
@@ -368,18 +370,26 @@ function useValueNames() {
 	const projects = useProjectsById();
 	const labels = useLabelsById();
 	const teams = useTeamsById();
+	const teamList = useTeams();
 	const cycles = useCyclesById();
+	const statuses = useStatuses();
 	return (key: IssueFilterKey, filters: IssueFilters): string => {
 		const list = (names: (string | undefined)[]) =>
 			names.filter((name): name is string => name !== undefined).join(", ");
 		switch (key) {
 			// In the order the menu lists them, whatever order they were picked in.
-			case "statuses":
+			case "statuses": {
+				const picked = filters.statuses ?? [];
+				const order = statusColumns(
+					statuses,
+					teamList.map((team) => team.id),
+					"board",
+				).map((status) => status.key);
+				const rank = (key: string) => (order.includes(key) ? order.indexOf(key) : order.length);
 				return list(
-					ISSUE_STATUSES.filter((status) => filters.statuses?.includes(status)).map(
-						(status) => STATUS_META[status].label,
-					),
+					[...picked].sort((a, b) => rank(a) - rank(b)).map((key) => statusName(statuses, key)),
 				);
+			}
 			case "priorities":
 				return list(
 					PRIORITY_ORDER.filter((priority) => filters.priorities?.includes(priority)).map(

@@ -232,6 +232,7 @@ describe("inbox email", () => {
 						unread: 2,
 						updatedAt: expect.any(Number),
 						comment: "Can you take this **today**?",
+						statusName: null,
 					},
 				],
 			},
@@ -270,12 +271,20 @@ describe("inbox email", () => {
 		const at = await emailAt(workspace, alice);
 		await update(bob, { status: "in_progress" });
 		expect(await emailAt(workspace, alice)).toBe(at);
+		// The email names the status as the team does when it goes out.
+		await as(owner, {
+			name: "status.update",
+			args: { teamId: TEAM_ID, key: "in_progress", patch: { name: "Doing" } },
+		});
 
 		await later(workspace, EMAIL_DELAY_MS);
 		await alarm(workspace);
 		expect(sent.alice).toHaveLength(1);
 		expect(sent.alice[0]?.items).toEqual([
-			expect.objectContaining({ event: { type: "status", from: "todo", to: "in_progress" } }),
+			expect.objectContaining({
+				event: { type: "status", from: "todo", to: "in_progress" },
+				statusName: "Doing",
+			}),
 		]);
 	});
 

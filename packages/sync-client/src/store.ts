@@ -6,6 +6,8 @@ export interface SyncState {
 	/** Highest server version reflected in this state. */
 	readonly version: number;
 	readonly teams: ReadonlyMap<string, Entities["team"]>;
+	/** Every team's statuses, removed ones included, so history still names them. */
+	readonly statuses: ReadonlyMap<string, Entities["status"]>;
 	readonly issues: ReadonlyMap<string, Entities["issue"]>;
 	readonly labels: ReadonlyMap<string, Entities["label"]>;
 	readonly projects: ReadonlyMap<string, Entities["project"]>;
@@ -47,6 +49,7 @@ type Tables = { readonly [E in EntityName]: ReadonlyMap<string, Entities[E]> };
 
 const EMPTY: Tables = {
 	team: new Map(),
+	status: new Map(),
 	issue: new Map(),
 	label: new Map(),
 	project: new Map(),
@@ -147,6 +150,7 @@ export class Replica {
 		if (onlyIfNewer && this.#hasData && snapshot.version <= this.#version) return;
 		this.#confirmed = {
 			team: new Map(snapshot.teams.map((row) => [row.id, row])),
+			status: new Map(snapshot.statuses.map((row) => [row.id, row])),
 			issue: new Map(snapshot.issues.map((row) => [row.id, row])),
 			label: new Map(snapshot.labels.map((row) => [row.id, row])),
 			project: new Map(snapshot.projects.map((row) => [row.id, row])),
@@ -211,6 +215,7 @@ export class Replica {
 		return {
 			version: this.#version,
 			teams: [...this.#confirmed.team.values()],
+			statuses: [...this.#confirmed.status.values()],
 			issues: [...this.#confirmed.issue.values()],
 			labels: [...this.#confirmed.label.values()],
 			projects: [...this.#confirmed.project.values()],
@@ -243,6 +248,7 @@ function toState(tables: Tables, version: number): SyncState {
 	return {
 		version,
 		teams: tables.team,
+		statuses: tables.status,
 		issues: tables.issue,
 		labels: tables.label,
 		projects: tables.project,

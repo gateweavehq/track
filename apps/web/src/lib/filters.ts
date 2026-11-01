@@ -7,6 +7,7 @@ import {
 } from "@gateweave/track-protocol";
 import { NO_RELATIVE_CYCLES, type RelativeCycles } from "./cycles";
 import { matchesDue } from "./issues";
+import { isIssueClosed, type StatusMap } from "./statuses";
 
 // Filters for pages of issues and saved views (`IssueFilters` in the protocol). They are applied
 // to the local replica, so filtering is instant and works offline.
@@ -86,13 +87,15 @@ export function sameFilters(a: IssueFilters, b: IssueFilters): boolean {
 
 /**
  * Whether an issue passes filters, best made active first (see `activeFilters`). `cycles` says
- * which cycles are current and next, for the filters that name them so.
+ * which cycles are current and next, for the filters that name them so, and `statusMap` which
+ * statuses close an issue, for the due-date filters that skip closed issues.
  */
 export function matchesFilters(
 	issue: Issue,
 	filters: IssueFilters,
 	now = new Date(),
 	cycles: RelativeCycles = NO_RELATIVE_CYCLES,
+	statusMap: StatusMap = new Map(),
 ): boolean {
 	const { teamIds, statuses, priorities, assigneeIds, projectIds, labelIds, due } = filters;
 	const inCycle = (value: string | null) => {
@@ -109,7 +112,7 @@ export function matchesFilters(
 		(!projectIds || projectIds.includes(issue.projectId)) &&
 		(!filters.cycles || filters.cycles.some(inCycle)) &&
 		(!labelIds || issue.labelIds.some((id) => labelIds.includes(id))) &&
-		(!due || matchesDue(issue, due, now))
+		(!due || matchesDue(issue, isIssueClosed(statusMap, issue), due, now))
 	);
 }
 

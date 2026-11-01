@@ -18,7 +18,7 @@ import {
 	Users,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { StatusIcon } from "#/components/issues/meta";
+import { IssueStatusIcon } from "#/components/issues/meta";
 import { ProjectStatusIcon } from "#/components/projects/meta";
 import {
 	Command,
@@ -310,7 +310,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 												)
 											}
 										>
-											<StatusIcon status={issue.status} />
+											<IssueStatusIcon issue={issue} />
 											<span className="w-16 shrink-0 font-mono text-xs text-muted-foreground">
 												{key}
 											</span>

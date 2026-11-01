@@ -1,12 +1,13 @@
-import {
-	CLOSED_STATUSES,
-	type DueFilter,
-	type Issue,
-	type IssueStatus,
-	type Team,
+import type {
+	DueFilter,
+	Issue,
+	IssueStatus,
+	Team,
+	WorkflowStatus,
 } from "@gateweave/track-protocol";
 import { generateKeyBetween } from "fractional-indexing";
 import { addDays, today } from "./dates";
+import { type StatusMap, statusOf } from "./statuses";
 
 /** The human-readable identifier of an issue, e.g. `ENG-42`. */
 export function issueKey(team: Pick<Team, "key"> | undefined, issue: Pick<Issue, "number">) {
@@ -20,26 +21,6 @@ export function parseIssueKey(value: string): { teamKey: string; number: number 
 	return { teamKey: match[1].toUpperCase(), number: Number(match[2]) };
 }
 
-/** The order of status groups in a list: work in flight first, finished work last. */
-export const LIST_STATUS_ORDER = [
-	"in_progress",
-	"in_review",
-	"todo",
-	"backlog",
-	"done",
-	"canceled",
-] as const satisfies readonly IssueStatus[];
-
-/** The order of columns on a board: the workflow, left to right. */
-export const BOARD_STATUS_ORDER = [
-	"backlog",
-	"todo",
-	"in_progress",
-	"in_review",
-	"done",
-	"canceled",
-] as const satisfies readonly IssueStatus[];
-
 /** Manual order, with the id as a tiebreaker so concurrent inserts still sort the same everywhere. */
 export function compareIssues(a: Issue, b: Issue): number {
 	if (a.sortOrder !== b.sortOrder) return a.sortOrder < b.sortOrder ? -1 : 1;
@@ -47,21 +28,34 @@ export function compareIssues(a: Issue, b: Issue): number {
 }
 
 export interface StatusGroup {
-	status: IssueStatus;
+	/** The status that names the group; issues of other teams in it share its key. */
+	status: WorkflowStatus;
 	issues: Issue[];
 }
 
-/** Groups issues by status, in the given order. Every status gets a group, even an empty one. */
+/**
+ * Groups issues by status key, one group per column in its order (see `statusColumns`), even an
+ * empty one. Issues in a status that is not a column (one removed or added a moment ago) get a
+ * group of their own after the rest, so that no issue goes missing.
+ */
 export function groupByStatus(
 	issues: readonly Issue[],
-	order: readonly IssueStatus[] = LIST_STATUS_ORDER,
+	columns: readonly WorkflowStatus[],
+	statuses: StatusMap,
 ): StatusGroup[] {
-	const groups = new Map<IssueStatus, Issue[]>(order.map((status) => [status, []]));
-	for (const issue of issues) groups.get(issue.status)?.push(issue);
-	return order.map((status) => ({
-		status,
-		issues: (groups.get(status) ?? []).sort(compareIssues),
-	}));
+	const groups = new Map<IssueStatus, StatusGroup>(
+		columns.map((status) => [status.key, { status, issues: [] }]),
+	);
+	for (const issue of issues) {
+		let group = groups.get(issue.status);
+		if (!group) {
+			group = { status: statusOf(statuses, issue), issues: [] };
+			groups.set(issue.status, group);
+		}
+		group.issues.push(issue);
+	}
+	for (const group of groups.values()) group.issues.sort(compareIssues);
+	return [...groups.values()];
 }
 
 /** A sort order that places a new issue after every existing one. */
@@ -138,14 +132,13 @@ export function estimateLabel(points: number): string {
 	return points === 1 ? "1 point" : `${points} points`;
 }
 
-/** True when an open issue's due date has passed. Done and canceled issues are never overdue. */
+/** True when an open issue's due date has passed. Closed issues are never overdue. */
 export function isIssueOverdue(
-	issue: Pick<Issue, "dueDate" | "status">,
+	issue: Pick<Issue, "dueDate">,
+	closed: boolean,
 	now = new Date(),
 ): boolean {
-	return (
-		issue.dueDate !== null && issue.dueDate < today(now) && !CLOSED_STATUSES.includes(issue.status)
-	);
+	return issue.dueDate !== null && issue.dueDate < today(now) && !closed;
 }
 
 // Defined with the other filters in the protocol, since saved views store them.
@@ -162,17 +155,15 @@ export const DUE_FILTER_LABELS: Record<DueFilter, string> = {
  * issues only, like overdue), or without a due date.
  */
 export function matchesDue(
-	issue: Pick<Issue, "dueDate" | "status">,
+	issue: Pick<Issue, "dueDate">,
+	closed: boolean,
 	filter: DueFilter,
 	now = new Date(),
 ): boolean {
 	if (filter === "none") return issue.dueDate === null;
-	if (filter === "overdue") return isIssueOverdue(issue, now);
+	if (filter === "overdue") return isIssueOverdue(issue, closed, now);
 	const day = today(now);
 	return (
-		issue.dueDate !== null &&
-		issue.dueDate >= day &&
-		issue.dueDate <= addDays(day, 6) &&
-		!CLOSED_STATUSES.includes(issue.status)
+		issue.dueDate !== null && issue.dueDate >= day && issue.dueDate <= addDays(day, 6) && !closed
 	);
 }

@@ -10,7 +10,6 @@ import {
 	ENTITY_NAMES,
 	type InboxEvent,
 	ISSUE_LAYOUTS,
-	ISSUE_STATUSES,
 	type IssueDisplay,
 	type IssueFilters,
 	type IssuePriority,
@@ -21,6 +20,7 @@ import {
 	type ProposedChange,
 	PULL_REQUEST_STATES,
 	RELATION_TYPES,
+	STATUS_CATEGORIES,
 	type WebhookDelivery,
 	type WebhookEventType,
 } from "@gateweave/track-protocol";
@@ -43,6 +43,29 @@ export const teams = sqliteTable("teams", {
 	updatedAt: integer("updated_at").notNull(),
 });
 
+/**
+ * Each team's statuses, keyed by team and key (see `statusId`). Removed ones keep their row, so
+ * history still names them and their key is never used again in the team.
+ */
+export const statuses = sqliteTable(
+	"statuses",
+	{
+		id: text("id").primaryKey(),
+		teamId: text("team_id")
+			.notNull()
+			.references(() => teams.id),
+		key: text("key").notNull(),
+		name: text("name").notNull(),
+		category: text("category", { enum: STATUS_CATEGORIES }).notNull(),
+		color: text("color"),
+		sortOrder: text("sort_order").notNull(),
+		createdAt: integer("created_at").notNull(),
+		updatedAt: integer("updated_at").notNull(),
+		removedAt: integer("removed_at"),
+	},
+	(table) => [uniqueIndex("statuses_team_key_idx").on(table.teamId, table.key)],
+);
+
 export const issues = sqliteTable(
 	"issues",
 	{
@@ -53,7 +76,8 @@ export const issues = sqliteTable(
 		number: integer("number").notNull(),
 		title: text("title").notNull(),
 		description: text("description"),
-		status: text("status", { enum: ISSUE_STATUSES }).notNull(),
+		/** The key of one of the team's statuses. */
+		status: text("status").notNull(),
 		priority: integer("priority").$type<IssuePriority>().notNull(),
 		assigneeId: text("assignee_id"),
 		projectId: text("project_id"),
@@ -419,6 +443,7 @@ export const webhookDeliveries = sqliteTable(
 );
 
 export type TeamRow = typeof teams.$inferSelect;
+export type StatusRow = typeof statuses.$inferSelect;
 export type IssueRow = typeof issues.$inferSelect;
 export type LabelRow = typeof labels.$inferSelect;
 export type ProjectRow = typeof projects.$inferSelect;

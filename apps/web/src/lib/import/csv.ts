@@ -1,5 +1,5 @@
-import type { IssuePriority, IssueStatus } from "@gateweave/track-protocol";
-import type { ImportedIssue, ImportedPerson, ImportSource } from "./plan";
+import type { IssuePriority, StatusCategory } from "@gateweave/track-protocol";
+import type { ImportedIssue, ImportedPerson, ImportedStatus, ImportSource } from "./plan";
 
 // Issues from a CSV file: Track's own export, read back by its headers, or a spreadsheet from
 // elsewhere whose columns go by common names. One row is one issue; there are no comments.
@@ -176,28 +176,29 @@ function splitLabels(value: string, known: ReadonlySet<string>): string[] {
 	return labels;
 }
 
-const STATUSES: Record<string, IssueStatus> = {
+/** The kind of status behind the names trackers use. */
+const CATEGORIES: Record<string, StatusCategory> = {
 	backlog: "backlog",
 	triage: "backlog",
 	icebox: "backlog",
-	todo: "todo",
-	"to do": "todo",
-	open: "todo",
-	new: "todo",
-	unstarted: "todo",
-	"in progress": "in_progress",
-	started: "in_progress",
-	doing: "in_progress",
-	active: "in_progress",
-	"in review": "in_review",
-	review: "in_review",
-	"code review": "in_review",
-	done: "done",
-	closed: "done",
-	completed: "done",
-	complete: "done",
-	resolved: "done",
-	fixed: "done",
+	todo: "unstarted",
+	"to do": "unstarted",
+	open: "unstarted",
+	new: "unstarted",
+	unstarted: "unstarted",
+	"in progress": "started",
+	started: "started",
+	doing: "started",
+	active: "started",
+	"in review": "started",
+	review: "started",
+	"code review": "started",
+	done: "completed",
+	closed: "completed",
+	completed: "completed",
+	complete: "completed",
+	resolved: "completed",
+	fixed: "completed",
 	canceled: "canceled",
 	cancelled: "canceled",
 	"won't do": "canceled",
@@ -207,9 +208,16 @@ const STATUSES: Record<string, IssueStatus> = {
 	"not planned": "canceled",
 };
 
-/** A status by the names trackers use. Unknown ones go to the backlog. */
-export function toStatus(value: string): IssueStatus {
-	return STATUSES[value.trim().toLowerCase().replace(/[_-]+/g, " ")] ?? "backlog";
+/**
+ * A status by its name, with the kind the names trackers use say it is. Unknown names are of the
+ * backlog kind, so they land in a status of that name or in the team's backlog.
+ */
+export function toStatus(value: string): ImportedStatus {
+	const name = value.trim();
+	return {
+		name,
+		category: CATEGORIES[name.toLowerCase().replace(/[_-]+/g, " ")] ?? "backlog",
+	};
 }
 
 const PRIORITIES: Record<string, IssuePriority> = {

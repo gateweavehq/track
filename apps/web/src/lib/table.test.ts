@@ -1,4 +1,4 @@
-import type { Issue } from "@gateweave/track-protocol";
+import { defaultStatuses, type Issue, type WorkflowStatus } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import { nextSort, type SortColumn, type SortLookups, sortIssues } from "./table";
 
@@ -46,6 +46,7 @@ const lookups: SortLookups = {
 		["c2", { startsOn: "2026-11-09" }],
 		["c1", { startsOn: "2026-11-02" }],
 	]),
+	statuses: new Map(defaultStatuses("eng", 1).map((status) => [status.id, status])),
 };
 
 function ids(
@@ -108,6 +109,34 @@ describe("sortIssues", () => {
 			"done",
 			"canceled",
 		]);
+	});
+
+	it("orders a team's own statuses by category, then by the team's order", () => {
+		const qa: WorkflowStatus = {
+			id: "eng/qa",
+			teamId: "eng",
+			key: "qa",
+			name: "QA",
+			category: "started",
+			color: null,
+			sortOrder: "a0V",
+			createdAt: 1,
+			updatedAt: 1,
+			removedAt: null,
+		};
+		const issues = [
+			issue("done", { status: "done" }),
+			issue("review", { status: "in_review" }),
+			issue("qa", { status: "qa" }),
+			issue("progress", { status: "in_progress" }),
+		];
+		const statuses = new Map(lookups.statuses);
+		statuses.set(qa.id, qa);
+		expect(
+			sortIssues(issues, { column: "status", direction: "asc" }, { ...lookups, statuses }).map(
+				(item) => item.id,
+			),
+		).toEqual(["progress", "qa", "review", "done"]);
 	});
 
 	it("sorts assignees and projects by name, ignoring case", () => {

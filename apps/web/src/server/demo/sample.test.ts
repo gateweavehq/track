@@ -29,7 +29,7 @@ describe("sampleSteps", () => {
 		}
 	});
 
-	it("creates teams, labels and projects, as an admin, before anything refers to them", () => {
+	it("creates teams, their statuses, labels and projects, as an admin, before anything refers to them", () => {
 		const all = steps();
 		const firstIssue = all.findIndex((step) => step.mutation.name === "issue.create");
 		const before = all.slice(0, firstIssue);
@@ -37,6 +37,7 @@ describe("sampleSteps", () => {
 		expect(before.map((step) => step.mutation.name)).toEqual([
 			...Array(3).fill("team.create"),
 			"team.update",
+			"status.create",
 			...Array(7).fill("label.create"),
 			...Array(Object.keys(PROJECTS).length).fill("project.create"),
 		]);

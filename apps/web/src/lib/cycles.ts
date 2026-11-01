@@ -10,6 +10,7 @@ import {
 	startOfDay,
 	type Team,
 } from "@gateweave/track-protocol";
+import { type StatusMap, statusOf } from "./statuses";
 
 // Cycles as pages show them. The server dates, makes and completes them; here they are only read.
 // "Today" is the day in the team's time zone, which is when the server moves cycles on.
@@ -72,20 +73,27 @@ export function relativeCycles(
 	return { current, next: new Set([...next.values()].map((cycle) => cycle.id)) };
 }
 
-/** How a cycle's work stands: issues and points, done and in all. Canceled issues do not count. */
+/**
+ * How a cycle's work stands: issues and points, done (in a completed status) and in all. Canceled
+ * issues do not count.
+ */
 export interface CycleProgress {
 	issues: { done: number; total: number };
 	points: { done: number; total: number };
 }
 
-export function cycleProgress(issues: Iterable<Issue>): CycleProgress {
+export function cycleProgress(
+	issues: Iterable<Issue>,
+	statuses: StatusMap = new Map(),
+): CycleProgress {
 	const progress: CycleProgress = { issues: { done: 0, total: 0 }, points: { done: 0, total: 0 } };
 	for (const issue of issues) {
-		if (issue.status === "canceled") continue;
+		const { category } = statusOf(statuses, issue);
+		if (category === "canceled") continue;
 		const points = issue.estimate ?? 0;
 		progress.issues.total += 1;
 		progress.points.total += points;
-		if (issue.status === "done") {
+		if (category === "completed") {
 			progress.issues.done += 1;
 			progress.points.done += points;
 		}
@@ -112,7 +120,11 @@ export function burnUp(
 	activities: Iterable<Activity>,
 	timeZone: string,
 	now: number,
+	statuses: StatusMap = new Map(),
 ): BurnUpDay[] {
+	// History names statuses by key; a removed status keeps its row, so old keys still resolve.
+	const categoryOf = (status: string) =>
+		statusOf(statuses, { teamId: cycle.teamId, status }).category;
 	const today = dayIn(timeZone, now);
 	const end = cycle.completedAt !== null || today > cycle.endsOn ? cycle.endsOn : today;
 	const length = daysBetween(cycle.startsOn, end) + 1;
@@ -161,9 +173,10 @@ export function burnUp(
 				if (entry.change.type === "cycle") inCycle = entry.change.to === cycle.id;
 				else if (entry.change.type === "status") status = entry.change.to;
 			}
-			if (!inCycle || status === "canceled") continue;
+			const category = categoryOf(status);
+			if (!inCycle || category === "canceled") continue;
 			slot.scope += 1;
-			if (status === "done") slot.done += 1;
+			if (category === "completed") slot.done += 1;
 		}
 	}
 	return days.map(({ day, scope, done }) => ({ day, scope, done }));

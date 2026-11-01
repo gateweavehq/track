@@ -23,6 +23,7 @@ const DB_VERSION = PROTOCOL_VERSION * 1000 + STORAGE_VERSION;
 interface ReplicaSchema extends DBSchema {
 	meta: { key: "clientId" | "version"; value: string | number };
 	team: { key: string; value: Entities["team"] };
+	status: { key: string; value: Entities["status"] };
 	issue: { key: string; value: Entities["issue"] };
 	label: { key: string; value: Entities["label"] };
 	project: { key: string; value: Entities["project"] };
@@ -105,6 +106,7 @@ class IdbPersistence implements Persistence {
 		const [
 			version,
 			teams,
+			statuses,
 			issues,
 			labels,
 			projects,
@@ -122,6 +124,7 @@ class IdbPersistence implements Persistence {
 		] = await Promise.all([
 			meta.get("version") as Promise<number | undefined>,
 			tx.objectStore("team").getAll(),
+			tx.objectStore("status").getAll(),
 			tx.objectStore("issue").getAll(),
 			tx.objectStore("label").getAll(),
 			tx.objectStore("project").getAll(),
@@ -146,6 +149,7 @@ class IdbPersistence implements Persistence {
 					: {
 							version,
 							teams,
+							statuses,
 							issues,
 							labels,
 							projects,
@@ -168,6 +172,7 @@ class IdbPersistence implements Persistence {
 		const tx = this.db.transaction(STATE_STORES, "readwrite", { durability: "relaxed" });
 		const rows = {
 			team: snapshot.teams,
+			status: snapshot.statuses,
 			issue: snapshot.issues,
 			label: snapshot.labels,
 			project: snapshot.projects,

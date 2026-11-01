@@ -78,6 +78,7 @@ describe("inboxDigestEmail", () => {
 		actor: "Maya Chen",
 		unread: 1,
 		comment: null,
+		statusName: null,
 	};
 	const base = {
 		workspace: "Acme",
@@ -101,7 +102,12 @@ describe("inboxDigestEmail", () => {
 			...base,
 			items: [
 				{ ...entry, event: { type: "comment", commentId: "c1" }, comment: "Ship it", unread: 3 },
-				{ ...entry, key: "ENG-13", event: { type: "status", from: "todo", to: "in_review" } },
+				{
+					...entry,
+					key: "ENG-13",
+					event: { type: "status", from: "todo", to: "qa" },
+					statusName: "Ready for QA",
+				},
 				{ ...entry, key: "ENG-14", event: { type: "unassigned" } },
 				{
 					...entry,
@@ -113,7 +119,7 @@ describe("inboxDigestEmail", () => {
 		});
 		expect(email.subject).toBe("4 updates in Acme");
 		expect(email.text).toContain("Maya Chen commented on ENG-12 · 3 updates\n> Ship it");
-		expect(email.text).toContain("Maya Chen moved ENG-13 to In Review");
+		expect(email.text).toContain("Maya Chen moved ENG-13 to Ready for QA");
 		expect(email.text).toContain("Maya Chen unassigned you from ENG-14");
 		expect(email.text).toContain("Triage proposed a change to ENG-15");
 	});

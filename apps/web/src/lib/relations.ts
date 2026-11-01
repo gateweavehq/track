@@ -1,11 +1,11 @@
 import {
-	CLOSED_STATUSES,
 	type Issue,
 	type IssueRelation,
 	type RelationKind,
 	relationFrom,
 } from "@gateweave/track-protocol";
 import { Ban, Copy, Link2, type LucideIcon, OctagonAlert } from "lucide-react";
+import { isIssueClosed, type StatusMap } from "./statuses";
 
 export const RELATION_META: Record<
 	RelationKind,
@@ -92,14 +92,14 @@ export function groupRelations(
 	});
 }
 
-const isOpen = (issue: Issue | undefined) =>
-	issue !== undefined && !CLOSED_STATUSES.includes(issue.status);
-
 /** Open issues that an open issue blocks. A closed blocker no longer holds anything up. */
 export function blockedIssueIds(
 	relations: Iterable<IssueRelation>,
 	issues: ReadonlyMap<string, Issue>,
+	statuses: StatusMap,
 ): Set<string> {
+	const isOpen = (issue: Issue | undefined) =>
+		issue !== undefined && !isIssueClosed(statuses, issue);
 	const blocked = new Set<string>();
 	for (const relation of relations) {
 		if (relation.type !== "blocks") continue;

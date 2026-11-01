@@ -16,6 +16,9 @@ export default async function setup(project: TestProject) {
 			inspector: false,
 			logLevel: "warn",
 			watch: false,
+			// Every run starts empty. Kept objects would wake for their alarms on the next run and
+			// fail to migrate once a schema change replaces a migration they recorded.
+			persist: false,
 		},
 	});
 	await worker.ready;

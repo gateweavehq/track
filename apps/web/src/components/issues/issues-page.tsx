@@ -36,6 +36,7 @@ import {
 	useLabelsById,
 	useMembersById,
 	useProjectsById,
+	useStatuses,
 	useTeamsById,
 } from "#/lib/queries";
 import { cn } from "#/lib/utils";
@@ -99,6 +100,7 @@ export function IssuesPage({
 	const labels = useLabelsById();
 	const projects = useProjectsById();
 	const cycles = useCyclesById();
+	const statuses = useStatuses();
 	const [query, setQuery] = useState("");
 	const deferredQuery = useDeferredValue(query);
 	const filterRef = useRef<HTMLInputElement>(null);
@@ -136,7 +138,7 @@ export function IssuesPage({
 		const relative = relativeCycles(cycles.values(), teams, now.getTime());
 		return issues.filter(
 			(issue) =>
-				matchesFilters(issue, active, now, relative) &&
+				matchesFilters(issue, active, now, relative, statuses) &&
 				(!text ||
 					matchesQuery(
 						text,
@@ -145,7 +147,7 @@ export function IssuesPage({
 						(issue.assigneeId && members.get(issue.assigneeId)?.name) || "",
 					)),
 		);
-	}, [issues, deferredQuery, active, filtering, teams, members, cycles]);
+	}, [issues, deferredQuery, active, filtering, teams, members, cycles, statuses]);
 
 	const text = query.trim();
 	const emptyState =

@@ -87,6 +87,8 @@ async function hmac(secret: string, body: string): Promise<string> {
 }
 
 interface PullRequestFields {
+	id?: number;
+	number?: number;
 	title?: string;
 	body?: string | null;
 	state?: "open" | "closed";
@@ -336,6 +338,53 @@ describe("pull requests", () => {
 			}),
 		);
 		expect(await statuses(workspace)).toMatchObject({ "issue-1": "done", "issue-2": "canceled" });
+	});
+
+	it("follow the team's own statuses, in its order", async () => {
+		const { workspace, as, deliver } = await setup();
+		const status = (
+			key: string,
+			name: string,
+			category: "started" | "completed",
+			sortOrder: string,
+		) =>
+			as(owner, {
+				name: "status.create",
+				args: { teamId: "team-eng", key, name, category, sortOrder },
+			});
+		// QA comes after In Review; Shipped is the only completed status once Done is gone.
+		await status("qa", "QA", "started", "a2");
+		await status("shipped", "Shipped", "completed", "a1");
+		await as(owner, {
+			name: "status.delete",
+			args: { teamId: "team-eng", key: "done", moveTo: "shipped" },
+		});
+		await setStatus(workspace, as, "issue-2", "qa");
+
+		await deliver("pull_request", pullRequest("opened", { body: "Fixes ENG-2" }));
+		// In Review is behind QA, so ENG-2 stays.
+		expect(await statuses(workspace)).toMatchObject({ "issue-1": "in_review", "issue-2": "qa" });
+
+		await deliver(
+			"pull_request",
+			pullRequest("closed", {
+				body: "Fixes ENG-2",
+				state: "closed",
+				merged_at: "2026-10-31T09:00:00Z",
+			}),
+		);
+		expect(await statuses(workspace)).toMatchObject({ "issue-1": "shipped", "issue-2": "shipped" });
+
+		// Without an In Review, an open pull request takes issues to the first started status.
+		await as(owner, {
+			name: "status.delete",
+			args: { teamId: "team-eng", key: "in_review", moveTo: "qa" },
+		});
+		await deliver(
+			"pull_request",
+			pullRequest("opened", { id: 9002, number: 8, branch: "eng-3-docs" }),
+		);
+		expect((await statuses(workspace))["issue-3"]).toBe("in_progress");
 	});
 
 	it("leave linked issues alone on an edit, and move only those it newly links", async () => {

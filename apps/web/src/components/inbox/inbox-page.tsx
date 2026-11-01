@@ -18,7 +18,7 @@ import {
 	Mail,
 } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { PRIORITY_META, STATUS_META } from "#/components/issues/meta";
+import { PRIORITY_META } from "#/components/issues/meta";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { Button } from "#/components/ui/button";
 import {
@@ -49,8 +49,10 @@ import {
 	useLabelsById,
 	useMembersById,
 	useProjectsById,
+	useStatuses,
 	useTeamsById,
 } from "#/lib/queries";
+import { statusOf } from "#/lib/statuses";
 import { cn } from "#/lib/utils";
 import { useInboxClock } from "./hooks";
 
@@ -357,6 +359,9 @@ function EventText({ event, issue }: { event: InboxEvent; issue: Issue }) {
 	const members = useMembersById();
 	const labels = useLabelsById();
 	const projects = useProjectsById();
+	const statuses = useStatuses();
+	const statusName = (key: string) =>
+		statusOf(statuses, { teamId: issue.teamId, status: key }).name;
 	const comment = useCommentBody(
 		event.type === "comment" || event.type === "mention" ? event.commentId : null,
 	);
@@ -378,11 +383,11 @@ function EventText({ event, issue }: { event: InboxEvent; issue: Issue }) {
 		case "status":
 			return (
 				<>
-					moved it from {STATUS_META[event.from].label} to {STATUS_META[event.to].label}
+					moved it from {statusName(event.from)} to {statusName(event.to)}
 				</>
 			);
 		case "proposal":
-			return <>proposes {proposalText(event.change, name, labels, projects)}</>;
+			return <>proposes {proposalText(event.change, name, statusName, labels, projects)}</>;
 		case "mention":
 			if (event.commentId === null) return <>mentioned you in the description</>;
 			return comment === null ? (
@@ -406,12 +411,13 @@ function EventText({ event, issue }: { event: InboxEvent; issue: Issue }) {
 function proposalText(
 	change: Extract<InboxEvent, { type: "proposal" }>["change"],
 	name: (id: string | null) => string,
+	statusName: (key: string) => string,
 	labels: ReadonlyMap<string, { name: string }>,
 	projects: ReadonlyMap<string, { name: string }>,
 ): string {
 	switch (change.type) {
 		case "status":
-			return `moving it to ${STATUS_META[change.to].label}`;
+			return `moving it to ${statusName(change.to)}`;
 		case "priority":
 			return change.to === 0
 				? "removing the priority"

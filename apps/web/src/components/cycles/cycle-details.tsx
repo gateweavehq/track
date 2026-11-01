@@ -11,7 +11,7 @@ import { TextField } from "#/components/text-field";
 import { burnUp, cycleName, cycleProgress, stateIn, teamZone } from "#/lib/cycles";
 import { send } from "#/lib/mutations";
 import { progressPercent } from "#/lib/projects";
-import { useActivitiesById, useCycleIssues, useIssuesById } from "#/lib/queries";
+import { useActivitiesById, useCycleIssues, useIssuesById, useStatuses } from "#/lib/queries";
 import { BurnUpChart } from "./burn-up-chart";
 import { CYCLE_STATE_LABEL, CycleIcon, cycleDates } from "./meta";
 
@@ -24,15 +24,16 @@ export function CycleDetails({ cycle, team }: { cycle: Cycle; team: Team }) {
 	const issues = useCycleIssues(cycle.id);
 	const allIssues = useIssuesById();
 	const activities = useActivitiesById();
+	const statuses = useStatuses();
 	const now = Date.now();
 	const state = stateIn(cycle, team, now);
 	const zone = teamZone(team);
 	const days = useMemo(
-		() => burnUp(cycle, allIssues.values(), activities.values(), zone, Date.now()),
-		[cycle, allIssues, activities, zone],
+		() => burnUp(cycle, allIssues.values(), activities.values(), zone, Date.now(), statuses),
+		[cycle, allIssues, activities, zone, statuses],
 	);
 	// A completed cycle's unfinished issues have moved on, so it is judged by its last day.
-	const live = cycleProgress(issues);
+	const live = cycleProgress(issues, statuses);
 	const final = days.at(-1);
 	const progress =
 		state === "completed" && final ? { done: final.done, total: final.scope } : live.issues;

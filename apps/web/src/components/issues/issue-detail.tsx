@@ -1,4 +1,5 @@
 import type { Issue, Team } from "@gateweave/track-protocol";
+import { isClosedCategory } from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link, useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
 import { ChevronRight, Gauge, Layers, ListTree, Pencil, Trash } from "lucide-react";
@@ -25,7 +26,14 @@ import { formatDateTime, formatRelative } from "#/lib/dates";
 import { useHotkeys } from "#/lib/hotkeys";
 import { estimateLabel, isIssueOverdue, issueKey } from "#/lib/issues";
 import { send, useUpdateIssue } from "#/lib/mutations";
-import { useCycle, useIssueById, useMembersById, useProject, useTeamsById } from "#/lib/queries";
+import {
+	useCycle,
+	useIssueById,
+	useIssueStatus,
+	useMembersById,
+	useProject,
+	useTeamsById,
+} from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import { AttachButton, useAttachFiles } from "./attach-files";
 import { DateField } from "./date-field";
@@ -34,7 +42,7 @@ import { ParentPicker } from "./issue-picker";
 import { IssueProposals } from "./issue-proposals";
 import type { IssueField } from "./issue-row";
 import { LabelChips, LabelPicker } from "./labels";
-import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
+import { PRIORITY_META, PriorityIcon, StatusIcon } from "./meta";
 import {
 	AssigneePicker,
 	CyclePicker,
@@ -53,6 +61,7 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 	const router = useRouter();
 	const canGoBack = useCanGoBack();
 	const update = useUpdateIssue();
+	const issueStatus = useIssueStatus(issue);
 	const members = useMembersById();
 	const [menu, setMenu] = useState<IssueField | null>(null);
 	const [confirmDelete, setConfirmDelete] = useState(false);
@@ -150,13 +159,14 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 				>
 					<Property label="Status">
 						<StatusPicker
+							teamId={issue.teamId}
 							value={issue.status}
 							onChange={(status) => update(issue, { status })}
 							{...menuProps("status")}
 						>
 							<PropertyButton>
-								<StatusIcon status={issue.status} />
-								{STATUS_META[issue.status].label}
+								<StatusIcon status={issueStatus} />
+								{issueStatus.name}
 							</PropertyButton>
 						</StatusPicker>
 					</Property>
@@ -274,7 +284,7 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 							label="Due date"
 							value={issue.dueDate}
 							min={issue.startDate}
-							overdue={isIssueOverdue(issue)}
+							overdue={isIssueOverdue(issue, isClosedCategory(issueStatus.category))}
 							inputRef={dueDateRef}
 							onChange={(dueDate) => update(issue, { dueDate })}
 						/>

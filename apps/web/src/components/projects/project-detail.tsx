@@ -13,7 +13,7 @@ import { isAdmin, useMyRole, useWorkspace } from "#/components/workspace/context
 import { formatDay } from "#/lib/dates";
 import { send } from "#/lib/mutations";
 import { isOverdue, progressPercent, projectProgress } from "#/lib/projects";
-import { useMembersById, useProjectIssues } from "#/lib/queries";
+import { useMembersById, useProjectIssues, useStatuses } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import { PROJECT_STATUS_META, ProjectStatusIcon } from "./meta";
 
@@ -38,7 +38,7 @@ export function ProjectDetails({ project }: { project: Project }) {
 	const update = useUpdateProject(project);
 	const members = useMembersById();
 	const lead = project.leadId ? members.get(project.leadId) : undefined;
-	const progress = projectProgress(useProjectIssues(project.id));
+	const progress = projectProgress(useProjectIssues(project.id), useStatuses());
 	const percent = progressPercent(progress);
 	const overdue = isOverdue(project);
 

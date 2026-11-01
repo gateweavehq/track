@@ -1,6 +1,5 @@
 import {
 	addDays,
-	CLOSED_STATUSES,
 	type CycleSettings,
 	cycleEnd,
 	dayIn,
@@ -15,6 +14,7 @@ import * as schema from "./db/schema";
 import { ChangeSet, type WriteResult } from "./log";
 import { MutationRejected } from "./rejected";
 import { type Db, toCycle, toIssue } from "./state";
+import { closedKeys } from "./statuses";
 import { queueDeliveries } from "./webhooks";
 
 /** A team's cycles as an admin sets them: the settings, and when the next cycle starts. */
@@ -232,7 +232,7 @@ function completeCycle(
 			and(
 				eq(schema.issues.cycleId, cycle.id),
 				isNull(schema.issues.deletedAt),
-				notInArray(schema.issues.status, [...CLOSED_STATUSES]),
+				notInArray(schema.issues.status, closedKeys(db, cycle.teamId)),
 			),
 		)
 		.all();

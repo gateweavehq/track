@@ -1,5 +1,4 @@
 import {
-	CLOSED_STATUSES,
 	type Issue,
 	type IssueRelation,
 	type RelationKind,
@@ -14,10 +13,11 @@ import { Button } from "#/components/ui/button";
 import { useWorkspace } from "#/components/workspace/context";
 import { issueKey } from "#/lib/issues";
 import { send, useUpdateIssue } from "#/lib/mutations";
-import { useIssueRelations, useIssuesById, useTeamsById } from "#/lib/queries";
+import { useIssueRelations, useIssuesById, useStatuses, useTeamsById } from "#/lib/queries";
 import { groupRelations, RELATION_META } from "#/lib/relations";
+import { firstOfCategory, isIssueClosed } from "#/lib/statuses";
 import { RelationPicker } from "./issue-picker";
-import { StatusIcon } from "./meta";
+import { IssueStatusIcon } from "./meta";
 
 /**
  * How an issue relates to others: what blocks it, what it blocks, duplicates and related issues,
@@ -34,6 +34,9 @@ export function Relations({ issue }: { issue: Issue }) {
 		() => groupRelations(relations, issue.id, issues),
 		[relations, issue.id, issues],
 	);
+	const statuses = useStatuses();
+	// A duplicate closes as canceled, in the first such status of its team.
+	const canceled = firstOfCategory(statuses, issue.teamId, "canceled");
 	const duplicate = groups.some((group) => group.kind === "duplicate_of");
 
 	function relate(kind: RelationKind, otherId: string) {
@@ -74,12 +77,12 @@ export function Relations({ issue }: { issue: Issue }) {
 				<h2 id="relations-heading" className="text-sm font-medium">
 					Relations
 				</h2>
-				{duplicate && !CLOSED_STATUSES.includes(issue.status) && (
+				{duplicate && canceled && !isIssueClosed(statuses, issue) && (
 					<Button
 						variant="outline"
 						size="sm"
 						className="h-7"
-						onClick={() => update(issue, { status: "canceled" })}
+						onClick={() => update(issue, { status: canceled.key })}
 					>
 						Close as duplicate
 					</Button>
@@ -123,7 +126,7 @@ function RelationRow({ issue, onRemove }: { issue: Issue; onRemove: () => void }
 
 	return (
 		<li className="relative flex h-9 items-center gap-2 px-2 text-sm hover:bg-accent/40">
-			<StatusIcon status={issue.status} />
+			<IssueStatusIcon issue={issue} />
 			<span aria-hidden className="w-16 shrink-0 font-mono text-xs text-muted-foreground">
 				{key}
 			</span>

@@ -1,14 +1,21 @@
-import type { Label, Proposal } from "@gateweave/track-protocol";
+import type { Label, Proposal, WorkflowStatus } from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { type KeyboardEvent, type ReactNode, useId } from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { Button } from "#/components/ui/button";
 import { formatDateTime, formatRelative } from "#/lib/dates";
 import { send } from "#/lib/mutations";
-import { useLabelsById, useMembersById, useProjectsById } from "#/lib/queries";
+import {
+	useIssueById,
+	useLabelsById,
+	useMembersById,
+	useProjectsById,
+	useStatuses,
+} from "#/lib/queries";
+import { statusOf } from "#/lib/statuses";
 import { cn } from "#/lib/utils";
 import { LabelChip } from "./labels";
-import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
+import { PRIORITY_META, PriorityIcon, StatusIcon } from "./meta";
 
 export type ProposalDecision = "proposal.accept" | "proposal.dismiss";
 
@@ -35,6 +42,9 @@ export function ProposalItem({
 	const members = useMembersById();
 	const labels = useLabelsById();
 	const projects = useProjectsById();
+	const statuses = useStatuses();
+	// The statuses are those of the issue's team.
+	const teamId = useIssueById(proposal.issueId)?.teamId ?? "";
 	const textId = useId();
 	const agent = members.get(proposal.agentId);
 	const name = (id: string | null) => (id ? (members.get(id)?.name ?? "someone") : "nobody");
@@ -68,6 +78,7 @@ export function ProposalItem({
 					{describe(
 						proposal.change,
 						name,
+						(key) => statusOf(statuses, { teamId, status: key }),
 						labels,
 						(id) => projects.get(id)?.name ?? "a deleted project",
 					)}
@@ -109,6 +120,7 @@ export function ProposalItem({
 function describe(
 	change: Proposal["change"],
 	name: (id: string | null) => string,
+	status: (key: string) => WorkflowStatus,
 	labels: ReadonlyMap<string, Label>,
 	projectName: (id: string) => string,
 ): ReactNode {
@@ -118,8 +130,8 @@ function describe(
 				<>
 					proposes moving it to{" "}
 					<span className="inline-flex items-center gap-1 align-middle font-medium">
-						<StatusIcon status={change.to} className="size-3.5" />
-						{STATUS_META[change.to].label}
+						<StatusIcon status={status(change.to)} className="size-3.5" />
+						{status(change.to).name}
 					</span>
 				</>
 			);

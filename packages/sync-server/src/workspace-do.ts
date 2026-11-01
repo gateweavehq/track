@@ -5,7 +5,6 @@ import {
 	clientMessage,
 	type GitHubConnection,
 	type HelloMessage,
-	ISSUE_STATUSES,
 	type Issue,
 	type IssueRelation,
 	isAdminRole,
@@ -21,6 +20,7 @@ import {
 	type RejectReason,
 	type ServerMessage,
 	type Snapshot,
+	statusKey,
 	type Webhook,
 	type WebhookInput,
 	type WebhookPatch,
@@ -130,7 +130,7 @@ const shortId = z.string().min(1).max(64);
 
 const issueQuery = z.object({
 	teamId: shortId.optional(),
-	statuses: z.array(z.enum(ISSUE_STATUSES)).optional(),
+	statuses: z.array(statusKey).max(100).optional(),
 	assigneeId: shortId.nullable().optional(),
 	projectId: shortId.optional(),
 	cycleIds: z.array(shortId).max(100).optional(),

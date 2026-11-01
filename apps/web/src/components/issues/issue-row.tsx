@@ -7,12 +7,13 @@ import { formatDateTime, formatShortDate } from "#/lib/dates";
 import { issueKey } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
 import type { ProjectProgress } from "#/lib/projects";
+import { useIssueStatus } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 import { BlockedMark } from "./blocked-mark";
 import { useDraggableIssue } from "./dnd";
 import { DropIndicator } from "./drop-indicator";
 import { LabelChips } from "./labels";
-import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
+import { PRIORITY_META, PriorityIcon, StatusIcon } from "./meta";
 import { AssigneePicker, PriorityPicker, StatusPicker } from "./pickers";
 import { DueDate, Estimate } from "./schedule";
 import { SubIssueCount } from "./sub-issue-count";
@@ -65,6 +66,7 @@ export const IssueRow = memo(function IssueRow({
 }: IssueRowProps) {
 	const { slug } = useWorkspace();
 	const update = useUpdateIssue();
+	const issueStatus = useIssueStatus(issue);
 	const key = issueKey(team, issue);
 	const [rowRef, drag] = useDraggableIssue<HTMLDivElement>(issue.id);
 	const menuProps = (field: IssueField) => ({
@@ -103,12 +105,13 @@ export const IssueRow = memo(function IssueRow({
 			)}
 			{properties.has("status") && (
 				<StatusPicker
+					teamId={issue.teamId}
 					value={issue.status}
 					onChange={(status) => update(issue, { status })}
 					{...menuProps("status")}
 				>
-					<RowButton label={`Status: ${STATUS_META[issue.status].label}`}>
-						<StatusIcon status={issue.status} />
+					<RowButton label={`Status: ${issueStatus.name}`}>
+						<StatusIcon status={issueStatus} />
 					</RowButton>
 				</StatusPicker>
 			)}

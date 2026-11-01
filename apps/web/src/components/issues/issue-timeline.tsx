@@ -1,14 +1,23 @@
-import type { Issue, IssueStatus, Team } from "@gateweave/track-protocol";
+import type { Issue, StatusCategory, Team } from "@gateweave/track-protocol";
+import { isClosedCategory } from "@gateweave/track-protocol";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { type PointerEvent, type ReactNode, useMemo, useRef, useState } from "react";
+import {
+	type CSSProperties,
+	type PointerEvent,
+	type ReactNode,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { Button } from "#/components/ui/button";
 import { useWorkspace } from "#/components/workspace/context";
 import { formatMonth } from "#/lib/calendar";
 import { addDays, formatShortDay, formatWeekday, today } from "#/lib/dates";
 import { isIssueOverdue, issueKey } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
-import { useTeamsById } from "#/lib/queries";
+import { useIssueStatus, useStatuses, useTeamsById } from "#/lib/queries";
+import { isIssueClosed } from "#/lib/statuses";
 import {
 	barColumns,
 	type Dates,
@@ -27,7 +36,7 @@ import {
 } from "#/lib/timeline";
 import { cn } from "#/lib/utils";
 import { useWide } from "./issue-calendar";
-import { StatusIcon } from "./meta";
+import { IssueStatusIcon } from "./meta";
 
 /** Width of a day's column, and of the sticky column of issue labels, in pixels. */
 const DAY_WIDTH = 36;
@@ -40,30 +49,34 @@ interface BarTone {
 	border: string;
 }
 
-/** A bar takes the color of its status, as the status icon does; overdue ones are red. */
-const BAR_TONES: Record<IssueStatus, BarTone> = {
-	backlog: {
-		fill: "bg-muted",
-		fade: "from-muted-foreground/20",
-		border: "border-muted-foreground/30",
+/**
+ * A bar takes the color of its status, as the status icon does: the status's own color, or the
+ * theme's for a status without one. Overdue bars are red.
+ */
+const COLORED_TONE: BarTone = {
+	fill: "bg-(--status-color)/15",
+	fade: "from-(--status-color)/25",
+	border: "border-(--status-color)/50",
+};
+const MUTED_TONE: BarTone = {
+	fill: "bg-muted",
+	fade: "from-muted-foreground/20",
+	border: "border-muted-foreground/30",
+};
+const NEUTRAL_TONES: Record<StatusCategory, BarTone> = {
+	backlog: MUTED_TONE,
+	unstarted: {
+		fill: "bg-foreground/5",
+		fade: "from-foreground/15",
+		border: "border-foreground/25",
 	},
-	todo: { fill: "bg-foreground/5", fade: "from-foreground/15", border: "border-foreground/25" },
-	in_progress: {
-		fill: "bg-amber-500/15",
-		fade: "from-amber-500/25",
-		border: "border-amber-500/50",
+	started: { fill: "bg-foreground/5", fade: "from-foreground/15", border: "border-foreground/25" },
+	completed: {
+		fill: "bg-foreground/5",
+		fade: "from-foreground/15",
+		border: "border-foreground/25",
 	},
-	in_review: {
-		fill: "bg-emerald-500/15",
-		fade: "from-emerald-500/25",
-		border: "border-emerald-500/50",
-	},
-	done: { fill: "bg-indigo-500/10", fade: "from-indigo-500/20", border: "border-indigo-500/40" },
-	canceled: {
-		fill: "bg-muted",
-		fade: "from-muted-foreground/15",
-		border: "border-muted-foreground/25",
-	},
+	canceled: MUTED_TONE,
 };
 const OVERDUE_TONE: BarTone = {
 	fill: "bg-destructive/15",
@@ -278,7 +291,7 @@ function ChartRow({
 					title={issue.title}
 					className="flex h-full min-w-0 items-center gap-1.5 px-3 text-xs outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
 				>
-					<StatusIcon status={issue.status} className="size-3.5 shrink-0" />
+					<IssueStatusIcon issue={issue} className="size-3.5 shrink-0" />
 					<span className="shrink-0 font-mono tabular-nums opacity-70">{key}</span>
 					<span className="truncate">{issue.title}</span>
 				</Link>
@@ -312,6 +325,8 @@ interface Drag {
 function Bar({ issue, issueLabel, start }: { issue: Issue; issueLabel: string; start: string }) {
 	const { slug } = useWorkspace();
 	const update = useUpdateIssue();
+	const status = useIssueStatus(issue);
+	const closed = isClosedCategory(status.category);
 	const [drag, setDrag] = useState<Drag | null>(null);
 	// The press that may become a drag: where it began, and what it grabbed.
 	const press = useRef<{ x: number; mode: DragMode; moved: boolean } | null>(null);
@@ -324,7 +339,7 @@ function Bar({ issue, issueLabel, start }: { issue: Issue; issueLabel: string; s
 	if (!span || !columns) return null;
 
 	const openEnded = dates.startDate === null || dates.dueDate === null;
-	const overdue = isIssueOverdue({ dueDate: dates.dueDate, status: issue.status });
+	const overdue = isIssueOverdue(dates, closed);
 	const label = `${issueLabel}, ${describeDates(dates)}${overdue ? ", overdue" : ""}`;
 
 	function begin(event: PointerEvent<HTMLDivElement>) {
@@ -370,7 +385,11 @@ function Bar({ issue, issueLabel, start }: { issue: Issue; issueLabel: string; s
 	}
 
 	const { first, last, cutStart, cutEnd } = columns;
-	const tone = overdue ? OVERDUE_TONE : BAR_TONES[issue.status];
+	const tone = overdue
+		? OVERDUE_TONE
+		: status.color === null
+			? NEUTRAL_TONES[status.category]
+			: COLORED_TONE;
 	return (
 		// The pointer handlers are an extra for mouse and touch: keyboard and screen reader users
 		// reach the issue through the link inside, and change its dates on the issue page.
@@ -404,6 +423,9 @@ function Bar({ issue, issueLabel, start }: { issue: Issue; issueLabel: string; s
 				draggable={false}
 				aria-label={label}
 				title={overdue ? `Overdue: ${issue.title}` : issue.title}
+				style={
+					status.color === null ? undefined : ({ "--status-color": status.color } as CSSProperties)
+				}
 				className={cn(
 					"flex h-full min-w-0 items-center gap-1 overflow-hidden rounded border px-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring",
 					tone.border,
@@ -422,7 +444,7 @@ function Bar({ issue, issueLabel, start }: { issue: Issue; issueLabel: string; s
 					cutEnd && "rounded-r-none border-r-0",
 				)}
 			>
-				<StatusIcon status={issue.status} className="size-3.5 shrink-0" />
+				<IssueStatusIcon issue={issue} className="size-3.5 shrink-0" />
 				{/* A day is too narrow for any of the title; the icon and the tooltip say enough. */}
 				{last > first && <span className="truncate">{issue.title}</span>}
 			</Link>
@@ -455,6 +477,7 @@ function Bar({ issue, issueLabel, start }: { issue: Issue; issueLabel: string; s
 /** On a phone: the dated issues by start date, each with its dates. */
 function PhoneList({ rows, teams }: { rows: TimelineRow[]; teams: Teams }) {
 	const { slug } = useWorkspace();
+	const statuses = useStatuses();
 	if (rows.length === 0) {
 		return <p className="py-8 text-center text-sm text-muted-foreground">No issues have dates.</p>;
 	}
@@ -462,7 +485,7 @@ function PhoneList({ rows, teams }: { rows: TimelineRow[]; teams: Teams }) {
 		<ul className="flex flex-col gap-0.5">
 			{rows.map(({ issue }) => {
 				const key = issueKey(teams.get(issue.teamId), issue);
-				const overdue = isIssueOverdue(issue);
+				const overdue = isIssueOverdue(issue, isIssueClosed(statuses, issue));
 				return (
 					<li key={issue.id}>
 						<Link
@@ -474,7 +497,7 @@ function PhoneList({ rows, teams }: { rows: TimelineRow[]; teams: Teams }) {
 							)}
 						>
 							<span className="flex min-w-0 items-center gap-1.5">
-								<StatusIcon status={issue.status} className="size-3.5 shrink-0" />
+								<IssueStatusIcon issue={issue} className="size-3.5 shrink-0" />
 								<span className="shrink-0 font-mono tabular-nums opacity-70">
 									<span className="sr-only">{overdue ? "Overdue. " : ""}</span>
 									{key}

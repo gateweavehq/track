@@ -40,6 +40,14 @@ import {
 	toTeam,
 	toView,
 } from "./state";
+import {
+	assertStatus,
+	createStatus,
+	defaultStatusKey,
+	deleteStatus,
+	seedStatuses,
+	updateStatus,
+} from "./statuses";
 import { queueDeliveries } from "./webhooks";
 
 export interface Actor {
@@ -77,6 +85,18 @@ export function applyMutation(
 			break;
 		case "team.update":
 			updateTeam(db, changes, actor, mutation.args);
+			break;
+		case "status.create":
+			requireAdmin(actor, "Only workspace admins can manage statuses");
+			createStatus(db, changes, mutation.args);
+			break;
+		case "status.update":
+			requireAdmin(actor, "Only workspace admins can manage statuses");
+			updateStatus(db, changes, mutation.args);
+			break;
+		case "status.delete":
+			requireAdmin(actor, "Only workspace admins can manage statuses");
+			deleteStatus(db, changes, actor.member.userId, mutation.args);
 			break;
 		case "issue.create":
 			createIssue(db, changes, actor, mutation.args);
@@ -187,6 +207,7 @@ function createTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 	};
 	db.insert(schema.teams).values(row).run();
 	changes.put("team", toTeam(row));
+	seedStatuses(db, changes, row.id);
 }
 
 function updateTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"team.update">) {
@@ -216,6 +237,9 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		throw new MutationRejected("invalid", "Issue id already exists");
 	}
 	const createdAt = importedTime(actor, changes, args.createdAt);
+	const first = defaultStatusKey(db, team.id);
+	const requestedStatus = args.status ?? first;
+	assertStatus(db, team.id, requestedStatus);
 	assertAssignable(db, args.assigneeId);
 	assertProjectLive(db, args.projectId);
 	assertCycle(db, team.id, args.cycleId);
@@ -228,14 +252,14 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 	// What an agent proposes, the issue is made without; the proposals go on it once it exists.
 	const held: ProposedChange[] = [];
 	const hold = (change: ProposedChange) => {
-		if (!proposesChange(actor.member, change)) return false;
+		if (!proposesChange(db, actor.member, change, team.id)) return false;
 		held.push(change);
 		return true;
 	};
 	const status =
-		args.status !== "backlog" && hold({ type: "status", to: args.status })
-			? "backlog"
-			: args.status;
+		requestedStatus !== first && hold({ type: "status", to: requestedStatus })
+			? first
+			: requestedStatus;
 	const priority =
 		args.priority !== 0 && hold({ type: "priority", to: args.priority }) ? 0 : args.priority;
 	const assigneeId =
@@ -296,11 +320,12 @@ function updateIssue(
 		assertCycle(db, issue.teamId, args.patch.cycleId);
 	}
 	if (args.patch.parentId !== undefined) assertParent(db, issue.id, args.patch.parentId);
+	if (args.patch.status !== undefined) assertStatus(db, issue.teamId, args.patch.status);
 
 	const patch: IssuePatch = {};
 	for (const [field, value] of Object.entries(args.patch) as [keyof IssuePatch, never][]) {
 		const change = proposedChange(field, value);
-		if (change && proposesChange(actor.member, change)) {
+		if (change && proposesChange(db, actor.member, change, issue.teamId)) {
 			propose(db, changes, issue, actor.member.userId, change);
 		} else {
 			patch[field] = value;
@@ -492,7 +517,7 @@ function addLabel(
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
 	if (!findLiveLabel(db, args.labelId)) throw new MutationRejected("not_found", "Label not found");
 	const change: ProposedChange = { type: "label", labelId: args.labelId, added: true };
-	if (proposesChange(actor.member, change)) {
+	if (proposesChange(db, actor.member, change, issue.teamId)) {
 		propose(db, changes, issue, actor.member.userId, change);
 		return;
 	}
@@ -517,7 +542,7 @@ function removeLabel(
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
 	const change: ProposedChange = { type: "label", labelId: args.labelId, added: false };
-	if (proposesChange(actor.member, change)) {
+	if (proposesChange(db, actor.member, change, issue.teamId)) {
 		propose(db, changes, issue, actor.member.userId, change);
 		return;
 	}

@@ -127,6 +127,20 @@
       "when": 1793440467709,
       "tag": "0017_due_reminders",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1793498423777,
+      "tag": "0018_ambiguous_maggott",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1793498436332,
+      "tag": "0019_default_statuses",
+      "breakpoints": true
     }
   ]
 }
