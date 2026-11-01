@@ -83,6 +83,7 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   - Sub-issues and relations (blocks, duplicate of, related).
   - Start dates, due dates and estimates.
   - Saved views, and table, calendar and timeline layouts.
+  - Bulk edit: pick several issues in a list and change or delete them at once.
 - Email for unread inbox items, and notification settings per person: shipped in v0.11.0.
 - @-mentions in descriptions and comments, and due-date reminders for assignees: shipped in
   v0.12.0.
