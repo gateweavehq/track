@@ -64,6 +64,7 @@ const snapshot: Snapshot = {
 	activities: [],
 	proposals: [],
 	relations: [],
+	projectUpdates: [],
 	views: [],
 	templates: [],
 	members: [],
@@ -250,6 +251,100 @@ describe("Replica", () => {
 
 		r.addPending(pending("m6", { name: "relation.delete", args: { id: "m3" } }));
 		expect(r.getState().relations.size).toBe(0);
+	});
+
+	it("predicts project updates, only the author's edits, and replays them over the server's", () => {
+		const launch: Project = {
+			id: "p1",
+			name: "Launch",
+			description: null,
+			status: "started",
+			leadId: null,
+			targetDate: null,
+			createdAt: 1,
+			updatedAt: 1,
+		};
+		const byBob = {
+			id: "u0",
+			projectId: "p1",
+			authorId: "bob",
+			health: "on_track" as const,
+			body: "Fine",
+			createdAt: 1,
+			updatedAt: 1,
+		};
+		const r = new Replica("alice");
+		r.reset({ ...snapshot, projects: [launch], projectUpdates: [byBob] });
+		const post = pending("m1", {
+			name: "projectUpdate.create",
+			args: { id: "u1", projectId: "p1", health: "at_risk", body: "Blocked on review" },
+		});
+		r.addPending(
+			post,
+			pending("m2", {
+				name: "projectUpdate.update",
+				args: { id: "u1", patch: { health: "off_track" } },
+			}),
+			// Bob's update is not Alice's to edit, and she is not an admin to delete it.
+			pending("m3", { name: "projectUpdate.update", args: { id: "u0", patch: { body: "Mine" } } }),
+			pending("m4", { name: "projectUpdate.delete", args: { id: "u0" } }),
+			// No such project.
+			pending("m5", {
+				name: "projectUpdate.create",
+				args: { id: "u2", projectId: "p9", health: "on_track", body: "Hello" },
+			}),
+		);
+		expect([...r.getState().projectUpdates.values()]).toEqual([
+			byBob,
+			{
+				id: "u1",
+				projectId: "p1",
+				authorId: "alice",
+				health: "off_track",
+				body: "Blocked on review",
+				createdAt: 100,
+				updatedAt: 100,
+			},
+		]);
+
+		// The server's row arrives before the ack: the create is skipped, the edit replayed.
+		const confirmed = {
+			...byBob,
+			id: "u1",
+			authorId: "alice",
+			health: "at_risk" as const,
+			body: "Blocked on review",
+			createdAt: 3,
+			updatedAt: 3,
+		};
+		expect(
+			applyOps(r, [{ version: 3, entity: "projectUpdate", id: "u1", op: "put", data: confirmed }]),
+		).toBe(true);
+		expect(r.getState().projectUpdates.get("u1")).toMatchObject({
+			health: "off_track",
+			createdAt: 3,
+		});
+
+		// An admin deletes a project, and its updates go with it.
+		const admin = new Replica("olivia");
+		admin.reset({
+			...snapshot,
+			projects: [launch],
+			projectUpdates: [byBob],
+			members: [
+				{
+					id: "olivia",
+					name: "Olivia",
+					email: "olivia@example.com",
+					image: null,
+					role: "owner",
+					proposes: [],
+					removedAt: null,
+				},
+			],
+		});
+		admin.addPending(pending("m6", { name: "project.delete", args: { id: "p1" } }));
+		expect(admin.getState().projectUpdates.size).toBe(0);
 	});
 
 	it("predicts saved views, and replays them over the server's result", () => {

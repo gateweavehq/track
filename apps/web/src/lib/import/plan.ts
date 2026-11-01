@@ -14,7 +14,9 @@ import {
 	type MutationInput,
 	mutationSchema,
 	type Project,
+	type ProjectHealth,
 	type ProjectStatus,
+	type ProjectUpdate,
 	type RelationType,
 	type StatusCategory,
 	statusId,
@@ -114,6 +116,17 @@ export interface ImportedProject {
 	status: ProjectStatus;
 	lead: ImportedPerson | null;
 	targetDate: string | null;
+	/** How it went, oldest first, where the source keeps that (a Track export). */
+	updates?: ImportedProjectUpdate[];
+}
+
+/** A post on how a project was going. It becomes the importer's, so the text says who wrote it. */
+export interface ImportedProjectUpdate {
+	sourceId: string;
+	health: ProjectHealth;
+	body: string;
+	author: string | null;
+	createdAt: number | null;
 }
 
 export interface ImportedRelation {
@@ -145,6 +158,8 @@ export interface ImportTarget {
 	issues: ReadonlyMap<string, Issue>;
 	comments: ReadonlyMap<string, Comment>;
 	relations: ReadonlyMap<string, IssueRelation>;
+	/** Updates an earlier run brought in are skipped. */
+	projectUpdates?: ReadonlyMap<string, ProjectUpdate>;
 	teams: Iterable<Team>;
 	statuses: Iterable<WorkflowStatus>;
 	labels: Iterable<Label>;
@@ -157,6 +172,7 @@ export function importTargetFrom(state: SyncState): ImportTarget {
 		issues: state.issues,
 		comments: state.comments,
 		relations: state.relations,
+		projectUpdates: state.projectUpdates,
 		teams: state.teams.values(),
 		statuses: state.statuses.values(),
 		labels: state.labels.values(),
@@ -174,7 +190,9 @@ export interface ImportPlan {
 	issues: number;
 	comments: number;
 	relations: number;
-	/** Issues, comments and relations an earlier run imported. */
+	/** Updates of the projects the import brings issues into or matches. */
+	projectUpdates: number;
+	/** Issues, comments, relations and project updates an earlier run imported. */
 	skipped: number;
 	newTeams: string[];
 	/** Statuses added to teams, as `Name (KEY)`, the key being the team's. */
@@ -434,6 +452,37 @@ export async function planImport(
 			comments++;
 		}
 	}
+	// The updates of the projects this import's issues are in, once those projects exist. A
+	// project no imported issue names is not brought in, so neither are its updates.
+	let projectUpdates = 0;
+	for (const about of source.projects ?? []) {
+		if (!about.updates?.length) continue;
+		const folded = about.name.trim().toLowerCase();
+		const id =
+			projectIds.get(folded) ??
+			projects.find((project) => project.name.toLowerCase() === folded)?.id;
+		if (!id) continue;
+		for (const update of [...about.updates].sort(byCreation)) {
+			const updateId = await importId(update.sourceId);
+			if (target.projectUpdates?.has(updateId)) {
+				skipped++;
+				continue;
+			}
+			const body = commentText(update, source.name);
+			if (!body) continue;
+			mutations.push({
+				name: "projectUpdate.create",
+				args: {
+					id: updateId,
+					projectId: id,
+					health: update.health,
+					body,
+					...(update.createdAt !== null && { createdAt: update.createdAt }),
+				},
+			});
+			projectUpdates++;
+		}
+	}
 	// Last, so both issues of each exist.
 	for (const relation of source.relations ?? []) {
 		const issueId = ids.get(relation.issueSourceId);
@@ -455,6 +504,7 @@ export async function planImport(
 		issues,
 		comments,
 		relations,
+		projectUpdates,
 		skipped,
 		newTeams,
 		newStatuses,
@@ -516,7 +566,10 @@ function describe(issue: ImportedIssue, sourceName: string, unmatched: string | 
 	return description ? description.slice(0, 100_000) : null;
 }
 
-function commentText(comment: ImportedComment, sourceName: string): string {
+function commentText(
+	comment: Pick<ImportedComment, "body" | "author">,
+	sourceName: string,
+): string {
 	const body = comment.body.trim();
 	if (!body) return "";
 	const byline = comment.author ? `_${comment.author} wrote in ${sourceName}:_\n\n` : "";

@@ -1,6 +1,7 @@
 import {
 	DEFAULT_STATUSES,
 	ISSUE_PRIORITIES,
+	PROJECT_HEALTHS,
 	PROJECT_STATUSES,
 	RELATION_TYPES,
 	STATUS_CATEGORIES,
@@ -54,6 +55,23 @@ const exportFile = z.object({
 			targetDate: z.string().nullable().catch(null),
 		}),
 	),
+	// Exports made before project updates have none. One with a health this version does not
+	// know is left out rather than guessed.
+	projectUpdates: z
+		.array(
+			z
+				.object({
+					id: ref,
+					projectId: ref,
+					authorId: z.string(),
+					health: z.enum(PROJECT_HEALTHS),
+					body: z.string(),
+					createdAt: z.number().nullable().catch(null),
+				})
+				.nullable()
+				.catch(null),
+		)
+		.catch([]),
 	issues: z.array(
 		z.object({
 			id: ref,
@@ -211,6 +229,19 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 				status: project.status,
 				lead: person(project.leadId),
 				targetDate: project.targetDate,
+				updates: file.projectUpdates.flatMap((update) =>
+					update && update.projectId === project.id
+						? [
+								{
+									sourceId: sourceId(update.id),
+									health: update.health,
+									body: update.body,
+									author: members.get(update.authorId)?.name ?? null,
+									createdAt: update.createdAt,
+								},
+							]
+						: [],
+				),
 			})),
 			relations: file.relations
 				.filter(
