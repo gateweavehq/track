@@ -34,9 +34,15 @@ export async function reserveFileStorage(
 	const stub = workspaceStub(workspaceId);
 	if (limit === undefined) {
 		if (!forgotten.has(workspaceId)) {
-			await stub.forgetFileStorage();
-			if (forgotten.size >= MAX_FORGOTTEN) forgotten.clear();
-			forgotten.add(workspaceId);
+			// Without a quota an upload never depended on the object, so a failure here must not
+			// refuse it: the count is dropped on a later upload instead.
+			try {
+				await stub.forgetFileStorage();
+				if (forgotten.size >= MAX_FORGOTTEN) forgotten.clear();
+				forgotten.add(workspaceId);
+			} catch (error) {
+				console.warn("files: could not drop the workspace's stored-bytes count", error);
+			}
 		}
 		return true;
 	}
