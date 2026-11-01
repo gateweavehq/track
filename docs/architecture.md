@@ -654,6 +654,12 @@ Durable Object nothing and works offline.
 - **Requests still in intake are left out** of every count: nobody has taken them on yet. Once
   accepted, a request counts from when it was filed.
 
+Each project has one too (`/$workspace/project/$projectId/insights`), linked from the project
+page, with the same numbers over the issues in it now, from any team, each issue's history read
+with its own team's statuses. An issue moved out of the project takes its history with it. Open
+issues are counted by team instead of by status, since each team has its own. A project has no
+time zone, so its weeks are the viewer's.
+
 ### Projects
 
 A project groups issues from any team toward a goal. It has a name, a description, a status
