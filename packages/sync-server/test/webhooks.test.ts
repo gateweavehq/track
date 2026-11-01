@@ -11,7 +11,7 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { Webhook as Verifier } from "standardwebhooks";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MemberProfile, WebhookResult, WorkspaceLink } from "../src";
 import { advanceCycles } from "../src/cycles";
 import * as schema from "../src/db/schema";
@@ -35,7 +35,19 @@ const triage: MemberProfile = {
 };
 
 const link: WorkspaceLink = { id: "ws-acme", slug: "acme", origin: "https://track.test" };
-const HOOK_URL = "https://hooks.test/track";
+/**
+ * Each test's receivers live under a path of their own. A workspace from an earlier test can
+ * still send a retry from its alarm after that test ends; the receiver then answers it without
+ * recording it, so no test sees a delivery it did not cause.
+ */
+let run = 0;
+const hookUrl = (name = "track") => `https://hooks.test/run-${run}/${name}`;
+let HOOK_URL = hookUrl();
+
+beforeEach(() => {
+	run += 1;
+	HOOK_URL = hookUrl();
+});
 
 interface Received {
 	url: string;
@@ -56,6 +68,7 @@ function receiver(status: (count: number) => number = () => 204): Received[] {
 	vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
 		const request = new Request(input, init);
 		await new Promise((resolve) => setTimeout(resolve, 20));
+		if (!request.url.startsWith(hookUrl(""))) return new Response(null, { status: 204 });
 		received.push({
 			url: request.url,
 			headers: Object.fromEntries(request.headers),
@@ -616,7 +629,7 @@ describe("delivery", () => {
 		] as const;
 		await createHook(workspace, { events: [...events] });
 		await createHook(workspace, {
-			url: "https://hooks.test/eng",
+			url: hookUrl("eng"),
 			events: [...events],
 			teamId: "team-eng",
 		});
@@ -650,6 +663,23 @@ describe("delivery", () => {
 			{ type: "project_update.updated", data: { update: { health: "on_track" } } },
 			{ type: "project_update.deleted", data: { update: { id: "update-1" } } },
 		]);
+	});
+
+	it("records only the deliveries of the test that is running", async () => {
+		// A webhook left over from an earlier test, whose retry its alarm still sends.
+		const earlier = await workspaceWithTeams();
+		await createHook(earlier, { url: `https://hooks.test/run-${run - 1}/track` });
+		const received = receiver();
+		await createIssue(earlier, owner, "earlier-1");
+		await deliver(earlier);
+		expect(received).toEqual([]);
+		expect(await deliveries(earlier)).toMatchObject([{ status: "delivered" }]);
+
+		const workspace = await workspaceWithTeams();
+		await createHook(workspace);
+		await createIssue(workspace, owner, "issue-1");
+		await deliver(workspace);
+		expect(received.map(payloadOf)).toMatchObject([{ type: "issue.created" }]);
 	});
 
 	it("retries a failed delivery with backoff, then gives up", async () => {
@@ -750,7 +780,7 @@ describe("filters", () => {
 		const workspace = await workspaceWithTeams();
 		await workspace.syncMember(triage);
 		const forTriage = await createHook(workspace, { agentId: triage.id });
-		const forEveryone = await createHook(workspace, { url: "https://other.test/track" });
+		const forEveryone = await createHook(workspace, { url: hookUrl("everyone") });
 
 		await createIssue(workspace, triage, "by-agent");
 		await createIssue(workspace, alice, "by-person");
@@ -816,7 +846,8 @@ describe("proposals", () => {
 		"proposal.accepted",
 		"proposal.dismissed",
 	];
-	const OTHER_URL = "https://other.test/track";
+	// A function, as each test's receivers live under a path of their own.
+	const otherUrl = () => hookUrl("other");
 
 	/** A workspace whose triage agent only proposes status and priority changes. */
 	async function proposingWorkspace() {
@@ -988,7 +1019,7 @@ describe("proposals", () => {
 	it("says nothing of open proposals when their issue is deleted", async () => {
 		const received = receiver();
 		const workspace = await proposingWorkspace();
-		await createHook(workspace, { events: [...PROPOSAL_EVENTS, "issue.deleted"], url: OTHER_URL });
+		await createHook(workspace, { events: [...PROPOSAL_EVENTS, "issue.deleted"], url: otherUrl() });
 
 		await propose(workspace, "issue-1", { status: "done" });
 		await mutate(workspace, owner, { name: "issue.delete", args: { id: "issue-1" } });
