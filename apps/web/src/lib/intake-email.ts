@@ -48,12 +48,15 @@ export function isAutomated(headers: Headers): boolean {
 }
 
 /**
- * A request from an email: its subject as the title, its text as the description, and who sent
- * it at the end, with a note of attachments, which are not kept.
+ * A request from an email: its subject as the title, its text as the description, the links to
+ * the attachments that were kept, and who sent it at the end, with a note of the attachments that
+ * were not.
  */
 export function requestFromEmail(
 	email: Pick<Email, "subject" | "text" | "html" | "attachments">,
 	sender: string,
+	/** The Markdown links to the attachments kept, in the email's order. */
+	kept: string[] = [],
 ): { title: string; description: string } {
 	const subject = (email.subject ?? "").replace(/\s+/g, " ").trim();
 	const title = (subject || `Email from ${sender}`).slice(0, 512);
@@ -61,14 +64,12 @@ export function requestFromEmail(
 	text = text.trim();
 	if (text.length > MAX_EMAILED_TEXT) text = `${text.slice(0, MAX_EMAILED_TEXT)}…\n\n(Cut short.)`;
 	const notes = [`Sent by email from <${sender}>.`];
-	const attached = email.attachments.length;
-	if (attached > 0) {
-		notes.push(
-			attached === 1 ? "1 attachment was left out." : `${attached} attachments were left out.`,
-		);
+	const left = email.attachments.length - kept.length;
+	if (left > 0) {
+		notes.push(left === 1 ? "1 attachment was left out." : `${left} attachments were left out.`);
 	}
-	const footer = notes.join(" ");
-	return { title, description: text ? `${text}\n\n${footer}` : footer };
+	const parts = [text, kept.join("\n\n"), notes.join(" ")].filter((part) => part.length > 0);
+	return { title, description: parts.join("\n\n") };
 }
 
 /** The text of an HTML-only email, roughly: tags out, paragraphs kept, entities read. */

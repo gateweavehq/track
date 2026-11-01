@@ -91,6 +91,21 @@ describe("requestFromEmail", () => {
 		);
 	});
 
+	it("links the attachments kept, and counts the ones left out", () => {
+		const request = requestFromEmail(
+			{
+				subject: "Crash",
+				text: "See the screenshot.",
+				attachments: [{}, {}, {}] as never[],
+			},
+			"a@b.test",
+			["![shot.png](/api/files/ws/1/shot.png)", "[log.txt](/api/files/ws/2/log.txt)"],
+		);
+		expect(request.description).toBe(
+			"See the screenshot.\n\n![shot.png](/api/files/ws/1/shot.png)\n\n[log.txt](/api/files/ws/2/log.txt)\n\nSent by email from <a@b.test>. 1 attachment was left out.",
+		);
+	});
+
 	it("cuts a long text short", () => {
 		const request = requestFromEmail(
 			{ subject: "Long", text: "x".repeat(MAX_EMAILED_TEXT + 10), attachments: [] },

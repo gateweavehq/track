@@ -129,8 +129,8 @@ the team's intake. Teams usually forward their support address to it. To turn ad
 3. Set `INTAKE_EMAIL_DOMAIN` to that domain.
 
 Admins then turn on each team's address next to its form. Each sender can file 10 requests an
-hour and 30 a day, and each address takes at most 60 an hour and 300 a day. Attachments are not
-kept.
+hour and 30 a day, and each address takes at most 60 an hour and 300 a day. Attachments go into
+the bucket for attached files, where there is one.
 
 ### Sign in with GitHub
 
