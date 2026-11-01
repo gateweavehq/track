@@ -103,6 +103,54 @@ describe("intake email", () => {
 		});
 	});
 
+	it("keeps attachments in the bucket and links them from the request", async () => {
+		const to = await turnOn();
+		const png = Buffer.from(
+			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==",
+			"base64",
+		);
+		const raw = [
+			"From: Sam <sam@customer.test>",
+			`To: ${to}`,
+			"Subject: Crash on export",
+			`Message-ID: <${crypto.randomUUID()}@customer.test>`,
+			"Date: Sun, 01 Nov 2026 12:00:00 +0000",
+			"Content-Type: multipart/mixed; boundary=b",
+			"",
+			"--b",
+			"Content-Type: text/plain; charset=utf-8",
+			"",
+			"It crashes, see attached.",
+			"--b",
+			"Content-Type: image/png",
+			'Content-Disposition: attachment; filename="screen shot.png"',
+			"Content-Transfer-Encoding: base64",
+			"",
+			png.toString("base64"),
+			"--b",
+			"Content-Type: text/plain",
+			'Content-Disposition: attachment; filename="../crash?.log"',
+			"",
+			"TypeError at line 3",
+			"--b--",
+			"",
+		].join("\r\n");
+		expect((await track.email("sam@customer.test", to, raw)).outcome).toBe("ok");
+
+		const request = (await snapshot()).issues.find((issue) => issue.title === "Crash on export");
+		const keys = await track.fileKeys(`${workspaceId}/`);
+		expect(keys).toHaveLength(2);
+		expect(keys.map((key) => key.split("/").at(-1)).sort()).toEqual([
+			"-crash-.log",
+			"screen shot.png",
+		]);
+		expect(request?.description).toMatch(
+			new RegExp(
+				`^It crashes, see attached\\.\\n\\n!\\[screen shot\\.png\\]\\(/api/files/${workspaceId}/[0-9a-f-]{36}/screen%20shot\\.png\\)\\n\\n\\[-crash-\\.log\\]\\(/api/files/${workspaceId}/[0-9a-f-]{36}/-crash-\\.log\\)\\n\\nSent by email from <sam@customer\\.test>\\.$`,
+			),
+		);
+	});
+
 	it("refuses mail to an address that leads nowhere, and drops replies sent by machines", async () => {
 		const to = await turnOn();
 		const wrongKey = `${workspaceId}.aaaaaaaaaaaaaaaa@${INTAKE_EMAIL_DOMAIN}`;

@@ -132,7 +132,8 @@ function fileHeaders(object: R2Object, name: string): Headers {
 }
 
 /** The declared type without parameters, or a download type when it is missing or malformed. */
-function mediaType(header: string | null): string {
+/** A content type as the bucket keeps it: its media type alone, or a download when it is odd. */
+export function mediaType(header: string | null): string {
 	const type = header?.split(";")[0]?.trim().toLowerCase() ?? "";
 	return /^[a-z0-9][\w.+-]*\/[a-z0-9][\w.+-]*$/.test(type) ? type : "application/octet-stream";
 }

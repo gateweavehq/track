@@ -591,11 +591,16 @@ sends every address at the domain to the Worker's `email` handler, from one catc
   out-of-office reply to everyone who wrote would otherwise fill the intake.
 - **Limits.** Each sender files at most 10 requests an hour and 30 a day, and each team's address
   takes at most 60 an hour and 300 a day, whoever sends them, in the `RateLimiter` Durable Object.
-  Mail over 1 MiB is refused.
+  Mail over 10 MiB is refused, or over 1 MiB where there is no bucket for attached files.
 - **What is kept.** postal-mime parses the message. The subject is the title (or "Email from"
   the sender), and the plain text, or the text of an HTML-only message, the description, cut at
-  20,000 characters and signed with the sender's address. Attachments are not kept; the
-  description says how many were left out.
+  20,000 characters and signed with the sender's address. Up to 10 attachments, each within the
+  file gateway's 25 MB, go into the bucket of attached files as members' uploads do, under the
+  workspace's prefix with a name cleaned by `attachmentName`, and the description links them, as
+  images where they are. They are served as any attachment: only to members, images inline,
+  everything else as a download. The description counts the attachments left out, and all of
+  them where there is no bucket. If the request cannot be filed after all, as when the address
+  was turned off a moment before, the files are deleted.
 - **The address is the creator** (`INTAKE_EMAIL_ACTOR_ID`, `email`, shown as "Email"), with the
   same rules as the form: the team's first status, nobody's inbox, webhooks with a `system`
   actor named "Email".

@@ -1,16 +1,29 @@
 import { env } from "cloudflare:workers";
 import { sql } from "drizzle-orm";
 import { generateKeyBetween } from "fractional-indexing";
-import PostalMime from "postal-mime";
+import PostalMime, { type Attachment } from "postal-mime";
+import {
+	attachmentMarkdown,
+	attachmentName,
+	attachmentPath,
+	MAX_FILE_BYTES,
+} from "#/lib/attachments";
 import { isAutomated, parseIntakeAddress, requestFromEmail } from "#/lib/intake-email";
 import { db } from "./auth";
 import { schema } from "./db";
 import { demoEnabled } from "./demo/mode";
+import { mediaType } from "./files";
 import { limitEmailedRequests } from "./rate-limit";
 import { workspaceStub } from "./workspaces";
 
-/** The largest email read. Its text is all that is kept, and attachments are left out. */
+/** The largest email read where attachments are not kept: its text is all that is. */
 export const MAX_INTAKE_EMAIL = 1024 * 1024;
+
+/** The largest email read where attachments are kept, in the bucket of attached files. */
+export const MAX_INTAKE_EMAIL_WITH_FILES = 10 * 1024 * 1024;
+
+/** The most attachments one email keeps; the description says how many more were left out. */
+export const MAX_INTAKE_ATTACHMENTS = 10;
 
 /**
  * The domain of teams' intake addresses, or null when they take no email here: no domain routes
@@ -36,7 +49,9 @@ export async function handleIntakeEmail(message: ForwardableEmailMessage): Promi
 	if (!address) return message.setReject("No such address");
 	// A bounce or an out-of-office reply would only come back; it is dropped instead.
 	if (isAutomated(message.headers)) return;
-	if (message.rawSize > MAX_INTAKE_EMAIL) return message.setReject("The message is too large");
+	const bucket = env.FILES;
+	const max = bucket ? MAX_INTAKE_EMAIL_WITH_FILES : MAX_INTAKE_EMAIL;
+	if (message.rawSize > max) return message.setReject("The message is too large");
 
 	// Mail systems may change the case of an address, and a workspace's id has capitals.
 	const workspace = await db
@@ -56,7 +71,12 @@ export async function handleIntakeEmail(message: ForwardableEmailMessage): Promi
 
 	const email = await PostalMime.parse(message.raw, { maxPartCount: 200 });
 	const from = email.from && "address" in email.from ? email.from.address : undefined;
-	const { title, description } = requestFromEmail(email, from || sender);
+	const kept = bucket ? await keepAttachments(bucket, workspace.id, email.attachments) : [];
+	const { title, description } = requestFromEmail(
+		email,
+		from || sender,
+		kept.map((file) => file.markdown),
+	);
 	const replyTo = (from || sender).trim().toLowerCase();
 	const filed = await stub.fileRequest({
 		via: "email",
@@ -71,5 +91,40 @@ export async function handleIntakeEmail(message: ForwardableEmailMessage): Promi
 		description,
 		sortOrder: generateKeyBetween(await stub.lastSortOrder(), null),
 	});
-	if (!filed) message.setReject("No such address");
+	if (filed) return;
+	// The address was turned off a moment ago: nothing links the files, so they go too.
+	if (bucket && kept.length > 0) await bucket.delete(kept.map((file) => file.key));
+	message.setReject("No such address");
+}
+
+/**
+ * Stores an email's attachments in the bucket of attached files, as the file gateway stores what
+ * members attach, so the request links them and members open them as any other attachment. Up to
+ * MAX_INTAKE_ATTACHMENTS, each within the gateway's size limit; empty ones are skipped.
+ */
+async function keepAttachments(
+	bucket: R2Bucket,
+	workspaceId: string,
+	attachments: Attachment[],
+): Promise<{ key: string; markdown: string }[]> {
+	const kept: { key: string; markdown: string }[] = [];
+	for (const attachment of attachments) {
+		if (kept.length >= MAX_INTAKE_ATTACHMENTS) break;
+		const content = attachment.content;
+		const size = typeof content === "string" ? content.length : content.byteLength;
+		if (size === 0 || size > MAX_FILE_BYTES) continue;
+		const fileId = crypto.randomUUID();
+		const name = attachmentName(attachment.filename ?? "attachment");
+		const type = mediaType(attachment.mimeType);
+		const key = `${workspaceId}/${fileId}/${name}`;
+		await bucket.put(key, content, {
+			httpMetadata: { contentType: type },
+			customMetadata: { uploadedBy: "email" },
+		});
+		kept.push({
+			key,
+			markdown: attachmentMarkdown(name, attachmentPath(workspaceId, fileId, name), type),
+		});
+	}
+	return kept;
 }
