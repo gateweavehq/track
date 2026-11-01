@@ -8,6 +8,31 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.19.0] - 2026-11-01
+
+Admins can connect GitHub by installing a GitHub App, files can be attached while offline, and a
+deployment can cap each workspace's attached files. Updating a self-hosted copy applies a D1
+migration (`pnpm run deploy` applies it before the new code goes live) and a migration in each
+workspace's database, which runs on its own. The protocol stays at version 24. The new settings
+are optional: `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` and
+`GITHUB_APP_WEBHOOK_SECRET` turn on the GitHub App, and `ATTACHMENT_QUOTA_MB` caps attached
+files per workspace (see `docs/self-hosting.md`). ([#131], [#138], [#141])
+
+### Added
+
+- A GitHub App that admins install from Settings, GitHub, on the repositories they choose, next
+  to adding a webhook by hand. An installation connects to a workspace only once GitHub vouches
+  for it and the person controls the account it is on: an active admin of the organization, or
+  the owner of the personal account. The app needs the Organization › Members: Read permission
+  for that check. Webhooks keep working, for self-hosters without an app. ([#141])
+- Files attached while offline, or whose upload fails on the network, wait in the browser and
+  upload when the connection returns. Until then the text marks them as waiting, and images show
+  from the device's copy. A file waits for the person who attached it, even across an expired
+  session. ([#131])
+- `ATTACHMENT_QUOTA_MB` caps what each workspace keeps in attached files. Uploads past it get a
+  clear refusal, and emailed requests still come in, without the attachments that do not fit.
+  Unset, storage is unlimited, as before. ([#138], [#145])
+
 ## [0.18.0] - 2026-11-01
 
 Teams can take requests into an intake, from a public form and by email; projects have updates,
@@ -653,6 +678,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.19.0]: https://github.com/gateweavehq/track/releases/tag/v0.19.0
 [0.18.0]: https://github.com/gateweavehq/track/releases/tag/v0.18.0
 [0.17.0]: https://github.com/gateweavehq/track/releases/tag/v0.17.0
 [0.16.0]: https://github.com/gateweavehq/track/releases/tag/v0.16.0
@@ -770,3 +796,7 @@ The first pre-release.
 [#130]: https://github.com/gateweavehq/track/pull/130
 [#133]: https://github.com/gateweavehq/track/pull/133
 [#134]: https://github.com/gateweavehq/track/pull/134
+[#131]: https://github.com/gateweavehq/track/pull/131
+[#138]: https://github.com/gateweavehq/track/pull/138
+[#141]: https://github.com/gateweavehq/track/pull/141
+[#145]: https://github.com/gateweavehq/track/pull/145
