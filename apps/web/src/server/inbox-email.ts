@@ -45,6 +45,7 @@ export async function emailInboxDigest(digest: InboxDigest): Promise<void> {
 			actor: item.actor,
 			unread: item.unread,
 			comment: item.comment,
+			statusName: item.statusName,
 		})),
 		inboxUrl: `${base}/inbox`,
 		settingsUrl: `${base}/settings/notifications`,

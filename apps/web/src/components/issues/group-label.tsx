@@ -2,7 +2,7 @@ import { MemberAvatar } from "#/components/members/member-avatar";
 import { ProjectStatusIcon } from "#/components/projects/meta";
 import type { IssueGroup } from "#/lib/grouping";
 import { useMembersById, useProjectsById } from "#/lib/queries";
-import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
+import { PRIORITY_META, PriorityIcon, StatusIcon } from "./meta";
 
 /** The name of a group, as text. */
 export function useGroupName(): (group: IssueGroup) => string {
@@ -11,7 +11,7 @@ export function useGroupName(): (group: IssueGroup) => string {
 	return (group) => {
 		switch (group.by) {
 			case "status":
-				return STATUS_META[group.value].label;
+				return group.status.name;
 			case "priority":
 				return PRIORITY_META[group.value].label;
 			case "assignee":
@@ -30,7 +30,7 @@ export function GroupIcon({ group }: { group: IssueGroup }) {
 	const projects = useProjectsById();
 	switch (group.by) {
 		case "status":
-			return <StatusIcon status={group.value} />;
+			return <StatusIcon status={group.status} />;
 		case "priority":
 			return <PriorityIcon priority={group.value} />;
 		case "assignee":

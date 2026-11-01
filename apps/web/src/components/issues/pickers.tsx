@@ -1,5 +1,4 @@
 import {
-	ISSUE_STATUSES,
 	type IssuePriority,
 	type IssueStatus,
 	PROJECT_STATUSES,
@@ -23,9 +22,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover
 import { useWorkspace } from "#/components/workspace/context";
 import { cycleName, stateOf } from "#/lib/cycles";
 import { ESTIMATE_OPTIONS, estimateLabel } from "#/lib/issues";
-import { useActiveMembers, useProjectList, useTeamCycles, useTeamsById } from "#/lib/queries";
+import {
+	useActiveMembers,
+	useProjectList,
+	useTeamCycles,
+	useTeamStatuses,
+	useTeamsById,
+} from "#/lib/queries";
 import { cn } from "#/lib/utils";
-import { PRIORITY_META, PRIORITY_ORDER, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
+import { PRIORITY_META, PRIORITY_ORDER, PriorityIcon, StatusIcon } from "./meta";
 
 interface Option<V> {
 	value: V;
@@ -99,14 +104,14 @@ function OptionPicker<V extends string | number | null>({
 	);
 }
 
-const STATUS_OPTIONS: Option<IssueStatus>[] = ISSUE_STATUSES.map((status) => ({
-	value: status,
-	label: STATUS_META[status].label,
-	icon: <StatusIcon status={status} />,
-}));
-
-export function StatusPicker(props: PickerProps<IssueStatus>) {
-	return <OptionPicker {...props} options={STATUS_OPTIONS} placeholder="Change status…" />;
+/** One of a team's statuses, in the team's order. */
+export function StatusPicker({ teamId, ...props }: PickerProps<IssueStatus> & { teamId: string }) {
+	const options = useTeamStatuses(teamId).map((status) => ({
+		value: status.key,
+		label: status.name,
+		icon: <StatusIcon status={status} />,
+	}));
+	return <OptionPicker {...props} options={options} placeholder="Change status…" />;
 }
 
 const PRIORITY_OPTIONS: Option<IssuePriority>[] = PRIORITY_ORDER.map((priority) => ({

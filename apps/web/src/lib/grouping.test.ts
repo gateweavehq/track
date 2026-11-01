@@ -1,4 +1,4 @@
-import type { Issue } from "@gateweave/track-protocol";
+import { defaultStatuses, type Issue, type WorkflowStatus } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import { groupFields, groupIssues, orderIssues, planGroupMove } from "./grouping";
 import { compareIssues } from "./issues";
@@ -38,7 +38,13 @@ const lookups = {
 		["web", { name: "Website" }],
 		["api", { name: "API" }],
 	]),
+	statuses: statusMap(defaultStatuses("eng", 1)),
+	teamIds: ["eng"],
 };
+
+function statusMap(statuses: WorkflowStatus[]): Map<string, WorkflowStatus> {
+	return new Map(statuses.map((status) => [status.id, status]));
+}
 const ids = (issues: readonly Issue[]) => issues.map((i) => i.id);
 
 describe("ordering", () => {
@@ -84,6 +90,47 @@ describe("grouping", () => {
 		expect(list[0]?.issues.map((i) => i.id)).toEqual(["b"]);
 		const board = groupIssues(issues, "status", "manual", "board", lookups);
 		expect(board[0]?.value).toBe("backlog");
+	});
+
+	it("groups by the teams' own statuses, one group per key, named by the first team", () => {
+		const qa: WorkflowStatus = {
+			...defaultStatuses("eng", 1)[0],
+			id: "eng/qa",
+			key: "qa",
+			name: "QA",
+			category: "started",
+			sortOrder: "a2",
+		} as WorkflowStatus;
+		const design = defaultStatuses("des", 1).map((status) =>
+			status.key === "in_progress" ? { ...status, name: "Doing" } : status,
+		);
+		const statuses = statusMap([...design, ...defaultStatuses("eng", 1), qa]);
+		const issues = [
+			issue("a", { status: "qa" }),
+			issue("b", { teamId: "des", status: "in_progress" }),
+			issue("c", { status: "in_progress" }),
+			// A status the copy does not have yet still gets a group.
+			issue("d", { status: "fresh" }),
+		];
+		const board = groupIssues(issues, "status", "manual", "board", {
+			...lookups,
+			statuses,
+			teamIds: ["des", "eng"],
+		});
+		expect(board.map((g) => g.value)).toEqual([
+			"backlog",
+			"todo",
+			"in_progress",
+			"in_review",
+			"qa",
+			"done",
+			"canceled",
+			"fresh",
+		]);
+		const doing = board.find((g) => g.value === "in_progress");
+		expect(doing?.by === "status" && doing.status.name).toBe("Doing");
+		expect(doing && ids(doing.issues)).toEqual(["b", "c"]);
+		expect(board.at(-1)?.issues.map((i) => i.id)).toEqual(["d"]);
 	});
 
 	it("groups by priority, urgent first and no priority last, keeping empty groups", () => {

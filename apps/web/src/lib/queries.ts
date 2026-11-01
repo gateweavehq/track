@@ -14,6 +14,7 @@ import {
 	type SavedView,
 	type Subscription,
 	type Team,
+	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import type { SyncState } from "@gateweave/track-sync-client";
 import { shallowEqual, useQuery } from "@gateweave/track-sync-client/react";
@@ -23,6 +24,7 @@ import { compareLabels } from "./labels";
 import { compareProjects, type ProjectProgress, projectProgress } from "./projects";
 import { blockedIssueIds } from "./relations";
 import { compareViews, isViewVisible } from "./saved-views";
+import { type StatusMap, statusOf, teamStatuses } from "./statuses";
 
 // Selectors over the synced state. Each hook keeps its selector stable for the inputs it
 // depends on, so useQuery can skip work when unrelated parts of the state change.
@@ -47,6 +49,29 @@ export function useTeamByKey(key: string): Team | undefined {
 	);
 }
 
+const selectStatuses = (state: SyncState) => state.statuses;
+
+/** Every team's statuses by id, removed ones included. */
+export function useStatuses(): StatusMap {
+	return useQuery(selectStatuses);
+}
+
+/** A team's statuses that issues can be in, in its order. Empty without a team. */
+export function useTeamStatuses(teamId: string | undefined): WorkflowStatus[] {
+	return useQuery(
+		useCallback(
+			(state: SyncState) => (teamId === undefined ? [] : teamStatuses(state.statuses, teamId)),
+			[teamId],
+		),
+		shallowEqual,
+	);
+}
+
+/** The status an issue is in, as its team names it. */
+export function useIssueStatus(issue: Pick<Issue, "teamId" | "status">): WorkflowStatus {
+	return statusOf(useStatuses(), issue);
+}
+
 const selectIssueCounts = (state: SyncState) => {
 	const counts = new Map<string, number>();
 	for (const issue of state.issues.values()) {
@@ -64,6 +89,24 @@ function countsEqual(a: ReadonlyMap<string, number>, b: ReadonlyMap<string, numb
 /** How many issues each team has, by team id. */
 export function useIssueCountsByTeam(): ReadonlyMap<string, number> {
 	return useQuery(selectIssueCounts, countsEqual);
+}
+
+/** How many of a team's issues are in each status, by key. */
+export function useIssueCountsByStatus(teamId: string): ReadonlyMap<string, number> {
+	return useQuery(
+		useCallback(
+			(state: SyncState) => {
+				const counts = new Map<string, number>();
+				for (const issue of state.issues.values()) {
+					if (issue.teamId !== teamId) continue;
+					counts.set(issue.status, (counts.get(issue.status) ?? 0) + 1);
+				}
+				return counts;
+			},
+			[teamId],
+		),
+		countsEqual,
+	);
 }
 
 const selectProjectList = (state: SyncState) => [...state.projects.values()].sort(compareProjects);
@@ -130,7 +173,7 @@ const selectProjectSummaries = (state: SyncState): ProjectSummary[] => {
 	}
 	return [...state.projects.values()].sort(compareProjects).map((project) => {
 		const issues = grouped.get(project.id) ?? [];
-		return { project, issues: issues.length, progress: projectProgress(issues) };
+		return { project, issues: issues.length, progress: projectProgress(issues, state.statuses) };
 	});
 };
 
@@ -337,7 +380,9 @@ const selectSubIssueProgress = (state: SyncState): ReadonlyMap<string, ProjectPr
 		if (group) group.push(issue);
 		else grouped.set(issue.parentId, [issue]);
 	}
-	return new Map([...grouped].map(([parentId, issues]) => [parentId, projectProgress(issues)]));
+	return new Map(
+		[...grouped].map(([parentId, issues]) => [parentId, projectProgress(issues, state.statuses)]),
+	);
 };
 
 function progressByIdEqual(
@@ -429,7 +474,8 @@ export function useIssueRelations(issueId: string): IssueRelation[] {
 	);
 }
 
-const selectBlocked = (state: SyncState) => blockedIssueIds(state.relations.values(), state.issues);
+const selectBlocked = (state: SyncState) =>
+	blockedIssueIds(state.relations.values(), state.issues, state.statuses);
 
 function setEqual(a: ReadonlySet<string>, b: ReadonlySet<string>) {
 	if (a.size !== b.size) return false;

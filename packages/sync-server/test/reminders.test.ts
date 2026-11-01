@@ -143,10 +143,21 @@ describe("due-date reminders", () => {
 	});
 
 	it("remind again on a new due date, and never of a day gone by or of a closed issue", async () => {
-		const { workspace, issue, update } = await setup();
+		const { workspace, as, issue, update } = await setup();
+		await as(owner, {
+			name: "status.create",
+			args: {
+				teamId: TEAM_ID,
+				key: "shipped",
+				name: "Shipped",
+				category: "completed",
+				sortOrder: "a1",
+			},
+		});
 		await issue("moved");
 		await issue("missed");
 		await issue("done", { status: "done" });
+		await issue("shipped", { status: "shipped" });
 		await issue("unassigned", { assigneeId: null });
 		await issue("agent", { assigneeId: triage.id });
 
@@ -165,7 +176,7 @@ describe("due-date reminders", () => {
 		expect(await itemOf(workspace, alice, "missed")).toMatchObject({ unread: 1 });
 		expect((await itemOf(workspace, alice, "missed"))?.event).toEqual({ type: "due", on: DUE });
 
-		for (const id of ["done", "unassigned"]) {
+		for (const id of ["done", "shipped", "unassigned"]) {
 			expect(await itemOf(workspace, alice, id)).toBeUndefined();
 		}
 		expect((await workspace.snapshot(triage)).inbox).toEqual([]);

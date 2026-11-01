@@ -1,12 +1,14 @@
-import type {
-	Activity,
-	Comment,
-	Cycle,
-	Issue,
-	Label,
-	Member,
-	Project,
-	Team,
+import {
+	type Activity,
+	type Comment,
+	type Cycle,
+	defaultStatuses,
+	type Issue,
+	type Label,
+	type Member,
+	type Project,
+	type Team,
+	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import {
@@ -119,6 +121,7 @@ function source(issues: Issue[], extra: Partial<ExportSource> = {}): ExportSourc
 	return {
 		workspace: { slug: "acme", name: "Acme" },
 		teams: [ops, eng],
+		statuses: [...defaultStatuses("t2", 1), ...defaultStatuses("t1", 1)],
 		members: [ada, bot],
 		labels: [bug, ui],
 		projects: [launch],
@@ -179,6 +182,26 @@ describe("issuesToCsv", () => {
 		expect(csv.replace(/^﻿/, "").split("\r\n")[1]).toBe(
 			'ENG-7,Fix login,,Engineering,In Progress,High,bot@example.test,ada@example.test,Launch,OPS-3,"Bug, UI, web",2026-11-01,2026-11-15,5,2026-10-30T12:30:00.000Z,2026-10-30T12:30:01.000Z',
 		);
+	});
+
+	it("names an issue's status as its team does", () => {
+		const qa: WorkflowStatus = {
+			id: "t1/qa",
+			teamId: "t1",
+			key: "qa",
+			name: "Ready for QA",
+			category: "started",
+			color: null,
+			sortOrder: "a2",
+			createdAt: 1,
+			updatedAt: 1,
+			removedAt: null,
+		};
+		const statuses = [...defaultStatuses("t1", 1), qa];
+		const csv = issuesToCsv(
+			source([issue({ id: "i1", teamId: "t1", number: 1, status: "qa" })], { statuses }),
+		);
+		expect(rows(csv)[1]?.[4]).toBe("Ready for QA");
 	});
 
 	it("leaves empty fields empty", () => {
@@ -300,6 +323,11 @@ describe("workspaceToJson", () => {
 			workspace: { slug: "acme", name: "Acme" },
 		});
 		expect(doc.teams.map((team: Team) => team.key)).toEqual(["ENG", "OPS"]);
+		// By team, each in its workflow order.
+		expect(doc.statuses.map((status: WorkflowStatus) => status.id)).toEqual([
+			...defaultStatuses("t1", 1).map((status) => status.id),
+			...defaultStatuses("t2", 1).map((status) => status.id),
+		]);
 		expect(doc.members).toEqual([
 			{ id: "u1", name: "Ada", email: "ada@example.test", role: "owner" },
 			{ id: "u2", name: "Bot", email: "bot@example.test", role: "agent" },
@@ -319,6 +347,7 @@ describe("workspaceToJson", () => {
 	it("keeps every team, member, label and project but only one team's issues and their rows", () => {
 		const doc = JSON.parse(workspaceToJson(full, "t1"));
 		expect(doc.cycles.map((item: Cycle) => item.id)).toEqual(["cy1"]);
+		expect(doc.statuses.every((status: WorkflowStatus) => status.teamId === "t1")).toBe(true);
 		expect(doc.teams).toHaveLength(2);
 		expect(doc.members).toHaveLength(2);
 		expect(doc.labels).toHaveLength(2);

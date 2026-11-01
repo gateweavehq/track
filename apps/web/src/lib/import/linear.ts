@@ -1,5 +1,11 @@
-import type { IssueStatus } from "@gateweave/track-protocol";
-import type { ImportedComment, ImportedIssue, ImportSource, ReadOptions } from "./plan";
+import type { StatusCategory } from "@gateweave/track-protocol";
+import type {
+	ImportedComment,
+	ImportedIssue,
+	ImportedStatus,
+	ImportSource,
+	ReadOptions,
+} from "./plan";
 
 // Issues from a Linear team, read in the browser with Linear's GraphQL API, which allows it. A
 // personal API key reads them; it goes to Linear and nowhere else.
@@ -144,22 +150,20 @@ export async function readLinearImport(
 	return { name: "Linear", issues, labelColors };
 }
 
-/** Linear's states are the team's own, but each has one of a few types. */
-function toStatus(state: { name: string; type: string }): IssueStatus {
-	switch (state.type) {
-		case "unstarted":
-			return "todo";
-		case "started":
-			return /review/i.test(state.name) ? "in_review" : "in_progress";
-		case "completed":
-			return "done";
-		case "canceled":
-		case "duplicate":
-			return "canceled";
-		default:
-			return "backlog";
-	}
+/** Linear's states are the team's own, as in Track, and each has one of a few types. */
+function toStatus(state: { name: string; type: string }): ImportedStatus {
+	return { name: state.name, category: LINEAR_CATEGORIES[state.type] ?? "backlog" };
 }
+
+const LINEAR_CATEGORIES: Record<string, StatusCategory> = {
+	backlog: "backlog",
+	triage: "backlog",
+	unstarted: "unstarted",
+	started: "started",
+	completed: "completed",
+	canceled: "canceled",
+	duplicate: "canceled",
+};
 
 async function* pages<T>(
 	apiKey: string,

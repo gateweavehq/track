@@ -111,6 +111,22 @@ export function sampleSteps({
 		},
 	});
 
+	// Engineering tests its work before it ships, so the sample shows a team's own status too.
+	steps.push({
+		person: maya,
+		mutation: {
+			name: "status.create",
+			args: {
+				teamId: teamIds[CYCLE_TEAM],
+				key: "qa",
+				name: "Ready for QA",
+				category: "started",
+				color: "#d6409f",
+				sortOrder: "a2",
+			},
+		},
+	});
+
 	const labelIds = {} as Record<LabelKey, string>;
 	for (const [key, label] of Object.entries(LABELS) as [LabelKey, (typeof LABELS)[LabelKey]][]) {
 		labelIds[key] = newId();

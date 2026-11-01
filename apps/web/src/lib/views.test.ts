@@ -67,8 +67,12 @@ describe("filters in the search params", () => {
 		});
 	});
 
+	it("keeps a status key no team has, since teams name their own", () => {
+		expect(issuePageSearch.parse({ status: ["qa"] }).status).toEqual(["qa"]);
+	});
+
 	it("drops a filter it cannot read", () => {
-		expect(issuePageSearch.parse({ status: ["soon"], priority: [9], assignee: [] })).toEqual({
+		expect(issuePageSearch.parse({ status: ["Not a key"], priority: [9], assignee: [] })).toEqual({
 			status: undefined,
 			priority: undefined,
 			assignee: undefined,

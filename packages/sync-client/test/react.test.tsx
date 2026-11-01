@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { Snapshot } from "@gateweave/track-protocol";
+import { defaultStatuses, type Snapshot } from "@gateweave/track-protocol";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { SyncClient, type SyncState, type Transport } from "../src";
@@ -9,6 +9,7 @@ import { make, waitFor } from "./harness";
 const snapshot: Snapshot = {
 	version: 1,
 	teams: [{ id: "t1", key: "ENG", name: "Engineering", cycles: null, createdAt: 1, updatedAt: 1 }],
+	statuses: defaultStatuses("t1", 1),
 	issues: [],
 	labels: [],
 	projects: [],

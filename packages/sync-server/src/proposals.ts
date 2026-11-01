@@ -3,20 +3,30 @@
  * its `proposes`: what that covers waits on the issue as proposals, and the rest applies as usual.
  * Accepting one is the person making the change, in `mutations.ts`.
  */
-import { CLOSED_STATUSES, type Proposal, type ProposedChange } from "@gateweave/track-protocol";
+import type { Proposal, ProposedChange } from "@gateweave/track-protocol";
 import { and, asc, eq } from "drizzle-orm";
 import * as schema from "./db/schema";
 import type { ChangeSet } from "./log";
 import { type Db, toProposal } from "./state";
+import { isClosedStatus } from "./statuses";
 
-/** Whether this change, made by this member, is one to propose rather than make. */
-export function proposesChange(member: schema.MemberRow, change: ProposedChange): boolean {
+/**
+ * Whether this change to an issue of the team, made by this member, is one to propose rather than
+ * make. Closing is a change to a status of the completed or canceled category.
+ */
+export function proposesChange(
+	db: Db,
+	member: schema.MemberRow,
+	change: ProposedChange,
+	teamId: string,
+): boolean {
 	if (member.role !== "agent") return false;
 	const kinds = member.proposes;
 	switch (change.type) {
 		case "status":
 			return (
-				kinds.includes("status") || (kinds.includes("close") && CLOSED_STATUSES.includes(change.to))
+				kinds.includes("status") ||
+				(kinds.includes("close") && isClosedStatus(db, teamId, change.to))
 			);
 		case "label":
 			return kinds.includes("labels");

@@ -1,10 +1,12 @@
-import type {
-	Comment,
-	Issue,
-	Label,
-	Member,
-	MutationInput,
-	Project,
+import {
+	type Comment,
+	defaultStatuses,
+	type Issue,
+	type Label,
+	type Member,
+	type MutationInput,
+	type Project,
+	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import {
@@ -43,7 +45,7 @@ function imported(
 	return {
 		title: "Imported",
 		description: null,
-		status: "todo",
+		status: { name: "Todo", category: "unstarted" },
 		priority: 0,
 		labels: [],
 		assignee: null,
@@ -66,6 +68,7 @@ function target(issues: Issue[] = [], comments: Comment[] = []): ImportTarget {
 		comments: new Map(comments.map((comment) => [comment.id, comment])),
 		relations: new Map(),
 		teams: [],
+		statuses: defaultStatuses("t1", 1),
 		labels: [bug],
 		projects: [launch],
 		members: [ada],
@@ -164,6 +167,48 @@ describe("planImport", () => {
 		]);
 		expect(comments.every((comment) => comment.issueId === crash?.id)).toBe(true);
 		expect(comments[0]?.createdAt).toBe(Date.UTC(2024, 0, 3));
+	});
+
+	it("puts each issue in its team's status of the same name, else the first of its kind", async () => {
+		const qa: WorkflowStatus = {
+			id: "t1/qa",
+			teamId: "t1",
+			key: "qa",
+			name: "Ready for QA",
+			category: "started",
+			color: null,
+			sortOrder: "a2",
+			createdAt: 1,
+			updatedAt: 1,
+			removedAt: null,
+		};
+		const source: ImportSource = {
+			name: "Linear",
+			issues: [
+				imported({ sourceId: "a", status: { name: "ready for qa", category: "started" } }),
+				imported({ sourceId: "b", status: { name: "Shipped", category: "completed" } }),
+				imported({ sourceId: "c", status: { name: "Doing", category: "started" } }),
+			],
+		};
+		const plan = await planImport(
+			source,
+			{ ...target(), statuses: [...defaultStatuses("t1", 1), qa] },
+			"t1",
+		);
+		expect(argsOf(plan, "issue.create").map((args) => args.status)).toEqual([
+			"qa",
+			"done",
+			"in_progress",
+		]);
+
+		// A team the import makes starts with the built-in statuses.
+		const kept = await planImport(
+			{ name: "Linear", issues: [imported({ sourceId: "d", team: { key: "NEW", name: "New" } })] },
+			target(),
+			"t1",
+			{ keepTeams: true },
+		);
+		expect(argsOf(kept, "issue.create")[0]?.status).toBe("todo");
 	});
 
 	it("skips what an earlier run imported, and brings in what is new", async () => {

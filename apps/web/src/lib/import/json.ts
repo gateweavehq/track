@@ -1,12 +1,14 @@
 import {
+	DEFAULT_STATUSES,
 	ISSUE_PRIORITIES,
-	ISSUE_STATUSES,
 	PROJECT_STATUSES,
 	RELATION_TYPES,
+	STATUS_CATEGORIES,
+	statusId,
 } from "@gateweave/track-protocol";
 import { z } from "zod";
 import { EXPORT_FORMAT, EXPORT_VERSION } from "#/lib/export";
-import type { ImportedComment, ImportedIssue, ImportSource } from "./plan";
+import type { ImportedComment, ImportedIssue, ImportedStatus, ImportSource } from "./plan";
 
 // Track's own JSON export (`workspaceToJson`), read back: issues with their comments, relations,
 // parents, labels and their colors, and projects and their details, so a workspace or a team moves
@@ -20,6 +22,17 @@ const nullableRef = ref.nullable().catch(null);
 const exportFile = z.object({
 	workspace: z.object({ name: z.string() }).partial().optional(),
 	teams: z.array(z.object({ id: ref, key: z.string(), name: z.string() })),
+	// Exports made before teams had their own statuses have none: their keys are the built-in ones.
+	statuses: z
+		.array(
+			z.object({
+				teamId: ref,
+				key: z.string(),
+				name: z.string(),
+				category: z.enum(STATUS_CATEGORIES),
+			}),
+		)
+		.catch([]),
 	members: z.array(z.object({ id: ref, name: z.string(), email: z.string() })),
 	labels: z.array(z.object({ id: ref, name: z.string(), color: z.string() })),
 	projects: z.array(
@@ -39,7 +52,7 @@ const exportFile = z.object({
 			key: z.string().optional(),
 			title: z.string(),
 			description: z.string().nullable().catch(null),
-			status: z.enum(ISSUE_STATUSES).catch("backlog"),
+			status: z.string().catch("backlog"),
 			priority: z.literal(ISSUE_PRIORITIES).catch(0),
 			assigneeId: nullableRef,
 			projectId: nullableRef,
@@ -101,6 +114,16 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 	const file = parsed.data;
 
 	const teams = new Map(file.teams.map((team) => [team.id, team]));
+	const statuses = new Map(
+		file.statuses.map((status) => [statusId(status.teamId, status.key), status]),
+	);
+	const statusOf = (teamId: string, key: string): ImportedStatus => {
+		const status =
+			statuses.get(statusId(teamId, key)) ?? DEFAULT_STATUSES.find((known) => known.key === key);
+		return status
+			? { name: status.name, category: status.category }
+			: { name: key, category: "backlog" };
+	};
 	const members = new Map(file.members.map((member) => [member.id, member]));
 	const labels = new Map(file.labels.map((label) => [label.id, label]));
 	const projects = new Map(file.projects.map((project) => [project.id, project]));
@@ -129,7 +152,7 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 			sourceId: sourceId(issue.id),
 			title: issue.title,
 			description: issue.description,
-			status: issue.status,
+			status: statusOf(issue.teamId, issue.status),
 			priority: issue.priority,
 			labels: issue.labelIds.flatMap((id) => labels.get(id)?.name ?? []),
 			assignee: person(issue.assigneeId),

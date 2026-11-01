@@ -2,6 +2,7 @@ import {
 	type Issue,
 	MAX_WEBHOOKS_PER_WORKSPACE,
 	SYSTEM_ACTOR_ID,
+	statusId,
 	WEBHOOK_TEST_EVENT,
 	type Webhook,
 	type WebhookActor,
@@ -42,7 +43,9 @@ export const workspaceLink = z.object({
 /** What a mutation did, in the terms webhooks report. Handlers add these to their change set. */
 export type ChangeEvent =
 	| { type: "issue.created" | "issue.deleted"; issue: schema.IssueRow }
-	| { type: "issue.updated"; issue: schema.IssueRow; previous: schema.IssueRow }
+	// `quiet` when the change is to the workspace rather than the issue, such as moving the issues
+	// of a removed status: webhooks report it, inboxes do not.
+	| { type: "issue.updated"; issue: schema.IssueRow; previous: schema.IssueRow; quiet?: boolean }
 	| { type: "comment.created" | "comment.deleted"; comment: schema.CommentRow }
 	| { type: "comment.updated"; comment: schema.CommentRow; previous: schema.CommentRow }
 	| { type: "proposal.created" | "proposal.updated"; proposal: schema.ProposalRow }
@@ -256,7 +259,19 @@ class Payloads {
 		}
 		const key = `${teamKey}-${row.number}`;
 		const url = new URL(`/${encodeURIComponent(this.link.slug)}/issue/${key}`, this.link.origin);
-		return { ...toIssue(row), key, url: url.href, labels: this.#labelsOf(row.labelIds) };
+		const status = this.db
+			.select({ name: schema.statuses.name, category: schema.statuses.category })
+			.from(schema.statuses)
+			.where(eq(schema.statuses.id, statusId(row.teamId, row.status)))
+			.get();
+		return {
+			...toIssue(row),
+			key,
+			url: url.href,
+			labels: this.#labelsOf(row.labelIds),
+			statusName: status?.name ?? row.status,
+			statusCategory: status?.category ?? "backlog",
+		};
 	}
 
 	/**

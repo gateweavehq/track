@@ -358,6 +358,7 @@ describe("offline", () => {
 		await persistence.replace({
 			version: 9_999,
 			teams: [],
+			statuses: [],
 			issues: [],
 			labels: [],
 			projects: [],
@@ -474,6 +475,7 @@ function scriptedTransport(
 		snapshot: async () => ({
 			version: 1,
 			teams: [],
+			statuses: [],
 			issues: [],
 			labels: [],
 			projects: [],

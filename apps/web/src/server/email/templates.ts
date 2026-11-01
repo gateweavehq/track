@@ -1,4 +1,4 @@
-import type { InboxEvent, IssueStatus } from "@gateweave/track-protocol";
+import type { InboxEvent } from "@gateweave/track-protocol";
 import type { Email } from "./mailer";
 
 /** An email before it is addressed. */
@@ -60,15 +60,6 @@ export function invitationEmail({
 	});
 }
 
-const STATUS_NAMES: Record<IssueStatus, string> = {
-	backlog: "Backlog",
-	todo: "Todo",
-	in_progress: "In Progress",
-	in_review: "In Review",
-	done: "Done",
-	canceled: "Canceled",
-};
-
 /** Unread news on one issue, as an inbox digest lists it. */
 export interface DigestEntry {
 	key: string;
@@ -80,6 +71,8 @@ export interface DigestEntry {
 	unread: number;
 	/** The text of the comment, or of the one that mentions them, with mentions as `@Name`. */
 	comment: string | null;
+	/** What the issue's team calls the status a status event moved it to. */
+	statusName: string | null;
 }
 
 /** News a person left unread in a workspace's inbox. */
@@ -138,7 +131,7 @@ function summary(item: DigestEntry, issue: string): string {
 		case "comment":
 			return `${actor} commented on ${issue}`;
 		case "status":
-			return `${actor} moved ${issue} to ${STATUS_NAMES[item.event.to]}`;
+			return `${actor} moved ${issue} to ${clip(item.statusName ?? item.event.to, 60)}`;
 		case "proposal":
 			return `${actor} proposed a change to ${issue}`;
 		case "mention":

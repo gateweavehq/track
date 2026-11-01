@@ -1,5 +1,6 @@
 import type { Issue, Project, ProjectStatus } from "@gateweave/track-protocol";
 import { today } from "./dates";
+import { type StatusMap, statusOf } from "./statuses";
 
 /** The order projects are listed in: work in flight first, finished work last. */
 export const PROJECT_STATUS_ORDER = [
@@ -21,20 +22,24 @@ export function compareProjects(
 	return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-/** How far along a project is: issues done, out of all that are not canceled. */
+/** How far along a project is: issues done (in a completed status), out of all not canceled. */
 export interface ProjectProgress {
 	done: number;
 	/** Every issue that is not canceled. */
 	total: number;
 }
 
-export function projectProgress(issues: Iterable<Pick<Issue, "status">>): ProjectProgress {
+export function projectProgress(
+	issues: Iterable<Pick<Issue, "teamId" | "status">>,
+	statuses: StatusMap = new Map(),
+): ProjectProgress {
 	let done = 0;
 	let total = 0;
-	for (const { status } of issues) {
-		if (status === "canceled") continue;
+	for (const issue of issues) {
+		const { category } = statusOf(statuses, issue);
+		if (category === "canceled") continue;
 		total += 1;
-		if (status === "done") done += 1;
+		if (category === "completed") done += 1;
 	}
 	return { done, total };
 }

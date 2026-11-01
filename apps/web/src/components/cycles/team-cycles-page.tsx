@@ -7,7 +7,7 @@ import { isAdmin, useMyRole, useWorkspace } from "#/components/workspace/context
 import { Notice } from "#/components/workspace/notice";
 import { burnUp, cycleName, cycleProgress, stateIn, teamZone } from "#/lib/cycles";
 import { type ProjectProgress, progressPercent } from "#/lib/projects";
-import { useActivitiesById, useIssuesById, useTeamCycles } from "#/lib/queries";
+import { useActivitiesById, useIssuesById, useStatuses, useTeamCycles } from "#/lib/queries";
 import { CycleSettingsDialog } from "./cycle-settings-dialog";
 import { CYCLE_STATE_LABEL, CycleIcon, cycleDates } from "./meta";
 
@@ -26,6 +26,7 @@ export function TeamCyclesPage({ team }: { team: Team }) {
 	const cycles = useTeamCycles(team.id);
 	const issues = useIssuesById();
 	const activities = useActivitiesById();
+	const statuses = useStatuses();
 	const [editing, setEditing] = useState(false);
 
 	const rows = useMemo(() => {
@@ -40,13 +41,18 @@ export function TeamCyclesPage({ team }: { team: Team }) {
 		return cycles.map((cycle): CycleRowData => {
 			const state = stateIn(cycle, team, now);
 			if (state !== "completed") {
-				return { cycle, state, progress: cycleProgress(byCycle.get(cycle.id) ?? []).issues };
+				return {
+					cycle,
+					state,
+					progress: cycleProgress(byCycle.get(cycle.id) ?? [], statuses).issues,
+				};
 			}
 			// Its unfinished issues have moved on since, so it is judged by its last day.
-			const last = burnUp(cycle, issues.values(), activities.values(), teamZone(team), now).at(-1);
+			const zone = teamZone(team);
+			const last = burnUp(cycle, issues.values(), activities.values(), zone, now, statuses).at(-1);
 			return { cycle, state, progress: { done: last?.done ?? 0, total: last?.scope ?? 0 } };
 		});
-	}, [cycles, issues, activities, team]);
+	}, [cycles, issues, activities, team, statuses]);
 
 	return (
 		<div className="flex h-full flex-col overflow-y-auto">

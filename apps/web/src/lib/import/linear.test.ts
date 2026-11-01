@@ -125,7 +125,7 @@ describe("readLinearImport", () => {
 				sourceId: "linear:1",
 				title: "Issue 1",
 				description: "Ship **it**",
-				status: "in_progress",
+				status: { name: "Doing", category: "started" },
 				priority: 1,
 				labels: ["Bug"],
 				assignee: { name: "Ada", email: "ada@example.test" },
@@ -137,8 +137,13 @@ describe("readLinearImport", () => {
 				createdAt: Date.UTC(2024, 0, 1),
 				comments: [{ sourceId: "linear:comment:k1", body: "Looks good", author: "GitHub" }],
 			},
-			{ status: "in_review", priority: 4, parentSourceId: "linear:1", comments: [] },
-			{ status: "canceled" },
+			{
+				status: { name: "In Review", category: "started" },
+				priority: 4,
+				parentSourceId: "linear:1",
+				comments: [],
+			},
+			{ status: { name: "Duplicate", category: "canceled" } },
 		]);
 	});
 

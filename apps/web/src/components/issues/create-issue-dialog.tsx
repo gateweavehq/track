@@ -21,9 +21,15 @@ import { cycleName } from "#/lib/cycles";
 import { MOD_LABEL } from "#/lib/hotkeys";
 import { issueKey, sortOrderAfter } from "#/lib/issues";
 import { send } from "#/lib/mutations";
-import { useCyclesById, useMembersById, useProjectsById, useTeams } from "#/lib/queries";
+import {
+	useCyclesById,
+	useMembersById,
+	useProjectsById,
+	useTeamStatuses,
+	useTeams,
+} from "#/lib/queries";
 import { LabelChips, LabelMenu } from "./labels";
-import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
+import { PRIORITY_META, PriorityIcon, StatusIcon } from "./meta";
 import {
 	AssigneePicker,
 	CyclePicker,
@@ -50,7 +56,7 @@ export function CreateIssueDialog({
 	const [teamId, setTeamId] = useState(defaults.teamId ?? teams[0]?.id ?? "");
 	const [title, setTitle] = useState("");
 	const [description, setDescription] = useState("");
-	const [status, setStatus] = useState<IssueStatus>(defaults.status ?? "backlog");
+	const [statusKey, setStatusKey] = useState<IssueStatus | null>(defaults.status ?? null);
 	const [priority, setPriority] = useState<IssuePriority>(defaults.priority ?? 0);
 	const [assigneeId, setAssigneeId] = useState<string | null>(defaults.assigneeId ?? null);
 	// The default comes from the page on screen, whose project may be deleted by now.
@@ -72,6 +78,9 @@ export function CreateIssueDialog({
 	const cycle = cycleId ? cycles.get(cycleId) : undefined;
 	const plannedCycle =
 		cycle && cycle.teamId === team?.id && cycle.completedAt === null ? cycle : undefined;
+	// Each team has its own statuses: the one picked if the team has it, else the team's first.
+	const teamStatuses = useTeamStatuses(team?.id);
+	const status = teamStatuses.find((option) => option.key === statusKey) ?? teamStatuses[0];
 
 	function submit() {
 		if (!team || !title.trim()) return;
@@ -83,7 +92,7 @@ export function CreateIssueDialog({
 				teamId: team.id,
 				title,
 				description: description.trim() ? description : null,
-				status,
+				status: status?.key,
 				priority,
 				assigneeId,
 				// A project picked here may have been deleted elsewhere since.
@@ -184,10 +193,10 @@ export function CreateIssueDialog({
 						</div>
 					</div>
 					<div className="flex flex-wrap gap-2 px-4 pb-3">
-						<StatusPicker value={status} onChange={setStatus}>
+						<StatusPicker teamId={team?.id ?? ""} value={status?.key ?? ""} onChange={setStatusKey}>
 							<Button type="button" variant="outline" size="sm" className="h-7 px-2">
-								<StatusIcon status={status} />
-								{STATUS_META[status].label}
+								{status && <StatusIcon status={status} />}
+								{status?.name ?? "Status"}
 							</Button>
 						</StatusPicker>
 						<PriorityPicker value={priority} onChange={setPriority}>

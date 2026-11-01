@@ -598,7 +598,7 @@ describe("views", () => {
 					id: "view-bad",
 					name: "Bad",
 					layout: "board",
-					filters: { statuses: ["nope"] },
+					filters: { statuses: ["Not a key"] },
 				} as never,
 			}),
 		).toMatchObject({ type: "reject", reason: "invalid" });
@@ -2373,6 +2373,7 @@ describe("search", () => {
 		if (!search) throw new Error("No search migration");
 		await runInDurableObject(workspace, async (_, state) => {
 			const db = drizzle(state.storage, { schema });
+			db.run(sql`drop table statuses`);
 			db.run(sql`drop table due_reminders`);
 			db.run(sql`drop index issues_due_idx`);
 			db.run(sql`drop table notification_settings`);

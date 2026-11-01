@@ -4,6 +4,7 @@ import {
 	monitorForElements,
 } from "@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter";
 import type { Issue, Team } from "@gateweave/track-protocol";
+import { isClosedCategory } from "@gateweave/track-protocol";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -21,9 +22,9 @@ import {
 import { formatFullDay, formatShortDay, formatWeekday, today } from "#/lib/dates";
 import { isIssueOverdue, issueKey } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
-import { useTeamsById } from "#/lib/queries";
+import { useIssueStatus, useStatuses, useTeamsById } from "#/lib/queries";
 import { cn } from "#/lib/utils";
-import { StatusIcon } from "./meta";
+import { IssueStatusIcon } from "./meta";
 
 /** Issues shown in a day's cell before the rest go behind "+N more". */
 const VISIBLE_PER_DAY = 3;
@@ -58,7 +59,8 @@ export function IssueCalendar({ issues, empty }: { issues: Issue[]; empty: React
 	const update = useUpdateIssue();
 	const wide = useWide();
 	const [month, setMonth] = useState(() => monthOf(today()));
-	const { byDay, undated } = useMemo(() => groupByDueDate(issues), [issues]);
+	const statuses = useStatuses();
+	const { byDay, undated } = useMemo(() => groupByDueDate(issues, statuses), [issues, statuses]);
 	const weeks = useMemo(() => monthWeeks(month), [month]);
 
 	// Drops are handled from the latest issues without re-registering the monitor on every sync.
@@ -311,7 +313,7 @@ function IssueChip({
 }) {
 	const { slug } = useWorkspace();
 	const key = issueKey(team, issue);
-	const overdue = isIssueOverdue(issue);
+	const overdue = isIssueOverdue(issue, isClosedCategory(useIssueStatus(issue).category));
 	return (
 		<Link
 			to="/$workspace/issue/$issueKey"
@@ -324,7 +326,7 @@ function IssueChip({
 				className,
 			)}
 		>
-			<StatusIcon status={issue.status} className="size-3.5" />
+			<IssueStatusIcon issue={issue} className="size-3.5" />
 			<span className="shrink-0 font-mono tabular-nums opacity-70">
 				<span className="sr-only">{overdue ? "Overdue. " : ""}</span>
 				{key}

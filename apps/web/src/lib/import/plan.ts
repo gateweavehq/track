@@ -1,11 +1,12 @@
 import {
 	type Comment,
 	calendarDate,
+	DEFAULT_STATUSES,
 	type Issue,
 	type IssuePriority,
 	type IssueRelation,
-	type IssueStatus,
 	type Label,
+	liveStatuses,
 	MAX_LABELS_PER_ISSUE,
 	type Member,
 	type MutationInput,
@@ -13,7 +14,9 @@ import {
 	type Project,
 	type ProjectStatus,
 	type RelationType,
+	type StatusCategory,
 	type Team,
+	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import type { SyncState } from "@gateweave/track-sync-client";
 import { generateKeyBetween } from "fractional-indexing";
@@ -45,7 +48,7 @@ export interface ImportedIssue {
 	sourceId: string;
 	title: string;
 	description: string | null;
-	status: IssueStatus;
+	status: ImportedStatus;
 	priority: IssuePriority;
 	/** Label names. Missing labels are created. */
 	labels: string[];
@@ -70,6 +73,15 @@ export interface ImportedIssue {
 	/** How the source refers to the issue, such as `acme/api#42`. */
 	reference: string | null;
 	comments: ImportedComment[];
+}
+
+/**
+ * A status as the source has it. Each team in Track has its own statuses: the issue gets the
+ * team's status of the same name, else the team's first of the same category.
+ */
+export interface ImportedStatus {
+	name: string;
+	category: StatusCategory;
 }
 
 export interface ImportedPerson {
@@ -116,6 +128,7 @@ export interface ImportTarget {
 	comments: ReadonlyMap<string, Comment>;
 	relations: ReadonlyMap<string, IssueRelation>;
 	teams: Iterable<Team>;
+	statuses: Iterable<WorkflowStatus>;
 	labels: Iterable<Label>;
 	projects: Iterable<Project>;
 	members: Iterable<Member>;
@@ -127,6 +140,7 @@ export function importTargetFrom(state: SyncState): ImportTarget {
 		comments: state.comments,
 		relations: state.relations,
 		teams: state.teams.values(),
+		statuses: state.statuses.values(),
 		labels: state.labels.values(),
 		projects: state.projects.values(),
 		members: state.members.values(),
@@ -173,6 +187,7 @@ export async function planImport(
 ): Promise<ImportPlan> {
 	const mutations: MutationInput[] = [];
 	const teams = [...target.teams];
+	const statuses = [...target.statuses];
 	const labels = [...target.labels];
 	const projects = [...target.projects];
 	// Someone who left the workspace cannot be assigned.
@@ -199,6 +214,18 @@ export async function planImport(
 		newTeams.push(`${name} (${key})`);
 		teamIds.set(key, id);
 		return id;
+	};
+
+	// A team this import makes starts with the built-in statuses.
+	const statusFor = (teamId: string, wanted: ImportedStatus): string | undefined => {
+		const own = liveStatuses(statuses.filter((status) => status.teamId === teamId));
+		const options: readonly Pick<WorkflowStatus, "key" | "name" | "category">[] =
+			own.length > 0 ? own : DEFAULT_STATUSES;
+		const name = wanted.name.trim().toLowerCase();
+		return (
+			options.find((status) => status.name.toLowerCase() === name) ??
+			options.find((status) => status.category === wanted.category)
+		)?.key;
 	};
 
 	const colors = new Map(
@@ -269,18 +296,21 @@ export async function planImport(
 			const assignee = issue.assignee ? findMember(members, issue.assignee) : null;
 			const parentId = issue.parentSourceId ? (ids.get(issue.parentSourceId) ?? null) : null;
 			sortOrder = generateKeyBetween(sortOrder, null);
+			const issueTeamId = teamFor(issue);
+			const status = statusFor(issueTeamId, issue.status);
 			mutations.push({
 				name: "issue.create",
 				args: {
 					id,
-					teamId: teamFor(issue),
+					teamId: issueTeamId,
 					title: oneLine(issue.title) || "Untitled",
 					description: describe(
 						issue,
 						source.name,
 						assignee ? null : (issue.assignee?.name ?? null),
 					),
-					status: issue.status,
+					// Without a match the issue gets the team's first status.
+					...(status !== undefined && { status }),
 					priority: issue.priority,
 					assigneeId: assignee?.id ?? null,
 					projectId: issue.project?.trim() ? projectId(issue.project) : null,

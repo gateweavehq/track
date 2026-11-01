@@ -1,4 +1,10 @@
-import type { Issue, Label, Member, Team } from "@gateweave/track-protocol";
+import {
+	defaultStatuses,
+	type Issue,
+	type Label,
+	type Member,
+	type Team,
+} from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import { type ExportSource, issuesToCsv } from "../export";
 import { parseCsv, readCsvImport, toPriority, toStatus } from "./csv";
@@ -30,7 +36,7 @@ describe("readCsvImport", () => {
 		expect(source.issues).toMatchObject([
 			{
 				title: "Fix login",
-				status: "in_progress",
+				status: { name: "In Progress", category: "started" },
 				priority: 2,
 				labels: ["auth; bug"],
 				estimate: 5,
@@ -62,14 +68,14 @@ describe("statuses and priorities", () => {
 				toStatus,
 			),
 		).toEqual([
-			"backlog",
-			"todo",
-			"todo",
-			"in_progress",
-			"in_review",
-			"done",
-			"canceled",
-			"backlog",
+			{ name: "Backlog", category: "backlog" },
+			{ name: "To Do", category: "unstarted" },
+			{ name: "open", category: "unstarted" },
+			{ name: "IN_PROGRESS", category: "started" },
+			{ name: "Review", category: "started" },
+			{ name: "Closed", category: "completed" },
+			{ name: "Won't Fix", category: "canceled" },
+			{ name: "?", category: "backlog" },
 		]);
 		expect(["Urgent", "P1", "Medium", "low", "No priority", ""].map(toPriority)).toEqual([
 			1, 2, 3, 4, 0, 0,
@@ -138,6 +144,7 @@ describe("a Track export read back", () => {
 	const source: ExportSource = {
 		workspace: { slug: "acme", name: "Acme" },
 		teams: [eng],
+		statuses: defaultStatuses("t1", 1),
 		members: [ada],
 		labels,
 		projects: [],
@@ -155,7 +162,7 @@ describe("a Track export read back", () => {
 			{
 				title: "=SUM(A1:A2) looks like a formula",
 				description: "Line one\nLine, two",
-				status: "in_review",
+				status: { name: "In Review", category: "started" },
 				priority: 1,
 				assignee: { email: "ada@example.test" },
 				labels: ["Bug", "UI, web"],

@@ -7,4 +7,5 @@ export * from "./mentions";
 export * from "./messages";
 export * from "./mutations";
 export * from "./notifications";
+export * from "./statuses";
 export * from "./webhooks";

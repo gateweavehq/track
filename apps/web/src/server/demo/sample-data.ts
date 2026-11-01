@@ -238,7 +238,7 @@ export const ISSUES: SampleIssue[] = [
 	{
 		team: "ENG",
 		title: "Keyboard shortcut to copy the issue link",
-		status: "in_review",
+		status: "qa",
 		priority: 4,
 		assignee: "diego",
 		by: "diego",

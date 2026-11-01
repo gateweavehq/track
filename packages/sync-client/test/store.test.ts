@@ -1,5 +1,6 @@
 import {
 	type Cycle,
+	defaultStatuses,
 	type InboxItem,
 	type Issue,
 	type Member,
@@ -46,6 +47,7 @@ const issue: Issue = {
 const snapshot: Snapshot = {
 	version: 2,
 	teams: [team],
+	statuses: defaultStatuses("t1", 1),
 	issues: [issue],
 	labels: [],
 	projects: [],
@@ -699,6 +701,132 @@ describe("Replica", () => {
 			{ version: 5, entity: "member", id: "alice", op: "put", data: member("alice", "admin") },
 		]);
 		expect(r.getState().members.get("bot")?.proposes).toEqual(["status", "labels"]);
+	});
+
+	describe("statuses", () => {
+		const alice = (role: Member["role"]): Member => ({
+			id: "alice",
+			name: "Alice",
+			email: "alice@example.com",
+			image: null,
+			role,
+			proposes: [],
+			removedAt: null,
+		});
+		const create = (id: string, key: string, name: string) =>
+			pending(id, {
+				name: "status.create",
+				args: { teamId: "t1", key, name, category: "started", color: null, sortOrder: "a2" },
+			});
+
+		it("predicts an admin's changes to a team's statuses, and leaves anyone else's to the server", () => {
+			const r = replica();
+			applyOps(r, [
+				{ version: 3, entity: "member", id: "alice", op: "put", data: alice("member") },
+			]);
+			r.addPending(create("m1", "qa", "QA"));
+			expect(r.getState().statuses.has("t1/qa")).toBe(false);
+
+			applyOps(r, [{ version: 4, entity: "member", id: "alice", op: "put", data: alice("admin") }]);
+			expect(r.getState().statuses.get("t1/qa")).toMatchObject({
+				teamId: "t1",
+				key: "qa",
+				name: "QA",
+				category: "started",
+				removedAt: null,
+			});
+
+			r.addPending(
+				// Names are unique in a team, ignoring case.
+				create("m2", "qa_2", "qa"),
+				pending("m3", {
+					name: "status.update",
+					args: { teamId: "t1", key: "qa", patch: { name: "Quality" } },
+				}),
+				// Done is the team's only completed status, so it stays one.
+				pending("m4", {
+					name: "status.update",
+					args: { teamId: "t1", key: "done", patch: { category: "started" } },
+				}),
+			);
+			const statuses = r.getState().statuses;
+			expect(statuses.has("t1/qa_2")).toBe(false);
+			expect(statuses.get("t1/qa")?.name).toBe("Quality");
+			expect(statuses.get("t1/done")?.category).toBe("completed");
+		});
+
+		it("predicts that removing a status moves its issues, and keeps the key", () => {
+			const r = replica();
+			applyOps(r, [
+				{ version: 3, entity: "member", id: "alice", op: "put", data: alice("admin") },
+				put(4, { ...issue, status: "in_review", version: 4 }),
+			]);
+			r.addPending(
+				pending("m1", {
+					name: "status.delete",
+					args: { teamId: "t1", key: "in_review", moveTo: "in_progress" },
+				}),
+				// The last completed status cannot go.
+				pending("m2", {
+					name: "status.delete",
+					args: { teamId: "t1", key: "done", moveTo: "canceled" },
+				}),
+			);
+			const state = r.getState();
+			expect(state.statuses.get("t1/in_review")?.removedAt).toBe(100);
+			expect(state.issues.get("i1")?.status).toBe("in_progress");
+			expect(state.statuses.get("t1/done")?.removedAt).toBeNull();
+
+			// A removed key is never used again.
+			r.addPending(create("m3", "in_review", "Review"));
+			expect(r.getState().statuses.get("t1/in_review")?.removedAt).toBe(100);
+		});
+
+		it("predicts a new issue in its team's first live status, and no removed one", () => {
+			const r = replica();
+			const args = {
+				teamId: "t1",
+				title: "New",
+				description: null,
+				priority: 0 as const,
+				assigneeId: null,
+				projectId: null,
+				cycleId: null,
+				parentId: null,
+				startDate: null,
+				dueDate: null,
+				estimate: null,
+				labelIds: [],
+				sortOrder: "a1",
+			};
+			r.addPending(pending("m1", { name: "issue.create", args: { ...args, id: "i2" } }));
+			expect(r.getState().issues.get("i2")?.status).toBe("backlog");
+
+			const backlog = r.getState().statuses.get("t1/backlog");
+			if (!backlog) throw new Error("No backlog status");
+			applyOps(r, [
+				{
+					version: 3,
+					entity: "status",
+					id: backlog.id,
+					op: "put",
+					data: { ...backlog, removedAt: 3 },
+				},
+				put(4, { ...issue, status: "todo", version: 4 }),
+			]);
+			r.addPending(
+				pending("m2", { name: "issue.create", args: { ...args, id: "i3" } }),
+				pending("m3", { name: "issue.create", args: { ...args, id: "i4", status: "backlog" } }),
+				pending("m4", {
+					name: "issue.update",
+					args: { id: "i1", baseVersion: 4, patch: { status: "backlog" } },
+				}),
+			);
+			const issues = r.getState().issues;
+			expect(issues.get("i3")?.status).toBe("todo");
+			expect(issues.has("i4")).toBe(false);
+			expect(issues.get("i1")?.status).toBe("todo");
+		});
 	});
 
 	describe("inbox", () => {

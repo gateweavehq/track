@@ -86,7 +86,9 @@ export function GitHubSettings({ data }: { data: WorkspaceGitHub }) {
 						<li>A commit to the default branch that says “Fixes ENG-12” moves ENG-12 to Done.</li>
 					</ul>
 					<p className="text-sm text-muted-foreground">
-						Track never moves an issue back, nor out of Done or Canceled.
+						A team that has changed its statuses gets the first status of the same category instead,
+						such as its first completed status for Done. Track never moves an issue back, nor out of
+						a completed or canceled status.
 						{!admin && " Admins manage connections."}
 					</p>
 				</div>

@@ -1,9 +1,9 @@
 import {
 	type ActivitySource,
-	CLOSED_STATUSES,
 	GITHUB_ACTOR_ID,
 	type GitHubConnection,
-	type IssueStatus,
+	isClosedCategory,
+	liveStatuses,
 	MAX_GITHUB_CONNECTIONS,
 	type PullRequestState,
 	type WebhookActor,
@@ -17,6 +17,7 @@ import { ChangeSet, type WriteResult } from "./log";
 import { MutationRejected } from "./rejected";
 import { movesReminders } from "./reminders";
 import { type Db, toIssue, toPullRequest } from "./state";
+import { teamStatuses } from "./statuses";
 import { queueDeliveries } from "./webhooks";
 
 /**
@@ -225,15 +226,17 @@ type PushPayload = z.infer<typeof pushPayload>;
 /** Actions that change what a pull request's state means for its issues. */
 const STATE_ACTIONS = new Set(["opened", "reopened", "ready_for_review", "converted_to_draft"]);
 
-/** How far along each status is. Issues only move forward, and never out of a closed status. */
-const PROGRESS: Record<IssueStatus, number> = {
-	backlog: 0,
-	todo: 1,
-	in_progress: 2,
-	in_review: 3,
-	done: 4,
-	canceled: 4,
-};
+/**
+ * Where GitHub takes issues: to the status of this key when the team has it in the expected
+ * category, as every team does until it changes its statuses, and otherwise to the first status
+ * of that category in the team's order.
+ */
+const TARGETS = {
+	in_progress: "started",
+	in_review: "started",
+	done: "completed",
+} as const;
+type Target = keyof typeof TARGETS;
 
 /** Keys a pull request can link, at most: past this, a long body is not worth reading. */
 const MAX_REFERENCES = 50;
@@ -326,30 +329,43 @@ class GitHubEvents {
 		}
 	}
 
-	/** Moves an issue to a status further along, as GitHub. */
-	#advance(issueId: string, target: IssueStatus, source: ActivitySource): void {
+	/**
+	 * Moves an issue to a status further along its team's order, as GitHub. An issue in a closed
+	 * status stays where it is.
+	 */
+	#advance(issueId: string, to: Target, source: ActivitySource): void {
 		// Read again: an earlier commit of the same push may have moved it.
 		const issue = this.db
 			.select()
 			.from(schema.issues)
 			.where(and(eq(schema.issues.id, issueId), isNull(schema.issues.deletedAt)))
 			.get();
-		if (!issue || CLOSED_STATUSES.includes(issue.status)) return;
-		if (PROGRESS[issue.status] >= PROGRESS[target]) return;
+		if (!issue) return;
+		const statuses = teamStatuses(this.db, issue.teamId);
+		const current = statuses.find((status) => status.key === issue.status);
+		if (current && isClosedCategory(current.category)) return;
+		const order = liveStatuses(statuses);
+		const category = TARGETS[to];
+		const target =
+			order.find((status) => status.key === to && status.category === category) ??
+			order.find((status) => status.category === category);
+		if (!target) return;
+		const at = order.findIndex((status) => status.key === issue.status);
+		if (at >= order.indexOf(target)) return;
 
 		const version = this.changes.nextVersion;
 		// The stamp makes a stale offline edit to the status conflict rather than undo this.
 		const fieldStamps = { ...issue.fieldStamps, status: { version, clientId: GITHUB_CLIENT_ID } };
 		const row = this.db
 			.update(schema.issues)
-			.set({ status: target, fieldStamps, version, updatedAt: this.changes.now })
+			.set({ status: target.key, fieldStamps, version, updatedAt: this.changes.now })
 			.where(eq(schema.issues.id, issue.id))
 			.returning()
 			.get();
 		if (!row) return;
 		this.changes.put("issue", toIssue(row));
 		this.changes.events.push({ type: "issue.updated", issue: row, previous: issue });
-		const change = { type: "status", from: issue.status, to: target } as const;
+		const change = { type: "status", from: issue.status, to: target.key } as const;
 		recordActivity(this.db, this.changes, issue, GITHUB_ACTOR_ID, change, null, source);
 	}
 
@@ -429,7 +445,7 @@ function pullRequestState(pr: PullRequestPayload["pull_request"]): PullRequestSt
 }
 
 /** Where a pull request in this state takes the issues it links. */
-function targetStatus(state: PullRequestState, closing: boolean): IssueStatus | null {
+function targetStatus(state: PullRequestState, closing: boolean): Target | null {
 	switch (state) {
 		case "draft":
 			return "in_progress";

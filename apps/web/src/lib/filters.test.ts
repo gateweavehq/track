@@ -1,4 +1,9 @@
-import type { Issue, IssueFilters } from "@gateweave/track-protocol";
+import {
+	defaultStatuses,
+	type Issue,
+	type IssueFilters,
+	type WorkflowStatus,
+} from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import {
 	activeFilters,
@@ -98,6 +103,30 @@ describe("matchesFilters", () => {
 		expect(matchesFilters({ ...base, dueDate: "2026-05-16" }, { due: "week" }, now)).toBe(true);
 		expect(matchesFilters({ ...base, dueDate: "2026-05-17" }, { due: "week" }, now)).toBe(false);
 		expect(matchesFilters(base, { due: "none" }, now)).toBe(true);
+	});
+
+	it("never calls an issue overdue once its team's status closes it", () => {
+		const now = new Date(2026, 4, 10, 12);
+		const shipped: WorkflowStatus = {
+			id: "t1/shipped",
+			teamId: "t1",
+			key: "shipped",
+			name: "Shipped",
+			category: "completed",
+			color: null,
+			sortOrder: "a1",
+			createdAt: 1,
+			updatedAt: 1,
+			removedAt: null,
+		};
+		const statuses = new Map(
+			[...defaultStatuses("t1", 1), shipped].map((status) => [status.id, status]),
+		);
+		const late = { ...base, dueDate: "2026-05-09" };
+		expect(matchesFilters(late, { due: "overdue" }, now, undefined, statuses)).toBe(true);
+		expect(
+			matchesFilters({ ...late, status: "shipped" }, { due: "overdue" }, now, undefined, statuses),
+		).toBe(false);
 	});
 });
 

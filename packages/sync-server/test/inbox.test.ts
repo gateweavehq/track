@@ -554,6 +554,7 @@ describe("workspaces from before the inbox", () => {
 		if (!inbox) throw new Error("No inbox migration");
 		await runInDurableObject(workspace, async (_, state) => {
 			const db = drizzle(state.storage, { schema });
+			db.run(sql`drop table statuses`);
 			db.run(sql`drop table due_reminders`);
 			db.run(sql`drop index issues_due_idx`);
 			db.run(sql`drop table notification_settings`);

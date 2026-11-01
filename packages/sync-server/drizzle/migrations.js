@@ -16,6 +16,8 @@ import m0014 from "./0014_colossal_spacker_dave.sql";
 import m0015 from "./0015_github.sql";
 import m0016 from "./0016_notifications.sql";
 import m0017 from "./0017_due_reminders.sql";
+import m0018 from "./0018_ambiguous_maggott.sql";
+import m0019 from "./0019_default_statuses.sql";
 import journal from "./meta/_journal.json";
 
 export default {
@@ -39,5 +41,7 @@ export default {
 		m0015,
 		m0016,
 		m0017,
+		m0018,
+		m0019,
 	},
 };

@@ -6,6 +6,7 @@ import type {
 	Issue,
 	Label,
 	RelationKind,
+	WorkflowStatus,
 } from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
@@ -54,12 +55,14 @@ import {
 	useLabelsById,
 	useMembersById,
 	useProjectsById,
+	useStatuses,
 	useTeamsById,
 } from "#/lib/queries";
 import { RELATION_META } from "#/lib/relations";
+import { statusOf } from "#/lib/statuses";
 import { AttachButton, useAttachFiles } from "./attach-files";
 import { LabelChip } from "./labels";
-import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
+import { PRIORITY_META, PriorityIcon, StatusIcon } from "./meta";
 
 type Entry =
 	| { kind: "created"; key: string; at: number; actorId: string }
@@ -101,6 +104,7 @@ export function IssueActivity({ issue }: { issue: Issue }) {
 							<CommentItem comment={entry.comment} />
 						) : (
 							<HistoryItem
+								teamId={issue.teamId}
 								actorId={entry.kind === "created" ? entry.actorId : entry.activity.actorId}
 								change={entry.kind === "created" ? null : entry.activity.change}
 								proposedBy={entry.kind === "created" ? null : entry.activity.proposedBy}
@@ -118,12 +122,15 @@ export function IssueActivity({ issue }: { issue: Issue }) {
 
 /** One line of history. A null change is the issue's creation. */
 function HistoryItem({
+	teamId,
 	actorId,
 	change,
 	proposedBy,
 	source,
 	at,
 }: {
+	/** The issue's team, whose statuses the entry names. */
+	teamId: string;
 	actorId: string;
 	change: ActivityChange | null;
 	/** The agent whose proposal the actor accepted. */
@@ -138,7 +145,10 @@ function HistoryItem({
 	const issues = useIssuesById();
 	const teams = useTeamsById();
 	const cycles = useCyclesById();
+	const statuses = useStatuses();
 	const name = (id: string | null) => (id ? actorName(id, members) : "nobody");
+	// A removed status keeps its row, so history still names it.
+	const status = (key: string) => statusOf(statuses, { teamId, status: key });
 	const projectName = (id: string | null) =>
 		id ? (projects.get(id)?.name ?? "a deleted project") : "no project";
 	const cycleTitle = (id: string | null) => {
@@ -151,6 +161,7 @@ function HistoryItem({
 	};
 	const { icon, text } = describe(change, actorId, {
 		name,
+		status,
 		labels,
 		projectName,
 		cycleTitle,
@@ -189,6 +200,7 @@ function HistoryItem({
 /** How history names what entries refer to by id. */
 interface Names {
 	name: (id: string | null) => string;
+	status: (key: string) => WorkflowStatus;
 	labels: ReadonlyMap<string, Label>;
 	projectName: (id: string | null) => string;
 	cycleTitle: (id: string | null) => string;
@@ -198,7 +210,7 @@ interface Names {
 function describe(
 	change: ActivityChange | null,
 	actorId: string,
-	{ name, labels, projectName, cycleTitle, issueName }: Names,
+	{ name, status, labels, projectName, cycleTitle, issueName }: Names,
 ): { icon: ReactNode; text: ReactNode } {
 	const plain = (Icon: LucideIcon, text: ReactNode) => ({
 		icon: <Icon className="size-3.5" />,
@@ -209,11 +221,11 @@ function describe(
 	switch (change.type) {
 		case "status":
 			return {
-				icon: <StatusIcon status={change.to} className="size-3.5" />,
+				icon: <StatusIcon status={status(change.to)} className="size-3.5" />,
 				text: (
 					<>
-						changed the status from {STATUS_META[change.from].label} to{" "}
-						<Strong>{STATUS_META[change.to].label}</Strong>
+						changed the status from {status(change.from).name} to{" "}
+						<Strong>{status(change.to).name}</Strong>
 					</>
 				),
 			};

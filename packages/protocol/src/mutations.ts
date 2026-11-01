@@ -5,12 +5,12 @@ import {
 	AGENT_CHANGE_KINDS,
 	ISSUE_LAYOUTS,
 	ISSUE_PRIORITIES,
-	ISSUE_STATUSES,
 	MAX_LABELS_PER_ISSUE,
 	PROJECT_STATUSES,
 	RELATION_TYPES,
 } from "./domain";
 import { issueFilters } from "./filters";
+import { STATUS_CATEGORIES, STATUS_KEY_PATTERN } from "./statuses";
 
 /** Client-generated ids. UUIDv7 is recommended so ids sort by creation time. */
 const id = z.string().min(1).max(64);
@@ -20,7 +20,13 @@ const teamKey = z
 const teamName = z.string().trim().min(1).max(64);
 const title = z.string().trim().min(1).max(512);
 const description = z.string().max(100_000).nullable();
-const status = z.enum(ISSUE_STATUSES);
+/** The key of one of the team's statuses. */
+export const statusKey = z
+	.string()
+	.regex(STATUS_KEY_PATTERN, "Lowercase letters, digits and underscores, starting with a letter");
+const status = statusKey;
+const statusName = z.string().trim().min(1).max(32);
+const statusCategory = z.enum(STATUS_CATEGORIES);
 const priority = z.literal(ISSUE_PRIORITIES);
 const sortOrder = z.string().min(1).max(128);
 const labelName = z.string().trim().min(1).max(64);
@@ -79,6 +85,39 @@ export const mutationSchema = z.discriminatedUnion("name", [
 				.refine(nonEmpty, "Empty patch"),
 		}),
 	}),
+	// Statuses are named by their team and key, which make their id.
+	z.object({
+		name: z.literal("status.create"),
+		args: z.object({
+			teamId: id,
+			key: statusKey,
+			name: statusName,
+			category: statusCategory,
+			color: labelColor.nullable().default(null),
+			sortOrder,
+		}),
+	}),
+	z.object({
+		name: z.literal("status.update"),
+		args: z.object({
+			teamId: id,
+			key: statusKey,
+			patch: z
+				.object({
+					name: statusName,
+					category: statusCategory,
+					color: labelColor.nullable(),
+					sortOrder,
+				})
+				.partial()
+				.refine(nonEmpty, "Empty patch"),
+		}),
+	}),
+	/** Removes a status, moving the team's issues in it to `moveTo`. */
+	z.object({
+		name: z.literal("status.delete"),
+		args: z.object({ teamId: id, key: statusKey, moveTo: statusKey }),
+	}),
 	z.object({
 		name: z.literal("issue.create"),
 		args: z.object({
@@ -86,7 +125,8 @@ export const mutationSchema = z.discriminatedUnion("name", [
 			teamId: id,
 			title,
 			description: description.default(null),
-			status: status.default("backlog"),
+			/** Without one, the issue gets its team's first status. */
+			status: status.optional(),
 			priority: priority.default(0),
 			assigneeId: id.nullable().default(null),
 			projectId: id.nullable().default(null),

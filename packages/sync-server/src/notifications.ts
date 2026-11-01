@@ -8,6 +8,7 @@ import {
 	type NotificationSettings,
 	type NotificationSettingsPatch,
 	SYSTEM_ACTOR_ID,
+	statusId,
 } from "@gateweave/track-protocol";
 import { and, asc, eq, isNotNull, lte, min } from "drizzle-orm";
 import * as schema from "./db/schema";
@@ -39,6 +40,8 @@ export interface DigestItem {
 	 * read `@Name`, with the member's current name.
 	 */
 	comment: string | null;
+	/** What the issue's team calls the status a status event moved it to. */
+	statusName: string | null;
 }
 
 /** One member's news from one workspace, newest first, to email them. */
@@ -164,6 +167,7 @@ function describe(db: Db, item: schema.InboxItemRow): DigestItem | undefined {
 		.select({
 			title: schema.issues.title,
 			number: schema.issues.number,
+			teamId: schema.issues.teamId,
 			team: schema.teams.key,
 			deletedAt: schema.issues.deletedAt,
 		})
@@ -184,6 +188,15 @@ function describe(db: Db, item: schema.InboxItemRow): DigestItem | undefined {
 			comment = mentionsAsText(row.body, (id) => memberName(db, id));
 		}
 	}
+	// A removed status keeps its row, so the name is there even after an admin removed it.
+	const status =
+		item.event.type === "status"
+			? db
+					.select({ name: schema.statuses.name })
+					.from(schema.statuses)
+					.where(eq(schema.statuses.id, statusId(issue.teamId, item.event.to)))
+					.get()
+			: undefined;
 	return {
 		issue: { key: `${issue.team}-${issue.number}`, title: issue.title },
 		event: item.event,
@@ -191,6 +204,7 @@ function describe(db: Db, item: schema.InboxItemRow): DigestItem | undefined {
 		unread: item.unread,
 		updatedAt: item.updatedAt,
 		comment,
+		statusName: status?.name ?? null,
 	};
 }
 

@@ -6,16 +6,18 @@ import type {
 	Member,
 	OrderBy,
 	Project,
+	WorkflowStatus,
 } from "@gateweave/track-protocol";
 import { PRIORITY_ORDER } from "#/components/issues/meta";
-import { BOARD_STATUS_ORDER, groupByStatus, LIST_STATUS_ORDER, planPlacement } from "./issues";
+import { groupByStatus, planPlacement } from "./issues";
 import type { IssuePatch } from "./mutations";
+import { type StatusMap, statusColumns } from "./statuses";
 import { type SortLookups, sortIssues, type TableSort } from "./table";
 
 // Grouping and order for the list and the board (`IssueDisplay` in the protocol).
 
 type GroupHead =
-	| { by: "status"; value: IssueStatus }
+	| { by: "status"; value: IssueStatus; status: WorkflowStatus }
 	| { by: "priority"; value: IssuePriority }
 	| { by: "assignee"; value: string | null }
 	| { by: "project"; value: string | null }
@@ -48,10 +50,13 @@ export function groupFields(group: GroupHead): GroupFields {
 	}
 }
 
-/** What names the groups of people and projects. */
+/** What names the groups of people and projects, and makes the groups of statuses. */
 export interface GroupLookups {
 	members: ReadonlyMap<string, Pick<Member, "name">>;
 	projects: ReadonlyMap<string, Pick<Project, "name">>;
+	statuses: StatusMap;
+	/** The teams whose statuses make the groups, the first naming the ones they share. */
+	teamIds: readonly string[];
 }
 
 const NO_LOOKUPS: SortLookups = {
@@ -59,6 +64,7 @@ const NO_LOOKUPS: SortLookups = {
 	members: new Map(),
 	projects: new Map(),
 	cycles: new Map(),
+	statuses: new Map(),
 };
 
 /** Each order as a sort: priority runs urgent first, due dates soonest first, times newest first. */
@@ -106,8 +112,8 @@ function byName(
 /**
  * Groups issues by a field and orders each group. Status and priority get a group for every
  * value, even an empty one, so that issues can be dropped into it; people and projects get one
- * for each that has issues, and a board also one for none. On a board, statuses run in workflow
- * order, in a list with work in flight first.
+ * for each that has issues, and a board also one for none. Statuses are those of the teams in
+ * `lookups`: on a board in workflow order, in a list with work in flight first.
  */
 export function groupIssues(
 	issues: readonly Issue[],
@@ -133,14 +139,17 @@ function bucket(
 ): IssueGroup[] {
 	switch (groupBy) {
 		case "status":
-			return groupByStatus(issues, layout === "board" ? BOARD_STATUS_ORDER : LIST_STATUS_ORDER).map(
-				(group) => ({
-					by: "status",
-					value: group.status,
-					key: keyOf("status", group.status),
-					issues: group.issues,
-				}),
-			);
+			return groupByStatus(
+				issues,
+				statusColumns(lookups.statuses, lookups.teamIds, layout),
+				lookups.statuses,
+			).map((group) => ({
+				by: "status",
+				value: group.status.key,
+				status: group.status,
+				key: keyOf("status", group.status.key),
+				issues: group.issues,
+			}));
 		case "priority": {
 			const buckets = new Map<IssuePriority, Issue[]>(
 				PRIORITY_ORDER.map((priority) => [priority, []]),

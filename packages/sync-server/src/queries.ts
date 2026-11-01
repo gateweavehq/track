@@ -1,14 +1,16 @@
-import type {
-	Comment,
-	Cycle,
-	Issue,
-	IssueRelation,
-	IssueStatus,
-	Label,
-	Member,
-	Project,
-	PullRequest,
-	Team,
+import {
+	type Comment,
+	type Cycle,
+	compareStatuses,
+	type Issue,
+	type IssueRelation,
+	type IssueStatus,
+	type Label,
+	type Member,
+	type Project,
+	type PullRequest,
+	type Team,
+	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
@@ -23,6 +25,7 @@ import {
 	toProject,
 	toPullRequest,
 	toRelation,
+	toStatus,
 	toTeam,
 } from "./state";
 
@@ -53,6 +56,8 @@ export const MAX_QUERY_LIMIT = 200;
 
 export interface Directory {
 	teams: Team[];
+	/** Every team's statuses in its order, removed ones too, as history still names them. */
+	statuses: WorkflowStatus[];
 	labels: Label[];
 	projects: Project[];
 	/** Every team's cycles, in order. */
@@ -63,6 +68,7 @@ export interface Directory {
 export function readDirectory(db: Db): Directory {
 	return {
 		teams: db.select().from(schema.teams).orderBy(schema.teams.key).all().map(toTeam),
+		statuses: db.select().from(schema.statuses).all().map(toStatus).sort(compareStatuses),
 		labels: db
 			.select()
 			.from(schema.labels)

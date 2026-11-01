@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { useState } from "react";
 import { CycleSettingsDialog } from "#/components/cycles/cycle-settings-dialog";
 import { EditTeamDialog } from "#/components/teams/edit-team-dialog";
+import { StatusesDialog } from "#/components/teams/statuses-dialog";
 import { Button } from "#/components/ui/button";
 import {
 	isAdmin,
@@ -21,6 +22,7 @@ export function TeamsSettings() {
 	const counts = useIssueCountsByTeam();
 	const [editing, setEditing] = useState<Team | null>(null);
 	const [planning, setPlanning] = useState<Team | null>(null);
+	const [workflow, setWorkflow] = useState<Team | null>(null);
 
 	return (
 		<section aria-labelledby="teams-heading" className="space-y-4">
@@ -78,6 +80,14 @@ export function TeamsSettings() {
 										<Button
 											variant="ghost"
 											size="sm"
+											onClick={() => setWorkflow(team)}
+											aria-label={`Statuses of ${team.name}`}
+										>
+											Statuses
+										</Button>
+										<Button
+											variant="ghost"
+											size="sm"
 											onClick={() => setPlanning(team)}
 											aria-label={`Cycles for ${team.name}`}
 										>
@@ -95,6 +105,7 @@ export function TeamsSettings() {
 			)}
 			{editing && <EditTeamDialog team={editing} onClose={() => setEditing(null)} />}
 			{planning && <CycleSettingsDialog team={planning} onClose={() => setPlanning(null)} />}
+			{workflow && <StatusesDialog team={workflow} onClose={() => setWorkflow(null)} />}
 		</section>
 	);
 }

@@ -10,9 +10,15 @@ import { useWorkspace } from "#/components/workspace/context";
 import { issueKey, sortOrderAfter } from "#/lib/issues";
 import { send, useUpdateIssue } from "#/lib/mutations";
 import { projectProgress } from "#/lib/projects";
-import { useMembersById, useSubIssues, useTeamsById } from "#/lib/queries";
+import {
+	useIssueStatus,
+	useMembersById,
+	useStatuses,
+	useSubIssues,
+	useTeamsById,
+} from "#/lib/queries";
 import { RowButton } from "./issue-row";
-import { STATUS_META, StatusIcon } from "./meta";
+import { StatusIcon } from "./meta";
 import { StatusPicker } from "./pickers";
 import { DueDate } from "./schedule";
 
@@ -25,7 +31,7 @@ export function SubIssues({ issue }: { issue: Issue }) {
 	const subIssues = useSubIssues(issue.id);
 	const [adding, setAdding] = useState(false);
 	const [title, setTitle] = useState("");
-	const progress = projectProgress(subIssues);
+	const progress = projectProgress(subIssues, useStatuses());
 
 	function create() {
 		const text = title.trim();
@@ -125,6 +131,7 @@ export function SubIssues({ issue }: { issue: Issue }) {
 function SubIssueRow({ issue }: { issue: Issue }) {
 	const { slug } = useWorkspace();
 	const update = useUpdateIssue();
+	const issueStatus = useIssueStatus(issue);
 	const team = useTeamsById().get(issue.teamId);
 	const members = useMembersById();
 	const assignee = issue.assigneeId ? members.get(issue.assigneeId) : undefined;
@@ -132,9 +139,13 @@ function SubIssueRow({ issue }: { issue: Issue }) {
 
 	return (
 		<li className="relative flex h-9 items-center gap-2 border-b px-2 text-sm last:border-b-0 hover:bg-accent/40">
-			<StatusPicker value={issue.status} onChange={(status) => update(issue, { status })}>
-				<RowButton label={`Status: ${STATUS_META[issue.status].label}`}>
-					<StatusIcon status={issue.status} />
+			<StatusPicker
+				teamId={issue.teamId}
+				value={issue.status}
+				onChange={(status) => update(issue, { status })}
+			>
+				<RowButton label={`Status: ${issueStatus.name}`}>
+					<StatusIcon status={issueStatus} />
 				</RowButton>
 			</StatusPicker>
 			<span aria-hidden className="w-16 shrink-0 font-mono text-xs text-muted-foreground">

@@ -251,7 +251,8 @@ spell out. An
 agent sets up a fresh workspace's teams with `create_team`, which only admins may use. It makes
 and changes projects with `create_project` and `update_project`, which go through the same
 mutations as the app, so the server's rules apply: an agent member cannot, and a lead must be a
-person.
+person. Statuses are named by key or by name, ignoring case; `get_workspace` lists each team's
+in order, and issues come back with `status` (the key) and `statusName`.
 
 Tokens must name one canonical URL, so the endpoint, and the authorization server, exist only
 when `BETTER_AUTH_URL` pins the base URL. Without it `/mcp` answers `404`.
@@ -384,6 +385,46 @@ one that is not, writes nothing. They never conflict, so two people labeling the
 same time both get their label. Deleting a label (admins only) removes it from every issue that
 has it, one issue op each, before the label's own delete op.
 
+### Workflow statuses
+
+Each team has its own statuses (`WorkflowStatus` in `packages/protocol/src/statuses.ts`, the
+`statuses` table of the Durable Object), in an order its admins choose. Every status is in one of
+five fixed categories: backlog, unstarted, started, completed and canceled. What Track does with an
+issue's status follows the category, never the status itself, so a team's own statuses work
+everywhere. Completed and canceled close an issue: it is not overdue, blocks nothing and moves on
+with no cycle. Completed counts as done in the progress of cycles, projects and sub-issues, and
+canceled issues are left out of it.
+
+- **Keys never change.** An issue's `status` is the key of one of its team's statuses, made from
+  the name when the status is created (`statusKeyFor`: "Ready for QA" becomes `ready_for_qa`).
+  Renaming a status keeps its key, so issues, history, filters, saved views and webhooks that
+  refer to it stay right. A status's id is `${teamId}/${key}`, and mutations name it by team
+  and key.
+- **Every team starts with the same six**, the statuses Track had before teams had their own
+  (`DEFAULT_STATUSES`): Backlog, Todo, In Progress, In Review, Done and Canceled, under their old
+  keys. A migration gave them to every existing team, so older issues and integrations keep their
+  meaning. When a page shows issues of several teams, statuses that share a key share a column or
+  group, named as the first of those teams by key names it. Teams that add a status of the same
+  name get the same key, so they line up too.
+- **Admins change the workflow.** `status.create`, `status.update` (name, color, category and
+  order) and `status.delete` are for owners and admins (`isAdminRole`), under Settings, Teams;
+  the replica predicts them by the same rules. Names are unique in a team ignoring case, a team
+  has at most 30 statuses, and it keeps at least one completed status, for Track and GitHub to
+  close issues with. Statuses sort by category, then by a fractional `sortOrder` within it.
+- **Removing a status moves its issues.** `status.delete` names the status to move the team's
+  live issues to, with a history entry and a webhook for each, as the admin's change; nobody's
+  inbox hears of it. The status keeps its row with `removedAt`, so history and the inbox still
+  name it, and its key is never used again in the team. Nothing can be moved into it.
+- **A new issue without a status gets its team's first**, Backlog unless the team changed it.
+  `issue.create` and `issue.update` refuse a key that is not one of the team's live statuses.
+- **Names travel with the key.** MCP takes a status by key or name and lists each team's
+  statuses in `get_workspace`; webhooks carry `statusName` and `statusCategory`; inbox emails
+  name the status as its team does; an import matches a status by name in the team, then takes
+  the first of its category.
+
+Changing statuses is a breaking change to the protocol (version 16), so clients that predate it
+start from a fresh snapshot.
+
 ### Projects
 
 A project groups issues from any team toward a goal. It has a name, a description, a status
@@ -400,8 +441,8 @@ to be a real day). An issue belongs to at most one project through its `projectI
 - `issue.create` and `issue.update` refuse a `projectId` that is missing or deleted
   (`not_found`). `projectId` is an ordinary field of the issue patch, with the same per-field
   conflict detection as the status or the assignee.
-- Progress is not stored. The UI counts the issues in the project that are done, out of all that
-  are not canceled, from the local copy.
+- Progress is not stored. The UI counts the issues in the project in a completed status, out of
+  all that are not canceled, from the local copy.
 - Changing an issue's project is recorded in its history, and is one of the kinds of change an
   admin can have an agent propose (`project`).
 
@@ -431,7 +472,7 @@ into at most one cycle of its own team through `cycleId`. The date helpers every
   cycles stay. These moves are the admin's, in history and in webhooks.
 - The alarm moves cycles on. At each midnight in a team's time zone on which one of its cycles
   ends or starts, it completes every cycle whose last day is over, moves its unfinished issues
-  (not done or canceled) to the next cycle, and makes cycles to keep two ahead. A workspace that
+  (in no completed or canceled status) to the next cycle, and makes cycles to keep two ahead. A workspace that
   slept through whole cycles skips them, keeping the rhythm, rather than making cycles that would
   complete at once. Track itself is the actor of these moves: `SYSTEM_ACTOR_ID` in history, an
   actor of `type: "system"` in webhooks. A team update that changes cycles sets the alarm at once.
@@ -440,8 +481,8 @@ into at most one cycle of its own team through `cycleId`. The date helpers every
   completed cycle it is in. The cycle is never an agent's to propose, and changing it is
   recorded in history like the project.
 - `cycle.update` names a cycle, or clears the name; any member may.
-- Progress and the burn-up are not stored. The UI counts the cycle's issues that are done, out
-  of all that are not canceled, and works the burn-up out day by day from issue history: when
+- Progress and the burn-up are not stored. The UI counts the cycle's issues in a completed
+  status, out of all that are not canceled, and works the burn-up out day by day from issue history: when
   each issue joined or left the cycle and how its status changed. A completed cycle is shown as
   it stood just before it completed, since completing moves its unfinished issues out.
 
@@ -466,8 +507,8 @@ history.
   parent's own delete op, and no history, as deleting a project does. So every issue's ancestors
   are live.
 - **Never proposed.** Like dates and estimates, an agent member sets a parent directly.
-- **Progress is not stored.** The UI counts the sub-issues that are done, out of all that are not
-  canceled, from the local copy, as it does for projects.
+- **Progress is not stored.** The UI counts the sub-issues in a completed status, out of all that
+  are not canceled, from the local copy, as it does for projects.
 
 The issue page shows the parent above the title and lists sub-issues under the description, with
 a field that adds one in the parent's team. Lists and boards show a parent's progress. Agents set
@@ -510,8 +551,8 @@ be a real day, like a project's target date) and an estimate (`estimate`: whole 
 change is recorded in the issue's history.
 
 - A day is a day on the calendar, the same in every time zone, not an instant. "Overdue" is
-  decided in the viewer's time zone: an issue that is not done or canceled, whose due date is
-  before today.
+  decided in the viewer's time zone: an issue in no completed or canceled status, whose due date
+  is before today.
 - The server does not require the start to come before the due date. The issue page only keeps
   them in order in the date pickers.
 - Teams pick their own scale. The UI offers 1, 2, 3, 5, 8, 13 and 21 points, and shows any other
@@ -582,8 +623,8 @@ workspace's files are one prefix in the bucket.
 
 People stay in control of agents: for each agent member, an admin chooses which kinds of change
 to an issue it only proposes (`agent.update`, kept in the member's `proposes` in the Durable
-Object). The kinds are the title, the description, the status, closing (a status of done or
-canceled, which `status` includes), the priority, the assignee, the project and labels.
+Object). The kinds are the title, the description, the status, closing (a completed or canceled
+status, which `status` includes), the priority, the assignee, the project and labels.
 Creating issues, setting parents, dates and estimates, relating issues, commenting, and managing
 labels and projects are never proposed. An agent proposes nothing until an admin says so.
 
@@ -739,6 +780,7 @@ browser, so both are instant and work offline; the server is not asked.
   stand for each team's cycle in its own time zone, so a saved view of the current cycle moves
   on with it. Values of one property are alternatives and properties add
   up, so "Todo or In Progress, and Urgent" is `statuses: ["todo", "in_progress"], priorities: [1]`.
+  A status is a key, so it matches that status in every team that has it.
   `null` among assignees or projects means none. A page offers only the filters that narrow it
   (a team's page has no team filter).
 - They live in the URL (`status`, `priority`, `assignee`, `project`, `cycle`, `labels`, `team`,
@@ -748,7 +790,7 @@ browser, so both are instant and work offline; the server is not asked.
   such as a deleted label, are dropped too, so an old link still shows issues.
 - An issue created on a filtered page takes each filter that has a single value (a status,
   priority, assignee, project, cycle or team) and the labels filtered by, so it appears on the page it
-  was made from. The page registers these defaults with the workspace's actions, so the page's
+  was made from. A status its team does not have gives way to the team's first. The page registers these defaults with the workspace's actions, so the page's
   button, the C shortcut and the command palette agree.
 - Display options are `IssueDisplay` (`packages/protocol/src/display.ts`), the other half of how
   a page looks: what a list or board groups by (status, priority, assignee, project or nothing)
@@ -813,7 +855,8 @@ is `packages/sync-server/src/webhooks.ts`.
 - **Bodies are `{ type, timestamp, data }`.** `data` has the workspace's id and slug, the
   workspace version after the change, the actor (a person or an agent), and the issue with its
   key, URL and labels (`{ id, name }`, in the order of `labelIds`, with the names as of the
-  event). `issue.updated` adds `updatedFrom`, the changed fields' earlier values, so a receiver
+  event), and its status's name and category (`statusName`, `statusCategory`), since teams name
+  their statuses. `issue.updated` adds `updatedFrom`, the changed fields' earlier values, so a receiver
   can tell which labels an update added from `updatedFrom.labelIds`; an update that only
   reorders the list is not sent. Comment events add the comment.
 - **Proposal events** add the proposal (`id`, `issueId`, `issueKey`, `agentId`, `change`,
@@ -874,8 +917,10 @@ connection on Settings › GitHub and pastes its payload URL and secret into Git
 - **Automation only moves forward.** A draft pull request moves its issues to In Progress, an
   open one to In Review, and a merged one moves the issues it closes to Done. A push to the
   default branch moves the issues its commits close to Done (commits GitHub marks as not
-  `distinct`, already seen on another branch, are skipped). An issue is never moved back to an
-  earlier status, nor out of Done or Canceled. Only a change of the pull request's state moves
+  `distinct`, already seen on another branch, are skipped). A team that has changed its statuses
+  gets the status of that key if it is still of the same category, and otherwise the first status
+  of the category in its order. An issue is never moved back to an earlier status in its team's
+  order, nor out of a completed or canceled status. Only a change of the pull request's state moves
   issues (opened, reopened, ready for review, converted to draft, merged), or an edit that links
   an issue anew; new commits or an edit leave linked issues where people put them.
 - **GitHub is the actor.** Changes are made as `GITHUB_ACTOR_ID` (`github`), shown as "GitHub".
@@ -895,15 +940,18 @@ importer only reads its source into a common shape in `apps/web/src/lib/import/`
 Track's own JSON export, a GitHub repository (REST) or a Linear team (GraphQL). Both APIs allow requests from browsers, so
 the person's token or API key goes from their browser to GitHub or Linear and never reaches the
 Worker, and nothing stores it. Then `planImport` matches labels and projects by name, creating
-the missing ones, and people by email, then name. It writes parents before their sub-issues and
+the missing ones, and people by email, then name. A status is matched by name among the team's
+statuses, and otherwise becomes the team's first status of the same category, which each
+importer reads from its source (Linear's state types, GitHub's open and closed, a CSV's words). It writes parents before their sub-issues and
 the oldest issues first, so numbers follow the source's order. Nothing on the server knows about
 imports, so validation, permissions and fan-out are the ordinary ones.
 
 - **A JSON export moves a workspace or a team** to another workspace, such as from a self-hosted
   copy to Gateweave Cloud: issues with their comments, parents and relations, and labels and
   projects with their colors and details. The import can keep the file's teams, matched by key
-  or created, instead of putting everything in one team. History stays behind, since activity
-  belongs to the people who made it. Relations are sent last, once both issues exist.
+  or created, instead of putting everything in one team. Statuses are matched as above, not
+  created: the file names each issue's status and its category. History stays behind, since
+  activity belongs to the people who made it. Relations are sent last, once both issues exist.
 - **Repeating an import is safe.** An imported issue's or comment's id is made from its id in
   the source (`import-` and a SHA-256 prefix), and the plan skips ids the workspace already has.
   Relations from a JSON export are made the same way.

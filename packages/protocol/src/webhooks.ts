@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Comment, Issue, IssueRelation, Proposal } from "./domain";
+import type { StatusCategory } from "./statuses";
 
 /**
  * Webhooks tell other services, such as an agent's trigger, about changes as they happen. Each
@@ -104,6 +105,10 @@ export interface WebhookIssue extends Issue {
 	url: string;
 	/** The issue's labels with their names as of this event, in the order of `labelIds`. */
 	labels: { id: string; name: string }[];
+	/** The name of its status, as of this event, such as `In Review`. */
+	statusName: string;
+	/** What its status means to Track, such as `started`: a team names its statuses itself. */
+	statusCategory: StatusCategory;
 }
 
 export interface WebhookWorkspace {

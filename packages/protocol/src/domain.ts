@@ -5,16 +5,10 @@
 
 import type { IssueDisplay } from "./display";
 import type { IssueFilters } from "./filters";
+import type { WorkflowStatus } from "./statuses";
 
-export const ISSUE_STATUSES = [
-	"backlog",
-	"todo",
-	"in_progress",
-	"in_review",
-	"done",
-	"canceled",
-] as const;
-export type IssueStatus = (typeof ISSUE_STATUSES)[number];
+/** The key of one of a team's statuses: see `WorkflowStatus`. */
+export type IssueStatus = string;
 
 /** 0 = no priority, then 1 (urgent) through 4 (low). */
 export const ISSUE_PRIORITIES = [0, 1, 2, 3, 4] as const;
@@ -36,8 +30,8 @@ export function isAdminRole(role: MemberRole): boolean {
 
 /**
  * Kinds of change to an issue that an admin can have an agent member propose rather than make.
- * `close` is a status change to done or canceled; `status` covers every status change, closing
- * included. Creating an issue, commenting and managing labels are never proposed.
+ * `close` is a change to a completed or canceled status; `status` covers every status change,
+ * closing included. Creating an issue, commenting and managing labels are never proposed.
  */
 export const AGENT_CHANGE_KINDS = [
 	"title",
@@ -50,9 +44,6 @@ export const AGENT_CHANGE_KINDS = [
 	"project",
 ] as const;
 export type AgentChangeKind = (typeof AGENT_CHANGE_KINDS)[number];
-
-/** Statuses that close an issue, which the `close` kind of change covers. */
-export const CLOSED_STATUSES: readonly IssueStatus[] = ["done", "canceled"];
 
 /**
  * The actor of the changes the server makes on its own, such as moving a completed cycle's
@@ -113,6 +104,7 @@ export interface Issue {
 	number: number;
 	title: string;
 	description: string | null;
+	/** The key of one of its team's statuses. */
 	status: IssueStatus;
 	priority: IssuePriority;
 	assigneeId: string | null;
@@ -315,7 +307,10 @@ export interface PullRequest {
 	/** The GitHub login of whoever opened it. */
 	author: string | null;
 	issueIds: string[];
-	/** The linked issues it moves to Done when it merges. */
+	/**
+	 * The linked issues it closes when it merges, moving them to Done or their team's first
+	 * completed status.
+	 */
 	closingIssueIds: string[];
 	createdAt: number;
 	updatedAt: number;
@@ -450,6 +445,7 @@ export function privateId(issueId: string, memberId: string): string {
 
 export interface Entities {
 	team: Team;
+	status: WorkflowStatus;
 	issue: Issue;
 	label: Label;
 	project: Project;
@@ -467,6 +463,7 @@ export interface Entities {
 export type EntityName = keyof Entities;
 export const ENTITY_NAMES = [
 	"team",
+	"status",
 	"issue",
 	"label",
 	"project",

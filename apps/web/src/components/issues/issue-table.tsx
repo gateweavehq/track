@@ -7,6 +7,7 @@ import type {
 	TableColumn,
 	Team,
 } from "@gateweave/track-protocol";
+import { isClosedCategory } from "@gateweave/track-protocol";
 import { Link } from "@tanstack/react-router";
 import { ArrowDown, ArrowUp, ListRestart, SlidersHorizontal } from "lucide-react";
 import {
@@ -44,12 +45,19 @@ import {
 } from "#/lib/display";
 import { isIssueOverdue, issueKey } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
-import { useCyclesById, useMembersById, useProjectsById, useTeamsById } from "#/lib/queries";
+import {
+	useCyclesById,
+	useIssueStatus,
+	useMembersById,
+	useProjectsById,
+	useStatuses,
+	useTeamsById,
+} from "#/lib/queries";
 import { nextSort, type SortColumn, sortIssues, type TableSort } from "#/lib/table";
 import { cn } from "#/lib/utils";
 import { DateField } from "./date-field";
 import { LabelChips, LabelPicker } from "./labels";
-import { PRIORITY_META, PriorityIcon, STATUS_META, StatusIcon } from "./meta";
+import { PRIORITY_META, PriorityIcon, StatusIcon } from "./meta";
 import {
 	AssigneePicker,
 	CyclePicker,
@@ -109,13 +117,14 @@ export function IssueTable({
 	const members = useMembersById();
 	const projects = useProjectsById();
 	const cycles = useCyclesById();
+	const statuses = useStatuses();
 	const shown = useMemo(() => shownColumns(display), [display]);
 	const sort: TableSort | null = display.sort ?? null;
 	const setSort = (update: (current: TableSort | null) => TableSort | null) =>
 		onDisplayChange((current) => ({ ...current, sort: update(current.sort ?? null) ?? undefined }));
 	const rows = useMemo(
-		() => sortIssues(issues, sort, { teams, members, projects, cycles }),
-		[issues, sort, teams, members, projects, cycles],
+		() => sortIssues(issues, sort, { teams, members, projects, cycles, statuses }),
+		[issues, sort, teams, members, projects, cycles, statuses],
 	);
 	const body = useRef<HTMLTableSectionElement>(null);
 	const [first, last] = useRowsOnScreen(rows.length, body);
@@ -342,6 +351,7 @@ const TableRow = memo(function TableRow({
 }) {
 	const { slug } = useWorkspace();
 	const update = useUpdateIssue();
+	const issueStatus = useIssueStatus(issue);
 	const key = issueKey(team, issue);
 
 	const cell = (column: TableColumn): ReactNode => {
@@ -369,10 +379,14 @@ const TableRow = memo(function TableRow({
 				);
 			case "status":
 				return (
-					<StatusPicker value={issue.status} onChange={(status) => update(issue, { status })}>
-						<CellButton label={`Status: ${STATUS_META[issue.status].label}`}>
-							<StatusIcon status={issue.status} />
-							{STATUS_META[issue.status].label}
+					<StatusPicker
+						teamId={issue.teamId}
+						value={issue.status}
+						onChange={(status) => update(issue, { status })}
+					>
+						<CellButton label={`Status: ${issueStatus.name}`}>
+							<StatusIcon status={issueStatus} />
+							{issueStatus.name}
 						</CellButton>
 					</StatusPicker>
 				);
@@ -482,7 +496,7 @@ const TableRow = memo(function TableRow({
 							label="Due date"
 							value={issue.dueDate}
 							min={issue.startDate}
-							overdue={isIssueOverdue(issue)}
+							overdue={isIssueOverdue(issue, isClosedCategory(issueStatus.category))}
 							onChange={(dueDate) => update(issue, { dueDate })}
 						/>
 					</div>

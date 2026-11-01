@@ -2,8 +2,10 @@ import {
 	type Activity,
 	type ActivityChange,
 	type Cycle,
+	defaultStatuses,
 	type Issue,
 	startOfDay,
+	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import {
@@ -104,6 +106,46 @@ describe("cycles", () => {
 				issue("c", { status: "canceled", estimate: 8 }),
 			]),
 		).toEqual({ issues: { done: 1, total: 2 }, points: { done: 3, total: 8 } });
+	});
+
+	it("count a team's own statuses by their category", () => {
+		const shipped: WorkflowStatus = {
+			id: "t1/shipped",
+			teamId: "t1",
+			key: "shipped",
+			name: "Shipped",
+			category: "completed",
+			color: null,
+			sortOrder: "a1",
+			createdAt: 1,
+			updatedAt: 1,
+			removedAt: null,
+		};
+		const wontDo: WorkflowStatus = {
+			id: "t1/wont_do",
+			teamId: "t1",
+			key: "wont_do",
+			name: "Won't do",
+			category: "canceled",
+			color: null,
+			sortOrder: "a1",
+			createdAt: 1,
+			updatedAt: 1,
+			removedAt: null,
+		};
+		const statuses = new Map(
+			[...defaultStatuses("t1", 1), shipped, wontDo].map((status) => [status.id, status]),
+		);
+		expect(
+			cycleProgress(
+				[
+					issue("a", { status: "shipped", estimate: 3 }),
+					issue("b", { status: "wont_do", estimate: 5 }),
+					issue("c", { estimate: 8 }),
+				],
+				statuses,
+			),
+		).toEqual({ issues: { done: 1, total: 2 }, points: { done: 3, total: 11 } });
 	});
 });
 

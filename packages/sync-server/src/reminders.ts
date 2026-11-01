@@ -1,4 +1,4 @@
-import { addDays, atHour, CLOSED_STATUSES, dayIn } from "@gateweave/track-protocol";
+import { addDays, atHour, CLOSED_CATEGORIES, dayIn } from "@gateweave/track-protocol";
 import { and, eq, gte, isNotNull, isNull, notInArray } from "drizzle-orm";
 import * as schema from "./db/schema";
 import { remindAssignees } from "./inbox";
@@ -79,13 +79,20 @@ function pending(db: Db, now: number): Reminder[] {
 		})
 		.from(schema.issues)
 		.innerJoin(schema.teams, eq(schema.teams.id, schema.issues.teamId))
+		.innerJoin(
+			schema.statuses,
+			and(
+				eq(schema.statuses.teamId, schema.issues.teamId),
+				eq(schema.statuses.key, schema.issues.status),
+			),
+		)
 		.leftJoin(schema.dueReminders, eq(schema.dueReminders.issueId, schema.issues.id))
 		.where(
 			and(
 				gte(schema.issues.dueDate, earliest),
 				isNotNull(schema.issues.assigneeId),
 				isNull(schema.issues.deletedAt),
-				notInArray(schema.issues.status, [...CLOSED_STATUSES]),
+				notInArray(schema.statuses.category, [...CLOSED_CATEGORIES]),
 			),
 		)
 		.all();

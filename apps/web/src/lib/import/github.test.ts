@@ -129,7 +129,7 @@ describe("readGitHubImport", () => {
 		expect(source.issues[0]).toMatchObject({
 			title: "Issue 1",
 			description: "It breaks.",
-			status: "todo",
+			status: { name: "Todo", category: "unstarted" },
 			labels: ["bug", "legacy"],
 			assignee: { name: "octocat", email: null },
 			project: "v1",
@@ -147,8 +147,14 @@ describe("readGitHubImport", () => {
 		});
 		expect(source.labelColors?.get("bug")).toBe("#d73a4a");
 		// Not planned is canceled; a parent in another repository is not kept.
-		expect(source.issues[1]).toMatchObject({ status: "canceled", parentSourceId: "github:7#1" });
-		expect(source.issues[2]).toMatchObject({ status: "done", parentSourceId: null });
+		expect(source.issues[1]).toMatchObject({
+			status: { name: "Canceled", category: "canceled" },
+			parentSourceId: "github:7#1",
+		});
+		expect(source.issues[2]).toMatchObject({
+			status: { name: "Done", category: "completed" },
+			parentSourceId: null,
+		});
 		expect(progress.at(-1)).toEqual({ issues: 3, comments: 1 });
 	});
 
