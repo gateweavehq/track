@@ -1,5 +1,12 @@
 import { expect, newBrowserContext, test } from "./fixtures";
-import { createIssue, signUp, startWorkspace, syncBadge, unique } from "./helpers";
+import {
+	createIssue,
+	signUp,
+	startWorkspace,
+	syncBadge,
+	unique,
+	waitForServiceWorker,
+} from "./helpers";
 
 // The smallest PNG there is: one transparent pixel.
 const PIXEL = Buffer.from(
@@ -75,4 +82,47 @@ test("descriptions and comments are Markdown, with files attached to them", asyn
 	} finally {
 		await outsiderContext.close();
 	}
+});
+
+test("a file attached offline waits on the device and uploads when the connection returns", async ({
+	page,
+	network,
+}) => {
+	const { slug } = await startWorkspace(page);
+	await createIssue(page, unique("Fix the export"));
+	await page.goto(`/${slug}/issue/ENG-1`);
+	await waitForServiceWorker(page);
+
+	await network.goOffline();
+	await expect(syncBadge(page)).toContainText("Offline");
+	const comment = page.getByRole("textbox", { name: "Comment", exact: true });
+	await comment.fill("Seen offline:");
+	const chooser = page.waitForEvent("filechooser");
+	await page.getByRole("button", { name: "Attach files to the comment" }).click();
+	await (await chooser).setFiles({ name: "offline.png", mimeType: "image/png", buffer: PIXEL });
+	await expect(page.getByText("offline.png will upload when you are back online")).toBeVisible();
+	await expect(comment).toHaveValue(/!\[offline\.png\]\(\/api\/files\/.+\/offline\.png\)/);
+	await page.getByRole("button", { name: "Comment", exact: true }).click();
+
+	// The comment shows the picture from the device's copy, and says it is waiting.
+	const posted = page.getByRole("article", { name: /^Comment by/ });
+	const image = posted.getByRole("img", { name: "offline.png" });
+	await expect
+		.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth))
+		.toBe(1);
+	await expect(posted.getByText("(waiting to upload)")).toBeVisible();
+
+	// The file is kept on the device, not just in memory.
+	await page.reload();
+	await expect(posted.getByText("(waiting to upload)")).toBeVisible();
+
+	await network.goOnline();
+	await expect(page.getByText("Uploaded offline.png, which was waiting")).toBeVisible();
+	await expect(posted.getByText("(waiting to upload)")).toBeHidden();
+	await expect(syncBadge(page)).toHaveText("Live");
+	const src = (await image.getAttribute("src")) ?? "";
+	expect(src).toMatch(/^\/api\/files\//);
+	const response = await page.request.get(new URL(src, page.url()).toString());
+	expect(response.status()).toBe(200);
+	expect(Buffer.from(await response.body()).equals(PIXEL)).toBe(true);
 });

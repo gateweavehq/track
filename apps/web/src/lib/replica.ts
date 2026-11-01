@@ -1,5 +1,6 @@
 import { deleteIdbReplica, deleteIdbReplicas } from "@gateweave/track-sync-client";
 import { forgetAllWorkspaces, forgetKnownWorkspace } from "./offline";
+import { deleteOutboxDatabase, uploadOutbox } from "./upload-outbox";
 
 /** Where this browser stores a user's copy of a workspace. Ids, so a renamed workspace keeps it. */
 export function replicaKey(userId: string, workspaceId: string): string {
@@ -10,13 +11,20 @@ export function replicaKey(userId: string, workspaceId: string): string {
  * Deletes this browser's copy of a workspace, once the user has left it or lost access. A browser
  * may be shared, so it must not keep data its user can no longer see.
  */
-export function forgetWorkspace(userId: string, workspaceId: string): Promise<void> {
+export async function forgetWorkspace(userId: string, workspaceId: string): Promise<void> {
 	forgetKnownWorkspace({ id: workspaceId });
-	return deleteIdbReplica(replicaKey(userId, workspaceId));
+	// Files still waiting to upload to it go too: the gateway would refuse them now anyway.
+	await uploadOutbox()
+		.clear(workspaceId)
+		.catch(() => {});
+	await deleteIdbReplica(replicaKey(userId, workspaceId));
 }
 
 /** Deletes everything this browser keeps for the signed-in user, when they sign out. */
 export async function forgetEverything(): Promise<void> {
 	forgetAllWorkspaces();
-	await deleteIdbReplicas().catch(() => {});
+	await uploadOutbox()
+		.clear()
+		.catch(() => {});
+	await Promise.all([deleteIdbReplicas().catch(() => {}), deleteOutboxDatabase()]);
 }
