@@ -447,8 +447,12 @@ a way to restore each issue.
 - **History says it**, as `{ type: "archived", archived }`. Archiving and restoring within the
   merge window leaves no trace, as for labels.
 - **The replica keeps archived issues.** They are part of the snapshot like any live issue, so the
-  archive works offline and the replica predicts archiving by the same rules. Keeping them out of
-  the replica's hot set is a later step.
+  archive works offline and the replica predicts archiving by the same rules. Lists, boards,
+  calendars and saved views read `activeIssues`, the issues that are not archived, kept as the same
+  map while those rows do not change: a large archive costs them nothing to filter, and an edit to
+  an archived issue runs none of their selectors again. Links, history, search and progress read
+  `issues`, archived ones included. Keeping archived issues out of memory altogether, loaded on
+  demand, is a later step.
 - **Elsewhere.** Webhooks send an archive or restore as `issue.updated`, with `archivedAt` in
   `updatedFrom`. Over MCP, `search_issues` takes `archived` (only archived issues, or none) and
   every issue says whether it is archived; `update_issue` takes `archived` to archive or restore,

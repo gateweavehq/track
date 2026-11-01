@@ -16,12 +16,15 @@ import { useMyRole, useWorkspace } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
 import type { DisplayUpdate } from "#/lib/display";
 import { compactFilters, type FiltersUpdate, sameFilters } from "#/lib/filters";
-import { isListed, useIssues, useSavedView } from "#/lib/queries";
+import { useIssues, useSavedView } from "#/lib/queries";
 import { canEditView, isViewVisible } from "#/lib/saved-views";
 import { useDocumentTitle } from "#/lib/title";
 
 // A view's filters say which issues it shows, from the whole workspace, archived ones aside.
 const NO_DEFAULTS = {};
+
+/** A saved view filters the listed issues itself. */
+const everyIssue = () => true;
 
 export const Route = createFileRoute("/$workspace/view/$viewId")({
 	component: ViewPage,
@@ -70,7 +73,7 @@ const draftOf = (view: SavedView): Draft => ({
 function ViewIssues({ view }: { view: SavedView }) {
 	const { userId } = useWorkspace();
 	const role = useMyRole();
-	const issues = useIssues(isListed);
+	const issues = useIssues(everyIssue, { listed: true });
 	// Changes not saved yet, kept here rather than in the URL so that the view's link stays the
 	// view. Null while there are none, so a change someone else saves shows up at once.
 	const [draft, setDraft] = useState<Draft | null>(null);

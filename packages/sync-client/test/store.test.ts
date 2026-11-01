@@ -145,6 +145,36 @@ describe("Replica", () => {
 		expect(after.issues.has("i1")).toBe(false);
 	});
 
+	it("keeps archived issues out of the active ones, which an archived issue's change leaves alone", () => {
+		const r = replica();
+		const old = { ...issue, id: "i2", number: 2, status: "done", archivedAt: 5, version: 3 };
+		applyOps(r, [put(3, old)]);
+		const before = r.getState();
+		expect([...before.issues.keys()]).toEqual(["i1", "i2"]);
+		expect([...before.activeIssues.keys()]).toEqual(["i1"]);
+
+		// An edit to the archived issue changes every issue's map, and not the active ones'.
+		applyOps(r, [put(4, { ...old, title: "Renamed", version: 4 })]);
+		expect(r.getState().issues).not.toBe(before.issues);
+		expect(r.getState().activeIssues).toBe(before.activeIssues);
+
+		// Archiving, restoring and editing an active issue each change them, pending or confirmed.
+		r.addPending(
+			pending("m1", {
+				name: "issue.update",
+				args: { id: "i1", baseVersion: 2, patch: { status: "done" } },
+			}),
+			pending("m2", { name: "issue.archive", args: { id: "i1", archived: true } }),
+		);
+		expect(r.getState().activeIssues.size).toBe(0);
+		applyOps(r, [put(5, { ...old, title: "Renamed", archivedAt: null, version: 5 })]);
+		expect([...r.getState().activeIssues.keys()]).toEqual(["i2"]);
+		r.removePending("m2");
+		r.removePending("m1");
+		expect([...r.getState().activeIssues.keys()].sort()).toEqual(["i1", "i2"]);
+		expect(r.getState().activeIssues.get("i1")?.status).toBe("backlog");
+	});
+
 	it("shows pending mutations on top of the confirmed state", () => {
 		const r = replica();
 		const teams = r.getState().teams;

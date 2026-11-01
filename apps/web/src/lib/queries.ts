@@ -146,10 +146,8 @@ export function useTeamCycles(teamId: string | undefined): Cycle[] {
 /** A cycle's issues; `listed` leaves out archived ones, for a list rather than progress. */
 export function useCycleIssues(cycleId: string, { listed = false } = {}): Issue[] {
 	return useIssues(
-		useCallback(
-			(issue: Issue) => issue.cycleId === cycleId && (!listed || isListed(issue)),
-			[cycleId, listed],
-		),
+		useCallback((issue: Issue) => issue.cycleId === cycleId, [cycleId]),
+		{ listed },
 	);
 }
 
@@ -421,11 +419,26 @@ export function useTeamsById(): ReadonlyMap<string, Team> {
 	return useQuery(selectTeamsById);
 }
 
-export function useIssues(filter: (issue: Issue) => boolean): Issue[] {
+/**
+ * The issues `filter` keeps, in list order. With `listed`, only the issues lists show
+ * (`isListed`), read from the issues that are not archived, so a large archive costs a list
+ * nothing, and a change to an archived issue does not run its filter again.
+ */
+export function useIssues(
+	filter: (issue: Issue) => boolean,
+	{ listed = false }: { listed?: boolean } = {},
+): Issue[] {
 	return useQuery(
 		useCallback(
-			(state: SyncState) => [...state.issues.values()].filter(filter).sort(compareIssues),
-			[filter],
+			(state: SyncState) => {
+				const issues = listed ? state.activeIssues : state.issues;
+				const kept: Issue[] = [];
+				for (const issue of issues.values()) {
+					if ((!listed || isListed(issue)) && filter(issue)) kept.push(issue);
+				}
+				return kept.sort(compareIssues);
+			},
+			[filter, listed],
 		),
 		shallowEqual,
 	);
@@ -443,24 +456,24 @@ export function isListed(issue: Issue): boolean {
 /** A team's issues for its list: archived ones leave it. */
 export function useTeamIssues(teamId: string | undefined): Issue[] {
 	return useIssues(
-		useCallback((issue: Issue) => issue.teamId === teamId && isListed(issue), [teamId]),
+		useCallback((issue: Issue) => issue.teamId === teamId, [teamId]),
+		{ listed: true },
 	);
 }
 
 /** A project's issues; `listed` leaves out archived ones, for a list rather than progress. */
 export function useProjectIssues(projectId: string, { listed = false } = {}): Issue[] {
 	return useIssues(
-		useCallback(
-			(issue: Issue) => issue.projectId === projectId && (!listed || isListed(issue)),
-			[projectId, listed],
-		),
+		useCallback((issue: Issue) => issue.projectId === projectId, [projectId]),
+		{ listed },
 	);
 }
 
 /** The issues assigned to someone, for their list: archived ones leave it. */
 export function useAssignedIssues(userId: string): Issue[] {
 	return useIssues(
-		useCallback((issue: Issue) => issue.assigneeId === userId && isListed(issue), [userId]),
+		useCallback((issue: Issue) => issue.assigneeId === userId, [userId]),
+		{ listed: true },
 	);
 }
 
