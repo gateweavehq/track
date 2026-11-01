@@ -296,6 +296,8 @@ describe("statuses", () => {
 			const db = drizzle(state.storage, { schema });
 			db.run(sql`drop table statuses`);
 			db.run(sql`alter table issues drop column archived_at`);
+			db.run(sql`alter table teams drop column archive_after_months`);
+			db.run(sql`alter table teams drop column close_after_months`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${first.when}`);
 			await migrate(db, migrations);
 		});

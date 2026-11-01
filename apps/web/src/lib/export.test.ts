@@ -24,6 +24,8 @@ const eng: Team = {
 	key: "ENG",
 	name: "Engineering",
 	cycles: null,
+	archiveAfterMonths: null,
+	closeAfterMonths: null,
 	createdAt: 1,
 	updatedAt: 1,
 };
@@ -32,6 +34,8 @@ const ops: Team = {
 	key: "OPS",
 	name: "Operations",
 	cycles: null,
+	archiveAfterMonths: null,
+	closeAfterMonths: null,
 	createdAt: 1,
 	updatedAt: 1,
 };

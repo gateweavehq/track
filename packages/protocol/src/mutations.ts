@@ -5,6 +5,7 @@ import {
 	AGENT_CHANGE_KINDS,
 	ISSUE_LAYOUTS,
 	ISSUE_PRIORITIES,
+	MAX_AUTOMATION_MONTHS,
 	MAX_LABELS_PER_ISSUE,
 	PROJECT_STATUSES,
 	RELATION_TYPES,
@@ -18,6 +19,7 @@ const teamKey = z
 	.string()
 	.regex(/^[A-Z][A-Z0-9]{0,6}$/, "1-7 uppercase letters or digits, starting with a letter");
 const teamName = z.string().trim().min(1).max(64);
+const automationMonths = z.number().int().min(1).max(MAX_AUTOMATION_MONTHS);
 const title = z.string().trim().min(1).max(512);
 const description = z.string().max(100_000).nullable();
 /** The key of one of the team's statuses. */
@@ -80,7 +82,13 @@ export const mutationSchema = z.discriminatedUnion("name", [
 		args: z.object({
 			id,
 			patch: z
-				.object({ key: teamKey, name: teamName, cycles: cycleSettings.nullable() })
+				.object({
+					key: teamKey,
+					name: teamName,
+					cycles: cycleSettings.nullable(),
+					archiveAfterMonths: automationMonths.nullable(),
+					closeAfterMonths: automationMonths.nullable(),
+				})
 				.partial()
 				.refine(nonEmpty, "Empty patch"),
 		}),

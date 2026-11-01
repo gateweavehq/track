@@ -47,6 +47,8 @@ const team: Team = {
 	key: "ENG",
 	name: "Engineering",
 	cycles: null,
+	archiveAfterMonths: null,
+	closeAfterMonths: null,
 	createdAt: 0,
 	updatedAt: 0,
 };
@@ -234,7 +236,14 @@ class FakeWorkspace implements WorkspaceAccess {
 		} else if (mutation.name === "label.create") {
 			this.labels.push({ ...mutation.args, createdAt: 0, updatedAt: 0 });
 		} else if (mutation.name === "team.create") {
-			this.teams.push({ ...mutation.args, cycles: null, createdAt: 0, updatedAt: 0 });
+			this.teams.push({
+				...mutation.args,
+				cycles: null,
+				archiveAfterMonths: null,
+				closeAfterMonths: null,
+				createdAt: 0,
+				updatedAt: 0,
+			});
 		} else if (mutation.name === "project.create") {
 			this.projects.push({ ...mutation.args, createdAt: 0, updatedAt: 0 });
 		} else if (mutation.name === "project.update") {
@@ -397,6 +406,8 @@ describe("Track MCP tools", () => {
 					key: "ENG",
 					name: "Engineering",
 					cycles: null,
+					archiveAfterMonths: null,
+					closeAfterMonths: null,
 					statuses: [
 						{ key: "backlog", name: "Backlog", category: "backlog" },
 						{ key: "todo", name: "Todo", category: "unstarted" },

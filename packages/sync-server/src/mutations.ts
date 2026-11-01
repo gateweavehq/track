@@ -12,6 +12,7 @@ import {
 } from "@gateweave/track-protocol";
 import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { recordActivity } from "./activity";
+import { automationsDueNow } from "./automations";
 import { scheduleCycles } from "./cycles";
 import * as schema from "./db/schema";
 import { notify, subscribeToIssue, updateInbox } from "./inbox";
@@ -193,8 +194,17 @@ export function applyMutation(
 	const wake =
 		email ||
 		movesReminders(changes.events) ||
-		(mutation.name === "team.update" && mutation.args.patch.cycles !== undefined);
+		(mutation.name === "team.update" && changesSchedule(mutation.args.patch));
 	return { ...result, queued, wake, proposed: changes.proposed };
+}
+
+/** Whether a change to a team moves what the alarm plans: its cycles, or its automations. */
+function changesSchedule(patch: MutationArgs<"team.update">["patch"]): boolean {
+	return (
+		patch.cycles !== undefined ||
+		patch.archiveAfterMonths !== undefined ||
+		patch.closeAfterMonths !== undefined
+	);
 }
 
 function createTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"team.create">) {
@@ -205,6 +215,8 @@ function createTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 	const row: schema.TeamRow = {
 		...args,
 		cycles: null,
+		archiveAfterMonths: null,
+		closeAfterMonths: null,
 		issueCounter: 0,
 		createdAt: changes.now,
 		updatedAt: changes.now,
@@ -230,6 +242,8 @@ function updateTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 		.get();
 	if (row) changes.put("team", toTeam(row));
 	if (schedule !== undefined) scheduleCycles(db, changes, team, schedule, actor.member.userId);
+	// Automations turned on or changed run at the next alarm, which the write wakes.
+	if (patch.archiveAfterMonths || patch.closeAfterMonths) automationsDueNow(db, changes.now);
 	// The team's issue keys changed with it.
 	if (row && row.key !== team.key) indexTeamIssues(db, team.id);
 }

@@ -30,6 +30,7 @@ import { drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { z } from "zod";
 import migrations from "../drizzle/migrations";
+import { nextAutomationsAt, runAutomations } from "./automations";
 import { advanceCycles, nextCycleChange } from "./cycles";
 import * as schema from "./db/schema";
 import {
@@ -487,14 +488,16 @@ export class WorkspaceDO extends DurableObject {
 	}
 
 	/**
-	 * Moves teams' cycles on at their boundaries, reminds assignees of issues due today, compacts
-	 * the log when that is due, and sends the webhook deliveries and the inbox digests that are.
+	 * Moves teams' cycles on at their boundaries, reminds assignees of issues due today, runs teams'
+	 * automations, compacts the log when that is due, and sends the webhook deliveries and the inbox
+	 * digests that are.
 	 */
 	override async alarm(): Promise<void> {
 		const now = Date.now();
 		// Deliveries this queues go out below, in this same run.
 		this.#broadcast(this.ctx.storage.transactionSync(() => advanceCycles(this.#db, now)));
 		this.#broadcast(this.ctx.storage.transactionSync(() => remindDue(this.#db, now)));
+		this.#broadcast(this.ctx.storage.transactionSync(() => runAutomations(this.#db, now)));
 		if (now >= this.#compactionDue()) {
 			this.ctx.storage.transactionSync(() => {
 				compact(this.#db, now, RETENTION);
@@ -517,8 +520,8 @@ export class WorkspaceDO extends DurableObject {
 				}),
 			),
 		);
-		// Cycles were just moved on and reminders sent, so one that is still due is a clock
-		// disagreement: look again in a minute rather than straight away.
+		// Cycles were just moved on, reminders sent and automations run, so one that is still due is
+		// a clock disagreement: look again in a minute rather than straight away.
 		const soon = (at: number | null) =>
 			at === null ? Number.POSITIVE_INFINITY : Math.max(at, Date.now() + 60_000);
 		const next = more
@@ -529,6 +532,7 @@ export class WorkspaceDO extends DurableObject {
 					nextDigestAt(this.#db) ?? Number.POSITIVE_INFINITY,
 					soon(nextCycleChange(this.#db, Date.now())),
 					soon(nextReminderAt(this.#db, Date.now())),
+					soon(nextAutomationsAt(this.#db)),
 				);
 		await this.ctx.storage.setAlarm(next);
 	}

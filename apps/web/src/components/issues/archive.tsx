@@ -5,6 +5,7 @@ import { Archive, ArchiveRestore } from "lucide-react";
 import { Button } from "#/components/ui/button";
 import { useWorkspace } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
+import { monthsLabel } from "#/lib/automations";
 import { formatDateTime, formatRelative } from "#/lib/dates";
 import { issueKey } from "#/lib/issues";
 import { send } from "#/lib/mutations";
@@ -92,7 +93,9 @@ export function TeamArchive({ team }: { team: Team }) {
 			</header>
 			{issues.length === 0 ? (
 				<Notice title="Nothing archived">
-					Archive a completed or canceled issue from its page to take it out of lists and boards.
+					{team.archiveAfterMonths === null
+						? "Archive a completed or canceled issue from its page to take it out of lists and boards."
+						: `Completed and canceled issues come here after ${monthsLabel(team.archiveAfterMonths)} untouched, or when someone archives one from its page.`}
 				</Notice>
 			) : (
 				<ul aria-label={`${team.name} archive`} className="divide-y">

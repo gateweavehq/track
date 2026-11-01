@@ -46,6 +46,8 @@ const team: Team = {
 	key: "ENG",
 	name: "Engineering",
 	cycles: null,
+	archiveAfterMonths: null,
+	closeAfterMonths: null,
 	createdAt: 0,
 	updatedAt: 0,
 };

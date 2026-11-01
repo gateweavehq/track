@@ -38,6 +38,8 @@ export const teams = sqliteTable("teams", {
 	key: text("key").notNull().unique(),
 	name: text("name").notNull(),
 	cycles: text("cycles", { mode: "json" }).$type<CycleSettings>(),
+	archiveAfterMonths: integer("archive_after_months"),
+	closeAfterMonths: integer("close_after_months"),
 	issueCounter: integer("issue_counter").notNull().default(0),
 	createdAt: integer("created_at").notNull(),
 	updatedAt: integer("updated_at").notNull(),

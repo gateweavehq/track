@@ -69,6 +69,7 @@ different protocol versions in production. It also gives self-hosters one thing 
 | Subscriptions and inbox items       | Workspace DO | `sync-server`, from issue writes   |
 | Notification settings               | Workspace DO | `sync-server`, each person's own   |
 | Due-date reminders sent             | Workspace DO | `sync-server`, from the alarm      |
+| Team automations' runs              | Workspace DO | `sync-server`, from the alarm      |
 | Webhooks, their secrets, deliveries | Workspace DO | `sync-server`, managed by admins   |
 | GitHub connections and secrets      | Workspace DO | `sync-server`, managed by admins   |
 | Pull requests that mention issues   | Workspace DO | `sync-server`, from GitHub         |
@@ -454,6 +455,30 @@ a way to restore each issue.
 
 Archiving is a breaking change to the protocol (version 17), so clients that predate it start from
 a fresh snapshot.
+
+### Team automations
+
+A team can have Track archive its closed issues, and cancel the ones nobody started, once no one
+has touched them for a number of months (`Team.archiveAfterMonths`, `Team.closeAfterMonths`: 1 to
+24, or null for off; a month is 30 days). Admins set them in the team settings, which say how many
+issues each rule would change on its first run, from the local copy (`apps/web/src/lib/automations.ts`).
+The workspace's alarm applies them (`packages/sync-server/src/automations.ts`).
+
+- **Untouched means `updatedAt`.** Any change to an issue starts its wait again, so closing an
+  issue makes it wait the archive months from then.
+- **Closing** takes issues in statuses of the backlog and unstarted categories into the team's first
+  canceled status. Started work is left alone, and a team without a canceled status closes nothing.
+  The status is stamped like any change to it, so an offline edit made before conflicts.
+- **Archiving** takes issues in completed and canceled statuses, as `issue.archive` would.
+- **They act as Track** (`SYSTEM_ACTOR_ID`), with a history entry for each change and an
+  `issue.updated` webhook, but nothing in anyone's inbox: no one asked for the change.
+- **About once a day.** The next run is kept in the `meta` table. A run changes at most 200 issues
+  and, when it used them all, has the next run a minute later. Turning a rule on or changing it
+  has the next alarm run them. A workspace where no team has one never wakes for them.
+- **Elsewhere.** `get_workspace` over MCP gives each team's `archiveAfterMonths` and
+  `closeAfterMonths`.
+
+Automations are a breaking change to the protocol (version 18), as the team entity gained them.
 
 ### Projects
 
@@ -1002,9 +1027,9 @@ imports, so validation, permissions and fan-out are the ordinary ones.
 The alarm compacts the oplog every six hours. Ops are dropped only when they are both older than
 30 days **and** more than 10,000 versions behind the head. The highest dropped version becomes
 the floor, and clients behind it get `reset`. Recorded mutation ids are pruned on the same
-schedule, as are finished webhook deliveries. The same alarm sends webhooks and moves cycles on,
-so it also runs whenever a delivery is due or a team's cycle starts or ends; when compaction is
-next due is kept in the `meta` table.
+schedule, as are finished webhook deliveries. The same alarm sends webhooks, moves cycles on and
+runs teams' automations, so it also runs whenever a delivery is due, a team's cycle starts or ends,
+or automations are; when compaction is next due is kept in the `meta` table.
 
 ## Client sync engine
 

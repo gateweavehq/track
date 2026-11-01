@@ -64,9 +64,24 @@ export interface Team {
 	name: string;
 	/** How the team's cycles run, or null when the team does not work in cycles. */
 	cycles: CycleSettings | null;
+	/**
+	 * Archives the team's closed issues once no one has touched them for this many months
+	 * (`AUTOMATION_MONTH_MS` each), or null for never.
+	 */
+	archiveAfterMonths: number | null;
+	/**
+	 * Closes the team's issues that are not started, into its first canceled status, once no one
+	 * has touched them for this many months, or null for never.
+	 */
+	closeAfterMonths: number | null;
 	createdAt: number;
 	updatedAt: number;
 }
+
+/** A month, for a team's automations: thirty days. */
+export const AUTOMATION_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+/** The longest wait a team's automation takes, in months. */
+export const MAX_AUTOMATION_MONTHS = 24;
 
 export interface CycleSettings {
 	/** How long each cycle is, from 1 to 4 weeks. */

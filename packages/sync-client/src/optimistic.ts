@@ -32,7 +32,16 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 		case "team.create": {
 			const { id, key, name } = mutation.args;
 			if (draft.get("team", id)) return;
-			draft.put("team", { id, key, name, cycles: null, createdAt: now, updatedAt: now });
+			draft.put("team", {
+				id,
+				key,
+				name,
+				cycles: null,
+				archiveAfterMonths: null,
+				closeAfterMonths: null,
+				createdAt: now,
+				updatedAt: now,
+			});
 			for (const status of defaultStatuses(id, now)) draft.put("status", status);
 			return;
 		}

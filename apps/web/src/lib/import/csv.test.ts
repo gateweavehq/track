@@ -89,6 +89,8 @@ describe("a Track export read back", () => {
 		key: "ENG",
 		name: "Engineering",
 		cycles: null,
+		archiveAfterMonths: null,
+		closeAfterMonths: null,
 		createdAt: 1,
 		updatedAt: 1,
 	};
