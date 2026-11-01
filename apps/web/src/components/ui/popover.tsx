@@ -6,30 +6,45 @@ import * as React from "react";
 import { cn } from "#/lib/utils";
 
 const Popover = PopoverPrimitive.Root;
+
+type Align = React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>["align"];
+
+/**
+ * How the popovers inside line up with their triggers when they do not say. A panel at the right
+ * edge, such as an issue's properties, lines them up at the end, so they open into the page
+ * instead of against the window's edge.
+ */
+const PopoverAlignContext = React.createContext<Align>("start");
+const PopoverAlign = PopoverAlignContext.Provider;
 const PopoverTrigger = PopoverPrimitive.Trigger;
 const PopoverAnchor = PopoverPrimitive.Anchor;
 
 const PopoverContent = React.forwardRef<
 	React.ComponentRef<typeof PopoverPrimitive.Content>,
 	React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
->(({ className, align = "start", sideOffset = 4, onCloseAutoFocus, ...props }, ref) => (
-	<PopoverPrimitive.Portal>
-		<PopoverPrimitive.Content
-			ref={ref}
-			align={align}
-			sideOffset={sideOffset}
-			className={cn(
-				"z-50 w-64 rounded-md border bg-popover text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-				className,
-			)}
-			{...props}
-			onCloseAutoFocus={(event) => {
-				onCloseAutoFocus?.(event);
-				if (focusMovedOn()) event.preventDefault();
-			}}
-		/>
-	</PopoverPrimitive.Portal>
-));
+>(({ className, align, sideOffset = 4, collisionPadding = 8, onCloseAutoFocus, ...props }, ref) => {
+	const contextAlign = React.useContext(PopoverAlignContext);
+	return (
+		<PopoverPrimitive.Portal>
+			<PopoverPrimitive.Content
+				ref={ref}
+				align={align ?? contextAlign}
+				sideOffset={sideOffset}
+				collisionPadding={collisionPadding}
+				className={cn(
+					// At least as wide as its trigger, so a menu never looks narrower than what opened it.
+					"z-50 w-64 min-w-[var(--radix-popover-trigger-width)] rounded-md border bg-popover text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+					className,
+				)}
+				{...props}
+				onCloseAutoFocus={(event) => {
+					onCloseAutoFocus?.(event);
+					if (focusMovedOn()) event.preventDefault();
+				}}
+			/>
+		</PopoverPrimitive.Portal>
+	);
+});
 PopoverContent.displayName = PopoverPrimitive.Content.displayName;
 
 /**
@@ -43,4 +58,4 @@ function focusMovedOn(): boolean {
 	return active !== null && active !== document.body;
 }
 
-export { Popover, PopoverAnchor, PopoverContent, PopoverTrigger };
+export { Popover, PopoverAlign, PopoverAnchor, PopoverContent, PopoverTrigger };

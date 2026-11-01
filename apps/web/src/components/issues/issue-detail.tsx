@@ -20,6 +20,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "#/components/ui/dialog";
+import { PopoverAlign } from "#/components/ui/popover";
 import { useWorkspace } from "#/components/workspace/context";
 import { actorName } from "#/lib/actors";
 import { cycleName, stateIn } from "#/lib/cycles";
@@ -164,168 +165,172 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 					aria-label="Properties"
 					className="shrink-0 space-y-1 border-t p-4 lg:w-72 lg:border-t-0 lg:border-l"
 				>
-					<Property label="Status">
-						<StatusPicker
-							teamId={issue.teamId}
-							value={issue.status}
-							onChange={(status) => update(issue, { status })}
-							{...menuProps("status")}
-						>
-							<PropertyButton>
-								<StatusIcon status={issueStatus} />
-								{issueStatus.name}
-							</PropertyButton>
-						</StatusPicker>
-					</Property>
-					<Property label="Priority">
-						<PriorityPicker
-							value={issue.priority}
-							onChange={(priority) => update(issue, { priority })}
-							{...menuProps("priority")}
-						>
-							<PropertyButton>
-								<PriorityIcon priority={issue.priority} />
-								{PRIORITY_META[issue.priority].label}
-							</PropertyButton>
-						</PriorityPicker>
-					</Property>
-					<Property label="Assignee">
-						<AssigneePicker
-							value={issue.assigneeId}
-							onChange={(assigneeId) => update(issue, { assigneeId })}
-							{...menuProps("assignee")}
-						>
-							<PropertyButton>
-								<MemberAvatar member={assignee} className="size-4" />
-								{assignee?.name ?? "Unassigned"}
-							</PropertyButton>
-						</AssigneePicker>
-					</Property>
-					<Property label="Project">
-						<ProjectPicker
-							value={issue.projectId}
-							onChange={(projectId) => update(issue, { projectId })}
-							{...menuProps("project")}
-						>
-							<PropertyButton>
-								{project ? (
-									<>
-										<ProjectStatusIcon status={project.status} />
-										<span className="truncate">{project.name}</span>
-									</>
-								) : (
-									<>
-										<Layers className="size-4 text-muted-foreground" />
-										<span className="text-muted-foreground">No project</span>
-									</>
-								)}
-							</PropertyButton>
-						</ProjectPicker>
-					</Property>
-					{/* Only teams that work in cycles plan issues into them. */}
-					{(team.cycles || cycle) && (
-						<Property label="Cycle">
-							<CyclePicker
-								teamId={team.id}
-								value={issue.cycleId}
-								onChange={(cycleId) => update(issue, { cycleId })}
-								{...menuProps("cycle")}
+					<PopoverAlign value="end">
+						<Property label="Status">
+							<StatusPicker
+								teamId={issue.teamId}
+								value={issue.status}
+								onChange={(status) => update(issue, { status })}
+								{...menuProps("status")}
 							>
 								<PropertyButton>
-									{cycle ? (
+									<StatusIcon status={issueStatus} />
+									{issueStatus.name}
+								</PropertyButton>
+							</StatusPicker>
+						</Property>
+						<Property label="Priority">
+							<PriorityPicker
+								value={issue.priority}
+								onChange={(priority) => update(issue, { priority })}
+								{...menuProps("priority")}
+							>
+								<PropertyButton>
+									<PriorityIcon priority={issue.priority} />
+									{PRIORITY_META[issue.priority].label}
+								</PropertyButton>
+							</PriorityPicker>
+						</Property>
+						<Property label="Assignee">
+							<AssigneePicker
+								value={issue.assigneeId}
+								onChange={(assigneeId) => update(issue, { assigneeId })}
+								{...menuProps("assignee")}
+							>
+								<PropertyButton>
+									<MemberAvatar member={assignee} className="size-4" />
+									{assignee?.name ?? "Unassigned"}
+								</PropertyButton>
+							</AssigneePicker>
+						</Property>
+						<Property label="Project">
+							<ProjectPicker
+								value={issue.projectId}
+								onChange={(projectId) => update(issue, { projectId })}
+								{...menuProps("project")}
+							>
+								<PropertyButton>
+									{project ? (
 										<>
-											<CycleIcon state={stateIn(cycle, team, Date.now())} />
-											<span className="truncate">{cycleName(cycle)}</span>
+											<ProjectStatusIcon status={project.status} />
+											<span className="truncate">{project.name}</span>
 										</>
 									) : (
 										<>
-											<CycleIcon />
-											<span className="text-muted-foreground">No cycle</span>
+											<Layers className="size-4 text-muted-foreground" />
+											<span className="text-muted-foreground">No project</span>
 										</>
 									)}
 								</PropertyButton>
-							</CyclePicker>
+							</ProjectPicker>
 						</Property>
-					)}
-					<Property label="Parent">
-						<ParentPicker
-							issue={issue}
-							value={issue.parentId}
-							onChange={(parentId) => update(issue, { parentId })}
-							{...menuProps("parent")}
-						>
-							<PropertyButton>
-								<ListTree className="size-4 shrink-0 text-muted-foreground" />
-								{parent && parentKey ? (
-									<span className="truncate">
-										<span className="font-mono text-xs text-muted-foreground">{parentKey}</span>{" "}
-										{parent.title}
-									</span>
-								) : (
-									<span className="text-muted-foreground">No parent</span>
-								)}
-							</PropertyButton>
-						</ParentPicker>
-					</Property>
-					<Property label="Labels">
-						<LabelPicker issue={issue} {...menuProps("labels")}>
-							<PropertyButton className="h-auto min-h-8 py-1.5">
-								{issue.labelIds.length > 0 ? (
-									<LabelChips labelIds={issue.labelIds} className="flex-wrap" />
-								) : (
-									<span className="text-muted-foreground">Add labels</span>
-								)}
-							</PropertyButton>
-						</LabelPicker>
-					</Property>
-					<Property label="Start date">
-						<DateField
-							label="Start date"
-							value={issue.startDate}
-							max={issue.dueDate}
-							onChange={(startDate) => update(issue, { startDate })}
-						/>
-					</Property>
-					<Property label="Due date">
-						<DateField
-							label="Due date"
-							value={issue.dueDate}
-							min={issue.startDate}
-							overdue={isIssueOverdue(issue, isClosedCategory(issueStatus.category))}
-							inputRef={dueDateRef}
-							onChange={(dueDate) => update(issue, { dueDate })}
-						/>
-					</Property>
-					<Property label="Estimate">
-						<EstimatePicker
-							value={issue.estimate}
-							onChange={(estimate) => update(issue, { estimate })}
-							{...menuProps("estimate")}
-						>
-							<PropertyButton>
-								<Gauge className="size-4 text-muted-foreground" />
-								{issue.estimate === null ? (
-									<span className="text-muted-foreground">No estimate</span>
-								) : (
-									estimateLabel(issue.estimate)
-								)}
-							</PropertyButton>
-						</EstimatePicker>
-					</Property>
-					<dl className="space-y-2 pt-4 text-xs text-muted-foreground">
-						<div className="flex justify-between gap-2 px-2">
-							<dt>Created by</dt>
-							<dd className="truncate text-foreground/80">{actorName(issue.creatorId, members)}</dd>
-						</div>
-						<div className="flex justify-between gap-2 px-2">
-							<dt>Created</dt>
-							<dd title={formatDateTime(issue.createdAt)}>{formatRelative(issue.createdAt)}</dd>
-						</div>
-						<div className="flex justify-between gap-2 px-2">
-							<dt>Updated</dt>
-							<dd title={formatDateTime(issue.updatedAt)}>{formatRelative(issue.updatedAt)}</dd>
-						</div>
-					</dl>
+						{/* Only teams that work in cycles plan issues into them. */}
+						{(team.cycles || cycle) && (
+							<Property label="Cycle">
+								<CyclePicker
+									teamId={team.id}
+									value={issue.cycleId}
+									onChange={(cycleId) => update(issue, { cycleId })}
+									{...menuProps("cycle")}
+								>
+									<PropertyButton>
+										{cycle ? (
+											<>
+												<CycleIcon state={stateIn(cycle, team, Date.now())} />
+												<span className="truncate">{cycleName(cycle)}</span>
+											</>
+										) : (
+											<>
+												<CycleIcon />
+												<span className="text-muted-foreground">No cycle</span>
+											</>
+										)}
+									</PropertyButton>
+								</CyclePicker>
+							</Property>
+						)}
+						<Property label="Parent">
+							<ParentPicker
+								issue={issue}
+								value={issue.parentId}
+								onChange={(parentId) => update(issue, { parentId })}
+								{...menuProps("parent")}
+							>
+								<PropertyButton>
+									<ListTree className="size-4 shrink-0 text-muted-foreground" />
+									{parent && parentKey ? (
+										<span className="truncate">
+											<span className="font-mono text-xs text-muted-foreground">{parentKey}</span>{" "}
+											{parent.title}
+										</span>
+									) : (
+										<span className="text-muted-foreground">No parent</span>
+									)}
+								</PropertyButton>
+							</ParentPicker>
+						</Property>
+						<Property label="Labels">
+							<LabelPicker issue={issue} {...menuProps("labels")}>
+								<PropertyButton className="h-auto min-h-8 py-1.5">
+									{issue.labelIds.length > 0 ? (
+										<LabelChips labelIds={issue.labelIds} className="flex-wrap" />
+									) : (
+										<span className="text-muted-foreground">Add labels</span>
+									)}
+								</PropertyButton>
+							</LabelPicker>
+						</Property>
+						<Property label="Start date">
+							<DateField
+								label="Start date"
+								value={issue.startDate}
+								max={issue.dueDate}
+								onChange={(startDate) => update(issue, { startDate })}
+							/>
+						</Property>
+						<Property label="Due date">
+							<DateField
+								label="Due date"
+								value={issue.dueDate}
+								min={issue.startDate}
+								overdue={isIssueOverdue(issue, isClosedCategory(issueStatus.category))}
+								inputRef={dueDateRef}
+								onChange={(dueDate) => update(issue, { dueDate })}
+							/>
+						</Property>
+						<Property label="Estimate">
+							<EstimatePicker
+								value={issue.estimate}
+								onChange={(estimate) => update(issue, { estimate })}
+								{...menuProps("estimate")}
+							>
+								<PropertyButton>
+									<Gauge className="size-4 text-muted-foreground" />
+									{issue.estimate === null ? (
+										<span className="text-muted-foreground">No estimate</span>
+									) : (
+										estimateLabel(issue.estimate)
+									)}
+								</PropertyButton>
+							</EstimatePicker>
+						</Property>
+						<dl className="space-y-2 pt-4 text-xs text-muted-foreground">
+							<div className="flex justify-between gap-2 px-2">
+								<dt>Created by</dt>
+								<dd className="truncate text-foreground/80">
+									{actorName(issue.creatorId, members)}
+								</dd>
+							</div>
+							<div className="flex justify-between gap-2 px-2">
+								<dt>Created</dt>
+								<dd title={formatDateTime(issue.createdAt)}>{formatRelative(issue.createdAt)}</dd>
+							</div>
+							<div className="flex justify-between gap-2 px-2">
+								<dt>Updated</dt>
+								<dd title={formatDateTime(issue.updatedAt)}>{formatRelative(issue.updatedAt)}</dd>
+							</div>
+						</dl>
+					</PopoverAlign>
 				</aside>
 			</div>
 
