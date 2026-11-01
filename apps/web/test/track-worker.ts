@@ -68,6 +68,14 @@ export function githubCode(...ids: number[]): string {
 	return `code-${ids.join("-")}`;
 }
 
+/**
+ * Like `githubCode`, for a person who has only read access to a repository of each installation:
+ * GitHub lists the installations for them, but they are no admin of the organizations.
+ */
+export function githubReaderCode(...ids: number[]): string {
+	return `code-r${ids.join("-")}`;
+}
+
 /** The address Track sends from in tests. */
 export const EMAIL_FROM = { name: "Gateweave Track", email: "track@track.test" };
 
@@ -226,24 +234,41 @@ export async function startTrack(
 							const known =
 								client_id === GITHUB_APP.clientId &&
 								client_secret === GITHUB_APP.clientSecret &&
-								/^code-[\d-]+$/.test(code ?? "");
+								/^code-r?[\d-]+$/.test(code ?? "");
 							return Response.json(
 								known
 									? { access_token: `token-${code?.slice(5)}`, token_type: "bearer" }
 									: { error: "bad_verification_code" },
 							);
 						}
-						if (url.host === "api.github.com" && url.pathname === "/user/installations") {
-							const token = /^Bearer token-([\d-]+)$/.exec(
+						if (url.host === "api.github.com" && url.pathname.startsWith("/user")) {
+							const token = /^Bearer token-(r?)([\d-]+)$/.exec(
 								request.headers.get("authorization") ?? "",
 							);
-							if (!token?.[1])
+							if (!token?.[2])
 								return Response.json({ message: "Bad credentials" }, { status: 401 });
-							const ids = token[1].split("-").filter(Boolean).map(Number);
-							return Response.json({
-								total_count: ids.length,
-								installations: ids.map((id) => ({ id, account: { login: `acme-${id}` } })),
-							});
+							const reader = token[1] === "r";
+							const ids = token[2].split("-").filter(Boolean).map(Number);
+							// Installations 100 and up are on a user's account, `user-<id>`; the rest are
+							// organizations, `acme-<id>`. The person is the user of the first one listed.
+							const account = (id: number) => (id >= 100 ? `user-${id}` : `acme-${id}`);
+							if (url.pathname === "/user/installations") {
+								return Response.json({
+									total_count: ids.length,
+									installations: ids.map((id) => ({
+										id,
+										account: { login: account(id), type: id >= 100 ? "User" : "Organization" },
+									})),
+								});
+							}
+							if (url.pathname === "/user") {
+								return Response.json({ login: `user-${ids[0]}` });
+							}
+							const org = /^\/user\/memberships\/orgs\/acme-(\d+)$/.exec(url.pathname);
+							if (org?.[1] && ids.includes(Number(org[1]))) {
+								return Response.json({ state: "active", role: reader ? "member" : "admin" });
+							}
+							return Response.json({ message: "Not Found" }, { status: 404 });
 						}
 						if (url.host === RECEIVER_HOST) {
 							received.push({

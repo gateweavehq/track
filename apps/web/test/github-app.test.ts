@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import type { GitHubConnection, Snapshot } from "@gateweave/track-protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { GITHUB_APP, githubCode, startTrack } from "./track-worker";
+import { GITHUB_APP, githubCode, githubReaderCode, startTrack } from "./track-worker";
 
 // The GitHub App (TRK-58) in the built Worker: an admin back from installing it connects the
 // installation only once GitHub lists it among theirs, and its deliveries, which all come to one
@@ -198,6 +198,25 @@ describe("installing the GitHub App", () => {
 		expect(elsewhere.status).toBe(403);
 		expect(await elsewhere.text()).toContain("not yours");
 
+		expect(await connections()).toEqual([]);
+	});
+
+	it("connects only for the owner of the account, or an admin of its organization", async () => {
+		// Read access to one repository lists an installation, but it is not control of the account.
+		const reader = await connect(owner.cookie, 11, { code: githubReaderCode(11) });
+		expect(reader.status).toBe(403);
+		// Someone else's user account, listed for a person who is another user.
+		const stranger = await connect(owner.cookie, 101, { code: githubCode(102, 101) });
+		expect(stranger.status).toBe(403);
+		expect(await connections()).toEqual([]);
+
+		// Their own user account is theirs to connect.
+		expect((await connect(owner.cookie, 103, { code: githubCode(103) })).status).toBe(302);
+		expect(await connections()).toEqual([
+			expect.objectContaining({ installation: { id: "103", account: "user-103" } }),
+		]);
+		// Leave nothing behind for the tests that follow.
+		await deliver(103, { action: "deleted" }, { event: "installation" });
 		expect(await connections()).toEqual([]);
 	});
 

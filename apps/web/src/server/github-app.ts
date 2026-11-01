@@ -192,13 +192,21 @@ async function callback(
 const tokenResponse = z.object({ access_token: z.string().min(1) });
 const installationsResponse = z.object({
 	installations: z.array(
-		z.object({ id: z.number().int(), account: z.object({ login: z.string() }).nullish() }),
+		z.object({
+			id: z.number().int(),
+			account: z.object({ login: z.string(), type: z.string().optional() }).nullish(),
+		}),
 	),
 });
+const membershipResponse = z.object({ state: z.string(), role: z.string() });
+const userResponse = z.object({ login: z.string() });
 
 /**
- * The installation as the person can reach it on GitHub: their user token, bought with the code,
- * lists it. Null when it does not; undefined when GitHub could not be asked.
+ * The installation as the person controls it on GitHub: their user token, bought with the code,
+ * lists it, and they own its account. `/user/installations` alone is not enough, because it also
+ * lists an installation for anyone with read access to one of its repositories, and linking an
+ * installation lets a workspace scan all of them. Null when they do not control it; undefined
+ * when GitHub could not be asked.
  */
 async function reachableInstallation(
 	app: NonNullable<ReturnType<typeof githubApp>>,
@@ -228,7 +236,13 @@ async function reachableInstallation(
 			const parsed = installationsResponse.safeParse(await listed.json());
 			if (!parsed.success) return undefined;
 			const found = parsed.data.installations.find(({ id }) => String(id) === installationId);
-			if (found) return { account: found.account?.login ?? null };
+			if (found) {
+				const login = found.account?.login;
+				if (!login) return null;
+				const allowed = await controlsAccount(headers, login, found.account?.type);
+				if (allowed === undefined) return undefined;
+				return allowed ? { account: login } : null;
+			}
 			if (parsed.data.installations.length < 100) return null;
 		}
 		return null;
@@ -238,6 +252,33 @@ async function reachableInstallation(
 		});
 		return undefined;
 	}
+}
+
+/**
+ * Whether the person is the user account, or an active admin of the organization. Anything else,
+ * including a GitHub that will not say, is no. Undefined when GitHub could not be asked.
+ */
+async function controlsAccount(
+	headers: Record<string, string>,
+	login: string,
+	type: string | undefined,
+): Promise<boolean | undefined> {
+	if (type === "User") {
+		const me = await fetch(`${GITHUB_API}/user`, { headers });
+		if (!me.ok) return me.status >= 500 ? undefined : false;
+		const parsed = userResponse.safeParse(await me.json());
+		return parsed.success ? parsed.data.login.toLowerCase() === login.toLowerCase() : undefined;
+	}
+	if (type !== "Organization") return false;
+	const membership = await fetch(
+		`${GITHUB_API}/user/memberships/orgs/${encodeURIComponent(login)}`,
+		{ headers },
+	);
+	// Not a member, or an app without the "Members: read" permission, cannot show admin rights.
+	if (!membership.ok) return membership.status >= 500 ? undefined : false;
+	const parsed = membershipResponse.safeParse(await membership.json());
+	if (!parsed.success) return undefined;
+	return parsed.data.state === "active" && parsed.data.role === "admin";
 }
 
 const aboutInstallation = z.object({

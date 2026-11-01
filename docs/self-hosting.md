@@ -121,6 +121,8 @@ address in place of `https://track.example.com`:
 - **Webhook:** active, with the URL `https://track.example.com/api/github/app` and a secret you
   make, such as one from `openssl rand -hex 32`.
 - **Permissions:** Pull requests and Contents, read-only, and Metadata, read-only.
+  Add the organization permission Members, read-only: Track uses it to check that whoever connects an
+  installation is an admin of its organization. Without it, only a user's own account can be connected.
 - **Events:** Pull request and Push.
 - **Where it can be installed:** any account, unless only your own organization uses it.
 
