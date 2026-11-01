@@ -16,6 +16,7 @@
 	"dependencies": {
 		"@gateweave/track-protocol": "workspace:*",
 		"drizzle-orm": "catalog:",
+		"fractional-indexing": "catalog:",
 		"zod": "catalog:"
 	},
 	"devDependencies": {

@@ -25,6 +25,12 @@ export function localZone(): string {
 	return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
+/** Every time zone the browser knows, with `current` among them even if it does not. */
+export function timeZones(current: string): string[] {
+	const known = Intl.supportedValuesOf("timeZone");
+	return known.includes(current) ? known : [current, ...known];
+}
+
 /** The time zone a team's cycles run in, or the browser's for a team without cycles. */
 export function teamZone(team: Pick<Team, "cycles"> | undefined): string {
 	return team?.cycles?.timeZone ?? localZone();

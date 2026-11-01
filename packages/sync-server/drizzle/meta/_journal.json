@@ -183,6 +183,13 @@
       "when": 1793566164794,
       "tag": "0025_requesters",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1793569251044,
+      "tag": "0026_recurring_templates",
+      "breakpoints": true
     }
   ]
 }

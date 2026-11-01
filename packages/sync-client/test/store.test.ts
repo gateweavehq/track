@@ -12,6 +12,7 @@ import {
 	privateId,
 	type Snapshot,
 	type Team,
+	type TemplateRepeat,
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import { type PendingMutation, Replica } from "../src/store";
@@ -1075,6 +1076,7 @@ describe("Replica", () => {
 			priority: 2 as const,
 			labelIds: ["bug"],
 			assigneeId: "bob",
+			repeat: null as TemplateRepeat | null,
 		};
 		const create = (id: string, args: Partial<typeof fields> & { id: string }) =>
 			pending(id, { name: "template.create", args: { ...fields, ...args } });
@@ -1092,12 +1094,15 @@ describe("Replica", () => {
 			expect(r.getState().templates.get("tp1")).toEqual({
 				id: "tp1",
 				...fields,
+				nextOn: null,
 				createdAt: 100,
 				updatedAt: 100,
 			});
 
 			// The server's row wins, and replaying the create over it changes nothing.
-			applyOps(r, [template(3, { id: "tp1", ...fields, createdAt: 50, updatedAt: 50 })]);
+			applyOps(r, [
+				template(3, { id: "tp1", ...fields, nextOn: null, createdAt: 50, updatedAt: 50 }),
+			]);
 			expect(r.getState().templates.get("tp1")?.createdAt).toBe(50);
 
 			r.addPending(
@@ -1121,6 +1126,32 @@ describe("Replica", () => {
 			left.reset({ ...snapshot, labels: [bug], members: [{ ...bob, removedAt: 5 }] });
 			left.addPending(create("m1", { id: "tp1" }));
 			expect(left.getState().templates.size).toBe(0);
+		});
+
+		it("predicts a schedule's next day, and skips one with no title to give its issues", () => {
+			const r = withTeamStuff();
+			// The clock reads 100 ms: January 1, 1970.
+			const weekly = { every: 1, unit: "week" as const, startsOn: "2026-11-03", timeZone: "UTC" };
+			r.addPending(create("m1", { id: "tp1", repeat: weekly }));
+			expect(r.getState().templates.get("tp1")?.nextOn).toBe("2026-11-03");
+
+			// Started a week before today, it falls on today.
+			const started = { ...weekly, startsOn: "1969-12-25" };
+			r.addPending(
+				pending("m2", { name: "template.update", args: { id: "tp1", patch: { repeat: started } } }),
+			);
+			expect(r.getState().templates.get("tp1")?.nextOn).toBe("1970-01-01");
+			r.addPending(
+				pending("m3", { name: "template.update", args: { id: "tp1", patch: { title: " " } } }),
+			);
+			expect(r.getState().templates.get("tp1")?.title).toBe("Bug: ");
+			r.addPending(
+				pending("m4", { name: "template.update", args: { id: "tp1", patch: { repeat: null } } }),
+			);
+			expect(r.getState().templates.get("tp1")).toMatchObject({ repeat: null, nextOn: null });
+
+			r.addPending(create("m5", { id: "tp2", name: "Other", title: "", repeat: weekly }));
+			expect(r.getState().templates.has("tp2")).toBe(false);
 		});
 
 		it("predicts that deleting a label takes it off templates", () => {

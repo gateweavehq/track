@@ -20,7 +20,7 @@ import {
 } from "#/components/ui/dialog";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
-import { earliestStart, localZone, startProblem, suggestedStart } from "#/lib/cycles";
+import { earliestStart, localZone, startProblem, suggestedStart, timeZones } from "#/lib/cycles";
 import { send } from "#/lib/mutations";
 import { useTeamCycles } from "#/lib/queries";
 import { cycleDates } from "./meta";
@@ -29,12 +29,6 @@ const SELECT =
 	"flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:text-sm";
 
 const WEEKS = Array.from({ length: MAX_CYCLE_WEEKS }, (_, index) => index + 1);
-
-/** Every time zone the browser knows, with `current` among them even if it does not. */
-function timeZones(current: string): string[] {
-	const known = Intl.supportedValuesOf("timeZone");
-	return known.includes(current) ? known : [current, ...known];
-}
 
 /**
  * Turns a team's cycles on or off, or changes how long they run, when the next one starts and the
