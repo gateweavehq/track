@@ -855,8 +855,9 @@ is `packages/sync-server/src/webhooks.ts`.
 - **Bodies are `{ type, timestamp, data }`.** `data` has the workspace's id and slug, the
   workspace version after the change, the actor (a person or an agent), and the issue with its
   key, URL and labels (`{ id, name }`, in the order of `labelIds`, with the names as of the
-  event), and its status's name and category (`statusName`, `statusCategory`), since teams name
-  their statuses. `issue.updated` adds `updatedFrom`, the changed fields' earlier values, so a receiver
+  event), its assignee (`{ id, name }` or null, named as of the event, so a receiver can show who
+  `assigneeId` is), and its status's name and category (`statusName`, `statusCategory`), since
+  teams name their statuses. `issue.updated` adds `updatedFrom`, the changed fields' earlier values, so a receiver
   can tell which labels an update added from `updatedFrom.labelIds`; an update that only
   reorders the list is not sent. Comment events add the comment.
 - **Proposal events** add the proposal (`id`, `issueId`, `issueKey`, `agentId`, `change`,

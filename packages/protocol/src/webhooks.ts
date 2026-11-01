@@ -105,6 +105,8 @@ export interface WebhookIssue extends Issue {
 	url: string;
 	/** The issue's labels with their names as of this event, in the order of `labelIds`. */
 	labels: { id: string; name: string }[];
+	/** Who `assigneeId` is, with their name as of this event; null when no one is assigned. */
+	assignee: { id: string; name: string } | null;
 	/** The name of its status, as of this event, such as `In Review`. */
 	statusName: string;
 	/** What its status means to Track, such as `started`: a team names its statuses itself. */
