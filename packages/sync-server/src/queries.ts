@@ -12,7 +12,19 @@ import {
 	type Team,
 	type WorkflowStatus,
 } from "@gateweave/track-protocol";
-import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	inArray,
+	isNotNull,
+	isNull,
+	max,
+	or,
+	type SQL,
+	sql,
+} from "drizzle-orm";
 import * as schema from "./db/schema";
 import { issueSearch, issueSearchDocs, matchExpression, matches, RANK } from "./search";
 import {
@@ -44,6 +56,8 @@ export interface IssueQuery {
 	parentId?: string | undefined;
 	/** Only issues with this label. */
 	labelId?: string | undefined;
+	/** Only archived issues, or only the others. Left out, both. */
+	archived?: boolean | undefined;
 	/**
 	 * Words to find in the key, title, description or comments; each must start a word there,
 	 * ignoring case and diacritics. Matches come best first. See `search.ts`.
@@ -109,6 +123,11 @@ export function findIssues(db: Db, query: IssueQuery): Issue[] {
 		);
 	}
 	if (query.parentId !== undefined) filters.push(eq(schema.issues.parentId, query.parentId));
+	if (query.archived !== undefined) {
+		filters.push(
+			query.archived ? isNotNull(schema.issues.archivedAt) : isNull(schema.issues.archivedAt),
+		);
+	}
 	if (query.labelId !== undefined) {
 		filters.push(
 			sql`exists (select 1 from json_each(${schema.issues.labelIds}) where value = ${query.labelId})`,

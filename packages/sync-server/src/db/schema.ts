@@ -96,6 +96,8 @@ export const issues = sqliteTable(
 			.default(sql`'{}'`),
 		createdAt: integer("created_at").notNull(),
 		updatedAt: integer("updated_at").notNull(),
+		/** When a closed issue was archived; reopening it clears this. */
+		archivedAt: integer("archived_at"),
 		deletedAt: integer("deleted_at"),
 	},
 	(table) => [

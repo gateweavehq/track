@@ -140,8 +140,14 @@ export function useTeamCycles(teamId: string | undefined): Cycle[] {
 	);
 }
 
-export function useCycleIssues(cycleId: string): Issue[] {
-	return useIssues(useCallback((issue: Issue) => issue.cycleId === cycleId, [cycleId]));
+/** A cycle's issues; `listed` leaves out archived ones, for a list rather than progress. */
+export function useCycleIssues(cycleId: string, { listed = false } = {}): Issue[] {
+	return useIssues(
+		useCallback(
+			(issue: Issue) => issue.cycleId === cycleId && (!listed || isListed(issue)),
+			[cycleId, listed],
+		),
+	);
 }
 
 const selectProjectsById = (state: SyncState) => state.projects;
@@ -349,16 +355,50 @@ export function useIssues(filter: (issue: Issue) => boolean): Issue[] {
 	);
 }
 
+/**
+ * Whether lists and boards show the issue. Archived issues leave them, and stay everywhere else:
+ * in search, in history, and in the progress of their project, cycle and parent.
+ */
+export function isListed(issue: Issue): boolean {
+	return issue.archivedAt === null;
+}
+
+/** A team's issues for its list: archived ones leave it. */
 export function useTeamIssues(teamId: string | undefined): Issue[] {
-	return useIssues(useCallback((issue: Issue) => issue.teamId === teamId, [teamId]));
+	return useIssues(
+		useCallback((issue: Issue) => issue.teamId === teamId && isListed(issue), [teamId]),
+	);
 }
 
-export function useProjectIssues(projectId: string): Issue[] {
-	return useIssues(useCallback((issue: Issue) => issue.projectId === projectId, [projectId]));
+/** A project's issues; `listed` leaves out archived ones, for a list rather than progress. */
+export function useProjectIssues(projectId: string, { listed = false } = {}): Issue[] {
+	return useIssues(
+		useCallback(
+			(issue: Issue) => issue.projectId === projectId && (!listed || isListed(issue)),
+			[projectId, listed],
+		),
+	);
 }
 
+/** The issues assigned to someone, for their list: archived ones leave it. */
 export function useAssignedIssues(userId: string): Issue[] {
-	return useIssues(useCallback((issue: Issue) => issue.assigneeId === userId, [userId]));
+	return useIssues(
+		useCallback((issue: Issue) => issue.assigneeId === userId && isListed(issue), [userId]),
+	);
+}
+
+/** A team's archived issues, the latest archived first. */
+export function useArchivedIssues(teamId: string): Issue[] {
+	return useQuery(
+		useCallback(
+			(state: SyncState) =>
+				[...state.issues.values()]
+					.filter((issue) => issue.teamId === teamId && issue.archivedAt !== null)
+					.sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0)),
+			[teamId],
+		),
+		shallowEqual,
+	);
 }
 
 /** An issue by id, such as an issue's parent. Undefined for null and for issues not in the copy. */

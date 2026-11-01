@@ -43,6 +43,7 @@ const issue: Issue = {
 	version: 2,
 	createdAt: 2,
 	updatedAt: 2,
+	archivedAt: null,
 };
 const snapshot: Snapshot = {
 	version: 2,
@@ -701,6 +702,49 @@ describe("Replica", () => {
 			{ version: 5, entity: "member", id: "alice", op: "put", data: member("alice", "admin") },
 		]);
 		expect(r.getState().members.get("bot")?.proposes).toEqual(["status", "labels"]);
+	});
+
+	describe("archive", () => {
+		const archive = (id: string, archived: boolean) =>
+			pending(id, { name: "issue.archive", args: { id: "i1", archived } });
+
+		it("predicts archiving a closed issue and restoring it, and leaves an open one alone", () => {
+			const r = replica();
+			r.addPending(archive("m1", true));
+			expect(r.getState().issues.get("i1")?.archivedAt).toBeNull();
+
+			applyOps(r, [put(3, { ...issue, status: "done", version: 3 })]);
+			expect(r.getState().issues.get("i1")?.archivedAt).toBe(100);
+
+			r.addPending(archive("m2", false));
+			expect(r.getState().issues.get("i1")?.archivedAt).toBeNull();
+		});
+
+		it("replays over the server's archived issue without changing it", () => {
+			const r = replica();
+			applyOps(r, [put(3, { ...issue, status: "done", version: 3 })]);
+			r.addPending(archive("m1", true));
+			applyOps(r, [put(4, { ...issue, status: "done", archivedAt: 50, version: 4 })]);
+			expect(r.getState().issues.get("i1")?.archivedAt).toBe(50);
+		});
+
+		it("predicts that reopening an archived issue restores it, and a closed status keeps it", () => {
+			const r = replica();
+			applyOps(r, [put(3, { ...issue, status: "done", archivedAt: 50, version: 3 })]);
+			const move = (id: string, status: string) =>
+				pending(id, {
+					name: "issue.update",
+					args: { id: "i1", baseVersion: 3, patch: { status } },
+				});
+
+			r.addPending(move("m1", "canceled"));
+			expect(r.getState().issues.get("i1")?.archivedAt).toBe(50);
+			r.addPending(move("m2", "in_progress"));
+			expect(r.getState().issues.get("i1")).toMatchObject({
+				status: "in_progress",
+				archivedAt: null,
+			});
+		});
 	});
 
 	describe("statuses", () => {

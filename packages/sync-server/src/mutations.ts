@@ -45,6 +45,7 @@ import {
 	createStatus,
 	defaultStatusKey,
 	deleteStatus,
+	isClosedStatus,
 	seedStatuses,
 	updateStatus,
 } from "./statuses";
@@ -106,6 +107,9 @@ export function applyMutation(
 			break;
 		case "issue.delete":
 			deleteIssue(db, changes, mutation.args);
+			break;
+		case "issue.archive":
+			archiveIssue(db, changes, actor, mutation.args);
 			break;
 		case "issue.addLabel":
 			addLabel(db, changes, actor, mutation.args);
@@ -289,6 +293,7 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		fieldStamps: {},
 		createdAt,
 		updatedAt: changes.now,
+		archivedAt: null,
 		deletedAt: null,
 	};
 	db.insert(schema.issues).values(row).run();
@@ -355,9 +360,20 @@ function updateIssue(
 		return;
 	}
 
+	// Reopening an archived issue restores it: an open issue is never archived.
+	const restored =
+		issue.archivedAt !== null &&
+		accepted.status !== undefined &&
+		!isClosedStatus(db, issue.teamId, accepted.status);
 	const row = db
 		.update(schema.issues)
-		.set({ ...accepted, fieldStamps: stamps, version, updatedAt: changes.now })
+		.set({
+			...accepted,
+			...(restored ? { archivedAt: null } : {}),
+			fieldStamps: stamps,
+			version,
+			updatedAt: changes.now,
+		})
 		.where(eq(schema.issues.id, issue.id))
 		.returning()
 		.get();
@@ -372,6 +388,44 @@ function updateIssue(
 	for (const change of issueChanges(issue, accepted)) {
 		recordActivity(db, changes, issue, actor.member.userId, change, proposedBy);
 	}
+	if (restored) {
+		const change = { type: "archived", archived: false } as const;
+		recordActivity(db, changes, issue, actor.member.userId, change, proposedBy);
+	}
+}
+
+/**
+ * Archives a closed issue, taking it out of lists while search, history and progress keep it, or
+ * restores an archived one. Asking for what the issue already is changes nothing.
+ */
+function archiveIssue(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"issue.archive">,
+) {
+	const issue = findLiveIssue(db, args.id);
+	if (!issue) throw new MutationRejected("not_found", "Issue not found");
+	if ((issue.archivedAt !== null) === args.archived) return;
+	if (args.archived && !isClosedStatus(db, issue.teamId, issue.status)) {
+		throw new MutationRejected("invalid", "Only a completed or canceled issue can be archived");
+	}
+	const row = db
+		.update(schema.issues)
+		.set({
+			archivedAt: args.archived ? changes.now : null,
+			version: changes.nextVersion,
+			updatedAt: changes.now,
+		})
+		.where(eq(schema.issues.id, issue.id))
+		.returning()
+		.get();
+	if (row) {
+		changes.put("issue", toIssue(row));
+		changes.events.push({ type: "issue.updated", issue: row, previous: issue });
+	}
+	const change = { type: "archived", archived: args.archived } as const;
+	recordActivity(db, changes, issue, actor.member.userId, change);
 }
 
 type IssuePatch = MutationArgs<"issue.update">["patch"];

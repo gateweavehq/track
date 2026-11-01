@@ -11,6 +11,8 @@ import type {
 import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import {
+	Archive,
+	ArchiveRestore,
 	CalendarClock,
 	CalendarDays,
 	CircleUserRound,
@@ -305,6 +307,10 @@ function describe(
 			);
 		case "description":
 			return plain(FileText, "updated the description");
+		case "archived":
+			return change.archived
+				? plain(Archive, "archived the issue")
+				: plain(ArchiveRestore, "restored the issue");
 		case "label": {
 			const found = labels.get(change.labelId);
 			const chip = found ? <LabelChip label={found} /> : "a deleted label";

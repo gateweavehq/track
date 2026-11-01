@@ -95,6 +95,9 @@ class FakeWorkspace implements WorkspaceAccess {
 			.filter((issue) => query.projectId === undefined || issue.projectId === query.projectId)
 			.filter((issue) => query.parentId === undefined || issue.parentId === query.parentId)
 			.filter((issue) => !query.cycleIds || query.cycleIds.includes(issue.cycleId ?? ""))
+			.filter(
+				(issue) => query.archived === undefined || (issue.archivedAt !== null) === query.archived,
+			)
 			.slice(0, query.limit);
 	}
 	async issue(id: string) {
@@ -193,6 +196,7 @@ class FakeWorkspace implements WorkspaceAccess {
 				version,
 				createdAt: Date.UTC(2026, 9, 27),
 				updatedAt: Date.UTC(2026, 9, 27),
+				archivedAt: null,
 			});
 		} else if (mutation.name === "issue.update") {
 			const { id, patch } = mutation.args;
@@ -224,6 +228,9 @@ class FakeWorkspace implements WorkspaceAccess {
 				issue.labelIds = mutation.name === "issue.addLabel" ? [...rest, labelId] : rest;
 				issue.version = version;
 			}
+		} else if (mutation.name === "issue.archive") {
+			const issue = this.issues_.find((issue) => issue.id === mutation.args.id);
+			if (issue) Object.assign(issue, { archivedAt: mutation.args.archived ? 1 : null, version });
 		} else if (mutation.name === "label.create") {
 			this.labels.push({ ...mutation.args, createdAt: 0, updatedAt: 0 });
 		} else if (mutation.name === "team.create") {
@@ -678,6 +685,41 @@ describe("Track MCP tools", () => {
 				{ change: "add_label", to: "Bug", by: "maya@example.com" },
 			],
 		});
+	});
+
+	it("archives an issue it closes in the same call, and searches with or without archived ones", async () => {
+		await created({ title: "Shipped" });
+		await created({ title: "Still open" });
+
+		const updated = await call("update_issue", {
+			workspace: "acme",
+			key: "ENG-1",
+			status: "done",
+			archived: true,
+		});
+		expect(updated.structuredContent).toMatchObject({ status: "done", archived: true });
+		// The status first, so the issue is closed by the time it is archived.
+		expect(workspace.mutations.slice(-2).map((mutation) => mutation.name)).toEqual([
+			"issue.update",
+			"issue.archive",
+		]);
+
+		const titles = async (archived?: boolean) =>
+			(
+				(await call("search_issues", { workspace: "acme", archived })).structuredContent as {
+					issues: { title: string; archived: boolean }[];
+				}
+			).issues.map((issue) => `${issue.title}${issue.archived ? " (archived)" : ""}`);
+		expect(await titles()).toEqual(expect.arrayContaining(["Shipped (archived)", "Still open"]));
+		expect(await titles(false)).toEqual(["Still open"]);
+		expect(await titles(true)).toEqual(["Shipped (archived)"]);
+
+		const restored = await call("update_issue", {
+			workspace: "acme",
+			key: "ENG-1",
+			archived: false,
+		});
+		expect(restored.structuredContent).toMatchObject({ archived: false });
 	});
 
 	it("refuses an update that changes nothing", async () => {

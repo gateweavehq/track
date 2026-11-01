@@ -124,6 +124,7 @@ describe("a Track export read back", () => {
 		version: 1,
 		createdAt: created,
 		updatedAt: created,
+		archivedAt: null,
 	};
 	const issues: Issue[] = [
 		{

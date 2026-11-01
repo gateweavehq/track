@@ -24,6 +24,7 @@ function issue(id: string, overrides: Partial<Issue> = {}): Issue {
 		version: 1,
 		createdAt: 0,
 		updatedAt: 0,
+		archivedAt: null,
 		...overrides,
 	};
 }

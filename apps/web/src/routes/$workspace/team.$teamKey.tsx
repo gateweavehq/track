@@ -1,5 +1,6 @@
 import type { Team } from "@gateweave/track-protocol";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Archive } from "lucide-react";
 import { useCallback } from "react";
 import { FILTER_KEYS } from "#/components/issues/filter-menu";
 import { IssuesPage } from "#/components/issues/issues-page";
@@ -9,7 +10,7 @@ import { useWorkspaceActions } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
 import { hasDisplay } from "#/lib/display";
 import { hasFilters } from "#/lib/filters";
-import { useTeamByKey, useTeamIssues } from "#/lib/queries";
+import { useArchivedIssues, useTeamByKey, useTeamIssues } from "#/lib/queries";
 import { useDocumentTitle } from "#/lib/title";
 import {
 	type IssuePageSearch,
@@ -54,8 +55,10 @@ function TeamPage() {
 }
 
 function TeamIssues({ team }: { team: Team }) {
+	const { workspace } = Route.useParams();
 	const actions = useWorkspaceActions();
 	const issues = useTeamIssues(team.id);
+	const archived = useArchivedIssues(team.id).length;
 	const search = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
 	const setSearch = useCallback(
@@ -91,6 +94,21 @@ function TeamIssues({ team }: { team: Team }) {
 			display={display}
 			onDisplayChange={onDisplayChange}
 			offeredFilters={TEAM_FILTERS}
+			headerActions={
+				// Only once there is something in it.
+				archived > 0 && (
+					<Button asChild variant="ghost" size="icon" className="size-8">
+						<Link
+							to="/$workspace/team/$teamKey/archive"
+							params={{ workspace, teamKey: team.key }}
+							aria-label={`${team.name} archive, ${archived} issues`}
+							title="Archived issues"
+						>
+							<Archive />
+						</Link>
+					</Button>
+				)
+			}
 			filterActions={
 				// A view shows issues from the whole workspace, so it keeps the team as a filter.
 				(hasFilters(filters) || hasDisplay(display)) && (

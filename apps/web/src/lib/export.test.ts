@@ -82,6 +82,7 @@ function issue(overrides: Partial<Issue> & Pick<Issue, "id" | "teamId" | "number
 		version: 1,
 		createdAt: CREATED,
 		updatedAt: CREATED + 1000,
+		archivedAt: null,
 		...overrides,
 	};
 }

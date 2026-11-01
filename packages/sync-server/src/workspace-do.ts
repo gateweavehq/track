@@ -136,6 +136,7 @@ const issueQuery = z.object({
 	cycleIds: z.array(shortId).max(100).optional(),
 	parentId: shortId.optional(),
 	labelId: shortId.optional(),
+	archived: z.boolean().optional(),
 	text: z.string().max(200).optional(),
 	limit: z.number().int().min(1).max(MAX_QUERY_LIMIT),
 });

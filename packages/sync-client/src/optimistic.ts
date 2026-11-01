@@ -5,6 +5,7 @@ import {
 	firstStatus,
 	type Issue,
 	isAdminRole,
+	isClosedCategory,
 	MAX_LABELS_PER_ISSUE,
 	MAX_VIEWS,
 	type MemberRole,
@@ -59,6 +60,14 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			if (patch.name !== undefined && sameName(others, patch.name)) return;
 			if (patch.category !== undefined && !keepsCompleted(others, status, patch.category)) return;
 			draft.put("status", { ...status, ...patch, updatedAt: now });
+			// A status that stops closing its issues restores the archived ones.
+			if (patch.category !== undefined && !isClosedCategory(patch.category)) {
+				for (const issue of [...draft.values("issue")]) {
+					if (issue.teamId === teamId && issue.status === key && issue.archivedAt !== null) {
+						draft.put("issue", { ...issue, archivedAt: null, updatedAt: now });
+					}
+				}
+			}
 			return;
 		}
 		case "status.delete": {
@@ -70,9 +79,11 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			const others = teamStatuses(draft, teamId).filter((other) => other.key !== key);
 			if (!keepsCompleted(others, status, null)) return;
 			draft.put("status", { ...status, removedAt: now, updatedAt: now });
+			const reopens = !isClosedCategory(target.category);
 			for (const issue of [...draft.values("issue")]) {
 				if (issue.teamId === teamId && issue.status === key) {
-					draft.put("issue", { ...issue, status: moveTo, updatedAt: now });
+					const archivedAt = reopens ? null : issue.archivedAt;
+					draft.put("issue", { ...issue, status: moveTo, archivedAt, updatedAt: now });
 				}
 			}
 			return;
@@ -109,6 +120,7 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 				version: 0,
 				createdAt: Math.min(args.createdAt ?? now, now),
 				updatedAt: now,
+				archivedAt: null,
 			});
 			return;
 		}
@@ -121,7 +133,19 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 				if (!isJoinable(draft, patch.cycleId, issue.teamId)) return;
 			}
 			if (patch.status !== undefined && !isLiveStatus(draft, issue.teamId, patch.status)) return;
-			draft.put("issue", { ...issue, ...patch, updatedAt: now });
+			// Reopening an archived issue restores it.
+			const reopened =
+				patch.status !== undefined && !isClosedStatus(draft, issue.teamId, patch.status);
+			const archivedAt = reopened ? null : issue.archivedAt;
+			draft.put("issue", { ...issue, ...patch, archivedAt, updatedAt: now });
+			return;
+		}
+		case "issue.archive": {
+			const { id, archived } = mutation.args;
+			const issue = draft.get("issue", id);
+			if (!issue || (issue.archivedAt !== null) === archived) return;
+			if (archived && !isClosedStatus(draft, issue.teamId, issue.status)) return;
+			draft.put("issue", { ...issue, archivedAt: archived ? now : null, updatedAt: now });
 			return;
 		}
 		case "issue.delete": {
@@ -400,6 +424,12 @@ function teamStatuses(draft: Draft, teamId: string): WorkflowStatus[] {
 	return [...draft.values("status")].filter(
 		(status) => status.teamId === teamId && status.removedAt === null,
 	);
+}
+
+/** The server's rule: a status of the completed or canceled category closes an issue. */
+function isClosedStatus(draft: Draft, teamId: string, key: string): boolean {
+	const status = draft.get("status", statusId(teamId, key));
+	return status !== undefined && isClosedCategory(status.category);
 }
 
 function isLiveStatus(draft: Draft, teamId: string, key: string): boolean {
