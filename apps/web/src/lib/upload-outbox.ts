@@ -137,8 +137,10 @@ export class UploadOutbox {
 		}
 		// 409: the file is there already, from an earlier try or another tab.
 		if (response.ok || response.status === 409) return { status: "uploaded" };
-		// The server is busy or down for now; anything else will be refused again.
-		if (response.status >= 500 || response.status === 429) return { status: "waiting" };
+		// The server is busy or down for now, or the session ran out (often while offline) and
+		// signing in again lets the file through; anything else will be refused again.
+		if (response.status >= 500 || response.status === 429 || response.status === 401)
+			return { status: "waiting" };
 		const body = (await response.json().catch(() => null)) as { error?: string } | null;
 		return {
 			status: "failed",

@@ -106,6 +106,24 @@ describe("UploadOutbox", () => {
 		expect(refusing.size).toBe(0);
 	});
 
+	it("keeps a file while the session has run out, and uploads it after signing in again", async () => {
+		const store = memoryOutboxStore();
+		let signedIn = false;
+		const outbox = new UploadOutbox({
+			store,
+			fetch: gateway(() => (signedIn ? 201 : 401)).fetch,
+		});
+		const file = upload("screenshot.png");
+
+		expect(await outbox.add(file)).toEqual({ status: "waiting" });
+		expect(await store.all()).toHaveLength(1);
+
+		signedIn = true;
+		await outbox.drain();
+		expect(outbox.size).toBe(0);
+		expect(await store.all()).toEqual([]);
+	});
+
 	it("picks up what an earlier visit left waiting", async () => {
 		const store = memoryOutboxStore();
 		const left = upload("left.txt");
