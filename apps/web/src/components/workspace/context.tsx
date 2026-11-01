@@ -58,6 +58,8 @@ export interface IssueDefaults {
 	projectId?: string | null;
 	cycleId?: string | null;
 	labelIds?: string[];
+	/** Files the issue as a request in its team's intake. */
+	intake?: boolean;
 }
 
 /** Workspace-wide actions, available to pages, the sidebar and keyboard shortcuts. */

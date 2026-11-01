@@ -38,6 +38,7 @@ import { cn } from "#/lib/utils";
 import { ArchivedNotice, ArchiveIssueButton } from "./archive";
 import { AttachButton, useAttachFiles } from "./attach-files";
 import { DateField } from "./date-field";
+import { IntakeNotice } from "./intake";
 import { IssueActivity } from "./issue-activity";
 import { ParentPicker } from "./issue-picker";
 import { IssueProposals } from "./issue-proposals";
@@ -116,7 +117,9 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 				<div className="ml-auto" />
 				<CopyBranchButton issueKey={key} title={issue.title} />
 				<SubscribeButton issueId={issue.id} />
-				<ArchiveIssueButton issue={issue} closed={isClosedCategory(issueStatus.category)} />
+				{!issue.intake && (
+					<ArchiveIssueButton issue={issue} closed={isClosedCategory(issueStatus.category)} />
+				)}
 				<Button
 					variant="ghost"
 					size="icon"
@@ -130,6 +133,7 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 
 			<div className="flex flex-1 flex-col lg:flex-row">
 				<article className="min-w-0 space-y-4 px-6 py-8 lg:flex-1 lg:px-12">
+					<IntakeNotice issue={issue} team={team} />
 					<ArchivedNotice issue={issue} />
 					{parent && parentKey && (
 						<Link

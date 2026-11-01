@@ -40,6 +40,7 @@ function issue(overrides: Partial<Issue>): Issue {
 		createdAt: 0,
 		updatedAt: 0,
 		archivedAt: null,
+		intake: false,
 		...overrides,
 	};
 }

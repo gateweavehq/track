@@ -59,6 +59,7 @@ export function WorkspaceActionsProvider({ children }: { children: ReactNode }) 
 							projectId: first(defaults.projectId, page.projectId, routeProjectId),
 							cycleId: first(defaults.cycleId, page.cycleId),
 							labelIds: first(defaults.labelIds, page.labelIds),
+							intake: first(defaults.intake, page.intake),
 						},
 					});
 				} else if (admin) {

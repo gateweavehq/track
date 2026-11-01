@@ -100,6 +100,8 @@ export const issues = sqliteTable(
 		updatedAt: integer("updated_at").notNull(),
 		/** When a closed issue was archived; reopening it clears this. */
 		archivedAt: integer("archived_at"),
+		/** A request waiting in its team's intake, until a person accepts or declines it. */
+		intake: integer("intake", { mode: "boolean" }).notNull().default(false),
 		deletedAt: integer("deleted_at"),
 	},
 	(table) => [

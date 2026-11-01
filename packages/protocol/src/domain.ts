@@ -150,6 +150,11 @@ export interface Issue {
 	 * the progress of their project, cycle and parent.
 	 */
 	archivedAt: number | null;
+	/**
+	 * Whether the issue is a request waiting in its team's intake, for a person to accept into the
+	 * team's workflow or decline. Requests leave lists and boards but stay in search.
+	 */
+	intake: boolean;
 }
 
 export const PROJECT_STATUSES = ["planned", "started", "paused", "completed", "canceled"] as const;
@@ -279,6 +284,8 @@ export type ActivityChange =
 	| { type: "label"; labelId: string; added: boolean }
 	/** Archived, or restored: by hand, or by reopening the issue. */
 	| { type: "archived"; archived: boolean }
+	/** A request taken out of intake: accepted into the workflow, or declined. */
+	| { type: "intake"; accepted: boolean }
 	/** Recorded on both issues, each from its own side. */
 	| { type: "relation"; kind: RelationKind; issueId: string; added: boolean };
 

@@ -480,6 +480,37 @@ The workspace's alarm applies them (`packages/sync-server/src/automations.ts`).
 
 Automations are a breaking change to the protocol (version 18), as the team entity gained them.
 
+### Intake
+
+Each team has an intake: requests that wait for a person to accept them into the team's workflow
+or decline them (`Issue.intake`). A request is an issue like any other, with the team's number,
+statuses, labels and history; only where it shows differs. It leaves the lists and boards of its
+team, project, cycle and saved views, and My issues, as an archived issue does, and waits on the
+team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search finds it.
+
+- **Filing.** `issue.create` takes `intake: true`. The intake page files requests, and so does
+  the C shortcut while it is on screen; agents file them over MCP. Anyone who may create an issue
+  may file one, agent members included.
+- **Accepting** (`issue.accept`) takes the request out of intake in its status, or in an open one
+  it names: a closed status is refused, since declining is how a request closes.
+- **Declining** (`issue.decline`) moves it to the team's first canceled status, after posting an
+  optional reply as a comment by the person declining, which the people following the request
+  hear of. A team with no canceled status cannot decline.
+- **People decide.** Both mutations refuse agent members (`forbidden`). An agent triages by
+  working on requests through the ordinary mutations, and by proposing what an admin chose for it
+  (see [Proposals](#proposals)); a person accepts or declines. Deciding on what is no longer a
+  request changes nothing, so two people deciding at once do not conflict.
+- **History says it**, as `{ type: "intake", accepted }`, with the status change as an entry of
+  its own. Both send `issue.updated` webhooks, with `intake` in `updatedFrom`.
+- **Out of the way of automations.** A request is not archived, by hand or by a team's
+  automations, and automations do not close it: it waits for a person.
+- **Elsewhere.** Over MCP, `create_issue` and `search_issues` take `intake`, every issue says
+  whether it is a request, and `triage_request` accepts or declines one, for people only. Exports
+  carry `intake`; imports bring issues in out of intake.
+
+A public form and an email address that file requests are later steps. Intake is a breaking
+change to the protocol (version 19), as the issue entity gained it.
+
 ### Projects
 
 A project groups issues from any team toward a goal. It has a name, a description, a status

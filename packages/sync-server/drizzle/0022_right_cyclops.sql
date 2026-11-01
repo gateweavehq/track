@@ -1,0 +1,1 @@
+ALTER TABLE `issues` ADD `intake` integer DEFAULT false NOT NULL;

@@ -124,6 +124,25 @@ describe("team automations", () => {
 		expect(inbox.find((item) => item.issueId === "backlog-old")).toBeUndefined();
 	});
 
+	it("leave requests in intake alone, however long they wait", async () => {
+		const { as, automate, run, age, issues } = await setup();
+		for (const [id, status] of [
+			["request-open", "backlog"],
+			["request-closed", "done"],
+		]) {
+			await as(alice, {
+				name: "issue.create",
+				args: { id, teamId: TEAM_ID, title: id, status, sortOrder: "a0", intake: true },
+			} as MutationInput);
+		}
+		await automate({ closeAfterMonths: 3, archiveAfterMonths: 3 });
+		await age(4, "request-open", "request-closed");
+		await run();
+		const after = await issues();
+		expect(after.get("request-open")).toMatchObject({ status: "backlog", intake: true });
+		expect(after.get("request-closed")).toMatchObject({ archivedAt: null, intake: true });
+	});
+
 	it("archive closed issues untouched past the team's wait, and later what they closed", async () => {
 		const { workspace, issue, automate, run, age, issues, now } = await setup();
 		await issue("done-old", "done");

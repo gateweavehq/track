@@ -1,5 +1,6 @@
 import {
 	AGENT_CHANGE_KINDS,
+	compareStatuses,
 	defaultStatuses,
 	displayToStore,
 	firstStatus,
@@ -130,6 +131,7 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 				createdAt: Math.min(args.createdAt ?? now, now),
 				updatedAt: now,
 				archivedAt: null,
+				intake: args.intake ?? false,
 			});
 			return;
 		}
@@ -153,8 +155,47 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			const { id, archived } = mutation.args;
 			const issue = draft.get("issue", id);
 			if (!issue || (issue.archivedAt !== null) === archived) return;
+			if (archived && issue.intake) return;
 			if (archived && !isClosedStatus(draft, issue.teamId, issue.status)) return;
 			draft.put("issue", { ...issue, archivedAt: archived ? now : null, updatedAt: now });
+			return;
+		}
+		case "issue.accept": {
+			const { id, status } = mutation.args;
+			const issue = draft.get("issue", id);
+			if (!issue?.intake || isAgent(draft, userId)) return;
+			if (status !== undefined) {
+				if (!isLiveStatus(draft, issue.teamId, status)) return;
+				if (isClosedStatus(draft, issue.teamId, status)) return;
+			}
+			draft.put("issue", {
+				...issue,
+				intake: false,
+				status: status ?? issue.status,
+				updatedAt: now,
+			});
+			return;
+		}
+		case "issue.decline": {
+			const { id, reply } = mutation.args;
+			const issue = draft.get("issue", id);
+			if (!issue?.intake || isAgent(draft, userId)) return;
+			const canceled = teamStatuses(draft, issue.teamId)
+				.sort(compareStatuses)
+				.find((status) => status.category === "canceled");
+			if (!canceled) return;
+			if (reply && !draft.get("comment", reply.id)) {
+				const { id: commentId, body } = reply;
+				draft.put("comment", {
+					id: commentId,
+					issueId: id,
+					body,
+					authorId: userId,
+					createdAt: now,
+					updatedAt: now,
+				});
+			}
+			draft.put("issue", { ...issue, intake: false, status: canceled.key, updatedAt: now });
 			return;
 		}
 		case "issue.delete": {

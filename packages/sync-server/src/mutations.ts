@@ -48,6 +48,7 @@ import {
 	deleteStatus,
 	isClosedStatus,
 	seedStatuses,
+	teamStatuses,
 	updateStatus,
 } from "./statuses";
 import { queueDeliveries } from "./webhooks";
@@ -111,6 +112,12 @@ export function applyMutation(
 			break;
 		case "issue.archive":
 			archiveIssue(db, changes, actor, mutation.args);
+			break;
+		case "issue.accept":
+			acceptIssue(db, changes, actor, mutation.args);
+			break;
+		case "issue.decline":
+			declineIssue(db, changes, actor, mutation.args);
 			break;
 		case "issue.addLabel":
 			addLabel(db, changes, actor, mutation.args);
@@ -302,6 +309,7 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		labelIds,
 		number,
 		creatorId: actor.member.userId,
+		intake: args.intake ?? false,
 		version: changes.nextVersion,
 		// Fields without a stamp were last written at creation, which every client has seen.
 		fieldStamps: {},
@@ -421,6 +429,9 @@ function archiveIssue(
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
 	if ((issue.archivedAt !== null) === args.archived) return;
+	if (args.archived && issue.intake) {
+		throw new MutationRejected("invalid", "Accept or decline the request before archiving it");
+	}
 	if (args.archived && !isClosedStatus(db, issue.teamId, issue.status)) {
 		throw new MutationRejected("invalid", "Only a completed or canceled issue can be archived");
 	}
@@ -440,6 +451,80 @@ function archiveIssue(
 	}
 	const change = { type: "archived", archived: args.archived } as const;
 	recordActivity(db, changes, issue, actor.member.userId, change);
+}
+
+/**
+ * Takes a request out of intake into its team's workflow, in its status or the open one named.
+ * Accepting what is no longer a request changes nothing, so two people accepting at once agree.
+ */
+function acceptIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"issue.accept">) {
+	requirePerson(actor, "Only people can accept requests");
+	const issue = findLiveIssue(db, args.id);
+	if (!issue) throw new MutationRejected("not_found", "Issue not found");
+	if (!issue.intake) return;
+	if (args.status !== undefined) {
+		assertStatus(db, issue.teamId, args.status);
+		if (isClosedStatus(db, issue.teamId, args.status)) {
+			throw new MutationRejected("invalid", "Decline a request to close it");
+		}
+	}
+	leaveIntake(db, changes, actor, issue, args.status ?? issue.status, true);
+}
+
+/**
+ * Takes a request out of intake into its team's first canceled status, after the reply, if any,
+ * is posted as the person declining. Declining what is no longer a request changes nothing.
+ */
+function declineIssue(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"issue.decline">,
+) {
+	requirePerson(actor, "Only people can decline requests");
+	const issue = findLiveIssue(db, args.id);
+	if (!issue) throw new MutationRejected("not_found", "Issue not found");
+	if (!issue.intake) return;
+	const canceled = teamStatuses(db, issue.teamId).find(
+		(status) => status.removedAt === null && status.category === "canceled",
+	);
+	if (!canceled) {
+		throw new MutationRejected("invalid", "The team has no canceled status to decline into");
+	}
+	if (args.reply) {
+		createComment(db, changes, actor, { ...args.reply, issueId: issue.id });
+	}
+	leaveIntake(db, changes, actor, issue, canceled.key, false);
+}
+
+function leaveIntake(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	issue: schema.IssueRow,
+	status: string,
+	accepted: boolean,
+) {
+	const version = changes.nextVersion;
+	const moves = status !== issue.status;
+	// The status is stamped like any change to it, so an offline edit made before conflicts.
+	const fieldStamps = moves
+		? { ...issue.fieldStamps, status: { version, clientId: actor.clientId } }
+		: issue.fieldStamps;
+	const row = db
+		.update(schema.issues)
+		.set({ intake: false, status, fieldStamps, version, updatedAt: changes.now })
+		.where(eq(schema.issues.id, issue.id))
+		.returning()
+		.get();
+	if (row) {
+		changes.put("issue", toIssue(row));
+		changes.events.push({ type: "issue.updated", issue: row, previous: issue });
+	}
+	const actorId = actor.member.userId;
+	recordActivity(db, changes, issue, actorId, { type: "intake", accepted });
+	if (moves)
+		recordActivity(db, changes, issue, actorId, { type: "status", from: issue.status, to: status });
 }
 
 type IssuePatch = MutationArgs<"issue.update">["patch"];
