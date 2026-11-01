@@ -22,7 +22,7 @@ Read [docs/architecture.md](docs/architecture.md) before changing sync, auth or 
 | `packages/sync-server` | `WorkspaceDO`: SQLite storage, mutation handlers, oplog, realtime fan-out |
 | `packages/sync-client` | Browser replica: IndexedDB, optimistic mutations, tab leader election     |
 | `docs/`                | Architecture, roadmap, self-hosting and ecosystem notes                   |
-| `scripts/`             | Repository tooling (`doctor`)                                             |
+| `scripts/`             | Repository tooling (`doctor`, `check-migrations`)                         |
 | `.claude/skills/`      | Step-by-step playbooks for recurring tasks (plain Markdown, any agent)    |
 | `wrangler.jsonc`       | The Worker's config, at the root because the Deploy button reads it there |
 
@@ -42,7 +42,7 @@ root unless noted.
 | `pnpm dev:setup`  | One-time: create `.dev.vars` and migrate the local D1 database               |
 | `pnpm dev`        | Run the app on http://localhost:4710 (Workers, D1 and Durable Objects local) |
 | `pnpm dev:seed`   | Fill the running app with sample people, teams and issues (`--help`)         |
-| `pnpm check`      | Biome lint and format check (`pnpm format` fixes most findings)              |
+| `pnpm check`      | Biome lint and format, and the migrations check (`pnpm format` fixes most)   |
 | `pnpm typecheck`  | Type-check every package (regenerates Wrangler and route types first)        |
 | `pnpm test`       | Run every test suite                                                         |
 | `pnpm test:e2e`   | Build, then run the browser tests (Playwright, Chromium) on port 4711        |
@@ -95,7 +95,8 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
 7. **Server code never reaches the browser bundle.** In server functions, import server modules
    dynamically inside the handler, as `apps/web/src/lib/session.ts` does.
 8. **Migrations are append-only.** Generate them with Drizzle Kit and commit them. Never edit a
-   migration that has been merged. Follow `.claude/skills/schema-change/SKILL.md`.
+   migration that has been merged. When another branch's migration lands first, regenerate
+   yours after it rather than renaming it. Follow `.claude/skills/schema-change/SKILL.md`.
 9. **Secrets stay local.** Never commit `.dev.vars` or print its contents.
 10. **Admin rights are granted, never assumed.** `agent` is a role as well as `member`, so what
     only owners and admins may do is decided with `isAdminRole` from `packages/protocol`, never

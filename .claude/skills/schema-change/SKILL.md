@@ -42,6 +42,44 @@ one that moves the schema forward.
    workspace with data.
 7. Run `pnpm --filter @gateweave/track-sync-server test`.
 
+### When another branch's migration lands first
+
+Parallel branches each take the next migration number and usually the next `PROTOCOL_VERSION`,
+so the one that merges second renumbers. Never rename the files or edit the journal by hand: the
+migrator skips an entry whose `when` is no later than the last one a workspace applied, so a
+migration moved by hand can silently never run. Regenerate it instead:
+
+1. `git merge origin/main`. Expect conflicts in `drizzle/meta/_journal.json`, `drizzle/migrations.js`,
+   a `drizzle/meta/NNNN_snapshot.json`, and often `PROTOCOL_VERSION` and `schema.ts`.
+2. Resolve every conflict outside `drizzle/` first. Drizzle Kit loads `schema.ts` and the protocol
+   it imports, so both must compile: keep both sides' changes, and if this branch changes
+   `PROTOCOL_VERSION`, set it to main's plus one.
+3. Take main's generated files, then remove this branch's own migration (keep its SQL aside if it
+   is a custom migration):
+
+   ```sh
+   git checkout --theirs packages/sync-server/drizzle/meta packages/sync-server/drizzle/migrations.js
+   git rm packages/sync-server/drizzle/<this branch's NNNN_name>.sql
+   git add packages/sync-server/drizzle
+   ```
+
+   If this branch's snapshot has a number main lacks, `git rm` it too.
+4. Regenerate this branch's migration after main's:
+   `pnpm --filter @gateweave/track-sync-server db:generate --name <name>` (or `--custom`, and paste
+   the SQL back). Read the new SQL: it must hold only this branch's change. Run `pnpm format`.
+5. Add drop lines for both tables or columns to the migration rewind tests (`inbox.test.ts`,
+   `statuses.test.ts` and the search test in `sync.test.ts`), dropping a table before any table
+   it references.
+6. Check the numbering, then run the tests:
+
+   ```sh
+   node scripts/check-migrations.mjs --base origin/main
+   pnpm --filter @gateweave/track-sync-server test
+   ```
+
+`pnpm check` runs the same check without a base: the journal's numbering and `when` order, the
+snapshot chain and `migrations.js`. CI's `migrations` job runs it against the pull request's base.
+
 ## D1 (Better Auth)
 
 The D1 schema is generated from the Better Auth configuration
