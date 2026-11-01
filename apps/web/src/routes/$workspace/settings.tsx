@@ -21,10 +21,14 @@ function SettingsLayout() {
 	const { workspace } = Route.useParams();
 	return (
 		<div className="h-full overflow-y-auto">
+			{/* The row is wider than the page so every tab fits on a desktop; a narrow window scrolls it. */}
 			<header className="sticky top-0 z-10 border-b bg-background">
-				<div className="mx-auto flex h-12 max-w-3xl items-center gap-6 px-4 sm:px-6">
+				<div className="mx-auto flex h-12 max-w-5xl items-center gap-6 px-4 sm:px-6">
 					<h1 className="shrink-0 text-sm font-medium">Settings</h1>
-					<nav aria-label="Settings" className="flex h-full min-w-0 gap-4 overflow-x-auto">
+					<nav
+						aria-label="Settings"
+						className="flex h-full min-w-0 gap-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+					>
 						{TABS.map((tab) => (
 							<Link
 								key={tab.to}
@@ -42,8 +46,10 @@ function SettingsLayout() {
 					</nav>
 				</div>
 			</header>
-			<div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-				<Outlet />
+			<div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+				<div className="max-w-3xl">
+					<Outlet />
+				</div>
 			</div>
 		</div>
 	);

@@ -92,15 +92,16 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   page per team: shipped in v0.15.0. Team automations that archive closed issues and close
   stale ones after a number of months untouched: shipped in v0.16.0. Issue templates per
   team, in the app and over MCP: shipped in v0.17.0. Recurring issues, made by templates on a
-  schedule, are next to ship.
+  schedule: shipped in v0.18.0.
 - Intake: requests from outside a team wait in its intake until a person accepts or declines
   them, and an agent triages them through proposals. Requests come in from the app, over MCP,
   through each team's public request form (behind Turnstile) and to its intake email address
-  (Email Routing). Replying to requesters by email and the triage agent's proposals come next.
+  (Email Routing). A requester's reply to the decision email becomes a comment on their
+  request. Shipped in v0.18.0.
 - Insights: a page per team with issues created and closed by week, cycle time and where open
   issues are, worked out from the local copy: shipped in v0.17.0. Project updates, a health (on
   track, at risk, off track) and a note kept as the project's history and sent to webhooks, and
-  the same insights per project, are next to ship.
+  the same insights per project: shipped in v0.18.0.
 - GitHub integration: link pull requests and close issues from commits. The first part, over a
   webhook per repository or organization, shipped in v0.10.0; a GitHub App comes later.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations

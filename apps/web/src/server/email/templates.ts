@@ -131,12 +131,15 @@ export function requestDecisionEmail({
 	title,
 	accepted,
 	reply,
+	replies = false,
 }: {
 	workspace: string;
 	team: string;
 	title: string;
 	accepted: boolean;
 	reply: string | null;
+	/** Whether a reply to this email reaches the team, as a comment on the request. */
+	replies?: boolean;
 }): Message {
 	const who = `${clip(team, 60)} at ${clip(workspace, 60)}`;
 	const request = clip(title, 120);
@@ -163,8 +166,9 @@ export function requestDecisionEmail({
 					},
 				]
 			: [],
-		footer:
-			"You get this because you sent this request through the team's form or by email. It is the only email about it.",
+		footer: replies
+			? "You get this because you sent this request through the team's form or by email. Reply to this email to add to your request; the team sees your reply on it."
+			: "You get this because you sent this request through the team's form or by email. It is the only email about it.",
 	});
 }
 

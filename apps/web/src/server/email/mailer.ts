@@ -8,6 +8,8 @@ export interface Email {
 	html: string;
 	/** Extra headers, such as `List-Unsubscribe`. Email Service allows only some. */
 	headers?: Record<string, string>;
+	/** Where a reply goes, in place of the sender. */
+	replyTo?: string;
 }
 
 export interface Mailer {
@@ -43,8 +45,16 @@ export function createMailer(
 		return undefined;
 	}
 	return {
-		async send({ to, subject, text, html, headers }) {
-			await binding.send({ from: sender, to, subject, text, html, ...(headers && { headers }) });
+		async send({ to, subject, text, html, headers, replyTo }) {
+			await binding.send({
+				from: sender,
+				to,
+				subject,
+				text,
+				html,
+				...(headers && { headers }),
+				...(replyTo && { replyTo }),
+			});
 		},
 	};
 }

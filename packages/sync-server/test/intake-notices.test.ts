@@ -1,5 +1,5 @@
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
-import { type MutationInput, privateId } from "@gateweave/track-protocol";
+import { INTAKE_EMAIL_ACTOR_ID, type MutationInput, privateId } from "@gateweave/track-protocol";
 import { describe, expect, it, vi } from "vitest";
 import {
 	LINK_HEADER,
@@ -123,6 +123,7 @@ describe("deciding on a request", () => {
 					reply: null,
 					request: { title: "Export to PDF" },
 					team: "Engineering",
+					replyKey: expect.stringMatching(/^[a-z2-7]{26}$/),
 				},
 				expect.objectContaining({
 					email: "lee@customer.test",
@@ -193,5 +194,68 @@ describe("deciding on a request", () => {
 		});
 		const inbox = (await workspace.snapshot(alice)).inbox;
 		expect(inbox.find((item) => item.issueId === "issue-1")).toBeUndefined();
+	});
+});
+
+// A requester's reply to the decision email becomes a comment on their request (TRK-55).
+describe("replying to a decision", () => {
+	async function decided() {
+		const { workspace, as, file, sent } = await setup();
+		const request = await file("Export to PDF", "sam@customer.test");
+		await as(alice, { name: "issue.subscribe", args: { issueId: request.id, subscribed: true } });
+		await as(owner, { name: "issue.accept", args: { id: request.id } });
+		await runAlarm(workspace);
+		const key = sent[0]?.replyKey;
+		if (!key) throw new Error("No decision sent");
+		return { workspace, as, request, key, sent };
+	}
+
+	it("files the requester's reply as a comment by Email, and tells those who follow it", async () => {
+		const { workspace, request, key } = await decided();
+		expect(
+			await workspace.fileReply({
+				key,
+				from: "Sam@Customer.test",
+				body: "Thanks! [@Olivia Owner](mention:user-owner), also in Word?",
+			}),
+		).toBe(true);
+
+		const snapshot = await workspace.snapshot(alice);
+		const comment = snapshot.comments.find((each) => each.issueId === request.id);
+		expect(comment).toMatchObject({
+			authorId: INTAKE_EMAIL_ACTOR_ID,
+			body: "Thanks! [@Olivia Owner](mention:user-owner), also in Word?",
+		});
+		expect(snapshot.inbox.find((item) => item.issueId === request.id)).toMatchObject({
+			event: { type: "comment", commentId: comment?.id },
+			actorId: INTAKE_EMAIL_ACTOR_ID,
+		});
+		// A stranger's text mentions nobody: the owner, who does not follow it, hears nothing.
+		const owners = (await workspace.snapshot(owner)).inbox;
+		expect(owners.find((item) => item.issueId === request.id)).toBeUndefined();
+	});
+
+	it("takes replies only from whom the decision went to, to a request that is still there", async () => {
+		const { workspace, as, request, key } = await decided();
+		const reply = { key, from: "sam@customer.test", body: "Hello" };
+		expect(await workspace.fileReply({ ...reply, from: "mallory@elsewhere.test" })).toBe(false);
+		expect(await workspace.fileReply({ ...reply, key: "a".repeat(26) })).toBe(false);
+		expect(await workspace.fileReply({ ...reply, key: key.slice(0, 16) })).toBe(false);
+		expect(await workspace.fileReply({ ...reply, body: "   " })).toBe(false);
+		expect((await workspace.snapshot(owner)).comments).toEqual([]);
+
+		await as(owner, { name: "issue.delete", args: { id: request.id } });
+		expect(await workspace.fileReply(reply)).toBe(false);
+	});
+
+	it("keeps the same address for every reply", async () => {
+		const { workspace, request, key } = await decided();
+		for (const body of ["One", "Two"]) {
+			expect(await workspace.fileReply({ key, from: "sam@customer.test", body })).toBe(true);
+		}
+		const comments = (await workspace.snapshot(owner)).comments;
+		expect(comments.filter((each) => each.issueId === request.id).map((each) => each.body)).toEqual(
+			["One", "Two"],
+		);
 	});
 });

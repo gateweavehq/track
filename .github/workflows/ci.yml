@@ -10,7 +10,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # What a pull request changes, so the jobs it cannot affect are skipped: docs alone need only
+  # lint, and the browser and performance jobs only run when the app or its dependencies change.
+  # A push to main runs everything.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+      app: ${{ steps.diff.outputs.app }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - id: diff
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "app=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A pull request checks out the merge GitHub made; its first parent is the base.
+          code=false
+          app=false
+          while read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              docs/*|*.md|.claude/*|LICENSE) ;;
+              *) code=true ;;
+            esac
+            case "$file" in
+              apps/web/*|packages/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|wrangler.jsonc|.node-version|.github/workflows/*) app=true ;;
+            esac
+          done <<< "$(git diff --name-only HEAD^1 HEAD)"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "Code changed: $code. App changed: $app."
+
   check:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -23,10 +60,13 @@ jobs:
       - name: Lint, format, migrations
         run: pnpm check
       - name: Typecheck
+        if: needs.changes.outputs.code == 'true'
         run: pnpm typecheck
       - name: Test
+        if: needs.changes.outputs.code == 'true'
         run: pnpm test
       - name: Build
+        if: needs.changes.outputs.code == 'true'
         run: pnpm build
 
   # A pull request that adds Durable Object migrations or changes PROTOCOL_VERSION must come
@@ -49,6 +89,8 @@ jobs:
   # Browser tests against the production build. Separate from `check` because they are slower
   # and need Chromium.
   e2e:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -77,6 +119,8 @@ jobs:
   # reach another browser. Its own job, so a slow run is easy to tell from a broken test, and so
   # nothing else shares the runner while it times things. The numbers go to the job summary.
   perf:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

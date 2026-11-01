@@ -21,6 +21,7 @@ import {
 	dayIn,
 	defaultStatuses,
 	firstStatus,
+	INTAKE_EMAIL_ACTOR_ID,
 	mutationSchema,
 } from "@gateweave/track-protocol";
 import type { IssueQuery, MemberProfile, MutateResult } from "@gateweave/track-sync-server";
@@ -1226,6 +1227,27 @@ describe("Track MCP tools", () => {
 		});
 		expect(missing.isError).toBe(true);
 		expect(workspace.mutations.filter((m) => m.name === "comment.create")).toHaveLength(1);
+	});
+
+	it("names what filed a request and wrote a reply on its own, where no member did", async () => {
+		await created({ title: "Emailed" });
+		const issue = workspace.issues_[0];
+		if (!issue) throw new Error("No issue");
+		issue.creatorId = INTAKE_EMAIL_ACTOR_ID;
+		workspace.comments_.push({
+			id: "comment-reply",
+			issueId: issue.id,
+			authorId: INTAKE_EMAIL_ACTOR_ID,
+			body: "Thanks!",
+			createdAt: Date.UTC(2026, 9, 27),
+			updatedAt: Date.UTC(2026, 9, 27),
+		});
+
+		const read = await call("get_issue", { workspace: "acme", key: "ENG-1" });
+		expect(read.structuredContent).toMatchObject({
+			creator: "Email",
+			comments: [{ author: "Email", body: "Thanks!" }],
+		});
 	});
 
 	it("creates labels, with a color picked from the name unless given", async () => {

@@ -8,6 +8,53 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.18.0] - 2026-11-01
+
+Teams can take requests into an intake, from a public form and by email; projects have updates,
+a health and insights; templates can make issues on a schedule. Updating a self-hosted copy
+applies five migrations in each workspace's database, which run on their own; there is no D1
+migration. The new settings are optional: `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` open
+teams' request forms, and `INTAKE_EMAIL_DOMAIN`, with Email Routing, turns on their intake email
+addresses (see `docs/self-hosting.md`). The protocol goes to version 24, so open tabs reload and
+sync again. ([#109], [#114], [#118], [#125], [#128], [#133])
+
+### Added
+
+- Team intake: requests wait on a team's intake page until a person accepts them into the
+  workflow or declines them with a reply. Members file them in the app and agents over MCP
+  (`triage_request`). ([#109])
+- A public request form per team, behind Turnstile, that admins turn on and share, and an intake
+  email address per team, through Email Routing. Attachments of emailed requests are kept with
+  the request. Both are rate limited. ([#109], [#126])
+- Whoever filed a request through the form or by email is emailed the decision, and members who
+  follow it hear of it in their inbox. A reply to the decision email becomes a comment on the
+  request, without the text it quotes. ([#118], [#133])
+- An agent's decision on a request becomes a proposal, whatever it is set to propose: only
+  people decide on requests. Accepting it makes the decision as the person, with the agent's
+  drafted reply. ([#125])
+- Project updates: a health (on track, at risk, off track) and a note, kept as the project's
+  history, shown on the projects page, sent to webhooks and available over MCP
+  (`post_project_update`, `list_project_updates`). ([#114])
+- Insights per project, across its teams, and filters by label and assignee on team and project
+  insights. Over MCP, `get_insights` gives an agent a team's or a project's numbers. ([#116],
+  [#117], [#119])
+- Recurring issues: a template can make its issue every 1 to 99 days, weeks or months, at
+  midnight in the time zone its schedule names. ([#128])
+- Over MCP, `get_issue` names what filed a request or wrote a reply on its own: Request form,
+  Email, GitHub or Track. ([#134])
+
+### Changed
+
+- Lists, boards and views no longer go through archived issues on every change, so a workspace
+  with many of them stays as quick to edit. ([#124])
+- Settings tabs fit in one row on a desktop, and menus keep clear of the window's edges and are
+  at least as wide as what opened them. ([#129], [#130])
+
+### Fixed
+
+- In Node 22, a client whose reconnect was refused stayed "connecting" instead of finding out
+  why. ([#123])
+
 ## [0.17.0] - 2026-11-01
 
 Teams can keep issue templates, and each team has an insights page. Updating a self-hosted copy
@@ -606,6 +653,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.18.0]: https://github.com/gateweavehq/track/releases/tag/v0.18.0
 [0.17.0]: https://github.com/gateweavehq/track/releases/tag/v0.17.0
 [0.16.0]: https://github.com/gateweavehq/track/releases/tag/v0.16.0
 [0.15.0]: https://github.com/gateweavehq/track/releases/tag/v0.15.0
@@ -707,3 +755,18 @@ The first pre-release.
 [#110]: https://github.com/gateweavehq/track/pull/110
 [#111]: https://github.com/gateweavehq/track/pull/111
 [#112]: https://github.com/gateweavehq/track/pull/112
+[#109]: https://github.com/gateweavehq/track/pull/109
+[#114]: https://github.com/gateweavehq/track/pull/114
+[#116]: https://github.com/gateweavehq/track/pull/116
+[#117]: https://github.com/gateweavehq/track/pull/117
+[#118]: https://github.com/gateweavehq/track/pull/118
+[#119]: https://github.com/gateweavehq/track/pull/119
+[#123]: https://github.com/gateweavehq/track/pull/123
+[#124]: https://github.com/gateweavehq/track/pull/124
+[#125]: https://github.com/gateweavehq/track/pull/125
+[#126]: https://github.com/gateweavehq/track/pull/126
+[#128]: https://github.com/gateweavehq/track/pull/128
+[#129]: https://github.com/gateweavehq/track/pull/129
+[#130]: https://github.com/gateweavehq/track/pull/130
+[#133]: https://github.com/gateweavehq/track/pull/133
+[#134]: https://github.com/gateweavehq/track/pull/134
