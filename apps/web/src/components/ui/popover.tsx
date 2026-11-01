@@ -12,7 +12,7 @@ const PopoverAnchor = PopoverPrimitive.Anchor;
 const PopoverContent = React.forwardRef<
 	React.ComponentRef<typeof PopoverPrimitive.Content>,
 	React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
->(({ className, align = "start", sideOffset = 4, ...props }, ref) => (
+>(({ className, align = "start", sideOffset = 4, onCloseAutoFocus, ...props }, ref) => (
 	<PopoverPrimitive.Portal>
 		<PopoverPrimitive.Content
 			ref={ref}
@@ -23,9 +23,24 @@ const PopoverContent = React.forwardRef<
 				className,
 			)}
 			{...props}
+			onCloseAutoFocus={(event) => {
+				onCloseAutoFocus?.(event);
+				if (focusMovedOn()) event.preventDefault();
+			}}
 		/>
 	</PopoverPrimitive.Portal>
 ));
 PopoverContent.displayName = PopoverPrimitive.Content.displayName;
+
+/**
+ * Whether focus has gone somewhere since a popover closed, such as into the next one opened.
+ * A closed popover hands focus back to its trigger a moment after it leaves the page, so focus
+ * left inside it ends up on the page itself; anything else was the person moving on, and taking
+ * focus from there would close what they just opened.
+ */
+function focusMovedOn(): boolean {
+	const active = document.activeElement;
+	return active !== null && active !== document.body;
+}
 
 export { Popover, PopoverAnchor, PopoverContent, PopoverTrigger };
