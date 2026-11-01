@@ -696,7 +696,8 @@ went; the latest gives the project its health, which is not stored on the projec
   about issues.
 - Webhooks send `project_update.created`, `project_update.updated` and
   `project_update.deleted`, with the project (and its URL) and the update. A project belongs to
-  no team, so only a webhook for every team hears them.
+  no team, so only a webhook for every team hears them. Deleting a project sends none for its
+  updates; see the webhook notes.
 - Over MCP, `post_project_update` posts one and `list_project_updates` reads them, the latest
   first; `get_workspace` gives each project's `health`.
 - JSON exports carry every project's updates, and an import brings in those of the projects its
@@ -1094,8 +1095,9 @@ new issues without holding a socket open. Admins manage them on Settings › Web
 events it wants (`issue.created`, `issue.updated`, `issue.deleted`, `comment.created`,
 `comment.updated`, `comment.deleted`, `proposal.created`, `proposal.updated`,
 `proposal.accepted`, `proposal.dismissed`, `relation.created`, `relation.deleted`,
-`project_update.created`, `project_update.updated`, `project_update.deleted`), an optional team, and optionally the agent member it sets off. The payload types and input schemas are in `packages/protocol/src/webhooks.ts`; the rest
-is `packages/sync-server/src/webhooks.ts`.
+`project_update.created`, `project_update.updated`, `project_update.deleted`), an optional
+team, and optionally the agent member it sets off. The payload types and input schemas are in
+`packages/protocol/src/webhooks.ts`; the rest is `packages/sync-server/src/webhooks.ts`.
 
 - **The workspace's Durable Object delivers them, from an outbox.** Mutation handlers add what
   they did to the change set (an issue created, an issue's fields before and after, a comment),
@@ -1137,6 +1139,11 @@ is `packages/sync-server/src/webhooks.ts`.
   have sends nothing. Deleting an issue sends `relation.deleted` for each of its relations, with
   the person who deleted it as the actor, before its own `issue.deleted`, so an issue that it
   blocked is heard to be unblocked. New webhooks do not subscribe to relation events by default.
+- **Project update events** (`project_update.created`, `.updated`, `.deleted`) carry the
+  `project`, with its URL, and the `update` instead of an issue, and only a webhook for every
+  team hears them, since a project belongs to no team. Deleting a project deletes its updates
+  without a `project_update.deleted` for each: there is no event for the project itself, and a
+  receiver that keeps updates can drop a project's when it finds the project gone.
 - **Retries.** A delivery that gets no 2xx answer (a redirect counts as a failure) is retried
   after 5 seconds, 5 minutes, 30 minutes, 2, 5 and 10 hours, then marked failed. Settings show
   each webhook's latest deliveries, and finished ones are kept for seven days.
