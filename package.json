@@ -19,7 +19,7 @@
 		"test": "pnpm -r test",
 		"test:e2e": "pnpm --filter @gateweave/track-web test:e2e",
 		"test:perf": "pnpm --filter @gateweave/track-web test:perf",
-		"check": "biome check",
+		"check": "biome check && node scripts/check-migrations.mjs",
 		"format": "biome check --write",
 		"verify": "pnpm check && pnpm typecheck && pnpm test && pnpm build"
 	},
