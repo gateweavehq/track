@@ -421,7 +421,8 @@ canceled issues are left out of it.
 - **Names travel with the key.** MCP takes a status by key or name and lists each team's
   statuses in `get_workspace`; webhooks carry `statusName` and `statusCategory`; inbox emails
   name the status as its team does; an import matches a status by name in the team, then takes
-  the first of its category.
+  the first of its category. An import of a Track export that keeps the file's teams first adds
+  each team's live statuses that the team here lacks by name and by key (`status.create`).
 
 Changing statuses is a breaking change to the protocol (version 16), so clients that predate it
 start from a fresh snapshot.

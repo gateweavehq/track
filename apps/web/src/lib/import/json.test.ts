@@ -8,6 +8,7 @@ import {
 	type MutationInput,
 	type Project,
 	type Team,
+	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import { type ExportSource, workspaceToJson } from "#/lib/export";
@@ -78,6 +79,21 @@ function issue(overrides: Partial<Issue> & Pick<Issue, "id" | "teamId" | "number
 		createdAt: 1,
 		updatedAt: 1,
 		archivedAt: null,
+		...overrides,
+	};
+}
+
+/** A team's own status, after the built-in In Review. */
+function status(
+	overrides: Partial<WorkflowStatus> & Pick<WorkflowStatus, "id" | "teamId" | "key" | "name">,
+): WorkflowStatus {
+	return {
+		category: "started",
+		color: null,
+		sortOrder: "a2",
+		createdAt: 1,
+		updatedAt: 1,
+		removedAt: null,
 		...overrides,
 	};
 }
@@ -220,6 +236,85 @@ describe("readJsonImport", () => {
 		expect(outage?.teamId).toBe(team?.id);
 		const names = plan.mutations.map((mutation) => mutation.name);
 		expect(names.indexOf("team.create")).toBeLessThan(names.lastIndexOf("issue.create"));
+	});
+
+	it("brings a team's own statuses along when it keeps the file's teams", async () => {
+		// Operations added "Ready for QA" after In Review, and removed "Blocked".
+		const qa = status({
+			id: "t2/qa",
+			teamId: "t2",
+			key: "qa",
+			name: "Ready for QA",
+			color: "#0ea5e9",
+		});
+		const blocked = { ...qa, id: "t2/blocked", key: "blocked", name: "Blocked", removedAt: 5 };
+		const withQa: ExportSource = {
+			...exported,
+			statuses: [...exported.statuses, qa, blocked],
+			issues: [epicIssue, { ...outageIssue, status: "qa" }],
+		};
+		const { source } = readJsonImport(workspaceToJson(withQa));
+
+		// Into an empty workspace, as a team the import makes: the statuses arrive as they were.
+		const empty = elsewhere({ teams: [], statuses: [], members: [] });
+		const plan = await planImport(source, empty, "home-eng", { keepTeams: true });
+		const teamsMade = argsOf(plan.mutations, "team.create");
+		const opsId = teamsMade.find((team) => team.key === "OPS")?.id;
+		const engId = teamsMade.find((team) => team.key === "ENG")?.id;
+		const created = argsOf(plan.mutations, "status.create");
+		// ENG's "Doing" is its In Progress renamed: the same status, so nothing is added there.
+		expect(created).toEqual([
+			{
+				teamId: opsId,
+				key: "qa",
+				name: "Ready for QA",
+				category: "started",
+				color: "#0ea5e9",
+				sortOrder: expect.any(String),
+			},
+		]);
+		expect((created[0]?.sortOrder ?? "") > "a1").toBe(true);
+		expect(plan.newStatuses).toEqual(["Ready for QA (OPS)"]);
+		const [epic, outage] = argsOf(plan.mutations, "issue.create");
+		expect(epic).toMatchObject({ teamId: engId, status: "backlog" });
+		expect(outage).toMatchObject({ teamId: opsId, status: "qa" });
+		const names = plan.mutations.map((mutation) => mutation.name);
+		expect(names.indexOf("team.create")).toBeLessThan(names.indexOf("status.create"));
+		expect(names.indexOf("status.create")).toBeLessThan(names.lastIndexOf("issue.create"));
+
+		// Into one chosen team, statuses are matched as before and none is added.
+		const into = await planImport(source, empty, "home-eng");
+		expect(argsOf(into.mutations, "status.create")).toEqual([]);
+		expect(into.newStatuses).toEqual([]);
+	});
+
+	it("adds a status to a team that is here under a key it once used, with another key", async () => {
+		const qa = status({ id: "t1/qa", teamId: "t1", key: "qa", name: "Ready for QA" });
+		const { source } = readJsonImport(
+			workspaceToJson({ ...exported, statuses: [...exported.statuses, qa] }),
+		);
+		// Core (ENG here) once had a "qa" status, now removed: its key is never used again.
+		const removed = { ...qa, id: "home-eng/qa", teamId: "home-eng", name: "QA", removedAt: 9 };
+		const here = elsewhere({ statuses: [...defaultStatuses("home-eng", 1), removed] });
+		const plan = await planImport(source, here, "home-eng", { keepTeams: true });
+		expect(argsOf(plan.mutations, "status.create")).toMatchObject([
+			{ teamId: "home-eng", key: "ready_for_qa", name: "Ready for QA" },
+		]);
+
+		// Once it is there, a second run adds nothing.
+		const added = {
+			...qa,
+			id: "home-eng/ready_for_qa",
+			teamId: "home-eng",
+			key: "ready_for_qa",
+		};
+		const again = await planImport(
+			source,
+			elsewhere({ statuses: [...defaultStatuses("home-eng", 1), removed, added] }),
+			"home-eng",
+			{ keepTeams: true },
+		);
+		expect(argsOf(again.mutations, "status.create")).toEqual([]);
 	});
 
 	it("skips everything a second time", async () => {

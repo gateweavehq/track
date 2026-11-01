@@ -566,6 +566,9 @@ function PlanSummary({ sourceName, plan }: { sourceName: string; plan: ImportPla
 			{plan.newTeams.length > 0 && (
 				<p className="text-muted-foreground">New teams: {plan.newTeams.join(", ")}.</p>
 			)}
+			{plan.newStatuses.length > 0 && (
+				<p className="text-muted-foreground">New statuses: {plan.newStatuses.join(", ")}.</p>
+			)}
 			{plan.newLabels.length > 0 && (
 				<p className="text-muted-foreground">New labels: {plan.newLabels.join(", ")}.</p>
 			)}
