@@ -199,13 +199,13 @@ const proposalOutput = z.looseObject({
 	change: z
 		.string()
 		.describe(
-			'What it changes: "title", "description", "status", "priority", "assignee", "project", "add_label" or "remove_label".',
+			'What it changes: "title", "description", "status", "priority", "assignee", "project", "add_label", "remove_label", or "accept" or "decline" for a request in intake.',
 		),
 	to: z
 		.string()
 		.nullable()
 		.describe(
-			"The proposed value: the text, a status, a priority, an assignee's email, a project's name or a label name. Null clears the field.",
+			"The proposed value: the text, a status, a priority, an assignee's email, a project's name or a label name; for accept, the status it goes into (null keeps its own), and for decline, the reply. Null clears the field.",
 		),
 });
 const openProposalOutput = proposalOutput.extend({
@@ -853,7 +853,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Triage request",
 			description:
-				"Accepts a request waiting in its team's intake into the team's workflow, keeping its status or moving it to an open one, or declines it into the team's first canceled status with an optional reply as a comment. Only people can: agent members label, relate and propose changes to requests, and a person decides.",
+				"Accepts a request waiting in its team's intake into the team's workflow, keeping its status or moving it to an open one, or declines it into the team's first canceled status with an optional reply as a comment. Only people decide: called by an agent member, the decision, with the reply it drafted, is not made but comes back under proposed, for a person to accept or dismiss.",
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				key: keyInput,
@@ -871,7 +871,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					.optional()
 					.describe(`Declining only: a comment to the people who follow it. ${MENTION_HELP}`),
 			}),
-			outputSchema: issueDetail,
+			outputSchema: issueDetail.extend({ proposed: proposedOutput }),
 			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
 		},
 		(input) =>
@@ -880,9 +880,10 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				const directory = await workspace.directory();
 				const issue = await findIssue(workspace, input.key);
 				if (!issue.intake) throw new ToolError(`${input.key} is not a request in intake.`);
+				let proposed: Proposal[];
 				if (input.decision === "accept") {
 					if (input.reply !== undefined) throw new ToolError("A reply is only for declining.");
-					await apply(workspace, {
+					proposed = await apply(workspace, {
 						name: "issue.accept",
 						args: {
 							id: issue.id,
@@ -897,7 +898,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 							"Declining moves it to the team's canceled status; leave out status.",
 						);
 					}
-					await apply(workspace, {
+					proposed = await apply(workspace, {
 						name: "issue.decline",
 						args: {
 							id: issue.id,
@@ -905,7 +906,11 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						},
 					});
 				}
-				return detail(access, workspace, directory, await reread(workspace, issue.id));
+				return withProposed(
+					await detail(access, workspace, directory, await reread(workspace, issue.id)),
+					directory,
+					proposed,
+				);
 			}),
 	);
 
@@ -1488,6 +1493,10 @@ function withProposed(issue: IssueDetail, directory: Directory, proposed: Propos
 
 function proposalView(directory: Directory, { change }: Proposal): ProposalOutput {
 	switch (change.type) {
+		case "intake":
+			return change.accepted
+				? { change: "accept", to: change.status }
+				: { change: "decline", to: change.reply };
 		case "title":
 		case "description":
 		case "status":

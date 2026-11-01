@@ -125,6 +125,32 @@ function describe(
 	projectName: (id: string) => string,
 ): ReactNode {
 	switch (change.type) {
+		case "intake":
+			if (!change.accepted) {
+				return change.reply === null ? (
+					"proposes declining the request"
+				) : (
+					<>
+						proposes declining the request, replying
+						<details className="mt-1">
+							<summary className="cursor-pointer text-xs text-muted-foreground">Show it</summary>
+							<p className="mt-1 whitespace-pre-wrap rounded-md border bg-muted/30 px-2 py-1 text-sm">
+								{change.reply}
+							</p>
+						</details>
+					</>
+				);
+			}
+			if (change.status === null) return "proposes accepting the request";
+			return (
+				<>
+					proposes accepting the request into{" "}
+					<span className="inline-flex items-center gap-1 align-middle font-medium">
+						<StatusIcon status={status(change.status)} className="size-3.5" />
+						{status(change.status).name}
+					</span>
+				</>
+			);
 		case "status":
 			return (
 				<>

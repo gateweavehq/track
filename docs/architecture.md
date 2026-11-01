@@ -499,9 +499,15 @@ team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search fi
 - **Declining** (`issue.decline`) moves it to the team's first canceled status, after posting an
   optional reply as a comment by the person declining, which the people following the request
   hear of. A team with no canceled status cannot decline.
-- **People decide.** Both mutations refuse agent members (`forbidden`). An agent triages by
-  working on requests through the ordinary mutations, and by proposing what an admin chose for it
-  (see [Proposals](#proposals)); a person accepts or declines. Deciding on what is no longer a
+- **People decide.** An agent member's `issue.accept` or `issue.decline` is never made: it
+  becomes a proposal (`{ type: "intake", accepted, status, reply }`), whatever an admin chose for
+  the agent, with the status it would accept into or the reply it drafted (see
+  [Proposals](#proposals)). An agent triages by working on requests through the ordinary
+  mutations and by proposing decisions; a person accepts or declines. Accepting the proposal
+  makes the decision as that person, through the same handlers, with the agent in the history's
+  `proposedBy`; a drafted reply is posted as the person, who made it theirs. Once a request leaves
+  intake, however it does, the decisions agents proposed on it are dismissed by whoever took it
+  out. Deciding on what is no longer a
   request is a `conflict` ("Someone already decided on this request"), so whoever decides second
   hears it, and a reply they wrote is not lost unseen. A retried mutation id is answered as
   applied before that.
@@ -534,7 +540,8 @@ team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search fi
 - **Out of the way of automations.** A request is not archived, by hand or by a team's
   automations, and automations do not close it: it waits for a person.
 - **Elsewhere.** Over MCP, `create_issue` and `search_issues` take `intake`, every issue says
-  whether it is a request, and `triage_request` accepts or declines one, for people only. Exports
+  whether it is a request, and `triage_request` accepts or declines one; from an agent member it
+  comes back under `proposed`, as `accept` (with the status) or `decline` (with the reply). Exports
   carry `intake`; imports bring issues in out of intake.
 
 #### Request forms
@@ -593,7 +600,7 @@ Without `INTAKE_EMAIL_DOMAIN`, and on the public demo, every address is refused,
 in the app says why. The address that mail came from hears of the decision (above).
 
 Intake is a breaking change to the protocol (version 20), as the issue and team entities gained
-it, and so is its inbox event (version 22).
+it, and so are its inbox event (version 22) and agents' proposed decisions (version 23).
 
 ### Issue templates
 
@@ -866,7 +873,8 @@ to an issue it only proposes (`agent.update`, kept in the member's `proposes` in
 Object). The kinds are the title, the description, the status, closing (a completed or canceled
 status, which `status` includes), the priority, the assignee, the project and labels.
 Creating issues, setting parents, dates and estimates, relating issues, commenting, and managing
-labels and projects are never proposed. An agent proposes nothing until an admin says so.
+labels and projects are never proposed. An agent proposes nothing until an admin says so, except
+decisions on requests in intake, which it always proposes (see [Intake](#intake)).
 
 - **The server splits the agent's mutation.** `applyMutation` makes the fields its `proposes`
   does not cover and turns the rest into proposals (`proposals.ts`), in the same transaction.

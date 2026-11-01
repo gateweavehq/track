@@ -23,6 +23,9 @@ export function proposesChange(
 	if (member.role !== "agent") return false;
 	const kinds = member.proposes;
 	switch (change.type) {
+		// Only people decide on requests, so an agent's decision always waits for one.
+		case "intake":
+			return true;
 		case "status":
 			return (
 				kinds.includes("status") ||
@@ -105,6 +108,21 @@ export function decide(
 	if (row) changes.events.push({ type: `proposal.${status}`, proposal: row });
 }
 
+/**
+ * Closes the open decisions agents proposed on a request that has just left intake, as dismissed
+ * by whoever took it out: there is nothing left to decide.
+ */
+export function settleIntakeProposals(
+	db: Db,
+	changes: ChangeSet,
+	issueId: string,
+	by: string,
+): void {
+	for (const proposal of openProposals(db, issueId)) {
+		if (proposal.change.type === "intake") decide(db, changes, proposal, "dismissed", by);
+	}
+}
+
 /** An issue's open proposals, oldest first. */
 export function openProposals(db: Db, issueId: string): schema.ProposalRow[] {
 	return db
@@ -132,7 +150,7 @@ export function issueProposals(db: Db, issueId: string): Proposal[] {
 }
 
 /** The field of the issue a proposal would write, as an `issue.update` patch. */
-export function patchOf(change: Exclude<ProposedChange, { type: "label" }>) {
+export function patchOf(change: Exclude<ProposedChange, { type: "label" | "intake" }>) {
 	switch (change.type) {
 		case "title":
 			return { title: change.to };
@@ -165,6 +183,9 @@ function alreadyMade(issue: schema.IssueRow, change: ProposedChange): boolean {
 			return issue.projectId === change.to;
 		case "label":
 			return issue.labelIds.includes(change.labelId) === change.added;
+		// A decision on what is no longer a request is refused before it is proposed.
+		case "intake":
+			return false;
 	}
 }
 
@@ -179,5 +200,8 @@ function sameChange(a: ProposedChange, b: ProposedChange): boolean {
 		return a.labelId === b.labelId && a.added === b.added;
 	}
 	if (a.type === "label" || b.type === "label") return false;
+	if (a.type === "intake" || b.type === "intake") {
+		return JSON.stringify(a) === JSON.stringify(b);
+	}
 	return a.type === b.type && a.to === b.to;
 }

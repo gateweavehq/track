@@ -995,6 +995,24 @@ describe("Replica", () => {
 			expect(r.getState().issues.get("i2")).toMatchObject({ status: "done", intake: false });
 		});
 
+		it("predicts accepting an agent's proposed decision on a request", () => {
+			const r = replica();
+			const proposal = (id: string, change: Proposal["change"]): Op => ({
+				version: 4,
+				entity: "proposal",
+				id,
+				op: "put",
+				data: { id, issueId: "i1", agentId: "bot", change, createdAt: 1, updatedAt: 1 },
+			});
+			applyOps(r, [
+				put(3, request),
+				proposal("p1", { type: "intake", accepted: false, status: null, reply: "No" }),
+			]);
+			r.addPending(pending("m1", { name: "proposal.accept", args: { id: "p1" } }));
+			expect(r.getState().issues.get("i1")).toMatchObject({ intake: false, status: "canceled" });
+			expect(r.getState().proposals.has("p1")).toBe(false);
+		});
+
 		it("predicts that a request is not archived", () => {
 			const r = replica();
 			applyOps(r, [put(3, { ...request, status: "done" })]);

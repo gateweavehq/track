@@ -24,6 +24,7 @@ import {
 	patchOf,
 	propose,
 	proposesChange,
+	settleIntakeProposals,
 } from "./proposals";
 import { MutationRejected } from "./rejected";
 import { movesReminders } from "./reminders";
@@ -521,8 +522,13 @@ function archiveIssue(
  * Deciding on what is no longer a request is a conflict, so whoever decided second hears that
  * someone else did; a retried mutation id is answered before that, as applied.
  */
-function acceptIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"issue.accept">) {
-	requirePerson(actor, "Only people can accept requests");
+function acceptIssue(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"issue.accept">,
+	proposedBy: string | null = null,
+) {
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
 	if (!issue.intake) throw alreadyDecided();
@@ -532,7 +538,14 @@ function acceptIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 			throw new MutationRejected("invalid", "Decline a request to close it");
 		}
 	}
-	leaveIntake(db, changes, actor, issue, args.status ?? issue.status, true);
+	// Only people decide on requests: an agent's decision waits for one, as a proposal.
+	if (actor.member.role === "agent") {
+		const status = args.status ?? null;
+		const change = { type: "intake", accepted: true, status, reply: null } as const;
+		propose(db, changes, issue, actor.member.userId, change);
+		return;
+	}
+	leaveIntake(db, changes, actor, issue, args.status ?? issue.status, true, proposedBy);
 	noteDecision(db, issue.id, true, null);
 }
 
@@ -546,8 +559,8 @@ function declineIssue(
 	changes: ChangeSet,
 	actor: Actor,
 	args: MutationArgs<"issue.decline">,
+	proposedBy: string | null = null,
 ) {
-	requirePerson(actor, "Only people can decline requests");
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
 	if (!issue.intake) throw alreadyDecided();
@@ -557,10 +570,17 @@ function declineIssue(
 	if (!canceled) {
 		throw new MutationRejected("invalid", "The team has no canceled status to decline into");
 	}
+	// An agent's decline, with the reply it drafted, waits for a person to make it theirs.
+	if (actor.member.role === "agent") {
+		const reply = args.reply?.body ?? null;
+		const change = { type: "intake", accepted: false, status: null, reply } as const;
+		propose(db, changes, issue, actor.member.userId, change);
+		return;
+	}
 	if (args.reply) {
 		createComment(db, changes, actor, { ...args.reply, issueId: issue.id });
 	}
-	leaveIntake(db, changes, actor, issue, canceled.key, false);
+	leaveIntake(db, changes, actor, issue, canceled.key, false, proposedBy);
 	noteDecision(db, issue.id, false, args.reply?.body ?? null);
 }
 
@@ -575,6 +595,7 @@ function leaveIntake(
 	issue: schema.IssueRow,
 	status: string,
 	accepted: boolean,
+	proposedBy: string | null,
 ) {
 	const version = changes.nextVersion;
 	const moves = status !== issue.status;
@@ -593,9 +614,12 @@ function leaveIntake(
 		changes.events.push({ type: "issue.updated", issue: row, previous: issue });
 	}
 	const actorId = actor.member.userId;
-	recordActivity(db, changes, issue, actorId, { type: "intake", accepted });
-	if (moves)
-		recordActivity(db, changes, issue, actorId, { type: "status", from: issue.status, to: status });
+	recordActivity(db, changes, issue, actorId, { type: "intake", accepted }, proposedBy);
+	if (moves) {
+		const change = { type: "status", from: issue.status, to: status } as const;
+		recordActivity(db, changes, issue, actorId, change, proposedBy);
+	}
+	settleIntakeProposals(db, changes, issue.id, actorId);
 }
 
 type IssuePatch = MutationArgs<"issue.update">["patch"];
@@ -1255,6 +1279,20 @@ function acceptProposal(
 		throw new MutationRejected("not_found", "That proposal was already accepted or dismissed");
 	}
 	const { change, agentId, issueId } = proposal;
+	// Decided first, so making the decision does not dismiss the proposal it comes from.
+	if (change.type === "intake") {
+		decide(db, changes, proposal, "accepted", actor.member.userId);
+		if (change.accepted) {
+			const args = { id: issueId, ...(change.status !== null && { status: change.status }) };
+			acceptIssue(db, changes, actor, args, agentId);
+		} else {
+			// The reply the agent drafted is posted as the person who accepts it, who made it theirs.
+			const reply =
+				change.reply === null ? undefined : { id: crypto.randomUUID(), body: change.reply };
+			declineIssue(db, changes, actor, { id: issueId, ...(reply && { reply }) }, agentId);
+		}
+		return;
+	}
 	if (change.type === "label") {
 		const labelArgs = { id: issueId, labelId: change.labelId };
 		if (change.added) addLabel(db, changes, actor, labelArgs, agentId);

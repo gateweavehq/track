@@ -397,7 +397,17 @@ export type ProposedChange =
 	| { type: "priority"; to: IssuePriority }
 	| { type: "assignee"; to: string | null }
 	| { type: "project"; to: string | null }
-	| { type: "label"; labelId: string; added: boolean };
+	| { type: "label"; labelId: string; added: boolean }
+	/**
+	 * A decision on a request in intake: accepting it, in its status or `status`, or declining
+	 * it, with the reply the agent drafted. Agents always propose these: only people decide.
+	 */
+	| {
+			type: "intake";
+			accepted: boolean;
+			status: IssueStatus | null;
+			reply: string | null;
+	  };
 
 /**
  * A change an agent member was set to propose instead of make. It waits on the issue until a

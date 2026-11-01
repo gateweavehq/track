@@ -418,6 +418,11 @@ function proposalText(
 	projects: ReadonlyMap<string, { name: string }>,
 ): string {
 	switch (change.type) {
+		case "intake":
+			if (!change.accepted) return "declining the request";
+			return change.status === null
+				? "accepting the request"
+				: `accepting the request into ${statusName(change.status)}`;
 		case "status":
 			return `moving it to ${statusName(change.to)}`;
 		case "priority":
