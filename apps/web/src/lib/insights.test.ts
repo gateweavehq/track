@@ -6,7 +6,7 @@ import {
 	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
-import { formatDays, teamInsights, weekStart } from "./insights";
+import { formatDays, projectInsights, teamInsights, weekStart } from "./insights";
 
 const ZONE = "Europe/Istanbul";
 const HOUR = 60 * 60 * 1000;
@@ -195,6 +195,41 @@ describe("teamInsights", () => {
 			{ key: "ui", count: 2 },
 		]);
 		expect(insights.cycleTime).toEqual({ medianDays: null, issues: 0 });
+	});
+});
+
+describe("projectInsights", () => {
+	it("counts a project's issues from every team, each by its own team's statuses", () => {
+		const issues = [
+			// Engineering's own "QA" status is a started one.
+			issue("eng", { projectId: "p1", status: "done", assigneeId: "u1" }),
+			issue("ops", { projectId: "p1", teamId: "t2", status: "in_progress", assigneeId: "u1" }),
+			issue("ops-open", { projectId: "p1", teamId: "t2", status: "todo", labelIds: ["bug"] }),
+			issue("elsewhere", { projectId: "p2", status: "todo" }),
+			issue("none", { status: "todo" }),
+		];
+		const activities = [
+			moved("eng", "todo", "qa", at("2026-10-30", 12)),
+			moved("eng", "qa", "done", at("2026-11-02", 12)),
+		];
+		const insights = projectInsights({
+			projectId: "p1",
+			issues,
+			activities,
+			statuses,
+			timeZone: ZONE,
+			now: NOW,
+			weeks: 4,
+		});
+		expect(insights).toMatchObject({ created: 3, closed: 1, open: 2 });
+		expect(insights.cycleTime).toEqual({ medianDays: 3, issues: 1 });
+		expect(insights.byTeam).toEqual([{ key: "t2", count: 2 }]);
+		expect(insights.byAssignee).toEqual([
+			{ key: "u1", count: 1 },
+			{ key: null, count: 1 },
+		]);
+		expect(insights.byLabel).toEqual([{ key: "bug", count: 1 }]);
+		expect(insights).not.toHaveProperty("openIssues");
 	});
 });
 

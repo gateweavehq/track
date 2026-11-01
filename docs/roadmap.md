@@ -93,8 +93,8 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   stale ones after a number of months untouched: shipped in v0.16.0. Issue templates per
   team, in the app and over MCP: shipped in v0.17.0. Recurring issues follow.
 - Insights: a page per team with issues created and closed by week, cycle time and where open
-  issues are, worked out from the local copy: shipped in v0.17.0. Project updates (on track, at
-  risk, off track, as a history and to webhooks) come next.
+  issues are, worked out from the local copy: shipped in v0.17.0. A page per project, and
+  project updates (on track, at risk, off track, as a history and to webhooks), come next.
 - GitHub integration: link pull requests and close issues from commits. The first part, over a
   webhook per repository or organization, shipped in v0.10.0; a GitHub App comes later.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations

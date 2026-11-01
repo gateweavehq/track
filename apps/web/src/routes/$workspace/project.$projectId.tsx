@@ -1,5 +1,6 @@
 import type { Project } from "@gateweave/track-protocol";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { ChartColumn } from "lucide-react";
 import { useCallback } from "react";
 import { FILTER_KEYS } from "#/components/issues/filter-menu";
 import { IssuesPage } from "#/components/issues/issues-page";
@@ -95,6 +96,18 @@ function ProjectIssues({ project }: { project: Project }) {
 						<DeleteProjectButton project={project} issueCount={issues.length} />
 					</div>
 				</div>
+			}
+			headerActions={
+				<Button asChild variant="ghost" size="icon" className="size-8">
+					<Link
+						to="/$workspace/project/$projectId/insights"
+						params={{ workspace, projectId: project.id }}
+						aria-label={`${project.name} insights`}
+						title="Insights"
+					>
+						<ChartColumn />
+					</Link>
+				</Button>
 			}
 			issues={issues}
 			defaults={{ projectId: project.id }}

@@ -49,3 +49,39 @@ test("a team's insights count what it created and closed, and how long work took
 		page.getByRole("table", { name: "Issues created and closed by week" }),
 	).toBeAttached();
 });
+
+test("a project's insights count its issues, and only them", async ({ page }) => {
+	const { slug } = await startWorkspace(page);
+	await createIssue(page, unique("Ship the site"));
+	await createIssue(page, unique("Unrelated"));
+	const name = unique("Launch");
+	await page.goto(`/${slug}/projects`);
+	await page.getByRole("button", { name: "New project" }).first().click();
+	const dialog = page.getByRole("dialog", { name: "New project" });
+	await dialog.getByLabel("Name").fill(name);
+	await dialog.getByRole("button", { name: "Create project" }).click();
+	await expect(page.getByRole("heading", { name, level: 1 })).toBeVisible();
+
+	// The first issue goes in the project and is done; the second stays out.
+	await page.goto(`/${slug}/issue/ENG-1`);
+	const properties = page.getByRole("complementary", { name: "Properties" });
+	await page.getByRole("button", { name: "No project" }).click();
+	await page.getByRole("option", { name }).click();
+	await properties.getByRole("button", { name: /^Backlog/ }).click();
+	await page.getByRole("option", { name: "Done" }).click();
+	await expect(syncBadge(page)).toHaveText("Live");
+
+	await page.goto(`/${slug}/projects`);
+	await page.getByRole("link", { name }).click();
+	await page.getByRole("link", { name: `${name} insights` }).click();
+	await expect(page.getByRole("heading", { name: "Insights" })).toBeVisible();
+	const stat = (label: string) => page.getByRole("term").filter({ hasText: label }).locator("+ dd");
+	await expect(stat("Open now")).toHaveText("0");
+	await expect(stat("Created")).toHaveText("1");
+	await expect(stat("Closed")).toHaveText("1");
+	await expect(page.getByRole("region", { name: "Open by team" })).toContainText("No open issues.");
+
+	// Back to the project from the header.
+	await page.locator("header").getByRole("link", { name }).click();
+	await expect(page.getByRole("heading", { name, level: 1 })).toBeVisible();
+});
