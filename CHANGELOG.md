@@ -8,6 +8,29 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.19.0] - 2026-11-01
+
+Files can be attached offline, admins can install a GitHub App in place of adding webhooks by
+hand, and a deployment can limit how much each workspace stores. Updating a self-hosted copy
+applies one D1 migration, which `pnpm run deploy` runs first, and one migration in each
+workspace's database, which runs on its own. The new settings are optional:
+`ATTACHMENT_QUOTA_MB`, and the four `GITHUB_APP_*` settings of a GitHub App registered for the
+deployment, with the Organization › Members: read permission (see `docs/self-hosting.md`). The
+protocol is unchanged. ([#131], [#138], [#141])
+
+### Added
+
+- Attaching files offline: each file waits in the browser until it can be uploaded, marked
+  "waiting to upload" and shown from the device's copy, and goes up when the connection or the
+  session comes back. A file is only ever uploaded under the session of whoever attached it.
+  ([#131])
+- A GitHub App that admins install from Settings, GitHub, choosing repositories in GitHub's
+  own flow, next to adding a webhook. An installation connects only for an admin of its
+  organization or the owner of its account, belongs to one workspace at a time, and is freed by
+  disconnecting it. ([#141])
+- An optional limit on each workspace's attached files, `ATTACHMENT_QUOTA_MB`. Uploads past it
+  are refused, and an emailed request keeps the attachments that fit. ([#138], [#145])
+
 ## [0.18.0] - 2026-11-01
 
 Teams can take requests into an intake, from a public form and by email; projects have updates,
@@ -653,6 +676,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.19.0]: https://github.com/gateweavehq/track/releases/tag/v0.19.0
 [0.18.0]: https://github.com/gateweavehq/track/releases/tag/v0.18.0
 [0.17.0]: https://github.com/gateweavehq/track/releases/tag/v0.17.0
 [0.16.0]: https://github.com/gateweavehq/track/releases/tag/v0.16.0
@@ -770,3 +794,7 @@ The first pre-release.
 [#130]: https://github.com/gateweavehq/track/pull/130
 [#133]: https://github.com/gateweavehq/track/pull/133
 [#134]: https://github.com/gateweavehq/track/pull/134
+[#131]: https://github.com/gateweavehq/track/pull/131
+[#138]: https://github.com/gateweavehq/track/pull/138
+[#141]: https://github.com/gateweavehq/track/pull/141
+[#145]: https://github.com/gateweavehq/track/pull/145
