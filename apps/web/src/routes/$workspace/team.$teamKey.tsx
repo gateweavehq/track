@@ -1,6 +1,6 @@
 import type { Team } from "@gateweave/track-protocol";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Archive } from "lucide-react";
+import { Archive, ChartColumn } from "lucide-react";
 import { useCallback } from "react";
 import { FILTER_KEYS } from "#/components/issues/filter-menu";
 import { IssuesPage } from "#/components/issues/issues-page";
@@ -95,19 +95,33 @@ function TeamIssues({ team }: { team: Team }) {
 			onDisplayChange={onDisplayChange}
 			offeredFilters={TEAM_FILTERS}
 			headerActions={
-				// Only once there is something in it.
-				archived > 0 && (
+				<>
 					<Button asChild variant="ghost" size="icon" className="size-8">
 						<Link
-							to="/$workspace/team/$teamKey/archive"
+							to="/$workspace/team/$teamKey/insights"
 							params={{ workspace, teamKey: team.key }}
-							aria-label={`${team.name} archive, ${archived} issues`}
-							title="Archived issues"
+							aria-label={`${team.name} insights`}
+							title="Insights"
 						>
-							<Archive />
+							<ChartColumn />
 						</Link>
 					</Button>
-				)
+					{
+						// Only once there is something in it.
+						archived > 0 && (
+							<Button asChild variant="ghost" size="icon" className="size-8">
+								<Link
+									to="/$workspace/team/$teamKey/archive"
+									params={{ workspace, teamKey: team.key }}
+									aria-label={`${team.name} archive, ${archived} issues`}
+									title="Archived issues"
+								>
+									<Archive />
+								</Link>
+							</Button>
+						)
+					}
+				</>
 			}
 			filterActions={
 				// A view shows issues from the whole workspace, so it keeps the team as a filter.

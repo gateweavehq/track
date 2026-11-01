@@ -6,6 +6,7 @@ import {
 	Archive,
 	ArrowLeftRight,
 	Bot,
+	ChartColumn,
 	CircleUserRound,
 	Download,
 	Inbox,
@@ -182,6 +183,17 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 			run: () =>
 				void navigate({
 					to: "/$workspace/team/$teamKey/archive",
+					params: { workspace: slug, teamKey: team.key },
+				}),
+		})),
+		...teams.map((team) => ({
+			id: `insights-${team.id}`,
+			label: `Go to ${team.name} insights`,
+			icon: ChartColumn,
+			keywords: [team.key, "analytics", "throughput", "cycle time"],
+			run: () =>
+				void navigate({
+					to: "/$workspace/team/$teamKey/insights",
 					params: { workspace: slug, teamKey: team.key },
 				}),
 		})),
