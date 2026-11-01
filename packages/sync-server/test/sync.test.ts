@@ -711,6 +711,51 @@ describe("intake", () => {
 		expect(await issueOf(admin, request.id)).toMatchObject({ intake: true, priority: 2 });
 	});
 
+	it("files requests through a team's form while an admin has it on", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		const formOf = async () =>
+			(await snapshotOf(workspace)).teams.find((team) => team.id === TEAM_ID)?.intakeFormKey;
+		const turn = (client: TestClient, intakeForm: boolean) =>
+			client.mutate({ name: "team.update", args: { id: TEAM_ID, patch: { intakeForm } } });
+		const file = (formKey: string, title: string) =>
+			workspace.fileRequest({ formKey, title, description: "From the site", sortOrder: "a5" });
+
+		expect(await formOf()).toBeNull();
+		expect(await turn(member, true)).toMatchObject({ type: "reject", reason: "forbidden" });
+		await turn(admin, true);
+		const key = await formOf();
+		expect(key).toMatch(/^[0-9a-f]{32}$/);
+		if (!key) throw new Error("No form");
+		expect(await workspace.intakeForm(key)).toEqual({ teamId: TEAM_ID, teamName: "Engineering" });
+		expect(await workspace.intakeForm("0".repeat(32))).toBeNull();
+
+		expect(await file(key, "Export to PDF")).toBe(true);
+		const filed = await member.op((op) => op.op === "put" && op.entity === "issue");
+		expect(filed).toMatchObject({
+			data: {
+				title: "Export to PDF",
+				description: "From the site",
+				intake: true,
+				status: "backlog",
+				creatorId: "form",
+				number: 1,
+			},
+		});
+		expect(await file(key, "  ")).toBe(false);
+
+		// Turned off and on again, the form has a new link, and the old one files nothing.
+		await turn(admin, false);
+		expect(await file(key, "Late")).toBe(false);
+		await turn(admin, true);
+		const replaced = await formOf();
+		expect(replaced).not.toBe(key);
+		expect(await workspace.intakeForm(key)).toBeNull();
+		expect((await snapshotOf(workspace)).issues.map((issue) => issue.title)).toEqual([
+			"Export to PDF",
+		]);
+	});
+
 	it("keeps a request out of the archive until someone decides on it", async () => {
 		const { admin } = await withTeam();
 		const request = await fileRequest(admin, "issue-1");
@@ -2677,6 +2722,8 @@ describe("search", () => {
 			db.run(sql`alter table teams drop column archive_after_months`);
 			db.run(sql`alter table teams drop column close_after_months`);
 			db.run(sql`alter table issues drop column intake`);
+			db.run(sql`drop index teams_intake_form_key_unique`);
+			db.run(sql`alter table teams drop column intake_form_key`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${search.when}`);
 			await migrate(db, migrations);
 		});

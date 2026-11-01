@@ -16,6 +16,7 @@ const snapshot: Snapshot = {
 			cycles: null,
 			archiveAfterMonths: null,
 			closeAfterMonths: null,
+			intakeFormKey: null,
 			createdAt: 1,
 			updatedAt: 1,
 		},

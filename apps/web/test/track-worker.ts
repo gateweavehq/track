@@ -37,6 +37,11 @@ export interface ReceivedWebhook {
 /** Stands in for webhook receivers: it answers 204 and keeps each request. */
 export const RECEIVER_HOST = "hooks.test";
 
+/** Stands in for Turnstile: a token of this value passes its challenge, and any other fails. */
+export const TURNSTILE_PASS = "pass";
+export const TURNSTILE_SITE_KEY = "1x00000000000000000000AA";
+const TURNSTILE_HOST = "challenges.cloudflare.com";
+
 /** The address Track sends from in tests. */
 export const EMAIL_FROM = { name: "Gateweave Track", email: "track@track.test" };
 
@@ -103,7 +108,8 @@ function builtModules(): V4ModuleDefinition[] {
  * Every outbound request fails, the way a deployed Worker's request to its own hostname does.
  * Track needs no outside service for sign-in or MCP, so code that only works because local dev
  * can reach itself fails here instead of in production. Email is on, and lands in `emails()`.
- * Webhooks may point at `RECEIVER_HOST`, whose requests land in `received`.
+ * Webhooks may point at `RECEIVER_HOST`, whose requests land in `received`. Turnstile is set up,
+ * and its stand-in passes the token `TURNSTILE_PASS` only.
  *
  * With `isolates` above 1, more copies of the Worker share the database and Durable Objects but
  * nothing in memory, as isolates in production do. `fetchIn` reaches a given one.
@@ -142,7 +148,11 @@ export async function startTrack(
 						// The demo deployment has no email binding and no sender.
 						...(demo
 							? { TRACK_DEMO: "1" }
-							: { EMAIL_FROM: `${EMAIL_FROM.name} <${EMAIL_FROM.email}>` }),
+							: {
+									EMAIL_FROM: `${EMAIL_FROM.name} <${EMAIL_FROM.email}>`,
+									TURNSTILE_SITE_KEY,
+									TURNSTILE_SECRET_KEY: "turnstile-test-secret",
+								}),
 					},
 					// Nor any bucket for attached files.
 					...(!demo && {
@@ -156,7 +166,15 @@ export async function startTrack(
 						RATE_LIMITER: { className: "RateLimiter", useSQLite: true, scriptName: names[0] },
 					},
 					outboundService: async (request: Request) => {
-						if (new URL(request.url).host === RECEIVER_HOST) {
+						const url = new URL(request.url);
+						if (url.host === TURNSTILE_HOST && url.pathname === "/turnstile/v0/siteverify") {
+							const form = new URLSearchParams(await request.text());
+							const success =
+								form.get("secret") === "turnstile-test-secret" &&
+								form.get("response") === TURNSTILE_PASS;
+							return Response.json({ success });
+						}
+						if (url.host === RECEIVER_HOST) {
 							received.push({
 								url: request.url,
 								headers: Object.fromEntries(request.headers),

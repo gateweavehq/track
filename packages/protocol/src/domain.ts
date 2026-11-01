@@ -57,6 +57,12 @@ export const SYSTEM_ACTOR_ID = "system";
  */
 export const GITHUB_ACTOR_ID = "github";
 
+/**
+ * The actor of the requests a team's public request form files, on behalf of someone who is not a
+ * member. It is never a member's id.
+ */
+export const INTAKE_FORM_ACTOR_ID = "form";
+
 export interface Team {
 	id: string;
 	/** Short uppercase prefix for issue identifiers, e.g. `ENG` in `ENG-42`. */
@@ -74,6 +80,12 @@ export interface Team {
 	 * has touched them for this many months, or null for never.
 	 */
 	closeAfterMonths: number | null;
+	/**
+	 * The secret part of the link to the team's public request form, which files requests into its
+	 * intake, or null when the form is off. The server makes a new one each time the form is
+	 * turned on, so turning it off and on again retires the old link.
+	 */
+	intakeFormKey: string | null;
 	createdAt: number;
 	updatedAt: number;
 }

@@ -1,8 +1,14 @@
-import { GITHUB_ACTOR_ID, type Member, SYSTEM_ACTOR_ID } from "@gateweave/track-protocol";
+import {
+	GITHUB_ACTOR_ID,
+	INTAKE_FORM_ACTOR_ID,
+	type Member,
+	SYSTEM_ACTOR_ID,
+} from "@gateweave/track-protocol";
 
-/** Who made a change: a member, or Track or GitHub acting on its own. */
+/** Who made a change: a member, or Track, GitHub or a team's request form acting on its own. */
 export function actorName(id: string, members: ReadonlyMap<string, Pick<Member, "name">>): string {
 	if (id === SYSTEM_ACTOR_ID) return "Track";
 	if (id === GITHUB_ACTOR_ID) return "GitHub";
+	if (id === INTAKE_FORM_ACTOR_ID) return "Request form";
 	return members.get(id)?.name ?? "Someone";
 }

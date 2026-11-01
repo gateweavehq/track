@@ -30,8 +30,8 @@
 	// Files attached to descriptions and comments. The bucket is created on first deploy; without
 	// this binding Track runs with attachments off.
 	"r2_buckets": [{ "binding": "FILES", "bucket_name": "gateweave-track-files" }],
-	// Optional: GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, BETTER_AUTH_URL, EMAIL_FROM
-	// (see src/server/env.d.ts).
+	// Optional: GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, BETTER_AUTH_URL, EMAIL_FROM,
+	// TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY (see apps/web/src/server/env.d.ts).
 	"secrets": { "required": ["BETTER_AUTH_SECRET"] },
 	// The top level is production. Staging is a separate Worker with its own database and
 	// workspaces; bindings are not inherited, so they are repeated here.

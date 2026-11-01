@@ -21,6 +21,7 @@ const team: Team = {
 	cycles: null,
 	archiveAfterMonths: null,
 	closeAfterMonths: null,
+	intakeFormKey: null,
 	createdAt: 1,
 	updatedAt: 1,
 };
@@ -821,6 +822,26 @@ describe("Replica", () => {
 			r.addPending(accept("m1"), decline("m2"));
 			expect(r.getState().issues.get("i1")?.intake).toBe(true);
 			expect(r.getState().comments.has("c1")).toBe(false);
+		});
+
+		it("predicts turning a team's request form off, and leaves its new link to the server", () => {
+			const r = replica();
+			applyOps(r, [
+				{
+					version: 3,
+					entity: "team",
+					id: "t1",
+					op: "put",
+					data: { ...team, intakeFormKey: "a".repeat(32) },
+				},
+			]);
+			const turn = (id: string, intakeForm: boolean) =>
+				pending(id, { name: "team.update", args: { id: "t1", patch: { intakeForm } } });
+			r.addPending(turn("m1", true));
+			expect(r.getState().teams.get("t1")?.intakeFormKey).toBe("a".repeat(32));
+			r.addPending(turn("m2", false));
+			expect(r.getState().teams.get("t1")?.intakeFormKey).toBeNull();
+			expect(r.getState().teams.get("t1")).not.toHaveProperty("intakeForm");
 		});
 
 		it("predicts that a request is not archived", () => {

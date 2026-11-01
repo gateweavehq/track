@@ -44,6 +44,21 @@ export function limitDemoStarts(address: string): Promise<Decision> {
 	);
 }
 
+/**
+ * Requests one client network can file through public request forms, across every workspace: 10
+ * at once, refilling over an hour, within 30 a day. Turnstile stops bots; this stops a person
+ * pasting the same complaint all afternoon.
+ */
+export const REQUESTS_PER_ADDRESS: Rule[] = [
+	{ window: 60 * 60, max: 10 },
+	{ window: 24 * 60 * 60, max: 30 },
+];
+
+/** Counts one request filed through a form against a client address, per /64 for IPv6. */
+export function limitRequests(address: string): Promise<Decision> {
+	return consumeDurably(`intake:${normalizeIP(address, { ipv6Subnet: 64 })}`, REQUESTS_PER_ADDRESS);
+}
+
 const local = new LocalLimiter();
 
 /**

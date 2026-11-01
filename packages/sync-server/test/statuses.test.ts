@@ -299,6 +299,8 @@ describe("statuses", () => {
 			db.run(sql`alter table teams drop column archive_after_months`);
 			db.run(sql`alter table teams drop column close_after_months`);
 			db.run(sql`alter table issues drop column intake`);
+			db.run(sql`drop index teams_intake_form_key_unique`);
+			db.run(sql`alter table teams drop column intake_form_key`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${first.when}`);
 			await migrate(db, migrations);
 		});

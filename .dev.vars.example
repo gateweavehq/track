@@ -16,3 +16,8 @@ BETTER_AUTH_SECRET=
 # Optional: turns on email (invitations, password reset), such as "Gateweave Track <track@example.com>".
 # In local dev nothing is sent: each email is printed in the terminal and saved to a file.
 # EMAIL_FROM=
+
+# Optional: turns on teams' public request forms, behind Turnstile. Cloudflare's test keys, which
+# always pass, work locally: 1x00000000000000000000AA and 1x0000000000000000000000000000000AA.
+# TURNSTILE_SITE_KEY=
+# TURNSTILE_SECRET_KEY=

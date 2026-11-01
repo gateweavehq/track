@@ -40,6 +40,8 @@ export const teams = sqliteTable("teams", {
 	cycles: text("cycles", { mode: "json" }).$type<CycleSettings>(),
 	archiveAfterMonths: integer("archive_after_months"),
 	closeAfterMonths: integer("close_after_months"),
+	/** The secret in the link to the team's public request form; null while the form is off. */
+	intakeFormKey: text("intake_form_key").unique(),
 	issueCounter: integer("issue_counter").notNull().default(0),
 	createdAt: integer("created_at").notNull(),
 	updatedAt: integer("updated_at").notNull(),

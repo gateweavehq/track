@@ -1,4 +1,5 @@
 export type { GitHubDelivery } from "./github";
+export type { IntakeForm, IntakeRequest } from "./intake-form";
 export type { RetentionPolicy } from "./log";
 export type { DigestItem, InboxDigest } from "./notifications";
 export { type Directory, type IssueQuery, MAX_QUERY_LIMIT } from "./queries";

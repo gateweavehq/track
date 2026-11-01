@@ -26,6 +26,7 @@ const eng: Team = {
 	cycles: null,
 	archiveAfterMonths: null,
 	closeAfterMonths: null,
+	intakeFormKey: null,
 	createdAt: 1,
 	updatedAt: 1,
 };
@@ -36,6 +37,7 @@ const ops: Team = {
 	cycles: null,
 	archiveAfterMonths: null,
 	closeAfterMonths: null,
+	intakeFormKey: null,
 	createdAt: 1,
 	updatedAt: 1,
 };
@@ -316,6 +318,13 @@ describe("workspaceToJson", () => {
 				createdAt: 1,
 			},
 		],
+	});
+
+	it("leaves out the secret in a team's request form link", () => {
+		const shared = source(issues, { teams: [{ ...eng, intakeFormKey: "f".repeat(32) }, ops] });
+		const text = workspaceToJson(shared);
+		expect(text).not.toContain("f".repeat(32));
+		expect(JSON.parse(text).teams[0]).not.toHaveProperty("intakeFormKey");
 	});
 
 	it("is a tab-indented document of the protocol's shapes", () => {

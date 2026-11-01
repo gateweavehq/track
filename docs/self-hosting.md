@@ -103,6 +103,19 @@ Settings, GitHub, and adds a webhook on GitHub with the payload URL and secret s
 content type `application/json`, and the Pull requests and Pushes events. GitHub must be able to
 reach your address, so a local `http://localhost` cannot receive deliveries.
 
+### Request forms
+
+Each team can have a public request form, whose link an admin shares so that people without an
+account file requests into the team's intake. Forms take requests only once
+[Turnstile](https://developers.cloudflare.com/turnstile/) keeps bots out:
+
+1. In the Cloudflare dashboard, add a Turnstile widget for your hostname (Managed mode).
+2. Set `TURNSTILE_SITE_KEY` to its site key and `TURNSTILE_SECRET_KEY` to its secret key, the
+   second as a secret: `pnpm wrangler secret put TURNSTILE_SECRET_KEY`.
+
+Without both, admins can still turn a form on, but its link says the form is not open. Each
+client network can file 10 requests an hour and 30 a day across all forms.
+
 ### Sign in with GitHub
 
 Create a [GitHub OAuth app](https://github.com/settings/developers) with the callback URL

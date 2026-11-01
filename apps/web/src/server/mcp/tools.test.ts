@@ -49,6 +49,7 @@ const team: Team = {
 	cycles: null,
 	archiveAfterMonths: null,
 	closeAfterMonths: null,
+	intakeFormKey: null,
 	createdAt: 0,
 	updatedAt: 0,
 };
@@ -254,6 +255,7 @@ class FakeWorkspace implements WorkspaceAccess {
 				cycles: null,
 				archiveAfterMonths: null,
 				closeAfterMonths: null,
+				intakeFormKey: null,
 				createdAt: 0,
 				updatedAt: 0,
 			});

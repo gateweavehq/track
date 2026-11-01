@@ -5,6 +5,7 @@ import { useState } from "react";
 import { CycleSettingsDialog } from "#/components/cycles/cycle-settings-dialog";
 import { AutomationsDialog } from "#/components/teams/automations-dialog";
 import { EditTeamDialog } from "#/components/teams/edit-team-dialog";
+import { RequestFormDialog } from "#/components/teams/request-form-dialog";
 import { StatusesDialog } from "#/components/teams/statuses-dialog";
 import { Button } from "#/components/ui/button";
 import {
@@ -25,6 +26,7 @@ export function TeamsSettings() {
 	const [planning, setPlanning] = useState<Team | null>(null);
 	const [workflow, setWorkflow] = useState<Team | null>(null);
 	const [automating, setAutomating] = useState<Team | null>(null);
+	const [sharing, setSharing] = useState<Team | null>(null);
 
 	return (
 		<section aria-labelledby="teams-heading" className="space-y-4">
@@ -104,6 +106,14 @@ export function TeamsSettings() {
 										>
 											Automations
 										</Button>
+										<Button
+											variant="ghost"
+											size="sm"
+											onClick={() => setSharing(team)}
+											aria-label={`Request form for ${team.name}`}
+										>
+											Form
+										</Button>
 										<Button variant="ghost" size="sm" onClick={() => setEditing(team)}>
 											Edit
 										</Button>
@@ -118,6 +128,7 @@ export function TeamsSettings() {
 			{planning && <CycleSettingsDialog team={planning} onClose={() => setPlanning(null)} />}
 			{workflow && <StatusesDialog team={workflow} onClose={() => setWorkflow(null)} />}
 			{automating && <AutomationsDialog team={automating} onClose={() => setAutomating(null)} />}
+			{sharing && <RequestFormDialog team={sharing} onClose={() => setSharing(null)} />}
 		</section>
 	);
 }

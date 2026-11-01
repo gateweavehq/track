@@ -52,3 +52,32 @@ test("a request waits in the team's intake, out of lists, until it is accepted o
 	const properties = page.getByRole("complementary", { name: "Properties" });
 	await expect(properties.getByRole("button", { name: /^Canceled/ })).toBeVisible();
 });
+
+test("an admin turns the team's request form on, shares its link, and turns it off", async ({
+	page,
+}) => {
+	const { slug } = await startWorkspace(page);
+	await page.goto(`/${slug}/team/ENG/intake`);
+	await page.getByRole("button", { name: "Request form" }).click();
+	const dialog = page.getByRole("dialog", { name: "Request form for Engineering" });
+	await expect(dialog.getByText("The form is off.")).toBeVisible();
+	// The test server has no Turnstile keys, so the dialog says the form cannot take requests.
+	await expect(dialog.getByRole("alert")).toContainText("TURNSTILE_SITE_KEY");
+
+	await dialog.getByRole("button", { name: "Turn on" }).click();
+	const link = dialog.getByLabel("Form link");
+	await expect(link).toHaveValue(/\/request\/[\w-]+\/[0-9a-f]{32}$/);
+	const first = await link.inputValue();
+	await dialog.getByRole("button", { name: "New link" }).click();
+	await expect(link).not.toHaveValue(first);
+	await expect(syncBadge(page)).toHaveText("Live");
+
+	// Without Turnstile the link leads to a page that says the form is not open.
+	const response = await page.request.get(await link.inputValue());
+	expect(response.status()).toBe(404);
+
+	await dialog.getByRole("button", { name: "Turn off" }).click();
+	await expect(dialog.getByText("The form is off.")).toBeVisible();
+	await page.keyboard.press("Escape");
+	await expect(page.getByRole("button", { name: "Request form" })).toBeVisible();
+});

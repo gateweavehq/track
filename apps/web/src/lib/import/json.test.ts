@@ -23,6 +23,7 @@ const eng: Team = {
 	cycles: null,
 	archiveAfterMonths: null,
 	closeAfterMonths: null,
+	intakeFormKey: null,
 	createdAt: 1,
 	updatedAt: 1,
 };
@@ -33,6 +34,7 @@ const ops: Team = {
 	cycles: null,
 	archiveAfterMonths: null,
 	closeAfterMonths: null,
+	intakeFormKey: null,
 	createdAt: 1,
 	updatedAt: 1,
 };

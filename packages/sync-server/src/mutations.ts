@@ -224,6 +224,7 @@ function createTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 		cycles: null,
 		archiveAfterMonths: null,
 		closeAfterMonths: null,
+		intakeFormKey: null,
 		issueCounter: 0,
 		createdAt: changes.now,
 		updatedAt: changes.now,
@@ -239,11 +240,18 @@ function updateTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 	if (!team) throw new MutationRejected("not_found", "Team not found");
 	if (args.patch.key && args.patch.key !== team.key) assertTeamKeyFree(db, args.patch.key, team.id);
 
-	const { cycles: schedule, ...patch } = args.patch;
+	const { cycles: schedule, intakeForm, ...patch } = args.patch;
 	const settings = schedule && { weeks: schedule.weeks, timeZone: schedule.timeZone };
+	// Turned on, the form gets a new link, which retires any it had before.
+	const form = intakeForm === undefined ? {} : { intakeFormKey: intakeForm ? newFormKey() : null };
 	const row = db
 		.update(schema.teams)
-		.set({ ...patch, ...(schedule !== undefined && { cycles: settings }), updatedAt: changes.now })
+		.set({
+			...patch,
+			...form,
+			...(schedule !== undefined && { cycles: settings }),
+			updatedAt: changes.now,
+		})
 		.where(eq(schema.teams.id, team.id))
 		.returning()
 		.get();
@@ -253,6 +261,11 @@ function updateTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 	if (patch.archiveAfterMonths || patch.closeAfterMonths) automationsDueNow(db, changes.now);
 	// The team's issue keys changed with it.
 	if (row && row.key !== team.key) indexTeamIssues(db, team.id);
+}
+
+/** The secret in a request form's link: 128 random bits, as 32 hex digits. */
+function newFormKey(): string {
+	return crypto.randomUUID().replaceAll("-", "");
 }
 
 function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"issue.create">) {

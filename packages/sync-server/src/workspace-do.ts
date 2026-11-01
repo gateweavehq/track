@@ -42,6 +42,7 @@ import {
 	rotateGitHubSecret,
 	verifyGitHubDelivery,
 } from "./github";
+import { fileRequest, findIntakeForm, type IntakeForm, intakeRequest } from "./intake-form";
 import {
 	compact,
 	currentVersion,
@@ -425,6 +426,28 @@ export class WorkspaceDO extends DurableObject {
 		if (!verified) return { status: 401 };
 		this.#write(() => applyGitHubDelivery(this.#db, delivery, Date.now()));
 		return { status: 202 };
+	}
+
+	// Requests filed through a team's public form. The gateway has checked the workspace exists
+	// and that the person passed Turnstile; the form's key in the link is what admits them.
+
+	/** The team a request form's key opens, or null for a form that is off or never was. */
+	intakeForm(key: string): IntakeForm | null {
+		return findIntakeForm(this.#db, z.string().max(64).parse(key));
+	}
+
+	/** Files a request through a team's form. False when the form is off, or the request invalid. */
+	fileRequest(input: unknown): boolean {
+		const parsed = intakeRequest.safeParse(input);
+		if (!parsed.success) return false;
+		const request = parsed.data;
+		let filed = false;
+		this.#write(() => {
+			const outcome = fileRequest(this.#db, request, Date.now());
+			filed = outcome !== null;
+			return outcome?.result ?? { version: currentVersion(this.#db), ops: [] };
+		});
+		return filed;
 	}
 
 	/** Follows a change of the workspace's slug, so webhook payloads link to the right place. */

@@ -490,7 +490,8 @@ team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search fi
 
 - **Filing.** `issue.create` takes `intake: true`. The intake page files requests, and so does
   the C shortcut while it is on screen; agents file them over MCP. Anyone who may create an issue
-  may file one, agent members included.
+  may file one, agent members included. People without an account use the team's request form
+  (below).
 - **Accepting** (`issue.accept`) takes the request out of intake in its status, or in an open one
   it names: a closed status is refused, since declining is how a request closes.
 - **Declining** (`issue.decline`) moves it to the team's first canceled status, after posting an
@@ -508,8 +509,34 @@ team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search fi
   whether it is a request, and `triage_request` accepts or declines one, for people only. Exports
   carry `intake`; imports bring issues in out of intake.
 
-A public form and an email address that file requests are later steps. Intake is a breaking
-change to the protocol (version 19), as the issue entity gained it.
+#### Request forms
+
+An admin can turn on a team's public request form (`team.update` with `intakeForm`), whose link,
+`/request/:workspaceId/:formKey`, anyone can fill in without an account. The key is 128 random
+bits the Durable Object makes each time the form is turned on (`Team.intakeFormKey`), so turning
+it off, or asking for a new link, retires the old one. It is in every member's replica, so any
+member can share the link. The gateway (`apps/web/src/server/intake-form.ts`) runs before
+TanStack Start and serves the form as a small page of its own:
+
+- **Turnstile keeps bots out.** The page embeds Cloudflare Turnstile, and a submission files
+  nothing until `siteverify` passes its token. Without `TURNSTILE_SITE_KEY` and
+  `TURNSTILE_SECRET_KEY`, and on the public demo, every form answers 404, and the form's dialog
+  in the app says why.
+- **Each client network files at most 10 requests an hour and 30 a day**, across all forms,
+  counted in the `RateLimiter` Durable Object (per IPv6 /64), before Turnstile is asked.
+- **The workspace must exist in D1** before its Durable Object is reached, and a key no team has
+  gets the same 404 as a missing workspace.
+- **The form is the creator.** A request is filed as `INTAKE_FORM_ACTOR_ID` (`form`), shown as
+  "Request form", in the team's first status, with the title and description typed in, and the
+  address the person left, if any, at the end of the description. It tells nobody in their
+  inbox, so a stranger's text cannot mention people into hearing from it; webhooks hear of it,
+  with a `system` actor named "Request form".
+- **Nothing runs on the page but Turnstile.** It is served `no-store`, with a
+  Content-Security-Policy that allows only Turnstile's script and frame and posts only to itself,
+  cannot be framed, and escapes everything it shows. The service worker leaves `/request/` alone.
+
+An email address that files requests is a later step. Intake is a breaking change to the protocol
+(version 19), as the issue and team entities gained it.
 
 ### Projects
 

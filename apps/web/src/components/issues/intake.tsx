@@ -2,8 +2,9 @@ import type { Issue, Team } from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link } from "@tanstack/react-router";
-import { Ban, Check, Inbox, Plus } from "lucide-react";
+import { Ban, Check, Inbox, Link2, Plus } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
+import { RequestFormDialog } from "#/components/teams/request-form-dialog";
 import { Button } from "#/components/ui/button";
 import {
 	Dialog,
@@ -13,8 +14,14 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "#/components/ui/dialog";
-import { useWorkspace, useWorkspaceActions } from "#/components/workspace/context";
+import {
+	isAdmin,
+	useMyRole,
+	useWorkspace,
+	useWorkspaceActions,
+} from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
+import { actorName } from "#/lib/actors";
 import { formatDateTime, formatRelative } from "#/lib/dates";
 import { issueKey } from "#/lib/issues";
 import { send } from "#/lib/mutations";
@@ -149,6 +156,8 @@ export function TeamIntake({ team }: { team: Team }) {
 	const statuses = useStatuses();
 	const members = useMembersById();
 	const actions = useWorkspaceActions();
+	const admin = isAdmin(useMyRole());
+	const [sharing, setSharing] = useState(false);
 
 	// The shortcut and the palette file requests here, as the button does.
 	const { setPageDefaults } = actions;
@@ -173,6 +182,14 @@ export function TeamIntake({ team }: { team: Team }) {
 				<h1 className="text-sm font-medium">Intake</h1>
 				<span className="text-sm text-muted-foreground tabular-nums">{issues.length}</span>
 				<div className="ml-auto" />
+				{admin && (
+					<Button variant="ghost" size="sm" onClick={() => setSharing(true)}>
+						<Link2 />
+						<span className="hidden sm:inline">
+							{team.intakeFormKey === null ? "Request form" : "Form is on"}
+						</span>
+					</Button>
+				)}
 				<Button variant="ghost" size="sm" onClick={fileRequest}>
 					<Plus />
 					<span className="hidden sm:inline">New request</span>
@@ -187,14 +204,14 @@ export function TeamIntake({ team }: { team: Team }) {
 						</Button>
 					}
 				>
-					Requests filed here, or by agents over MCP, wait for someone to accept them into the
-					team's workflow or decline them.
+					Requests filed here, through the team's request form, or by agents over MCP, wait for
+					someone to accept them into the team's workflow or decline them.
 				</Notice>
 			) : (
 				<ul aria-label={`${team.name} intake`} className="divide-y">
 					{issues.map((issue) => {
 						const key = issueKey(team, issue);
-						const creator = members.get(issue.creatorId);
+						const creator = actorName(issue.creatorId, members);
 						return (
 							<li
 								key={issue.id}
@@ -213,8 +230,7 @@ export function TeamIntake({ team }: { team: Team }) {
 									className="hidden shrink-0 text-xs text-muted-foreground sm:inline"
 									title={formatDateTime(issue.createdAt)}
 								>
-									{creator ? `${creator.name}, ` : ""}
-									{formatRelative(issue.createdAt)}
+									{creator},{formatRelative(issue.createdAt)}
 								</span>
 								<div className="flex shrink-0 gap-1">
 									<IntakeActions issue={issue} label={key} />
@@ -224,6 +240,7 @@ export function TeamIntake({ team }: { team: Team }) {
 					})}
 				</ul>
 			)}
+			{sharing && <RequestFormDialog team={team} onClose={() => setSharing(false)} />}
 		</div>
 	);
 }
