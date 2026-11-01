@@ -39,6 +39,7 @@ import { Route as WorkspaceSettingsWebhooksRouteImport } from './routes/$workspa
 import { Route as WorkspaceTeamTeamKeyRouteImport } from './routes/$workspace/team.$teamKey'
 import { Route as WorkspaceViewViewIdRouteImport } from './routes/$workspace/view.$viewId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as WorkspaceProjectProjectIdInsightsRouteImport } from './routes/$workspace/project.$projectId_.insights'
 import { Route as WorkspaceTeamTeamKeyArchiveRouteImport } from './routes/$workspace/team.$teamKey_.archive'
 import { Route as WorkspaceTeamTeamKeyCyclesRouteImport } from './routes/$workspace/team.$teamKey_.cycles'
 import { Route as WorkspaceTeamTeamKeyInsightsRouteImport } from './routes/$workspace/team.$teamKey_.insights'
@@ -199,6 +200,12 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkspaceProjectProjectIdInsightsRoute =
+  WorkspaceProjectProjectIdInsightsRouteImport.update({
+    id: '/project/$projectId_/insights',
+    path: '/project/$projectId/insights',
+    getParentRoute: () => WorkspaceRoute,
+  } as any)
 const WorkspaceTeamTeamKeyArchiveRoute =
   WorkspaceTeamTeamKeyArchiveRouteImport.update({
     id: '/team/$teamKey_/archive',
@@ -255,6 +262,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/view/$viewId': typeof WorkspaceViewViewIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$workspace/settings/': typeof WorkspaceSettingsIndexRoute
+  '/$workspace/project/$projectId/insights': typeof WorkspaceProjectProjectIdInsightsRoute
   '/$workspace/team/$teamKey/archive': typeof WorkspaceTeamTeamKeyArchiveRoute
   '/$workspace/team/$teamKey/cycles': typeof WorkspaceTeamTeamKeyCyclesRoute
   '/$workspace/team/$teamKey/insights': typeof WorkspaceTeamTeamKeyInsightsRoute
@@ -289,6 +297,7 @@ export interface FileRoutesByTo {
   '/$workspace/view/$viewId': typeof WorkspaceViewViewIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$workspace/settings': typeof WorkspaceSettingsIndexRoute
+  '/$workspace/project/$projectId/insights': typeof WorkspaceProjectProjectIdInsightsRoute
   '/$workspace/team/$teamKey/archive': typeof WorkspaceTeamTeamKeyArchiveRoute
   '/$workspace/team/$teamKey/cycles': typeof WorkspaceTeamTeamKeyCyclesRoute
   '/$workspace/team/$teamKey/insights': typeof WorkspaceTeamTeamKeyInsightsRoute
@@ -326,6 +335,7 @@ export interface FileRoutesById {
   '/$workspace/view/$viewId': typeof WorkspaceViewViewIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$workspace/settings/': typeof WorkspaceSettingsIndexRoute
+  '/$workspace/project/$projectId_/insights': typeof WorkspaceProjectProjectIdInsightsRoute
   '/$workspace/team/$teamKey_/archive': typeof WorkspaceTeamTeamKeyArchiveRoute
   '/$workspace/team/$teamKey_/cycles': typeof WorkspaceTeamTeamKeyCyclesRoute
   '/$workspace/team/$teamKey_/insights': typeof WorkspaceTeamTeamKeyInsightsRoute
@@ -364,6 +374,7 @@ export interface FileRouteTypes {
     | '/$workspace/view/$viewId'
     | '/api/auth/$'
     | '/$workspace/settings/'
+    | '/$workspace/project/$projectId/insights'
     | '/$workspace/team/$teamKey/archive'
     | '/$workspace/team/$teamKey/cycles'
     | '/$workspace/team/$teamKey/insights'
@@ -398,6 +409,7 @@ export interface FileRouteTypes {
     | '/$workspace/view/$viewId'
     | '/api/auth/$'
     | '/$workspace/settings'
+    | '/$workspace/project/$projectId/insights'
     | '/$workspace/team/$teamKey/archive'
     | '/$workspace/team/$teamKey/cycles'
     | '/$workspace/team/$teamKey/insights'
@@ -434,6 +446,7 @@ export interface FileRouteTypes {
     | '/$workspace/view/$viewId'
     | '/api/auth/$'
     | '/$workspace/settings/'
+    | '/$workspace/project/$projectId_/insights'
     | '/$workspace/team/$teamKey_/archive'
     | '/$workspace/team/$teamKey_/cycles'
     | '/$workspace/team/$teamKey_/insights'
@@ -663,6 +676,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$workspace/project/$projectId_/insights': {
+      id: '/$workspace/project/$projectId_/insights'
+      path: '/project/$projectId/insights'
+      fullPath: '/$workspace/project/$projectId/insights'
+      preLoaderRoute: typeof WorkspaceProjectProjectIdInsightsRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
     '/$workspace/team/$teamKey_/archive': {
       id: '/$workspace/team/$teamKey_/archive'
       path: '/team/$teamKey/archive'
@@ -737,6 +757,7 @@ interface WorkspaceRouteChildren {
   WorkspaceProjectProjectIdRoute: typeof WorkspaceProjectProjectIdRoute
   WorkspaceTeamTeamKeyRoute: typeof WorkspaceTeamTeamKeyRoute
   WorkspaceViewViewIdRoute: typeof WorkspaceViewViewIdRoute
+  WorkspaceProjectProjectIdInsightsRoute: typeof WorkspaceProjectProjectIdInsightsRoute
   WorkspaceTeamTeamKeyArchiveRoute: typeof WorkspaceTeamTeamKeyArchiveRoute
   WorkspaceTeamTeamKeyCyclesRoute: typeof WorkspaceTeamTeamKeyCyclesRoute
   WorkspaceTeamTeamKeyInsightsRoute: typeof WorkspaceTeamTeamKeyInsightsRoute
@@ -755,6 +776,8 @@ const WorkspaceRouteChildren: WorkspaceRouteChildren = {
   WorkspaceProjectProjectIdRoute: WorkspaceProjectProjectIdRoute,
   WorkspaceTeamTeamKeyRoute: WorkspaceTeamTeamKeyRoute,
   WorkspaceViewViewIdRoute: WorkspaceViewViewIdRoute,
+  WorkspaceProjectProjectIdInsightsRoute:
+    WorkspaceProjectProjectIdInsightsRoute,
   WorkspaceTeamTeamKeyArchiveRoute: WorkspaceTeamTeamKeyArchiveRoute,
   WorkspaceTeamTeamKeyCyclesRoute: WorkspaceTeamTeamKeyCyclesRoute,
   WorkspaceTeamTeamKeyInsightsRoute: WorkspaceTeamTeamKeyInsightsRoute,

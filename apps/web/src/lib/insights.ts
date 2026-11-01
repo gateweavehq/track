@@ -10,7 +10,7 @@ import {
 } from "@gateweave/track-protocol";
 import { type StatusMap, statusOf, teamStatuses } from "./statuses";
 
-// A team's insights, worked out from the local copy: nothing here asks the server, so they show
+// Insights into a team's or a project's issues, worked out from the local copy: nothing here asks the server, so they show
 // offline and cost the Durable Object nothing. Closing and starting are read from issue history
 // (status changes), which the copy holds whole; an issue's status names a status of its team,
 // and a removed status keeps its row, so old keys still resolve to their category.
@@ -20,7 +20,7 @@ export const INSIGHT_RANGES = [4, 12, 26] as const;
 export type InsightRange = (typeof INSIGHT_RANGES)[number];
 
 export interface InsightWeek {
-	/** The week's Monday, `YYYY-MM-DD` in the team's time zone. */
+	/** The week's Monday, `YYYY-MM-DD` in the time zone the insights are worked out in. */
 	start: string;
 	created: number;
 	/** Issues closed (completed or canceled) that week. */
@@ -32,7 +32,8 @@ export interface InsightCount<T> {
 	count: number;
 }
 
-export interface TeamInsights {
+/** What insights say about any set of issues, a team's or a project's. */
+export interface Insights {
 	/** Oldest first, the last one being the week that is not over. */
 	weeks: InsightWeek[];
 	/** Over the whole range. */
@@ -42,40 +43,89 @@ export interface TeamInsights {
 	cycleTime: { medianDays: number | null; issues: number };
 	/** Issues that are open now. */
 	open: number;
-	/** Open issues by status, in the team's order. Statuses with none are left out. */
-	byStatus: InsightCount<WorkflowStatus>[];
+	/** Open issues by team id, the most first. */
+	byTeam: InsightCount<string>[];
 	/** Open issues by assignee id, null for no one, the most first. */
 	byAssignee: InsightCount<string | null>[];
 	/** Open issues by label id, the most first. An issue counts under each of its labels. */
 	byLabel: InsightCount<string>[];
 }
 
-const DAY = 24 * 60 * 60 * 1000;
+export interface TeamInsights extends Insights {
+	/** Open issues by status, in the team's order. Statuses with none are left out. */
+	byStatus: InsightCount<WorkflowStatus>[];
+}
 
-/**
- * A team's insights over the last `weeks` weeks, this one included. `issues` are the team's, the
- * archived ones too: archiving takes an issue out of lists, not out of what the team did. Requests
- * still in intake are left out: nobody has taken them on yet.
- */
-export function teamInsights({
-	teamId,
-	issues,
-	activities,
-	statuses,
-	timeZone,
-	now,
-	weeks: count,
-}: {
-	teamId: string;
+interface InsightOptions {
 	issues: Iterable<Issue>;
 	activities: Iterable<Activity>;
 	statuses: StatusMap;
 	timeZone: string;
 	now: number;
 	weeks: number;
-}): TeamInsights {
-	const categoryOf = (status: string): StatusCategory =>
-		statusOf(statuses, { teamId, status }).category;
+}
+
+const DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * A team's insights over the last `weeks` weeks, this one included. Archived issues count:
+ * archiving takes an issue out of lists, not out of what the team did. Requests still in intake
+ * do not.
+ */
+export function teamInsights({
+	teamId,
+	issues,
+	statuses,
+	...options
+}: InsightOptions & { teamId: string }): TeamInsights {
+	const insights = insightsOf({
+		...options,
+		statuses,
+		issues: [...issues].filter((issue) => issue.teamId === teamId),
+	});
+	const order = teamStatuses(statuses, teamId);
+	const byStatusKey = countBy(insights.openIssues, (issue) => [issue.status]);
+	const byStatus = order.flatMap((status) => {
+		const count = byStatusKey.get(status.key) ?? 0;
+		return count > 0 ? [{ key: status, count }] : [];
+	});
+	// An issue in a status the copy does not list yet still counts, after the known ones.
+	for (const [key, count] of byStatusKey) {
+		if (!order.some((status) => status.key === key)) {
+			byStatus.push({ key: statusOf(statuses, { teamId, status: key }), count });
+		}
+	}
+	const { openIssues: _, ...rest } = insights;
+	return { ...rest, byStatus };
+}
+
+/**
+ * A project's insights over the last `weeks` weeks: of the issues in it now, from any team, the
+ * archived ones too. An issue moved out of the project takes its history with it.
+ */
+export function projectInsights({
+	projectId,
+	issues,
+	...options
+}: InsightOptions & { projectId: string }): Insights {
+	const { openIssues: _, ...insights } = insightsOf({
+		...options,
+		issues: [...issues].filter((issue) => issue.projectId === projectId),
+	});
+	return insights;
+}
+
+function insightsOf({
+	issues,
+	activities,
+	statuses,
+	timeZone,
+	now,
+	weeks: count,
+}: InsightOptions): Insights & { openIssues: Issue[] } {
+	// History names statuses by key, which each team has its own of.
+	const categoryOf = (issue: Issue, status: string): StatusCategory =>
+		statusOf(statuses, { teamId: issue.teamId, status }).category;
 	const first = addDays(weekStart(dayIn(timeZone, now)), -7 * (count - 1));
 	const weeks: InsightWeek[] = Array.from({ length: count }, (_, index) => ({
 		start: addDays(first, index * 7),
@@ -89,8 +139,9 @@ export function teamInsights({
 		return weeks[Math.floor(daysBetween(first, day) / 7)];
 	};
 
-	const team = [...issues].filter((issue) => issue.teamId === teamId && !issue.intake);
-	const ids = new Set(team.map((issue) => issue.id));
+	// Requests still in intake are left out: nobody has taken them on yet.
+	const scope = [...issues].filter((issue) => !issue.intake);
+	const ids = new Set(scope.map((issue) => issue.id));
 	const histories = new Map<string, Activity[]>();
 	for (const activity of activities) {
 		if (activity.change.type !== "status" || !ids.has(activity.issueId)) continue;
@@ -101,10 +152,10 @@ export function teamInsights({
 
 	const cycleTimes: number[] = [];
 	const open: Issue[] = [];
-	for (const issue of team) {
+	for (const issue of scope) {
 		const created = weekOf(issue.createdAt);
 		if (created) created.created += 1;
-		if (!isClosedCategory(categoryOf(issue.status))) open.push(issue);
+		if (!isClosedCategory(categoryOf(issue, issue.status))) open.push(issue);
 
 		// A merged entry says where a change ended up, as of its last update.
 		const history = (histories.get(issue.id) ?? []).sort((a, b) => a.updatedAt - b.updatedAt);
@@ -112,15 +163,16 @@ export function teamInsights({
 		// was closed when it was created.
 		const firstStatus =
 			history[0]?.change.type === "status" ? history[0].change.from : issue.status;
-		if (isClosedCategory(categoryOf(firstStatus)) && created) created.closed += 1;
+		if (isClosedCategory(categoryOf(issue, firstStatus)) && created) created.closed += 1;
 		// Likewise, one filed straight into a started status, from the create dialog or over MCP,
 		// was started when it was created.
-		let started: number | null = categoryOf(firstStatus) === "started" ? issue.createdAt : null;
+		let started: number | null =
+			categoryOf(issue, firstStatus) === "started" ? issue.createdAt : null;
 		let completed: number | null = null;
 		for (const entry of history) {
 			if (entry.change.type !== "status") continue;
-			const from = categoryOf(entry.change.from);
-			const to = categoryOf(entry.change.to);
+			const from = categoryOf(issue, entry.change.from);
+			const to = categoryOf(issue, entry.change.to);
 			if (to === "started" && started === null) started = entry.updatedAt;
 			// Reopening and closing again counts again: the team closed it twice.
 			if (!isClosedCategory(from) && isClosedCategory(to)) {
@@ -136,23 +188,10 @@ export function teamInsights({
 			completed !== null &&
 			started !== null &&
 			started <= completed &&
-			categoryOf(issue.status) === "completed" &&
+			categoryOf(issue, issue.status) === "completed" &&
 			weekOf(completed)
 		) {
 			cycleTimes.push((completed - started) / DAY);
-		}
-	}
-
-	const order = teamStatuses(statuses, teamId);
-	const byStatusKey = countBy(open, (issue) => [issue.status]);
-	const byStatus = order.flatMap((status) => {
-		const count = byStatusKey.get(status.key) ?? 0;
-		return count > 0 ? [{ key: status, count }] : [];
-	});
-	// An issue in a status the copy does not list yet still counts, after the known ones.
-	for (const [key, count] of byStatusKey) {
-		if (!order.some((status) => status.key === key)) {
-			byStatus.push({ key: statusOf(statuses, { teamId, status: key }), count });
 		}
 	}
 
@@ -162,7 +201,8 @@ export function teamInsights({
 		closed: weeks.reduce((sum, week) => sum + week.closed, 0),
 		cycleTime: { medianDays: median(cycleTimes), issues: cycleTimes.length },
 		open: open.length,
-		byStatus,
+		openIssues: open,
+		byTeam: ranked(countBy(open, (issue) => [issue.teamId])),
 		byAssignee: ranked(countBy(open, (issue) => [issue.assigneeId])),
 		byLabel: ranked(countBy(open, (issue) => issue.labelIds)),
 	};

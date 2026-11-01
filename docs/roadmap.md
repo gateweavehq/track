@@ -98,8 +98,8 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   (Email Routing). Replying to requesters by email and the triage agent's proposals come next.
 - Insights: a page per team with issues created and closed by week, cycle time and where open
   issues are, worked out from the local copy: shipped in v0.17.0. Project updates, a health (on
-  track, at risk, off track) and a note kept as the project's history and sent to webhooks, are
-  next to ship.
+  track, at risk, off track) and a note kept as the project's history and sent to webhooks, and
+  the same insights per project, are next to ship.
 - GitHub integration: link pull requests and close issues from commits. The first part, over a
   webhook per repository or organization, shipped in v0.10.0; a GitHub App comes later.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations
