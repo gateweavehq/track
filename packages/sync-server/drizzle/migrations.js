@@ -25,6 +25,7 @@ import m0023 from "./0023_intake.sql";
 import m0024 from "./0024_project_updates.sql";
 import m0025 from "./0025_requesters.sql";
 import m0026 from "./0026_recurring_templates.sql";
+import m0027 from "./0027_requester_replies.sql";
 import journal from "./meta/_journal.json";
 
 export default {
@@ -57,5 +58,6 @@ export default {
 		m0024,
 		m0025,
 		m0026,
+		m0027,
 	},
 };

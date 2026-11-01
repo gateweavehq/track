@@ -1,5 +1,6 @@
 import {
 	EMAIL_DELAY_MS,
+	INTAKE_EMAIL_ACTOR_ID,
 	type InboxEvent,
 	type MutationArgs,
 	mentionedIds,
@@ -108,6 +109,22 @@ export function notify(db: Db, changes: ChangeSet, actorId: string, imported: bo
 				break;
 		}
 	}
+	return inbox.flush();
+}
+
+/**
+ * Tells the people who follow a request that its requester replied by email, from
+ * `requesters.ts`. Unlike a member's comment, it subscribes nobody and mentions nobody: the text
+ * is a stranger's. Returns whether an email's time was set.
+ */
+export function notifyOfReply(
+	db: Db,
+	changes: ChangeSet,
+	issueId: string,
+	commentId: string,
+): boolean {
+	const inbox = new Inbox(db, changes, INTAKE_EMAIL_ACTOR_ID);
+	inbox.tellSubscribers(issueId, { type: "comment", commentId });
 	return inbox.flush();
 }
 

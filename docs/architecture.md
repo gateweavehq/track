@@ -120,13 +120,13 @@ self-hosters can run without email. `apps/web/src/server/email/` holds the sende
 templates. Each message has both a plain-text and an HTML body. Every name in it is
 HTML-escaped and squeezed onto one short line.
 
-| Email          | Sent when                                                                                              | Off without email     |
-| -------------- | ------------------------------------------------------------------------------------------------------ | --------------------- |
-| Password reset | Someone asks on `/forgot-password`. The link works once, for an hour, and resetting ends every session | No password reset     |
-| Invitation     | An admin with a verified address invites someone or presses Resend                                     | Admins share the link |
-| Verification   | Someone signs up, or asks on an invitation or the members page. The link works for 24 hours            | Nobody is verified    |
-| Inbox digest   | News a person wants by email stays unread for 10 minutes; at most once an hour per workspace           | The inbox alone       |
-| Request answer | A person accepts or declines a request filed through a form or by email with an address                | Nobody is told        |
+| Email          | Sent when                                                                                                        | Off without email     |
+| -------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------- |
+| Password reset | Someone asks on `/forgot-password`. The link works once, for an hour, and resetting ends every session           | No password reset     |
+| Invitation     | An admin with a verified address invites someone or presses Resend                                               | Admins share the link |
+| Verification   | Someone signs up, or asks on an invitation or the members page. The link works for 24 hours                      | Nobody is verified    |
+| Inbox digest   | News a person wants by email stays unread for 10 minutes; at most once an hour per workspace                     | The inbox alone       |
+| Request answer | A person accepts or declines a request filed through a form or by email with an address; replies become comments | Nobody is told        |
 
 Better Auth sends email after the response, through `waitUntil`. Reset requests therefore take
 the same time whether or not the account exists. Invitations put text chosen by a stranger,
@@ -533,7 +533,7 @@ team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search fi
   decline, when they left an address (`packages/sync-server/src/requesters.ts`). The Durable
   Object keeps the address and the workspace's id, which the gateway checked in D1, in a
   `requesters` table that never reaches clients. A decision marks the row, and the alarm takes
-  every marked row in one transaction, deleting it, and hands each to `sendRequesterNotice`,
+  every marked row in one transaction, unmarking it, and hands each to `sendRequesterNotice`,
   which the app's Worker overrides (`apps/web/src/server/requester-email.ts`), as it does inbox
   digests: each is emailed at most once, and a failure loses it rather than sending it twice. The
   email names the team, the workspace and the request, links nowhere, and goes only where email
@@ -541,6 +541,14 @@ team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search fi
   request forgets the address. An email's sender can be forged, so a stranger could have a
   decision sent to someone else's address; what it says is the team's, and it is one email per
   request.
+- **The requester can reply.** Where teams take email (`INTAKE_EMAIL_DOMAIN`), the decision is
+  sent with a `Reply-To` of the request's own address: the workspace's id and a 26-letter key the
+  object makes when it first emails the decision, longer than a team's 16 so the two never read
+  as one another. A reply there becomes a comment on the request by Email, as the request was,
+  without the text it quotes and with its attachments kept as a request's are. Only the address
+  the decision went to may reply, within the same allowance as requests; anything else gets the
+  refusal a missing address does. The people who follow the request hear of it in their inbox; a
+  stranger's text subscribes and mentions nobody.
 - **Out of the way of automations.** A request is not archived, by hand or by a team's
   automations, and automations do not close it: it waits for a person.
 - **Elsewhere.** Over MCP, `create_issue` and `search_issues` take `intake`, every issue says

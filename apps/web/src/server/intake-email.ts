@@ -8,7 +8,12 @@ import {
 	attachmentPath,
 	MAX_FILE_BYTES,
 } from "#/lib/attachments";
-import { isAutomated, parseIntakeAddress, requestFromEmail } from "#/lib/intake-email";
+import {
+	isAutomated,
+	parseIntakeAddress,
+	replyFromEmail,
+	requestFromEmail,
+} from "#/lib/intake-email";
 import { db } from "./auth";
 import { schema } from "./db";
 import { demoEnabled } from "./demo/mode";
@@ -36,7 +41,8 @@ export function intakeEmailDomain(): string | null {
 /**
  * Email that Cloudflare Email Routing sends to the Worker, from a catch-all rule on
  * `INTAKE_EMAIL_DOMAIN`. Mail to a team's intake address, `<workspace id>.<key>@<domain>`,
- * becomes a request in its intake.
+ * becomes a request in its intake. A reply to the decision on a request goes to the request's own
+ * address, with a longer key, and becomes a comment on it.
  *
  * Anyone can send email, so the key in the address is what admits it, each sender and each
  * team's address take only so many, and mail a machine sent on its own is dropped without a
@@ -60,11 +66,12 @@ export async function handleIntakeEmail(message: ForwardableEmailMessage): Promi
 		.where(sql`lower(${schema.organization.id}) = ${address.workspaceId}`)
 		.get();
 	if (!workspace) return message.setReject("No such address");
+	const stub = workspaceStub(workspace.id);
+	const sender = message.from.trim().toLowerCase();
+	if (address.kind === "reply") return fileReply(message, stub, workspace.id, address.key, sender);
 	// The key is checked before anything is counted, so mail to made-up addresses costs no one's
 	// allowance and leaves no record behind.
-	const stub = workspaceStub(workspace.id);
 	if (!(await stub.intakeEmail(address.key))) return message.setReject("No such address");
-	const sender = message.from.trim().toLowerCase();
 	if (!(await limitEmailedRequests(sender, address.key))) {
 		return message.setReject("Too many requests from this sender; try again later");
 	}
@@ -93,6 +100,35 @@ export async function handleIntakeEmail(message: ForwardableEmailMessage): Promi
 	});
 	if (filed) return;
 	// The address was turned off a moment ago: nothing links the files, so they go too.
+	if (bucket && kept.length > 0) await bucket.delete(kept.map((file) => file.key));
+	message.setReject("No such address");
+}
+
+/**
+ * Files a requester's reply to the decision on their request as a comment on it. Only the address
+ * the decision went to may reply, and it counts against the same allowance as requests. A reply
+ * with nothing of its own, once quotes are taken out, files nothing.
+ */
+async function fileReply(
+	message: ForwardableEmailMessage,
+	stub: ReturnType<typeof workspaceStub>,
+	workspaceId: string,
+	key: string,
+	sender: string,
+): Promise<void> {
+	if (!(await limitEmailedRequests(sender, key))) {
+		return message.setReject("Too many replies from this sender; try again later");
+	}
+	const email = await PostalMime.parse(message.raw, { maxPartCount: 200 });
+	const from = ((email.from && "address" in email.from ? email.from.address : undefined) || sender)
+		.trim()
+		.toLowerCase();
+	const text = replyFromEmail(email);
+	const bucket = env.FILES;
+	const kept = bucket ? await keepAttachments(bucket, workspaceId, email.attachments) : [];
+	const body = [text, ...kept.map((file) => file.markdown)].filter(Boolean).join("\n\n");
+	if (!body) return;
+	if (await stub.fileReply({ key, from, body })) return;
 	if (bucket && kept.length > 0) await bucket.delete(kept.map((file) => file.key));
 	message.setReject("No such address");
 }

@@ -25,6 +25,7 @@ export interface SentEmail {
 	text: string;
 	html: string;
 	headers?: Record<string, string>;
+	replyTo?: string;
 }
 
 /** A request that reached the stand-in webhook receiver. */

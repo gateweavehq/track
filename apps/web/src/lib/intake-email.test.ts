@@ -5,6 +5,7 @@ import {
 	isAutomated,
 	MAX_EMAILED_TEXT,
 	parseIntakeAddress,
+	replyFromEmail,
 	requestFromEmail,
 } from "./intake-email";
 
@@ -16,8 +17,22 @@ describe("intake addresses", () => {
 		expect(address).toBe(`ws8xyz.${KEY}@requests.example.com`);
 		expect(parseIntakeAddress(address.toUpperCase(), "requests.example.com")).toEqual({
 			workspaceId: "ws8xyz",
+			kind: "team",
 			key: KEY,
 		});
+	});
+
+	it("tell a request's reply address, with its longer key, from a team's", () => {
+		const reply = "abcdefgh234567qrstuvwxyz23";
+		expect(parseIntakeAddress(`ws.${reply}@requests.example.com`, "requests.example.com")).toEqual({
+			workspaceId: "ws",
+			kind: "reply",
+			key: reply,
+		});
+		// Neither length in between.
+		expect(
+			parseIntakeAddress(`ws.${reply.slice(0, 20)}@requests.example.com`, "requests.example.com"),
+		).toBeNull();
 	});
 
 	it("read nothing at another domain or of another form", () => {
@@ -113,5 +128,33 @@ describe("requestFromEmail", () => {
 		);
 		expect(request.description.length).toBeLessThan(MAX_EMAILED_TEXT + 100);
 		expect(request.description).toContain("(Cut short.)");
+	});
+});
+
+describe("replyFromEmail", () => {
+	it("keeps what the reply says and leaves out what it quotes", () => {
+		const text = [
+			"Thanks, that works.",
+			"",
+			"Could it be in Word too?",
+			"",
+			"On Mon, Nov 2, 2026 at 9:00 AM Track <ws.key@requests.example.com>",
+			"wrote:",
+			"> Your request was accepted",
+			"> Engineering accepted your request.",
+		].join("\r\n");
+		expect(replyFromEmail({ text })).toBe("Thanks, that works.\n\nCould it be in Word too?");
+	});
+
+	it("cuts at an Outlook-style original message and drops lines quoted in between", () => {
+		const text = "Yes.\n> quoted\nNo.\n\n-----Original Message-----\nFrom: Track";
+		expect(replyFromEmail({ text })).toBe("Yes.\nNo.");
+		expect(replyFromEmail({ text: "On Monday Track wrote:\n> all quoted" })).toBe("");
+	});
+
+	it("reads an HTML-only reply, and cuts a long one short", () => {
+		expect(replyFromEmail({ html: "<p>Hi &amp; thanks</p>" })).toBe("Hi & thanks");
+		const long = replyFromEmail({ text: "x".repeat(MAX_EMAILED_TEXT + 10) });
+		expect(long.endsWith("(Cut short.)")).toBe(true);
 	});
 });
