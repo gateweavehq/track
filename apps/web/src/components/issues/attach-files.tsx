@@ -10,6 +10,7 @@ import {
 	insertParagraph,
 	MAX_FILE_BYTES,
 } from "#/lib/attachments";
+import { uploadOutbox } from "#/lib/upload-outbox";
 
 /**
  * Attaching files to a Markdown text box: pasting, dropping, or the attach button. Each file's
@@ -66,12 +67,11 @@ export function useAttachFiles(
 	};
 }
 
-/** Starts uploading what can be uploaded, and returns the Markdown that links it. */
+/**
+ * Starts uploading what can be uploaded, and returns the Markdown that links it. Offline, or when
+ * an upload cannot get through, the file waits in the browser's outbox and uploads later.
+ */
 function startUploads(workspaceId: string, files: readonly File[]): string | null {
-	if (!navigator.onLine) {
-		toast.error("You are offline", { description: "Attach files once you are back online." });
-		return null;
-	}
 	const accepted = files.filter((file) => {
 		if (file.size === 0) toast.error(`${file.name} is empty`);
 		else if (file.size > MAX_FILE_BYTES) {
@@ -88,29 +88,42 @@ function startUploads(workspaceId: string, files: readonly File[]): string | nul
 		const path = attachmentPath(workspaceId, crypto.randomUUID(), name);
 		return { file, name, path, markdown: attachmentMarkdown(name, path, file.type) };
 	});
-	const [only] = links;
-	toast.promise(Promise.all(links.map(({ file, path }) => upload(path, file))), {
-		loading:
-			only && links.length === 1 ? `Uploading ${only.name}…` : `Uploading ${links.length} files…`,
-		success:
-			only && links.length === 1 ? `Attached ${only.name}` : `Attached ${links.length} files`,
-		error: (error: unknown) => ({
-			message: "Could not attach the file",
-			description: `${error instanceof Error ? error.message : String(error)} Remove its link or try again.`,
+	const outbox = uploadOutbox();
+	const results = links.map(({ file, name, path }) =>
+		outbox.add({
+			path,
+			workspaceId,
+			name,
+			type: file.type,
+			blob: file,
+			createdAt: Date.now(),
 		}),
-	});
+	);
+	const [only] = links;
+	const what = only && links.length === 1 ? only.name : `${links.length} files`;
+	if (!navigator.onLine) {
+		toast(`${what} will upload when you are back online`, {
+			description: "The link is in the text already.",
+		});
+		return links.map(({ markdown }) => markdown).join("\n");
+	}
+	toast.promise(
+		Promise.all(results).then((outcomes) => {
+			const failed = outcomes.find((outcome) => outcome.status === "failed");
+			if (failed?.status === "failed") throw new Error(failed.message);
+			return outcomes.some((outcome) => outcome.status === "waiting");
+		}),
+		{
+			loading: `Uploading ${what}…`,
+			success: (waiting) =>
+				waiting ? `${what} will upload once the connection is back` : `Attached ${what}`,
+			error: (error: unknown) => ({
+				message: "Could not attach the file",
+				description: `${error instanceof Error ? error.message : String(error)} Remove its link or try again.`,
+			}),
+		},
+	);
 	return links.map(({ markdown }) => markdown).join("\n");
-}
-
-async function upload(path: string, file: File): Promise<void> {
-	const response = await fetch(path, {
-		method: "PUT",
-		body: file,
-		headers: { "Content-Type": file.type || "application/octet-stream" },
-	});
-	if (response.ok) return;
-	const body = (await response.json().catch(() => null)) as { error?: string } | null;
-	throw new Error(`${body?.error ?? `The server answered ${response.status}`}.`);
 }
 
 /** Opens the file picker. The caret stays in the text box, where the links go. */

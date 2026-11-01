@@ -905,8 +905,16 @@ workspace's files are one prefix in the bucket.
 
 - **The browser makes the link first.** It picks the file's id (a random UUID), puts the link in
   the text at the caret, and uploads behind it with `PUT`, so typing goes on while a large file
-  uploads. A failed upload says so and leaves the link to remove. Offline, nothing is attached;
-  an outbox for uploads is still to come.
+  uploads. A refused upload says so and leaves the link to remove.
+- **Files wait for the connection, as mutations do.** Each file is kept in the browser's upload
+  outbox (`apps/web/src/lib/upload-outbox.ts`, an IndexedDB database of its own) before it is
+  sent, and leaves it once the gateway has it. Attached offline, or when the upload cannot get
+  through (no network, a 5xx, a 429), the link goes in all the same and the file uploads later:
+  when the workspace opens, when the connection returns, and every 30 seconds while something
+  waits. Tabs take turns through a Web Lock, and a file the gateway already has (409, from a retry
+  or another tab) counts as uploaded. A refusal for good (too large, not a member) drops the file
+  and says so. Until then the text shows it as waiting to upload, an image from the device's
+  copy. Leaving a workspace drops its waiting files, and signing out deletes the outbox.
 - **The file gateway** (`apps/web/src/server/files.ts`) runs before TanStack Start, as the sync
   gateway does, so uploads stream to R2 unread. It takes the session, checks membership in D1 by
   the workspace id in the path, and answers non-members with the same 404 as a missing file.
