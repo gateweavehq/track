@@ -8,6 +8,16 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.14.1] - 2026-11-01
+
+Webhook payloads name the issue's assignee. Updating a self-hosted copy needs no migration and no
+new setting. ([#103])
+
+### Added
+
+- Issues in webhook payloads carry `assignee`: the member's id and their name as of the event, or
+  null when no one is assigned, so a receiver can show who `assigneeId` is. ([#103])
+
 ## [0.14.0] - 2026-11-01
 
 Each team has its own workflow statuses. Updating a self-hosted copy applies two migrations in
@@ -530,6 +540,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.14.1]: https://github.com/gateweavehq/track/releases/tag/v0.14.1
 [0.14.0]: https://github.com/gateweavehq/track/releases/tag/v0.14.0
 [0.13.1]: https://github.com/gateweavehq/track/releases/tag/v0.13.1
 [0.13.0]: https://github.com/gateweavehq/track/releases/tag/v0.13.0
@@ -621,3 +632,4 @@ The first pre-release.
 [#98]: https://github.com/gateweavehq/track/pull/98
 [#100]: https://github.com/gateweavehq/track/pull/100
 [#102]: https://github.com/gateweavehq/track/pull/102
+[#103]: https://github.com/gateweavehq/track/pull/103
