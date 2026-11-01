@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { Breakdown, InsightsPage } from "#/components/insights/insights-page";
 import { useWorkspace } from "#/components/workspace/context";
 import { localZone } from "#/lib/cycles";
-import { type InsightRange, projectInsights } from "#/lib/insights";
+import { type InsightSearch, matchesInsightSearch, projectInsights } from "#/lib/insights";
 import { useActivitiesById, useIssuesById, useStatuses, useTeamsById } from "#/lib/queries";
 
 /**
@@ -13,12 +13,12 @@ import { useActivitiesById, useIssuesById, useStatuses, useTeamsById } from "#/l
  */
 export function ProjectInsights({
 	project,
-	weeks,
-	onWeeksChange,
+	search,
+	onSearchChange,
 }: {
 	project: Project;
-	weeks: InsightRange;
-	onWeeksChange: (weeks: InsightRange) => void;
+	search: InsightSearch;
+	onSearchChange: (patch: Partial<InsightSearch>) => void;
 }) {
 	const { slug } = useWorkspace();
 	const issues = useIssuesById();
@@ -29,14 +29,14 @@ export function ProjectInsights({
 		() =>
 			projectInsights({
 				projectId: project.id,
-				issues: issues.values(),
+				issues: [...issues.values()].filter((issue) => matchesInsightSearch(issue, search)),
 				activities: activities.values(),
 				statuses,
 				timeZone: localZone(),
 				now: Date.now(),
-				weeks,
+				weeks: search.weeks ?? 12,
 			}),
-		[project.id, issues, activities, statuses, weeks],
+		[project.id, issues, activities, statuses, search],
 	);
 
 	return (
@@ -51,8 +51,8 @@ export function ProjectInsights({
 				</Link>
 			}
 			insights={insights}
-			weeks={weeks}
-			onWeeksChange={onWeeksChange}
+			search={search}
+			onSearchChange={onSearchChange}
 			breakdown={
 				<Breakdown
 					title="Open by team"
