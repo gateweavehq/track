@@ -25,6 +25,7 @@ function issue(overrides: Partial<Issue>): Issue {
 		createdAt: 0,
 		updatedAt: 0,
 		archivedAt: null,
+		intake: false,
 		...overrides,
 	};
 }
@@ -48,6 +49,8 @@ const team: Team = {
 	cycles: null,
 	archiveAfterMonths: null,
 	closeAfterMonths: null,
+	intakeFormKey: null,
+	intakeEmailKey: null,
 	createdAt: 0,
 	updatedAt: 0,
 };

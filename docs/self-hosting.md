@@ -103,6 +103,35 @@ Settings, GitHub, and adds a webhook on GitHub with the payload URL and secret s
 content type `application/json`, and the Pull requests and Pushes events. GitHub must be able to
 reach your address, so a local `http://localhost` cannot receive deliveries.
 
+### Request forms
+
+Each team can have a public request form, whose link an admin shares so that people without an
+account file requests into the team's intake. Forms take requests only once
+[Turnstile](https://developers.cloudflare.com/turnstile/) keeps bots out:
+
+1. In the Cloudflare dashboard, add a Turnstile widget for your hostname (Managed mode).
+2. Set `TURNSTILE_SITE_KEY` to its site key and `TURNSTILE_SECRET_KEY` to its secret key, the
+   second as a secret: `pnpm wrangler secret put TURNSTILE_SECRET_KEY`.
+
+Without both, admins can still turn a form on, but its link says the form is not open. Each
+client network can file 10 requests an hour and 30 a day across all forms.
+
+### Intake email
+
+Each team can also have an intake email address, which files the email it gets as requests in
+the team's intake. Teams usually forward their support address to it. To turn addresses on:
+
+1. Pick a domain or subdomain that receives no other mail, such as `requests.example.com`, in a
+   zone on Cloudflare, and enable [Email Routing](https://developers.cloudflare.com/email-routing/)
+   on it.
+2. Add a catch-all rule that sends every address to the Worker (`gateweave-track`, or your
+   Worker's name).
+3. Set `INTAKE_EMAIL_DOMAIN` to that domain.
+
+Admins then turn on each team's address next to its form. Each sender can file 10 requests an
+hour and 30 a day, and each address takes at most 60 an hour and 300 a day. Attachments are not
+kept.
+
 ### Sign in with GitHub
 
 Create a [GitHub OAuth app](https://github.com/settings/developers) with the callback URL

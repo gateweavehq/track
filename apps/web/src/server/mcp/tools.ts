@@ -152,6 +152,11 @@ const issueSummary = z.looseObject({
 	archived: z
 		.boolean()
 		.describe("Whether it is archived: closed and out of lists, though search still finds it."),
+	intake: z
+		.boolean()
+		.describe(
+			"Whether it is a request waiting in its team's intake, out of lists until a person accepts or declines it.",
+		),
 });
 const issueDetail = issueSummary.extend({
 	description: z.string().nullable().describe(MENTION_OUTPUT),
@@ -451,6 +456,12 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					.boolean()
 					.optional()
 					.describe("True for archived issues only, false to leave them out. Left out, both."),
+				intake: z
+					.boolean()
+					.optional()
+					.describe(
+						"True for requests waiting in intake only, false to leave them out. Left out, both.",
+					),
 				text: z
 					.string()
 					.max(200)
@@ -484,6 +495,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					parentId:
 						input.parent === undefined ? undefined : (await findIssue(workspace, input.parent)).id,
 					archived: input.archived,
+					intake: input.intake,
 					text: input.text,
 					limit: input.limit,
 				});
@@ -574,6 +586,12 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				start_date: calendarDate.optional().describe(START_DATE_HELP),
 				due_date: calendarDate.optional().describe(DUE_DATE_HELP),
 				estimate: estimate.optional().describe(ESTIMATE_HELP),
+				intake: z
+					.boolean()
+					.optional()
+					.describe(
+						"True files it as a request in the team's intake, out of lists until a person accepts or declines it.",
+					),
 			}),
 			outputSchema: issueDetail.extend({ proposed: proposedOutput }),
 			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
@@ -613,6 +631,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						dueDate: input.due_date ?? null,
 						estimate: input.estimate ?? null,
 						sortOrder: generateKeyBetween(await workspace.lastSortOrder(), null),
+						...(input.intake && { intake: true }),
 					},
 				});
 				return withProposed(
@@ -834,6 +853,67 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					),
 					relations: await relationViews(access, workspace, directory, issue.id),
 				};
+			}),
+	);
+
+	server.registerTool(
+		"triage_request",
+		{
+			title: "Triage request",
+			description:
+				"Accepts a request waiting in its team's intake into the team's workflow, keeping its status or moving it to an open one, or declines it into the team's first canceled status with an optional reply as a comment. Only people can: agent members label, relate and propose changes to requests, and a person decides.",
+			inputSchema: z.object({
+				workspace: workspaceInput,
+				key: keyInput,
+				decision: z.enum(["accept", "decline"]),
+				status: statusInput
+					.optional()
+					.describe(
+						"Accepting only: an open status of the team, its key or name (ignoring case). Without one, it keeps its status.",
+					),
+				reply: z
+					.string()
+					.trim()
+					.min(1)
+					.max(100_000)
+					.optional()
+					.describe(`Declining only: a comment to the people who follow it. ${MENTION_HELP}`),
+			}),
+			outputSchema: issueDetail,
+			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				const directory = await workspace.directory();
+				const issue = await findIssue(workspace, input.key);
+				if (!issue.intake) throw new ToolError(`${input.key} is not a request in intake.`);
+				if (input.decision === "accept") {
+					if (input.reply !== undefined) throw new ToolError("A reply is only for declining.");
+					await apply(workspace, {
+						name: "issue.accept",
+						args: {
+							id: issue.id,
+							...(input.status !== undefined && {
+								status: statusKey(directory, issue.teamId, input.status),
+							}),
+						},
+					});
+				} else {
+					if (input.status !== undefined) {
+						throw new ToolError(
+							"Declining moves it to the team's canceled status; leave out status.",
+						);
+					}
+					await apply(workspace, {
+						name: "issue.decline",
+						args: {
+							id: issue.id,
+							...(input.reply !== undefined && { reply: { id: uuidv7(), body: input.reply } }),
+						},
+					});
+				}
+				return detail(access, workspace, directory, await reread(workspace, issue.id));
 			}),
 	);
 
@@ -1391,6 +1471,7 @@ function summarize(
 		url: `${access.origin}/${encodeURIComponent(workspace.slug)}/issue/${key}`,
 		updatedAt: new Date(issue.updatedAt).toISOString(),
 		archived: issue.archivedAt !== null,
+		intake: issue.intake,
 	};
 }
 

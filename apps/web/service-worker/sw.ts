@@ -22,8 +22,11 @@ const SHELL = "/_shell";
 const CACHE = `track-${BUILD.version}`;
 const FILES = new Set(BUILD.files);
 
-/** Paths that are never pages: the API, MCP and OAuth metadata. */
-const NOT_PAGES = /^\/(?:api\/|mcp(?:\/|$)|\.well-known\/)/;
+/**
+ * Paths that are never pages of the app: the API, MCP, OAuth metadata, and teams' public request
+ * forms, which the Worker serves as pages of their own.
+ */
+const NOT_PAGES = /^\/(?:api\/|mcp(?:\/|$)|\.well-known\/|request\/)/;
 
 worker.addEventListener("install", (event) => {
 	event.waitUntil(install());

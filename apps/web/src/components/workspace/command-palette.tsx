@@ -188,6 +188,17 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 				}),
 		})),
 		...teams.map((team) => ({
+			id: `intake-${team.id}`,
+			label: `Go to ${team.name} intake`,
+			icon: Inbox,
+			keywords: [team.key, "requests", "triage"],
+			run: () =>
+				void navigate({
+					to: "/$workspace/team/$teamKey/intake",
+					params: { workspace: slug, teamKey: team.key },
+				}),
+		})),
+		...teams.map((team) => ({
 			id: `archive-${team.id}`,
 			label: `Go to ${team.name} archive`,
 			icon: Archive,

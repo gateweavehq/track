@@ -35,6 +35,7 @@ function issue(id: string, status: string, months: number, fields: Partial<Issue
 		createdAt: 0,
 		updatedAt: NOW - months * AUTOMATION_MONTH_MS - 60_000,
 		archivedAt: null,
+		intake: false,
 		...fields,
 	};
 }

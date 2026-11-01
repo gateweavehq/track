@@ -109,6 +109,7 @@ export function createStatus(
 export function updateStatus(
 	db: Db,
 	changes: ChangeSet,
+	actorId: string,
 	args: MutationArgs<"status.update">,
 ): void {
 	const status = findLiveStatus(db, args.teamId, args.key);
@@ -133,6 +134,51 @@ export function updateStatus(
 		!isClosedCategory(args.patch.category)
 	) {
 		restoreArchived(db, changes, args.teamId, status.key);
+	}
+	if (
+		args.patch.category !== undefined &&
+		!isClosedCategory(status.category) &&
+		isClosedCategory(args.patch.category)
+	) {
+		declineRequests(db, changes, actorId, args.teamId, status.key);
+	}
+}
+
+/**
+ * Takes the team's requests in a status that now closes them out of intake, as declined: a
+ * request is never closed. Like the change to the workflow that caused it, nobody's inbox hears
+ * of it.
+ */
+function declineRequests(
+	db: Db,
+	changes: ChangeSet,
+	actorId: string,
+	teamId: string,
+	key: string,
+): void {
+	const requests = db
+		.select()
+		.from(schema.issues)
+		.where(
+			and(
+				eq(schema.issues.teamId, teamId),
+				eq(schema.issues.status, key),
+				eq(schema.issues.intake, true),
+				isNull(schema.issues.deletedAt),
+			),
+		)
+		.all();
+	for (const issue of requests) {
+		const row = db
+			.update(schema.issues)
+			.set({ intake: false, version: changes.nextVersion, updatedAt: changes.now })
+			.where(eq(schema.issues.id, issue.id))
+			.returning()
+			.get();
+		if (!row) continue;
+		changes.put("issue", toIssue(row));
+		changes.events.push({ type: "issue.updated", issue: row, previous: issue, quiet: true });
+		recordActivity(db, changes, issue, actorId, { type: "intake", accepted: false });
 	}
 }
 
@@ -210,7 +256,8 @@ export function deleteStatus(
 			),
 		)
 		.all();
-	// Moved into a status that does not close them, archived issues are restored.
+	// Moved into a status that does not close them, archived issues are restored; moved into one
+	// that does, requests leave intake as declined, since a request is never closed.
 	const reopens = !isClosedStatus(db, args.teamId, args.moveTo);
 	for (const issue of issues) {
 		// Stamped like any status change, so an offline edit made before it conflicts instead of
@@ -219,7 +266,7 @@ export function deleteStatus(
 			.update(schema.issues)
 			.set({
 				status: args.moveTo,
-				...(reopens ? { archivedAt: null } : {}),
+				...(reopens ? { archivedAt: null } : { intake: false }),
 				fieldStamps: {
 					...issue.fieldStamps,
 					status: { version: changes.nextVersion, clientId: `status:${status.id}` },
@@ -238,6 +285,9 @@ export function deleteStatus(
 			from: issue.status,
 			to: args.moveTo,
 		});
+		if (issue.intake && !moved.intake) {
+			recordActivity(db, changes, issue, actorId, { type: "intake", accepted: false });
+		}
 	}
 }
 

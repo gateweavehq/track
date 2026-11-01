@@ -69,7 +69,8 @@ const DAY = 24 * 60 * 60 * 1000;
 
 /**
  * A team's insights over the last `weeks` weeks, this one included. Archived issues count:
- * archiving takes an issue out of lists, not out of what the team did.
+ * archiving takes an issue out of lists, not out of what the team did. Requests still in intake
+ * do not.
  */
 export function teamInsights({
 	teamId,
@@ -138,7 +139,8 @@ function insightsOf({
 		return weeks[Math.floor(daysBetween(first, day) / 7)];
 	};
 
-	const scope = [...issues];
+	// Requests still in intake are left out: nobody has taken them on yet.
+	const scope = [...issues].filter((issue) => !issue.intake);
 	const ids = new Set(scope.map((issue) => issue.id));
 	const histories = new Map<string, Activity[]>();
 	for (const activity of activities) {
