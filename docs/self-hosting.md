@@ -77,6 +77,7 @@ pnpm wrangler secret put BETTER_AUTH_URL
 | `GITHUB_APP_CLIENT_SECRET`  | The GitHub App's client secret.                                            |
 | `GITHUB_APP_WEBHOOK_SECRET` | The secret that signs the GitHub App's deliveries.                         |
 | `EMAIL_FROM`                | Turns on email, such as `Gateweave Track <track@example.com>`.             |
+| `ATTACHMENT_QUOTA_MB`       | Limits each workspace's attached files, such as `1024`. Unlimited unset.   |
 
 ### Your own domain
 

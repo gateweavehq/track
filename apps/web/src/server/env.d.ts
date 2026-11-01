@@ -33,6 +33,12 @@ declare namespace Cloudflare {
 		GITHUB_APP_CLIENT_ID?: string;
 		GITHUB_APP_CLIENT_SECRET?: string;
 		GITHUB_APP_WEBHOOK_SECRET?: string;
+		/**
+		 * The most megabytes of attached files each workspace may keep, such as `1024`. Uploads
+		 * past it are refused, and an emailed request's attachments past it are left out.
+		 * Unlimited when unset.
+		 */
+		ATTACHMENT_QUOTA_MB?: string;
 		/** "1" on the public demo deployment only (the `demo` environment in wrangler.jsonc). */
 		TRACK_DEMO?: string;
 	}

@@ -2,6 +2,7 @@ import { MENTION_SCHEME, mentionedId } from "@gateweave/track-protocol";
 import { type ComponentProps, createContext, type ReactNode, useContext } from "react";
 import ReactMarkdown, { type Components, defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { usePendingUpload } from "#/components/workspace/upload-outbox";
 import { isAttachmentPath } from "#/lib/attachments";
 import { cn } from "#/lib/utils";
 
@@ -63,39 +64,62 @@ function Mention({ memberId, children }: { memberId: string; children: ReactNode
 /** Links to other sites open in a new tab and pass nothing about the page they came from. */
 function MarkdownLink({ href, children, node: _node, ...props }: ComponentProps<"a"> & Node) {
 	const memberId = mentionedId(href);
+	const attachment = href !== undefined && isAttachmentPath(href);
+	const { waiting } = usePendingUpload(attachment ? href : undefined);
 	if (memberId !== null) return <Mention memberId={memberId}>{children}</Mention>;
 	// "//host/path" is another site too. Files open in a tab of their own.
-	const inApp = href?.startsWith("/") && !href.startsWith("//") && !isAttachmentPath(href);
+	const inApp = href?.startsWith("/") && !href.startsWith("//") && !attachment;
 	return (
-		<a
-			{...props}
-			href={href}
-			{...(!inApp && { target: "_blank", rel: "noopener noreferrer nofollow" })}
-			className="font-medium text-primary underline underline-offset-2 hover:no-underline"
-		>
-			{children}
-		</a>
+		<>
+			<a
+				{...props}
+				href={href}
+				{...(!inApp && { target: "_blank", rel: "noopener noreferrer nofollow" })}
+				className="font-medium text-primary underline underline-offset-2 hover:no-underline"
+			>
+				{children}
+			</a>
+			{waiting && <Waiting />}
+		</>
 	);
 }
 
 /**
  * Only files attached in the workspace show as images. An image from anywhere else would tell
- * its host who read the issue and when, so it shows as a link to follow on purpose.
+ * its host who read the issue and when, so it shows as a link to follow on purpose. One still
+ * waiting to upload shows from this device's copy.
  */
 function MarkdownImage({ src, alt, node: _node }: ComponentProps<"img"> & Node) {
+	const attachment = typeof src === "string" && isAttachmentPath(src);
+	const { waiting, preview } = usePendingUpload(attachment ? src : undefined);
 	if (typeof src !== "string" || !src) return null;
-	if (!isAttachmentPath(src)) {
+	if (!attachment) {
 		return <MarkdownLink href={src}>{alt || src}</MarkdownLink>;
 	}
 	return (
-		<a href={src} target="_blank" rel="noopener" className="inline-block max-w-full align-top">
-			<img
-				src={src}
-				alt={alt ?? ""}
-				loading="lazy"
-				className="max-h-96 max-w-full rounded-md border bg-muted/40"
-			/>
-		</a>
+		<span className="inline-flex max-w-full flex-col items-start gap-1 align-top">
+			<a href={src} target="_blank" rel="noopener" className="inline-block max-w-full">
+				<img
+					src={preview ?? src}
+					alt={alt ?? ""}
+					loading="lazy"
+					className="max-h-96 max-w-full rounded-md border bg-muted/40"
+				/>
+			</a>
+			{waiting && <Waiting />}
+		</span>
+	);
+}
+
+/** Said of a file attached here that has not reached the server yet. */
+function Waiting() {
+	return (
+		<span
+			className="ml-1 text-xs text-muted-foreground"
+			title="It uploads when the connection is back"
+		>
+			(waiting to upload)
+		</span>
 	);
 }
 

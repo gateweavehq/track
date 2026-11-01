@@ -913,8 +913,18 @@ workspace's files are one prefix in the bucket.
 
 - **The browser makes the link first.** It picks the file's id (a random UUID), puts the link in
   the text at the caret, and uploads behind it with `PUT`, so typing goes on while a large file
-  uploads. A failed upload says so and leaves the link to remove. Offline, nothing is attached;
-  an outbox for uploads is still to come.
+  uploads. A refused upload says so and leaves the link to remove.
+- **Files wait for the connection, as mutations do.** Each file is kept in the browser's upload
+  outbox (`apps/web/src/lib/upload-outbox.ts`, an IndexedDB database of its own) before it is
+  sent, and leaves it once the gateway has it. Attached offline, or when the upload cannot get
+  through (no network, a 5xx, a 429, a session that ran out), the link goes in all the same and the file uploads later:
+  when the workspace opens, when the connection returns, and every 30 seconds while something
+  waits. Tabs take turns through a Web Lock, and a file the gateway already has (409, from a retry
+  or another tab) counts as uploaded. A refusal for good (too large, not a member) drops the file
+  and says so. Until then the text shows it as waiting to upload, an image from the device's
+  copy. Leaving a workspace drops its waiting files, and signing out deletes the outbox. Each file
+  remembers who attached it and uploads only under their session, so someone else signing in on
+  the same browser after a session ran out never sends it.
 - **The file gateway** (`apps/web/src/server/files.ts`) runs before TanStack Start, as the sync
   gateway does, so uploads stream to R2 unread. It takes the session, checks membership in D1 by
   the workspace id in the path, and answers non-members with the same 404 as a missing file.
@@ -926,8 +936,14 @@ workspace's files are one prefix in the bucket.
   `nosniff`, sandboxed by its Content-Security-Policy and same-origin only. Files cache in the
   browser for a year, privately: a link always means the same bytes.
 - **Deleting a workspace deletes its files**, after the response, a page of keys at a time.
-  There is no quota yet, and a file stays when the text that linked it changes. The demo has no
-  bucket and refuses uploads.
+  A file stays when the text that linked it changes. The demo has no bucket and refuses uploads.
+- **A deployment may set a quota** per workspace, `ATTACHMENT_QUOTA_MB`
+  (`apps/web/src/server/file-quota.ts`). The workspace's Durable Object counts its files' bytes
+  (`packages/sync-server/src/storage.ts`): the gateway reserves a file's length there before
+  storing it, so uploads that arrive together cannot both take the last of the space, and gives
+  it back if storing fails. The count starts from a listing of the bucket the first time it is
+  needed. Past the quota an upload gets 413, and an emailed request comes in without the files
+  that do not fit.
 
 ### Proposals
 
