@@ -37,6 +37,7 @@ import type {
 import { type CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
+import { systemActorName } from "#/lib/actors";
 import { INSIGHT_RANGES, type Insights, projectInsights, teamInsights } from "#/lib/insights";
 import { issueKey, parseIssueKey } from "#/lib/issues";
 import { defaultLabelColor, findLabelByName } from "#/lib/labels";
@@ -166,7 +167,12 @@ const issueSummary = z.looseObject({
 const issueDetail = issueSummary.extend({
 	description: z.string().nullable().describe(MENTION_OUTPUT),
 	parent: z.string().nullable().describe("The key of the issue this one is part of."),
-	creator: z.string().nullable().describe("The creator's email."),
+	creator: z
+		.string()
+		.nullable()
+		.describe(
+			"The creator's email, or for what made it on its own the name: Track, GitHub, Request form or Email.",
+		),
 	createdAt: z.string(),
 });
 const relationOutput = z.looseObject({
@@ -178,7 +184,12 @@ const relationOutput = z.looseObject({
 	url: z.string(),
 });
 const commentOutput = z.looseObject({
-	author: z.string().nullable().describe("The author's email."),
+	author: z
+		.string()
+		.nullable()
+		.describe(
+			"The author's email, or for what wrote it on its own the name: Email for a requester's reply.",
+		),
 	body: z.string().describe(MENTION_OUTPUT),
 	createdAt: z.string(),
 	edited: z.boolean(),
@@ -1605,7 +1616,7 @@ async function detail(
 		...summarize(access, workspace, directory, issue),
 		description: issue.description,
 		parent: parent ? issueKey(parentTeam, parent) : null,
-		creator: emailOf(directory, issue.creatorId),
+		creator: actorOf(directory, issue.creatorId),
 		createdAt: new Date(issue.createdAt).toISOString(),
 	};
 }
@@ -1670,7 +1681,7 @@ function proposalView(directory: Directory, { change }: Proposal): ProposalOutpu
 
 function commentView(directory: Directory, comment: Comment): CommentOutput {
 	return {
-		author: emailOf(directory, comment.authorId),
+		author: actorOf(directory, comment.authorId),
 		body: comment.body,
 		createdAt: new Date(comment.createdAt).toISOString(),
 		edited: comment.updatedAt > comment.createdAt,
@@ -1686,6 +1697,11 @@ function projectUpdateView(directory: Directory, update: ProjectUpdate): Project
 		createdAt: new Date(update.createdAt).toISOString(),
 		edited: update.updatedAt > update.createdAt,
 	};
+}
+
+/** A member's email, or the name of what acts on its own, as a request's channel. */
+function actorOf(directory: Directory, actorId: string): string | null {
+	return systemActorName(actorId) ?? emailOf(directory, actorId);
 }
 
 function emailOf(directory: Directory, memberId: string | null): string | null {
