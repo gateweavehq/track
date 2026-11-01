@@ -8,6 +8,42 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.14.0] - 2026-11-01
+
+Each team has its own workflow statuses. Updating a self-hosted copy applies two migrations in
+each workspace's database, which run on their own and give every existing team the six statuses
+it had; there is no D1 migration and no new setting. The protocol goes to version 16, so open tabs
+reload and sync again. ([#100])
+
+### Added
+
+- Workflow statuses per team. Under Settings, Teams, Statuses, an admin adds statuses, renames,
+  recolors and reorders them, and removes one by moving its issues to another. Every status is
+  in one of five categories (backlog, unstarted, started, completed and canceled), and the
+  category decides what it means: completed and canceled statuses close an issue, and completed
+  ones count as done in cycles, projects and sub-issues. A team keeps at least one completed
+  status. ([#100])
+- Pages that show several teams' issues, such as My issues, give statuses that share a key one
+  column or group, so every team's built-in statuses line up. ([#100])
+- Webhook payloads name the issue's status as its team does (`statusName`) and say its category
+  (`statusCategory`). ([#100])
+- Over MCP, a status is named by its key or its name. `get_workspace` lists each team's
+  statuses in order, and issues come back with `statusName`. ([#100])
+
+### Changed
+
+- GitHub moves an issue to the status of the old key while the team has it in the same
+  category, and otherwise to the team's first status of that category. ([#100])
+- Imports match a status by name in the team, then take the team's first status of the same
+  category. JSON exports carry the teams' statuses. ([#100])
+- A new issue without a status gets its team's first status, Backlog unless the team changed it.
+  ([#100])
+
+### Fixed
+
+- A picker opened just as another one closes, such as a row's priority right after its status,
+  stays open instead of closing again. ([#102])
+
 ## [0.13.1] - 2026-10-31
 
 Dialogs stay within a short window. Updating a self-hosted copy needs nothing: no migration, no
@@ -494,6 +530,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.14.0]: https://github.com/gateweavehq/track/releases/tag/v0.14.0
 [0.13.1]: https://github.com/gateweavehq/track/releases/tag/v0.13.1
 [0.13.0]: https://github.com/gateweavehq/track/releases/tag/v0.13.0
 [0.12.0]: https://github.com/gateweavehq/track/releases/tag/v0.12.0
@@ -582,3 +619,5 @@ The first pre-release.
 [#95]: https://github.com/gateweavehq/track/pull/95
 [#97]: https://github.com/gateweavehq/track/pull/97
 [#98]: https://github.com/gateweavehq/track/pull/98
+[#100]: https://github.com/gateweavehq/track/pull/100
+[#102]: https://github.com/gateweavehq/track/pull/102
