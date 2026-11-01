@@ -20,7 +20,7 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Lint and format
+      - name: Lint, format, migrations
         run: pnpm check
       - name: Typecheck
         run: pnpm typecheck
@@ -28,6 +28,23 @@ jobs:
         run: pnpm test
       - name: Build
         run: pnpm build
+
+  # A pull request that adds Durable Object migrations or changes PROTOCOL_VERSION must come
+  # after what its base already has, so parallel branches renumber before they merge, not after.
+  # It checks the branch's own commit, not the merge GitHub makes, and needs the base's history.
+  migrations:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - name: Migrations and protocol version against the base
+        run: node scripts/check-migrations.mjs --base "origin/${{ github.base_ref }}"
 
   # Browser tests against the production build. Separate from `check` because they are slower
   # and need Chromium.
