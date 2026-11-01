@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "91e16685-c1d3-4409-be57-c82277045f99",
+  "id": "89708066-ac84-443d-9e25-2b599167646f",
   "prevId": "c6f96e7c-0c79-4279-927e-2d8d9c1080b2",
   "tables": {
     "activities": {
@@ -680,6 +680,14 @@
           "notNull": false,
           "autoincrement": false
         },
+        "intake": {
+          "name": "intake",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
         "deleted_at": {
           "name": "deleted_at",
           "type": "integer",
@@ -981,94 +989,6 @@
       },
       "indexes": {},
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "project_updates": {
-      "name": "project_updates",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "author_id": {
-          "name": "author_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "health": {
-          "name": "health",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "body": {
-          "name": "body",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "project_updates_project_idx": {
-          "name": "project_updates_project_idx",
-          "columns": [
-            "project_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "project_updates_project_id_projects_id_fk": {
-          "name": "project_updates_project_id_projects_id_fk",
-          "tableFrom": "project_updates",
-          "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -1652,6 +1572,20 @@
           "notNull": false,
           "autoincrement": false
         },
+        "intake_form_key": {
+          "name": "intake_form_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "intake_email_key": {
+          "name": "intake_email_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "issue_counter": {
           "name": "issue_counter",
           "type": "integer",
@@ -1680,6 +1614,20 @@
           "name": "teams_key_unique",
           "columns": [
             "key"
+          ],
+          "isUnique": true
+        },
+        "teams_intake_form_key_unique": {
+          "name": "teams_intake_form_key_unique",
+          "columns": [
+            "intake_form_key"
+          ],
+          "isUnique": true
+        },
+        "teams_intake_email_key_unique": {
+          "name": "teams_intake_email_key_unique",
+          "columns": [
+            "intake_email_key"
           ],
           "isUnique": true
         }

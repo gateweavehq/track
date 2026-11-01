@@ -32,6 +32,7 @@ function issue(id: string): Issue {
 		createdAt: 0,
 		updatedAt: 0,
 		archivedAt: null,
+		intake: false,
 	};
 }
 

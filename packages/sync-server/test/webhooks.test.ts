@@ -257,6 +257,36 @@ describe("delivery", () => {
 		expect(data && "updatedFrom" in data && Object.keys(data.updatedFrom)).toEqual(["status"]);
 	});
 
+	it("says when a request is accepted or declined, with intake in what changed", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		for (const id of ["issue-1", "issue-2"]) {
+			await mutate(workspace, owner, {
+				name: "issue.create",
+				args: { id, teamId: "team-eng", title: id, sortOrder: "a0", intake: true },
+			});
+		}
+		await createHook(workspace, { events: ["issue.created", "issue.updated"] });
+
+		await mutate(workspace, owner, {
+			name: "issue.accept",
+			args: { id: "issue-1", status: "todo" },
+		});
+		await mutate(workspace, owner, { name: "issue.decline", args: { id: "issue-2" } });
+		await deliver(workspace);
+
+		expect(payloads(received).map((payload) => payload.data)).toMatchObject([
+			{
+				issue: { id: "issue-1", intake: false, status: "todo" },
+				updatedFrom: { intake: true, status: "backlog" },
+			},
+			{
+				issue: { id: "issue-2", intake: false, status: "canceled" },
+				updatedFrom: { intake: true, status: "backlog" },
+			},
+		]);
+	});
+
 	it("sends an issue's dates and estimate, and what an update changed of them", async () => {
 		const received = receiver();
 		const workspace = await workspaceWithTeams();

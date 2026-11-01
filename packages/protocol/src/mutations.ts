@@ -104,6 +104,10 @@ export const mutationSchema = z.discriminatedUnion("name", [
 					cycles: cycleSettings.nullable(),
 					archiveAfterMonths: automationMonths.nullable(),
 					closeAfterMonths: automationMonths.nullable(),
+					/** Turns the team's public request form on, with a new link, or off. */
+					intakeForm: z.boolean(),
+					/** Turns the team's intake email address on, with a new address, or off. */
+					intakeEmail: z.boolean(),
 				})
 				.partial()
 				.refine(nonEmpty, "Empty patch"),
@@ -162,6 +166,8 @@ export const mutationSchema = z.discriminatedUnion("name", [
 			labelIds: z.array(id).max(MAX_LABELS_PER_ISSUE).default([]),
 			sortOrder,
 			createdAt: importedCreatedAt,
+			/** Files the issue as a request in its team's intake. */
+			intake: z.boolean().optional(),
 		}),
 	}),
 	z.object({
@@ -197,6 +203,20 @@ export const mutationSchema = z.discriminatedUnion("name", [
 	z.object({
 		name: z.literal("issue.archive"),
 		args: z.object({ id, archived: z.boolean() }),
+	}),
+	// Only people take a request out of intake; agents triage it through proposals.
+	/** Moves a request into its team's workflow, keeping its status or moving it to an open one. */
+	z.object({
+		name: z.literal("issue.accept"),
+		args: z.object({ id, status: status.optional() }),
+	}),
+	/** Cancels a request into its team's first canceled status, with an optional reply. */
+	z.object({
+		name: z.literal("issue.decline"),
+		args: z.object({
+			id,
+			reply: z.object({ id, body: commentBody }).optional(),
+		}),
 	}),
 	// Adding and removing labels are set operations rather than a patch of `labelIds`, so that
 	// people labeling the same issue at the same time never conflict.

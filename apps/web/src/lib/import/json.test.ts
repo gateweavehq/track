@@ -25,6 +25,8 @@ const eng: Team = {
 	cycles: null,
 	archiveAfterMonths: null,
 	closeAfterMonths: null,
+	intakeFormKey: null,
+	intakeEmailKey: null,
 	createdAt: 1,
 	updatedAt: 1,
 };
@@ -35,6 +37,8 @@ const ops: Team = {
 	cycles: null,
 	archiveAfterMonths: null,
 	closeAfterMonths: null,
+	intakeFormKey: null,
+	intakeEmailKey: null,
 	createdAt: 1,
 	updatedAt: 1,
 };
@@ -80,6 +84,7 @@ function issue(overrides: Partial<Issue> & Pick<Issue, "id" | "teamId" | "number
 		createdAt: 1,
 		updatedAt: 1,
 		archivedAt: null,
+		intake: false,
 		...overrides,
 	};
 }

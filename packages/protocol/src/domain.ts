@@ -57,6 +57,18 @@ export const SYSTEM_ACTOR_ID = "system";
  */
 export const GITHUB_ACTOR_ID = "github";
 
+/**
+ * The actor of the requests a team's public request form files, on behalf of someone who is not a
+ * member. It is never a member's id.
+ */
+export const INTAKE_FORM_ACTOR_ID = "form";
+
+/**
+ * The actor of the requests sent to a team's intake email address, from someone who need not be
+ * a member. It is never a member's id.
+ */
+export const INTAKE_EMAIL_ACTOR_ID = "email";
+
 export interface Team {
 	id: string;
 	/** Short uppercase prefix for issue identifiers, e.g. `ENG` in `ENG-42`. */
@@ -74,6 +86,17 @@ export interface Team {
 	 * has touched them for this many months, or null for never.
 	 */
 	closeAfterMonths: number | null;
+	/**
+	 * The secret part of the link to the team's public request form, which files requests into its
+	 * intake, or null when the form is off. The server makes a new one each time the form is
+	 * turned on, so turning it off and on again retires the old link.
+	 */
+	intakeFormKey: string | null;
+	/**
+	 * The secret part of the team's intake email address, which files the email it gets into the
+	 * team's intake, or null when it is off. Like the form's key, a new one each time it is turned on.
+	 */
+	intakeEmailKey: string | null;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -150,6 +173,11 @@ export interface Issue {
 	 * the progress of their project, cycle and parent.
 	 */
 	archivedAt: number | null;
+	/**
+	 * Whether the issue is a request waiting in its team's intake, for a person to accept into the
+	 * team's workflow or decline. Requests leave lists and boards but stay in search.
+	 */
+	intake: boolean;
 }
 
 export const PROJECT_STATUSES = ["planned", "started", "paused", "completed", "canceled"] as const;
@@ -299,6 +327,8 @@ export type ActivityChange =
 	| { type: "label"; labelId: string; added: boolean }
 	/** Archived, or restored: by hand, or by reopening the issue. */
 	| { type: "archived"; archived: boolean }
+	/** A request taken out of intake: accepted into the workflow, or declined. */
+	| { type: "intake"; accepted: boolean }
 	/** Recorded on both issues, each from its own side. */
 	| { type: "relation"; kind: RelationKind; issueId: string; added: boolean };
 

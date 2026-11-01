@@ -44,6 +44,51 @@ export function limitDemoStarts(address: string): Promise<Decision> {
 	);
 }
 
+/**
+ * Requests one client network can file through public request forms, across every workspace: 10
+ * at once, refilling over an hour, within 30 a day. Turnstile stops bots; this stops a person
+ * pasting the same complaint all afternoon.
+ */
+export const REQUESTS_PER_ADDRESS: Rule[] = [
+	{ window: 60 * 60, max: 10 },
+	{ window: 24 * 60 * 60, max: 30 },
+];
+
+/** Counts one request filed through a form against a client address, per /64 for IPv6. */
+export function limitRequests(address: string): Promise<Decision> {
+	return consumeDurably(`intake:${normalizeIP(address, { ipv6Subnet: 64 })}`, REQUESTS_PER_ADDRESS);
+}
+
+/**
+ * Requests one sender can email to intake addresses, across every workspace, as through a form:
+ * 10 at once, refilling over an hour, within 30 a day.
+ */
+export const EMAILED_REQUESTS_PER_SENDER: Rule[] = REQUESTS_PER_ADDRESS;
+
+/**
+ * Requests one team's intake address takes, whoever sends them: 60 at once, refilling over an
+ * hour, within 300 a day. A sender's address costs nothing to change, so this caps a flood.
+ */
+export const EMAILED_REQUESTS_PER_TEAM: Rule[] = [
+	{ window: 60 * 60, max: 60 },
+	{ window: 24 * 60 * 60, max: 300 },
+];
+
+/**
+ * Counts one emailed request against its sender and against the team's address. The sender is
+ * the envelope's, which anyone can forge, so someone who knows an intake address can spend a real
+ * sender's allowance; the cap on each team's address is what stops a flood. The sender's limit
+ * only keeps one honest but noisy sender from filling an intake on their own.
+ */
+export async function limitEmailedRequests(sender: string, key: string): Promise<boolean> {
+	const bySender = await consumeDurably(
+		`intake-email:${sender.trim().toLowerCase()}`,
+		EMAILED_REQUESTS_PER_SENDER,
+	);
+	if (!bySender.allowed) return false;
+	return (await consumeDurably(`intake-email-team:${key}`, EMAILED_REQUESTS_PER_TEAM)).allowed;
+}
+
 const local = new LocalLimiter();
 
 /**

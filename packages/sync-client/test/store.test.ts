@@ -23,6 +23,8 @@ const team: Team = {
 	cycles: null,
 	archiveAfterMonths: null,
 	closeAfterMonths: null,
+	intakeFormKey: null,
+	intakeEmailKey: null,
 	createdAt: 1,
 	updatedAt: 1,
 };
@@ -48,6 +50,7 @@ const issue: Issue = {
 	createdAt: 2,
 	updatedAt: 2,
 	archivedAt: null,
+	intake: false,
 };
 const snapshot: Snapshot = {
 	version: 2,
@@ -844,6 +847,159 @@ describe("Replica", () => {
 				status: "in_progress",
 				archivedAt: null,
 			});
+		});
+	});
+
+	describe("intake", () => {
+		const request = { ...issue, intake: true, version: 3 };
+		const accept = (id: string, status?: string) =>
+			pending(id, { name: "issue.accept", args: { id: "i1", ...(status && { status }) } });
+		const decline = (id: string) =>
+			pending(id, {
+				name: "issue.decline",
+				args: { id: "i1", reply: { id: "c1", body: "Not for now" } },
+			});
+
+		it("predicts filing a request", () => {
+			const r = replica();
+			r.addPending(
+				pending("m1", {
+					name: "issue.create",
+					args: { ...issue, id: "i2", description: null, sortOrder: "a2", intake: true },
+				}),
+			);
+			expect(r.getState().issues.get("i2")?.intake).toBe(true);
+		});
+
+		it("predicts accepting a request, into an open status only", () => {
+			const r = replica();
+			applyOps(r, [put(3, request)]);
+			r.addPending(accept("m1", "done"));
+			expect(r.getState().issues.get("i1")?.intake).toBe(true);
+			r.addPending(accept("m2", "in_progress"));
+			expect(r.getState().issues.get("i1")).toMatchObject({
+				intake: false,
+				status: "in_progress",
+			});
+		});
+
+		it("predicts declining with a reply, and replays over the server's result unchanged", () => {
+			const r = replica();
+			applyOps(r, [put(3, request)]);
+			r.addPending(decline("m1"));
+			expect(r.getState().issues.get("i1")).toMatchObject({ intake: false, status: "canceled" });
+			expect(r.getState().comments.get("c1")).toMatchObject({
+				issueId: "i1",
+				authorId: "alice",
+				body: "Not for now",
+			});
+
+			applyOps(r, [put(4, { ...request, intake: false, status: "canceled", version: 4 })]);
+			expect(r.getState().issues.get("i1")).toMatchObject({ status: "canceled", version: 4 });
+		});
+
+		it("leaves an agent's decision to the server to refuse", () => {
+			const r = replica();
+			applyOps(r, [
+				put(3, request),
+				{
+					version: 4,
+					entity: "member",
+					id: "alice",
+					op: "put",
+					data: {
+						id: "alice",
+						name: "Alice",
+						email: "alice@example.com",
+						image: null,
+						role: "agent",
+						proposes: [],
+						removedAt: null,
+					},
+				},
+			]);
+			r.addPending(accept("m1"), decline("m2"));
+			expect(r.getState().issues.get("i1")?.intake).toBe(true);
+			expect(r.getState().comments.has("c1")).toBe(false);
+		});
+
+		it("predicts turning a team's request form off, and leaves its new link to the server", () => {
+			const r = replica();
+			applyOps(r, [
+				{
+					version: 3,
+					entity: "team",
+					id: "t1",
+					op: "put",
+					data: { ...team, intakeFormKey: "a".repeat(32) },
+				},
+			]);
+			const turn = (id: string, intakeForm: boolean) =>
+				pending(id, { name: "team.update", args: { id: "t1", patch: { intakeForm } } });
+			r.addPending(turn("m1", true));
+			expect(r.getState().teams.get("t1")?.intakeFormKey).toBe("a".repeat(32));
+			r.addPending(turn("m2", false));
+			expect(r.getState().teams.get("t1")?.intakeFormKey).toBeNull();
+			expect(r.getState().teams.get("t1")).not.toHaveProperty("intakeForm");
+		});
+
+		it("predicts that a request is never closed but by declining it", () => {
+			const r = replica();
+			applyOps(r, [put(3, request)]);
+			r.addPending(
+				pending("m1", {
+					name: "issue.create",
+					args: { ...issue, id: "i2", description: null, status: "done", intake: true },
+				}),
+				pending("m2", {
+					name: "issue.update",
+					args: { id: "i1", baseVersion: 3, patch: { status: "canceled" } },
+				}),
+			);
+			expect(r.getState().issues.has("i2")).toBe(false);
+			expect(r.getState().issues.get("i1")).toMatchObject({ status: "backlog", intake: true });
+		});
+
+		it("predicts that a change to the workflow that closes a request declines it", () => {
+			const r = replica();
+			applyOps(r, [
+				put(3, request),
+				put(4, { ...request, id: "i2", number: 2, status: "todo" }),
+				{
+					version: 5,
+					entity: "member",
+					id: "alice",
+					op: "put",
+					data: {
+						id: "alice",
+						name: "Alice",
+						email: "alice@example.com",
+						image: null,
+						role: "admin",
+						proposes: [],
+						removedAt: null,
+					},
+				},
+			]);
+			r.addPending(
+				pending("m1", {
+					name: "status.update",
+					args: { teamId: "t1", key: "backlog", patch: { category: "canceled" } },
+				}),
+				pending("m2", {
+					name: "status.delete",
+					args: { teamId: "t1", key: "todo", moveTo: "done" },
+				}),
+			);
+			expect(r.getState().issues.get("i1")?.intake).toBe(false);
+			expect(r.getState().issues.get("i2")).toMatchObject({ status: "done", intake: false });
+		});
+
+		it("predicts that a request is not archived", () => {
+			const r = replica();
+			applyOps(r, [put(3, { ...request, status: "done" })]);
+			r.addPending(pending("m1", { name: "issue.archive", args: { id: "i1", archived: true } }));
+			expect(r.getState().issues.get("i1")?.archivedAt).toBeNull();
 		});
 	});
 

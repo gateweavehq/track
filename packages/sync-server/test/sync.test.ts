@@ -580,6 +580,388 @@ describe("archive", () => {
 	});
 });
 
+describe("intake", () => {
+	const triage: MemberProfile = { ...owner, id: "user-triage", name: "Triage", role: "agent" };
+
+	async function fileRequest(client: TestClient, id: string, title = "Export to PDF") {
+		await client.apply({
+			name: "issue.create",
+			args: { id, teamId: TEAM_ID, title, sortOrder: "a0", intake: true },
+		});
+		return issueOf(client, id);
+	}
+
+	async function historyOf(workspace: Workspace, issueId: string) {
+		const { activities } = await snapshotOf(workspace);
+		return activities
+			.filter((activity) => activity.issueId === issueId)
+			.map(({ actorId, change }) => ({ actorId, change }));
+	}
+
+	it("files a request that everyone sees, and that server-side queries tell apart", async () => {
+		const { workspace, admin } = await withTeam();
+		const viewer = await TestClient.live(workspace, alice);
+		await createIssue(admin, "issue-1", "Planned");
+		const request = await fileRequest(viewer, "issue-2", "Requested");
+		expect(request).toMatchObject({ intake: true, status: "backlog" });
+		expect(await issueOf(admin, "issue-1")).toMatchObject({ intake: false });
+
+		const titles = async (intake?: boolean) =>
+			(await workspace.issues({ intake, limit: 10 })).map((issue) => issue.title).sort();
+		expect(await titles()).toEqual(["Planned", "Requested"]);
+		expect(await titles(true)).toEqual(["Requested"]);
+		expect(await titles(false)).toEqual(["Planned"]);
+	});
+
+	it("accepts a request into the workflow, in its status or an open one", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		const kept = await fileRequest(admin, "issue-1");
+		const moved = await fileRequest(admin, "issue-2");
+
+		expect(
+			await member.mutate({ name: "issue.accept", args: { id: moved.id, status: "done" } }),
+		).toMatchObject({
+			type: "reject",
+			reason: "invalid",
+			message: "Decline a request to close it",
+		});
+		expect(
+			await member.mutate({ name: "issue.accept", args: { id: moved.id, status: "nope" } }),
+		).toMatchObject({ type: "reject", reason: "invalid" });
+
+		await member.apply({ name: "issue.accept", args: { id: kept.id } });
+		expect(await issueOf(admin, kept.id)).toMatchObject({ intake: false, status: "backlog" });
+		await member.apply({ name: "issue.accept", args: { id: moved.id, status: "todo" } });
+		expect(await issueOf(admin, moved.id)).toMatchObject({ intake: false, status: "todo" });
+		expect(await historyOf(workspace, moved.id)).toEqual([
+			{ actorId: alice.id, change: { type: "intake", accepted: true } },
+			{ actorId: alice.id, change: { type: "status", from: "backlog", to: "todo" } },
+		]);
+
+		// Deciding on what is no longer a request is a conflict, which writes nothing.
+		const before = (await snapshotOf(workspace)).version;
+		expect(
+			await admin.mutate({ name: "issue.accept", args: { id: kept.id, status: "in_progress" } }),
+		).toMatchObject({
+			type: "reject",
+			reason: "conflict",
+			message: "Someone already decided on this request",
+		});
+		expect((await snapshotOf(workspace)).version).toBe(before);
+		expect(await admin.mutate({ name: "issue.accept", args: { id: "missing" } })).toMatchObject({
+			type: "reject",
+			reason: "not_found",
+		});
+	});
+
+	it("declines a request into the team's first canceled status, with a reply", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		// Alice files it, so she follows it and hears of the reply.
+		const request = await fileRequest(member, "issue-1");
+
+		await admin.apply({
+			name: "issue.decline",
+			args: { id: request.id, reply: { id: "comment-1", body: "Out of scope for now." } },
+		});
+		expect(await issueOf(member, request.id)).toMatchObject({ intake: false, status: "canceled" });
+		const snapshot = await snapshotOf(workspace);
+		expect(snapshot.comments).toEqual([
+			expect.objectContaining({ id: "comment-1", authorId: owner.id, issueId: request.id }),
+		]);
+		expect(await historyOf(workspace, request.id)).toEqual([
+			{ actorId: owner.id, change: { type: "intake", accepted: false } },
+			{ actorId: owner.id, change: { type: "status", from: "backlog", to: "canceled" } },
+		]);
+		const inbox = (await workspace.snapshot(alice)).inbox;
+		expect(inbox.find((item) => item.issueId === request.id)).toMatchObject({ unread: 2 });
+	});
+
+	it("refuses to decline where the team has no canceled status", async () => {
+		const { admin } = await withTeam();
+		const request = await fileRequest(admin, "issue-1");
+		await admin.apply({
+			name: "status.delete",
+			args: { teamId: TEAM_ID, key: "canceled", moveTo: "backlog" },
+		});
+		expect(
+			await admin.mutate({
+				name: "issue.decline",
+				args: { id: request.id, reply: { id: "comment-1", body: "No" } },
+			}),
+		).toMatchObject({
+			type: "reject",
+			reason: "invalid",
+			message: "The team has no canceled status to decline into",
+		});
+	});
+
+	it("lets agents file and work on requests, but only people decide on them", async () => {
+		const { workspace, admin } = await withTeam();
+		const agent = await TestClient.live(workspace, triage);
+		const request = await fileRequest(agent, "issue-1");
+		await agent.apply({
+			name: "issue.update",
+			args: { id: request.id, baseVersion: request.version, patch: { priority: 2 } },
+		});
+
+		expect(await agent.mutate({ name: "issue.accept", args: { id: request.id } })).toMatchObject({
+			type: "reject",
+			reason: "forbidden",
+		});
+		expect(await agent.mutate({ name: "issue.decline", args: { id: request.id } })).toMatchObject({
+			type: "reject",
+			reason: "forbidden",
+		});
+		expect(await issueOf(admin, request.id)).toMatchObject({ intake: true, priority: 2 });
+	});
+
+	it("files requests through a team's form while an admin has it on", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		const formOf = async () =>
+			(await snapshotOf(workspace)).teams.find((team) => team.id === TEAM_ID)?.intakeFormKey;
+		const turn = (client: TestClient, intakeForm: boolean) =>
+			client.mutate({ name: "team.update", args: { id: TEAM_ID, patch: { intakeForm } } });
+		const file = (formKey: string, title: string) =>
+			workspace.fileRequest({
+				via: "form",
+				key: formKey,
+				title,
+				description: "From the site",
+				sortOrder: "a5",
+			});
+
+		expect(await formOf()).toBeNull();
+		expect(await turn(member, true)).toMatchObject({ type: "reject", reason: "forbidden" });
+		await turn(admin, true);
+		const key = await formOf();
+		expect(key).toMatch(/^[0-9a-f]{32}$/);
+		if (!key) throw new Error("No form");
+		expect(await workspace.intakeForm(key)).toEqual({ teamId: TEAM_ID, teamName: "Engineering" });
+		expect(await workspace.intakeForm("0".repeat(32))).toBeNull();
+
+		expect(await file(key, "Export to PDF")).toBe(true);
+		const filed = await member.op((op) => op.op === "put" && op.entity === "issue");
+		expect(filed).toMatchObject({
+			data: {
+				title: "Export to PDF",
+				description: "From the site",
+				intake: true,
+				status: "backlog",
+				creatorId: "form",
+				number: 1,
+			},
+		});
+		expect(await file(key, "  ")).toBe(false);
+
+		// Turned off and on again, the form has a new link, and the old one files nothing.
+		await turn(admin, false);
+		expect(await file(key, "Late")).toBe(false);
+		await turn(admin, true);
+		const replaced = await formOf();
+		expect(replaced).not.toBe(key);
+		expect(await workspace.intakeForm(key)).toBeNull();
+		expect((await snapshotOf(workspace)).issues.map((issue) => issue.title)).toEqual([
+			"Export to PDF",
+		]);
+	});
+
+	it("files emailed requests while the team's address is on, each channel by its own key", async () => {
+		const { workspace, admin } = await withTeam();
+		const team = async () =>
+			(await snapshotOf(workspace)).teams.find((each) => each.id === TEAM_ID);
+		const turn = (patch: { intakeEmail?: boolean; intakeForm?: boolean }) =>
+			admin.apply({ name: "team.update", args: { id: TEAM_ID, patch } });
+		const file = (via: "form" | "email", key: string, title: string) =>
+			workspace.fileRequest({ via, key, title, description: null, sortOrder: "a5" });
+
+		await turn({ intakeEmail: true, intakeForm: true });
+		const { intakeEmailKey: emailKey, intakeFormKey: formKey } = (await team()) ?? {};
+		expect(emailKey).toMatch(/^[a-z2-7]{16}$/);
+		if (!emailKey || !formKey) throw new Error("No channels");
+
+		expect(await workspace.intakeEmail(emailKey)).toEqual({
+			teamId: TEAM_ID,
+			teamName: "Engineering",
+		});
+		expect(await workspace.intakeEmail(formKey)).toBeNull();
+		expect(await file("email", emailKey, "Broken export")).toBe(true);
+		// A key opens only its own channel.
+		expect(await file("form", emailKey, "Wrong way in")).toBe(false);
+		expect(await file("email", formKey, "Wrong way in")).toBe(false);
+		expect((await snapshotOf(workspace)).issues).toEqual([
+			expect.objectContaining({ title: "Broken export", creatorId: "email", intake: true }),
+		]);
+
+		await turn({ intakeEmail: false });
+		expect((await team())?.intakeEmailKey).toBeNull();
+		expect((await team())?.intakeFormKey).toBe(formKey);
+		expect(await file("email", emailKey, "Late")).toBe(false);
+	});
+
+	it("tells whoever decides second that someone already did, and keeps their reply out", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		const request = await fileRequest(admin, "issue-1");
+		await admin.apply({ name: "issue.accept", args: { id: request.id } });
+		expect(
+			await member.mutate({
+				name: "issue.decline",
+				args: { id: request.id, reply: { id: "comment-1", body: "Not for now" } },
+			}),
+		).toMatchObject({ type: "reject", reason: "conflict" });
+		const snapshot = await snapshotOf(workspace);
+		expect(snapshot.comments).toEqual([]);
+		expect(snapshot.issues).toEqual([
+			expect.objectContaining({ id: request.id, intake: false, status: "backlog" }),
+		]);
+	});
+
+	it("makes an earlier offline edit to a request's status conflict once someone decides", async () => {
+		const { workspace, admin } = await withTeam();
+		const offline = await TestClient.live(workspace, alice);
+		const accepted = await fileRequest(admin, "issue-1");
+		const declined = await fileRequest(admin, "issue-2");
+		await admin.apply({ name: "issue.accept", args: { id: accepted.id, status: "todo" } });
+		await admin.apply({ name: "issue.decline", args: { id: declined.id } });
+
+		// Edits made before the decisions, from the versions the person had then.
+		for (const request of [accepted, declined]) {
+			expect(
+				await offline.mutate({
+					name: "issue.update",
+					args: {
+						id: request.id,
+						baseVersion: request.version,
+						patch: { status: "in_progress" },
+					},
+				}),
+			).toMatchObject({ type: "reject", reason: "conflict" });
+		}
+		expect(await issueOf(admin, accepted.id)).toMatchObject({ status: "todo" });
+		expect(await issueOf(admin, declined.id)).toMatchObject({ status: "canceled" });
+	});
+
+	it("never lets a request be closed but by declining it", async () => {
+		const { workspace, admin } = await withTeam();
+		const agent = await TestClient.live(workspace, triage);
+		expect(
+			await admin.mutate({
+				name: "issue.create",
+				args: {
+					id: "issue-0",
+					teamId: TEAM_ID,
+					title: "Done",
+					sortOrder: "a0",
+					status: "done",
+					intake: true,
+				},
+			}),
+		).toMatchObject({
+			type: "reject",
+			reason: "invalid",
+			message: "A request cannot start closed",
+		});
+
+		const request = await fileRequest(admin, "issue-1");
+		for (const client of [admin, agent]) {
+			expect(
+				await client.mutate({
+					name: "issue.update",
+					args: { id: request.id, baseVersion: request.version, patch: { status: "canceled" } },
+				}),
+			).toMatchObject({
+				type: "reject",
+				reason: "invalid",
+				message: "Accept or decline a request first",
+			});
+		}
+		// Nor through an agent's proposal, which is refused before it is made.
+		await admin.apply({
+			name: "agent.update",
+			args: { id: triage.id, patch: { proposes: ["status"] } },
+		});
+		expect(
+			await agent.mutate({
+				name: "issue.update",
+				args: { id: request.id, baseVersion: request.version, patch: { status: "done" } },
+			}),
+		).toMatchObject({ type: "reject", reason: "invalid" });
+		expect((await snapshotOf(workspace)).proposals).toEqual([]);
+
+		// An open status is a change like any other.
+		await admin.apply({
+			name: "issue.update",
+			args: { id: request.id, baseVersion: request.version, patch: { status: "todo" } },
+		});
+		expect(await issueOf(admin, request.id)).toMatchObject({ intake: true, status: "todo" });
+		// An open request cannot be archived either.
+		expect(
+			await admin.mutate({ name: "issue.archive", args: { id: request.id, archived: true } }),
+		).toMatchObject({ type: "reject", reason: "invalid" });
+	});
+
+	it("declines requests whose status a change to the workflow makes closing", async () => {
+		const { workspace, admin } = await withTeam();
+		const recategorized = await fileRequest(admin, "issue-1");
+		const moved = await fileRequest(admin, "issue-2");
+		await admin.apply({
+			name: "status.create",
+			args: {
+				teamId: TEAM_ID,
+				key: "triage",
+				name: "Triage",
+				category: "unstarted",
+				sortOrder: "a1",
+			},
+		});
+		for (const [request, status] of [
+			[recategorized, "triage"],
+			[moved, "todo"],
+		] as const) {
+			await admin.apply({
+				name: "issue.update",
+				args: { id: request.id, baseVersion: request.version, patch: { status } },
+			});
+		}
+
+		await admin.apply({
+			name: "status.update",
+			args: { teamId: TEAM_ID, key: "triage", patch: { category: "canceled" } },
+		});
+		expect(await issueOf(admin, recategorized.id)).toMatchObject({
+			intake: false,
+			status: "triage",
+		});
+		await admin.apply({
+			name: "status.delete",
+			args: { teamId: TEAM_ID, key: "todo", moveTo: "done" },
+		});
+		expect(await issueOf(admin, moved.id)).toMatchObject({ intake: false, status: "done" });
+
+		const { activities } = await snapshotOf(workspace);
+		for (const request of [recategorized, moved]) {
+			expect(activities.filter((activity) => activity.issueId === request.id).at(-1)).toMatchObject(
+				{ actorId: owner.id, change: { type: "intake", accepted: false } },
+			);
+		}
+	});
+
+	it("keeps a request out of the archive until someone decides on it", async () => {
+		const { admin } = await withTeam();
+		const request = await fileRequest(admin, "issue-1");
+		expect(
+			await admin.mutate({ name: "issue.archive", args: { id: request.id, archived: true } }),
+		).toMatchObject({
+			type: "reject",
+			reason: "invalid",
+			message: "Accept or decline the request before archiving it",
+		});
+	});
+});
+
 describe("relations", () => {
 	function relate(
 		client: TestClient,
@@ -2709,6 +3091,11 @@ describe("search", () => {
 			db.run(sql`alter table issues drop column archived_at`);
 			db.run(sql`alter table teams drop column archive_after_months`);
 			db.run(sql`alter table teams drop column close_after_months`);
+			db.run(sql`alter table issues drop column intake`);
+			db.run(sql`drop index teams_intake_form_key_unique`);
+			db.run(sql`alter table teams drop column intake_form_key`);
+			db.run(sql`drop index teams_intake_email_key_unique`);
+			db.run(sql`alter table teams drop column intake_email_key`);
 			db.run(sql`drop table templates`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${search.when}`);
 			await migrate(db, migrations);

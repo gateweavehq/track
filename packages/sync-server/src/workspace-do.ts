@@ -43,6 +43,7 @@ import {
 	rotateGitHubSecret,
 	verifyGitHubDelivery,
 } from "./github";
+import { fileRequest, findIntake, type IntakeTarget, intakeRequest } from "./intake";
 import {
 	compact,
 	currentVersion,
@@ -140,6 +141,7 @@ const issueQuery = z.object({
 	parentId: shortId.optional(),
 	labelId: shortId.optional(),
 	archived: z.boolean().optional(),
+	intake: z.boolean().optional(),
 	text: z.string().max(200).optional(),
 	limit: z.number().int().min(1).max(MAX_QUERY_LIMIT),
 });
@@ -431,6 +433,34 @@ export class WorkspaceDO extends DurableObject {
 		if (!verified) return { status: 401 };
 		this.#write(() => applyGitHubDelivery(this.#db, delivery, Date.now()));
 		return { status: 202 };
+	}
+
+	// Requests from people who need not be members, through a team's public form or its intake
+	// email address. The gateway has checked the workspace exists and who may send them; the
+	// channel's key is what admits them.
+
+	/** The team a request form's key opens, or null for a form that is off or never was. */
+	intakeForm(key: string): IntakeTarget | null {
+		return findIntake(this.#db, "form", z.string().max(64).parse(key));
+	}
+
+	/** The team an intake email key reaches, or null for an address that is off or never was. */
+	intakeEmail(key: string): IntakeTarget | null {
+		return findIntake(this.#db, "email", z.string().max(64).parse(key));
+	}
+
+	/** Files a request through a team's channel. False when it is off, or the request invalid. */
+	fileRequest(input: unknown): boolean {
+		const parsed = intakeRequest.safeParse(input);
+		if (!parsed.success) return false;
+		const request = parsed.data;
+		let filed = false;
+		this.#write(() => {
+			const outcome = fileRequest(this.#db, request, Date.now());
+			filed = outcome !== null;
+			return outcome?.result ?? { version: currentVersion(this.#db), ops: [] };
+		});
+		return filed;
 	}
 
 	/** Follows a change of the workspace's slug, so webhook payloads link to the right place. */

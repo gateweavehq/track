@@ -51,6 +51,8 @@ const team: Team = {
 	cycles: null,
 	archiveAfterMonths: null,
 	closeAfterMonths: null,
+	intakeFormKey: null,
+	intakeEmailKey: null,
 	createdAt: 0,
 	updatedAt: 0,
 };
@@ -115,6 +117,7 @@ class FakeWorkspace implements WorkspaceAccess {
 			.filter(
 				(issue) => query.archived === undefined || (issue.archivedAt !== null) === query.archived,
 			)
+			.filter((issue) => query.intake === undefined || issue.intake === query.intake)
 			.slice(0, query.limit);
 	}
 	async issue(id: string) {
@@ -214,6 +217,7 @@ class FakeWorkspace implements WorkspaceAccess {
 				createdAt: Date.UTC(2026, 9, 27),
 				updatedAt: Date.UTC(2026, 9, 27),
 				archivedAt: null,
+				intake: args.intake ?? false,
 			});
 		} else if (mutation.name === "issue.update") {
 			const { id, patch } = mutation.args;
@@ -248,6 +252,17 @@ class FakeWorkspace implements WorkspaceAccess {
 		} else if (mutation.name === "issue.archive") {
 			const issue = this.issues_.find((issue) => issue.id === mutation.args.id);
 			if (issue) Object.assign(issue, { archivedAt: mutation.args.archived ? 1 : null, version });
+		} else if (mutation.name === "issue.accept" || mutation.name === "issue.decline") {
+			// The rule the server applies: only people take a request out of intake.
+			if (this.me.role === "agent") {
+				return { ok: false, reason: "forbidden", message: "Only people can accept requests" };
+			}
+			const issue = this.issues_.find((issue) => issue.id === mutation.args.id);
+			if (issue && mutation.name === "issue.accept") {
+				Object.assign(issue, { intake: false, status: mutation.args.status ?? issue.status });
+			} else if (issue) {
+				Object.assign(issue, { intake: false, status: "canceled" });
+			}
 		} else if (mutation.name === "label.create") {
 			this.labels.push({ ...mutation.args, createdAt: 0, updatedAt: 0 });
 		} else if (mutation.name === "team.create") {
@@ -256,6 +271,8 @@ class FakeWorkspace implements WorkspaceAccess {
 				cycles: null,
 				archiveAfterMonths: null,
 				closeAfterMonths: null,
+				intakeFormKey: null,
+				intakeEmailKey: null,
 				createdAt: 0,
 				updatedAt: 0,
 			});
@@ -338,6 +355,7 @@ describe("Track MCP tools", () => {
 			"list_workspaces",
 			"post_project_update",
 			"search_issues",
+			"triage_request",
 			"unlink_issues",
 			"update_issue",
 			"update_project",
@@ -849,6 +867,64 @@ describe("Track MCP tools", () => {
 			archived: false,
 		});
 		expect(restored.structuredContent).toMatchObject({ archived: false });
+	});
+
+	it("files requests into intake, finds them, and accepts or declines them", async () => {
+		const filed = await call("create_issue", {
+			workspace: "acme",
+			team: "ENG",
+			title: "Export to PDF",
+			intake: true,
+		});
+		expect(filed.structuredContent).toMatchObject({ key: "ENG-1", intake: true });
+		expect(workspace.mutations.at(-1)).toMatchObject({ args: { intake: true } });
+		await created({ title: "Planned work" });
+
+		const titles = async (intake?: boolean) =>
+			(
+				(await call("search_issues", { workspace: "acme", intake })).structuredContent as {
+					issues: { title: string }[];
+				}
+			).issues.map((issue) => issue.title);
+		expect(await titles(true)).toEqual(["Export to PDF"]);
+		expect(await titles(false)).toEqual(["Planned work"]);
+
+		const notRequest = await call("triage_request", {
+			workspace: "acme",
+			key: "ENG-2",
+			decision: "accept",
+		});
+		expect(notRequest.isError).toBe(true);
+
+		const accepted = await call("triage_request", {
+			workspace: "acme",
+			key: "ENG-1",
+			decision: "accept",
+			status: "Todo",
+		});
+		expect(accepted.structuredContent).toMatchObject({ intake: false, status: "todo" });
+		expect(workspace.mutations.at(-1)).toEqual({
+			name: "issue.accept",
+			args: { id: expect.any(String), status: "todo" },
+		});
+
+		await call("create_issue", {
+			workspace: "acme",
+			team: "ENG",
+			title: "Dark mode",
+			intake: true,
+		});
+		const declined = await call("triage_request", {
+			workspace: "acme",
+			key: "ENG-3",
+			decision: "decline",
+			reply: "We track this in ENG-9.",
+		});
+		expect(declined.structuredContent).toMatchObject({ intake: false });
+		expect(workspace.mutations.at(-1)).toMatchObject({
+			name: "issue.decline",
+			args: { reply: { body: "We track this in ENG-9." } },
+		});
 	});
 
 	it("refuses an update that changes nothing", async () => {

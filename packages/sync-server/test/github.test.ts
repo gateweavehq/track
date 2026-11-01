@@ -340,6 +340,28 @@ describe("pull requests", () => {
 		expect(await statuses(workspace)).toMatchObject({ "issue-1": "done", "issue-2": "canceled" });
 	});
 
+	it("link requests in intake but leave them for a person to decide on", async () => {
+		const { workspace, as, deliver } = await setup();
+		await as(owner, {
+			name: "issue.create",
+			args: { id: "request", teamId: "team-eng", title: "Request", sortOrder: "a4", intake: true },
+		});
+		await deliver(
+			"pull_request",
+			pullRequest("closed", {
+				body: "Fixes ENG-4",
+				state: "closed",
+				merged_at: "2026-10-31T09:00:00Z",
+			}),
+		);
+		expect((await pullRequests(workspace))[0]?.closingIssueIds).toContain("request");
+		const snapshot = await workspace.snapshot(owner);
+		expect(snapshot.issues.find((issue) => issue.id === "request")).toMatchObject({
+			status: "backlog",
+			intake: true,
+		});
+	});
+
 	it("follow the team's own statuses, in its order", async () => {
 		const { workspace, as, deliver } = await setup();
 		const status = (

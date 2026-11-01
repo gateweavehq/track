@@ -433,10 +433,11 @@ export function useIssues(filter: (issue: Issue) => boolean): Issue[] {
 
 /**
  * Whether lists and boards show the issue. Archived issues leave them, and stay everywhere else:
- * in search, in history, and in the progress of their project, cycle and parent.
+ * in search, in history, and in the progress of their project, cycle and parent. Requests in
+ * intake wait on the team's intake page until someone accepts them.
  */
 export function isListed(issue: Issue): boolean {
-	return issue.archivedAt === null;
+	return issue.archivedAt === null && !issue.intake;
 }
 
 /** A team's issues for its list: archived ones leave it. */
@@ -471,6 +472,20 @@ export function useArchivedIssues(teamId: string): Issue[] {
 				[...state.issues.values()]
 					.filter((issue) => issue.teamId === teamId && issue.archivedAt !== null)
 					.sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0)),
+			[teamId],
+		),
+		shallowEqual,
+	);
+}
+
+/** A team's requests in intake, the oldest first, as they were filed. */
+export function useIntakeIssues(teamId: string): Issue[] {
+	return useQuery(
+		useCallback(
+			(state: SyncState) =>
+				[...state.issues.values()]
+					.filter((issue) => issue.teamId === teamId && issue.intake)
+					.sort((a, b) => a.createdAt - b.createdAt || a.number - b.number),
 			[teamId],
 		),
 		shallowEqual,

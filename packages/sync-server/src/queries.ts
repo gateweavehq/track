@@ -63,6 +63,8 @@ export interface IssueQuery {
 	labelId?: string | undefined;
 	/** Only archived issues, or only the others. Left out, both. */
 	archived?: boolean | undefined;
+	/** Only requests in intake, or only the others. Left out, both. */
+	intake?: boolean | undefined;
 	/**
 	 * Words to find in the key, title, description or comments; each must start a word there,
 	 * ignoring case and diacritics. Matches come best first. See `search.ts`.
@@ -153,6 +155,7 @@ export function findIssues(db: Db, query: IssueQuery): Issue[] {
 			query.archived ? isNotNull(schema.issues.archivedAt) : isNull(schema.issues.archivedAt),
 		);
 	}
+	if (query.intake !== undefined) filters.push(eq(schema.issues.intake, query.intake));
 	if (query.labelId !== undefined) {
 		filters.push(
 			sql`exists (select 1 from json_each(${schema.issues.labelIds}) where value = ${query.labelId})`,
