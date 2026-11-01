@@ -16,6 +16,7 @@ import {
 	PING,
 	PONG,
 	PROTOCOL_VERSION,
+	type ProjectUpdate,
 	type Proposal,
 	type PullRequest,
 	type RejectReason,
@@ -69,6 +70,7 @@ import {
 	findIssueById,
 	findIssueByKey,
 	findIssues,
+	findProjectUpdates,
 	findPullRequests,
 	findRelations,
 	type InsightScope,
@@ -251,6 +253,11 @@ export class WorkspaceDO extends DurableObject {
 	/** A team's or a project's issues and their status changes, for insights. */
 	insightSource(scope: InsightScope): { issues: Issue[]; activities: Activity[] } {
 		return findInsightSource(this.#db, insightScope.parse(scope));
+	}
+
+	/** A live project's updates, the latest first. */
+	projectUpdates(projectId: string): ProjectUpdate[] {
+		return findProjectUpdates(this.#db, shortId.parse(projectId));
 	}
 
 	/** An issue's relations, from either side. */

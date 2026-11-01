@@ -12,6 +12,7 @@ import type {
 	Label,
 	Member,
 	Project,
+	ProjectUpdate,
 	Proposal,
 	PullRequest,
 	SavedView,
@@ -22,7 +23,7 @@ import type { MutationInput } from "./mutations";
 import type { WorkflowStatus } from "./statuses";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 20;
+export const PROTOCOL_VERSION = 21;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";
@@ -107,6 +108,8 @@ export interface Snapshot {
 	issues: Issue[];
 	labels: Label[];
 	projects: Project[];
+	/** The updates of live projects. */
+	projectUpdates: ProjectUpdate[];
 	cycles: Cycle[];
 	/** Comments, activity and open proposals of live issues only. */
 	comments: Comment[];
@@ -133,6 +136,7 @@ export const SNAPSHOT_KEYS = {
 	issue: "issues",
 	label: "labels",
 	project: "projects",
+	projectUpdate: "projectUpdates",
 	cycle: "cycles",
 	comment: "comments",
 	activity: "activities",

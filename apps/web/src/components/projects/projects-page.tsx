@@ -6,9 +6,14 @@ import { useWorkspace, useWorkspaceActions } from "#/components/workspace/contex
 import { Notice } from "#/components/workspace/notice";
 import { formatDay } from "#/lib/dates";
 import { isOverdue, progressPercent } from "#/lib/projects";
-import { type ProjectSummary, useMembersById, useProjects } from "#/lib/queries";
+import {
+	type ProjectSummary,
+	useLatestProjectUpdates,
+	useMembersById,
+	useProjects,
+} from "#/lib/queries";
 import { cn } from "#/lib/utils";
-import { PROJECT_STATUS_META, ProjectStatusIcon } from "./meta";
+import { PROJECT_STATUS_META, ProjectHealthBadge, ProjectStatusIcon } from "./meta";
 
 /** Every project of the workspace, with who leads it, when it is due and how far along it is. */
 export function ProjectsPage() {
@@ -46,6 +51,7 @@ export function ProjectsPage() {
 function ProjectRow({ summary: { project, issues, progress } }: { summary: ProjectSummary }) {
 	const { slug } = useWorkspace();
 	const lead = useMembersById().get(project.leadId ?? "");
+	const health = useLatestProjectUpdates().get(project.id)?.health;
 	const percent = progressPercent(progress);
 	const overdue = isOverdue(project);
 
@@ -60,6 +66,7 @@ function ProjectRow({ summary: { project, issues, progress } }: { summary: Proje
 				{project.name}
 				<span className="sr-only">, {PROJECT_STATUS_META[project.status].label}</span>
 			</Link>
+			{health && <ProjectHealthBadge health={health} className="hidden sm:inline-flex" />}
 			<span
 				className="hidden w-36 shrink-0 items-center gap-2 truncate text-muted-foreground md:flex"
 				title={lead ? `Lead: ${lead.name}` : "No lead"}

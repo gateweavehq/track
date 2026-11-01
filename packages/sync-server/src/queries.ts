@@ -10,6 +10,8 @@ import {
 	type Label,
 	type Member,
 	type Project,
+	type ProjectHealth,
+	type ProjectUpdate,
 	type PullRequest,
 	type Team,
 	type WorkflowStatus,
@@ -38,6 +40,7 @@ import {
 	toLabel,
 	toMember,
 	toProject,
+	toProjectUpdate,
 	toPullRequest,
 	toRelation,
 	toStatus,
@@ -85,9 +88,20 @@ export interface Directory {
 	members: Member[];
 	/** Every team's issue templates, by name. */
 	templates: IssueTemplate[];
+	/** Each project's health, as its latest update says it, by project id. */
+	projectHealth: Record<string, ProjectHealth>;
 }
 
 export function readDirectory(db: Db): Directory {
+	const projectHealth: Record<string, ProjectHealth> = {};
+	const updates = db
+		.select({ projectId: schema.projectUpdates.projectId, health: schema.projectUpdates.health })
+		.from(schema.projectUpdates)
+		.where(isNull(schema.projectUpdates.deletedAt))
+		.orderBy(asc(schema.projectUpdates.createdAt), asc(schema.projectUpdates.id))
+		.all();
+	// Oldest first, so the latest of each project is the one left.
+	for (const update of updates) projectHealth[update.projectId] = update.health;
 	return {
 		teams: db.select().from(schema.teams).orderBy(schema.teams.key).all().map(toTeam),
 		statuses: db.select().from(schema.statuses).all().map(toStatus).sort(compareStatuses),
@@ -118,6 +132,7 @@ export function readDirectory(db: Db): Directory {
 			.orderBy(schema.templates.teamId, schema.templates.name)
 			.all()
 			.map(toTemplate),
+		projectHealth,
 	};
 }
 
@@ -250,6 +265,24 @@ export function findComments(db: Db, issueId: string): Comment[] {
 		.orderBy(asc(schema.comments.createdAt), asc(schema.comments.id))
 		.all()
 		.map(toComment);
+}
+
+/** A live project's updates, the latest first. */
+export function findProjectUpdates(db: Db, projectId: string): ProjectUpdate[] {
+	return db
+		.select({ update: schema.projectUpdates })
+		.from(schema.projectUpdates)
+		.innerJoin(schema.projects, eq(schema.projects.id, schema.projectUpdates.projectId))
+		.where(
+			and(
+				eq(schema.projectUpdates.projectId, projectId),
+				isNull(schema.projectUpdates.deletedAt),
+				isNull(schema.projects.deletedAt),
+			),
+		)
+		.orderBy(desc(schema.projectUpdates.createdAt), desc(schema.projectUpdates.id))
+		.all()
+		.map(({ update }) => toProjectUpdate(update));
 }
 
 /** The pull requests that mention a live issue, oldest first. */
