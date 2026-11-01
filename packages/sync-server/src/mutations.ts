@@ -95,7 +95,7 @@ export function applyMutation(
 			break;
 		case "status.update":
 			requireAdmin(actor, "Only workspace admins can manage statuses");
-			updateStatus(db, changes, mutation.args);
+			updateStatus(db, changes, actor.member.userId, mutation.args);
 			break;
 		case "status.delete":
 			requireAdmin(actor, "Only workspace admins can manage statuses");
@@ -292,6 +292,10 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 	const first = defaultStatusKey(db, team.id);
 	const requestedStatus = args.status ?? first;
 	assertStatus(db, team.id, requestedStatus);
+	// A request is never closed: declining is how it closes.
+	if (args.intake && isClosedStatus(db, team.id, requestedStatus)) {
+		throw new MutationRejected("invalid", "A request cannot start closed");
+	}
 	assertAssignable(db, args.assigneeId);
 	assertProjectLive(db, args.projectId);
 	assertCycle(db, team.id, args.cycleId);
@@ -367,6 +371,14 @@ function updateIssue(
 ) {
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
+	// A request is never closed, by anyone or any proposal: a person declines it instead.
+	if (
+		issue.intake &&
+		args.patch.status !== undefined &&
+		isClosedStatus(db, issue.teamId, args.patch.status)
+	) {
+		throw new MutationRejected("invalid", "Accept or decline a request first");
+	}
 	if (args.patch.assigneeId !== undefined) assertAssignable(db, args.patch.assigneeId);
 	if (args.patch.projectId !== undefined) assertProjectLive(db, args.patch.projectId);
 	// An issue may keep a completed cycle it is already in.
@@ -482,13 +494,14 @@ function archiveIssue(
 
 /**
  * Takes a request out of intake into its team's workflow, in its status or the open one named.
- * Accepting what is no longer a request changes nothing, so two people accepting at once agree.
+ * Deciding on what is no longer a request is a conflict, so whoever decided second hears that
+ * someone else did; a retried mutation id is answered before that, as applied.
  */
 function acceptIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"issue.accept">) {
 	requirePerson(actor, "Only people can accept requests");
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
-	if (!issue.intake) return;
+	if (!issue.intake) throw alreadyDecided();
 	if (args.status !== undefined) {
 		assertStatus(db, issue.teamId, args.status);
 		if (isClosedStatus(db, issue.teamId, args.status)) {
@@ -500,7 +513,8 @@ function acceptIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 
 /**
  * Takes a request out of intake into its team's first canceled status, after the reply, if any,
- * is posted as the person declining. Declining what is no longer a request changes nothing.
+ * is posted as the person declining. Declining what is no longer a request is a conflict, which
+ * keeps the reply from being lost unseen.
  */
 function declineIssue(
 	db: Db,
@@ -511,7 +525,7 @@ function declineIssue(
 	requirePerson(actor, "Only people can decline requests");
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
-	if (!issue.intake) return;
+	if (!issue.intake) throw alreadyDecided();
 	const canceled = teamStatuses(db, issue.teamId).find(
 		(status) => status.removedAt === null && status.category === "canceled",
 	);
@@ -522,6 +536,10 @@ function declineIssue(
 		createComment(db, changes, actor, { ...args.reply, issueId: issue.id });
 	}
 	leaveIntake(db, changes, actor, issue, canceled.key, false);
+}
+
+function alreadyDecided() {
+	return new MutationRejected("conflict", "Someone already decided on this request");
 }
 
 function leaveIntake(

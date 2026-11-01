@@ -72,11 +72,16 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			if (patch.name !== undefined && sameName(others, patch.name)) return;
 			if (patch.category !== undefined && !keepsCompleted(others, status, patch.category)) return;
 			draft.put("status", { ...status, ...patch, updatedAt: now });
-			// A status that stops closing its issues restores the archived ones.
-			if (patch.category !== undefined && !isClosedCategory(patch.category)) {
+			// A status that stops closing its issues restores the archived ones, and one that starts
+			// closing them declines the requests in it: a request is never closed.
+			if (patch.category !== undefined) {
+				const closes = isClosedCategory(patch.category);
 				for (const issue of [...draft.values("issue")]) {
-					if (issue.teamId === teamId && issue.status === key && issue.archivedAt !== null) {
+					if (issue.teamId !== teamId || issue.status !== key) continue;
+					if (!closes && issue.archivedAt !== null) {
 						draft.put("issue", { ...issue, archivedAt: null, updatedAt: now });
+					} else if (closes && issue.intake) {
+						draft.put("issue", { ...issue, intake: false, updatedAt: now });
 					}
 				}
 			}
@@ -95,7 +100,8 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			for (const issue of [...draft.values("issue")]) {
 				if (issue.teamId === teamId && issue.status === key) {
 					const archivedAt = reopens ? null : issue.archivedAt;
-					draft.put("issue", { ...issue, status: moveTo, archivedAt, updatedAt: now });
+					const intake = reopens && issue.intake;
+					draft.put("issue", { ...issue, status: moveTo, archivedAt, intake, updatedAt: now });
 				}
 			}
 			return;
@@ -122,6 +128,8 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			if (draft.get("issue", args.id) || !draft.get("team", args.teamId)) return;
 			const status = args.status ?? firstStatus(teamStatuses(draft, args.teamId))?.key;
 			if (status === undefined || !isLiveStatus(draft, args.teamId, status)) return;
+			// A request is never closed.
+			if (args.intake && isClosedStatus(draft, args.teamId, status)) return;
 			if (args.labelIds.some((labelId) => !draft.get("label", labelId))) return;
 			if (args.projectId !== null && !draft.get("project", args.projectId)) return;
 			if (args.cycleId !== null && !isJoinable(draft, args.cycleId, args.teamId)) return;
@@ -149,6 +157,10 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 				if (!isJoinable(draft, patch.cycleId, issue.teamId)) return;
 			}
 			if (patch.status !== undefined && !isLiveStatus(draft, issue.teamId, patch.status)) return;
+			// A request is never closed: a person declines it instead.
+			if (issue.intake && patch.status !== undefined) {
+				if (isClosedStatus(draft, issue.teamId, patch.status)) return;
+			}
 			// Reopening an archived issue restores it.
 			const reopened =
 				patch.status !== undefined && !isClosedStatus(draft, issue.teamId, patch.status);

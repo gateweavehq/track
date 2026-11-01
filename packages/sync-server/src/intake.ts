@@ -9,7 +9,7 @@ import * as schema from "./db/schema";
 import { ChangeSet, type WriteResult } from "./log";
 import { indexIssue } from "./search";
 import { type Db, toIssue } from "./state";
-import { defaultStatusKey } from "./statuses";
+import { defaultStatusKey, isClosedStatus } from "./statuses";
 import { queueDeliveries } from "./webhooks";
 
 /**
@@ -78,6 +78,9 @@ export function fileRequest(
 	const team = db.select().from(schema.teams).where(eq(schema.teams.id, target.teamId)).get();
 	if (!team) return null;
 	const { actor } = CHANNELS[request.via];
+	// A request is never closed, so a team whose first status closes takes none.
+	const status = defaultStatusKey(db, team.id);
+	if (isClosedStatus(db, team.id, status)) return null;
 
 	const changes = new ChangeSet(db, actor.id, now);
 	const number = team.issueCounter + 1;
@@ -88,7 +91,7 @@ export function fileRequest(
 		number,
 		title: request.title,
 		description: request.description?.trim() ? request.description : null,
-		status: defaultStatusKey(db, team.id),
+		status,
 		priority: 0,
 		assigneeId: null,
 		projectId: null,

@@ -500,7 +500,18 @@ team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search fi
 - **People decide.** Both mutations refuse agent members (`forbidden`). An agent triages by
   working on requests through the ordinary mutations, and by proposing what an admin chose for it
   (see [Proposals](#proposals)); a person accepts or declines. Deciding on what is no longer a
-  request changes nothing, so two people deciding at once do not conflict.
+  request is a `conflict` ("Someone already decided on this request"), so whoever decides second
+  hears it, and a reply they wrote is not lost unseen. A retried mutation id is answered as
+  applied before that.
+- **A request is never closed.** Declining is how it closes, so `issue.create` refuses a request
+  in a closed status, and `issue.update` refuses to move one into a closed status (`invalid`),
+  whoever sends it, an accepted proposal included. GitHub leaves requests where they are. A change
+  to the workflow that makes a request's status closing, by changing its category or removing it
+  into a closed one, takes the request out of intake as declined, with a history entry and no
+  inbox news, as it restores archived issues. A team whose first status closes takes no requests
+  from its form or address.
+- **Decisions are stamped.** Accepting into another status and declining stamp the status like
+  any change to it, so an offline edit made before them conflicts.
 - **History says it**, as `{ type: "intake", accepted }`, with the status change as an entry of
   its own. Both send `issue.updated` webhooks, with `intake` in `updatedFrom`.
 - **Out of the way of automations.** A request is not archived, by hand or by a team's

@@ -126,21 +126,15 @@ describe("team automations", () => {
 
 	it("leave requests in intake alone, however long they wait", async () => {
 		const { as, automate, run, age, issues } = await setup();
-		for (const [id, status] of [
-			["request-open", "backlog"],
-			["request-closed", "done"],
-		]) {
-			await as(alice, {
-				name: "issue.create",
-				args: { id, teamId: TEAM_ID, title: id, status, sortOrder: "a0", intake: true },
-			} as MutationInput);
-		}
+		await as(alice, {
+			name: "issue.create",
+			args: { id: "request", teamId: TEAM_ID, title: "Request", sortOrder: "a0", intake: true },
+		});
 		await automate({ closeAfterMonths: 3, archiveAfterMonths: 3 });
-		await age(4, "request-open", "request-closed");
+		await age(4, "request");
 		await run();
-		const after = await issues();
-		expect(after.get("request-open")).toMatchObject({ status: "backlog", intake: true });
-		expect(after.get("request-closed")).toMatchObject({ archivedAt: null, intake: true });
+		// A request is never closed, so nothing here would archive it either.
+		expect((await issues()).get("request")).toMatchObject({ status: "backlog", intake: true });
 	});
 
 	it("archive closed issues untouched past the team's wait, and later what they closed", async () => {

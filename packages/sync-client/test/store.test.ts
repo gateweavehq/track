@@ -845,6 +845,58 @@ describe("Replica", () => {
 			expect(r.getState().teams.get("t1")).not.toHaveProperty("intakeForm");
 		});
 
+		it("predicts that a request is never closed but by declining it", () => {
+			const r = replica();
+			applyOps(r, [put(3, request)]);
+			r.addPending(
+				pending("m1", {
+					name: "issue.create",
+					args: { ...issue, id: "i2", description: null, status: "done", intake: true },
+				}),
+				pending("m2", {
+					name: "issue.update",
+					args: { id: "i1", baseVersion: 3, patch: { status: "canceled" } },
+				}),
+			);
+			expect(r.getState().issues.has("i2")).toBe(false);
+			expect(r.getState().issues.get("i1")).toMatchObject({ status: "backlog", intake: true });
+		});
+
+		it("predicts that a change to the workflow that closes a request declines it", () => {
+			const r = replica();
+			applyOps(r, [
+				put(3, request),
+				put(4, { ...request, id: "i2", number: 2, status: "todo" }),
+				{
+					version: 5,
+					entity: "member",
+					id: "alice",
+					op: "put",
+					data: {
+						id: "alice",
+						name: "Alice",
+						email: "alice@example.com",
+						image: null,
+						role: "admin",
+						proposes: [],
+						removedAt: null,
+					},
+				},
+			]);
+			r.addPending(
+				pending("m1", {
+					name: "status.update",
+					args: { teamId: "t1", key: "backlog", patch: { category: "canceled" } },
+				}),
+				pending("m2", {
+					name: "status.delete",
+					args: { teamId: "t1", key: "todo", moveTo: "done" },
+				}),
+			);
+			expect(r.getState().issues.get("i1")?.intake).toBe(false);
+			expect(r.getState().issues.get("i2")).toMatchObject({ status: "done", intake: false });
+		});
+
 		it("predicts that a request is not archived", () => {
 			const r = replica();
 			applyOps(r, [put(3, { ...request, status: "done" })]);
