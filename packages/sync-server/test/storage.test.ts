@@ -61,4 +61,19 @@ describe("file storage", () => {
 			used: 80,
 		});
 	});
+
+	it("starts from the bucket again once the count is forgotten", async () => {
+		const workspace = freshWorkspace();
+		await workspace.reserveFileStorage({ bytes: 10, limit: 100, seed: 0 });
+		await workspace.forgetFileStorage();
+		expect(await workspace.reserveFileStorage({ bytes: 10, limit: 100 })).toEqual({
+			needsSeed: true,
+		});
+		expect(await workspace.reserveFileStorage({ bytes: 10, limit: 100, seed: 70 })).toEqual({
+			ok: true,
+			used: 80,
+		});
+		// Forgetting a count that never started is fine.
+		await freshWorkspace().forgetFileStorage();
+	});
 });

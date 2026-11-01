@@ -942,8 +942,9 @@ workspace's files are one prefix in the bucket.
   (`packages/sync-server/src/storage.ts`): the gateway reserves a file's length there before
   storing it, so uploads that arrive together cannot both take the last of the space, and gives
   it back if storing fails. The count starts from a listing of the bucket the first time it is
-  needed. Past the quota an upload gets 413, and an emailed request comes in without the files
-  that do not fit.
+  needed. Without a quota nothing is counted, so each isolate drops a workspace's count the first
+  time it stores a file there, and a quota turned on again starts from the bucket. Past the quota
+  an upload gets 413, and an emailed request comes in without the files that do not fit.
 
 ### Proposals
 
