@@ -62,11 +62,27 @@ export function httpTransport({ workspace, baseUrl }: HttpTransportOptions): Tra
 		},
 		connect(handlers) {
 			const ws = new WebSocket(`${base.replace(/^http/, "ws")}/socket`);
-			ws.onopen = () => handlers.open();
+			let opened = false;
+			let closed = false;
+			const close = (code: number, reason: string) => {
+				if (closed) return;
+				closed = true;
+				handlers.close(code, reason);
+			};
+			ws.onopen = () => {
+				opened = true;
+				handlers.open();
+			};
 			ws.onmessage = (event) => {
 				if (typeof event.data === "string") handlers.message(event.data);
 			};
-			ws.onclose = (event) => handlers.close(event.code, event.reason);
+			ws.onclose = (event) => close(event.code, event.reason);
+			// A refused handshake fires error and then close in browsers and Node 24, but only error
+			// in Node 22, which would leave the client connecting forever. Before the socket opened,
+			// an error is the close that will not come.
+			ws.onerror = () => {
+				if (!opened) close(1006, "");
+			};
 			return {
 				send: (data) => ws.send(data),
 				close: (code, reason) => ws.close(code, reason),
