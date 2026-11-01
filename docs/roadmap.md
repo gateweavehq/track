@@ -87,7 +87,7 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - @-mentions in descriptions and comments, and due-date reminders for assignees: shipped in
   v0.12.0.
 - Workflow statuses per team: each team names, colors, orders and removes its own statuses, in
-  five fixed categories that decide what they mean everywhere else.
+  five fixed categories that decide what they mean everywhere else. Shipped in v0.14.0.
 - GitHub integration: link pull requests and close issues from commits. The first part, over a
   webhook per repository or organization, shipped in v0.10.0; a GitHub App comes later.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations
