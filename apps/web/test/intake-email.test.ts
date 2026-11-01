@@ -136,6 +136,27 @@ describe("intake email", () => {
 		expect(await titles()).not.toContain("Late");
 	});
 
+	it("refuses made-up addresses before counting anything against the sender", async () => {
+		const to = await turnOn();
+		for (let i = 0; i < 12; i++) {
+			const madeUp = `${workspaceId}.${"bcdefghijklmnop".slice(0, 15)}${"abcdefghijkl"[i]}@${INTAKE_EMAIL_DOMAIN}`;
+			const refused = await track.email(
+				"victim@customer.test",
+				madeUp,
+				message("victim@customer.test", madeUp, `Guess ${i}`),
+			);
+			expect(refused).toMatchObject({ outcome: "rejected", rejectReason: "No such address" });
+		}
+		// The sender's allowance is whole: the real address still takes their mail.
+		const real = await track.email(
+			"victim@customer.test",
+			to,
+			message("victim@customer.test", to, "Real request"),
+		);
+		expect(real.outcome).toBe("ok");
+		expect(await titles()).toContain("Real request");
+	});
+
 	it("limits how many requests one sender emails", async () => {
 		const to = await turnOn();
 		const outcomes: string[] = [];

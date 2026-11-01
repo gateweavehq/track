@@ -40,6 +40,12 @@ export const RECEIVER_HOST = "hooks.test";
 /** Stands in for Turnstile: a token of this value passes its challenge, and any other fails. */
 export const TURNSTILE_PASS = "pass";
 export const TURNSTILE_SITE_KEY = "1x00000000000000000000AA";
+/** The host Turnstile's stand-in says each challenge was solved on, unless a test changes it. */
+let TURNSTILE_HOSTNAME = "track.test";
+/** Has Turnstile's stand-in say challenges were solved on another host, as a page elsewhere would. */
+export function solveTurnstileOn(hostname: string): void {
+	TURNSTILE_HOSTNAME = hostname;
+}
 /** The domain whose Email Routing sends every address to the Worker in tests. */
 export const INTAKE_EMAIL_DOMAIN = "requests.track.test";
 const TURNSTILE_HOST = "challenges.cloudflare.com";
@@ -178,7 +184,8 @@ export async function startTrack(
 							const success =
 								form.get("secret") === "turnstile-test-secret" &&
 								form.get("response") === TURNSTILE_PASS;
-							return Response.json({ success });
+							// Turnstile names the host the challenge was solved on.
+							return Response.json({ success, hostname: TURNSTILE_HOSTNAME });
 						}
 						if (url.host === RECEIVER_HOST) {
 							received.push({

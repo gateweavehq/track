@@ -782,6 +782,11 @@ describe("intake", () => {
 		expect(emailKey).toMatch(/^[a-z2-7]{16}$/);
 		if (!emailKey || !formKey) throw new Error("No channels");
 
+		expect(await workspace.intakeEmail(emailKey)).toEqual({
+			teamId: TEAM_ID,
+			teamName: "Engineering",
+		});
+		expect(await workspace.intakeEmail(formKey)).toBeNull();
 		expect(await file("email", emailKey, "Broken export")).toBe(true);
 		// A key opens only its own channel.
 		expect(await file("form", emailKey, "Wrong way in")).toBe(false);

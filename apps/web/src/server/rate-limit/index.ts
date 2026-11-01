@@ -74,7 +74,12 @@ export const EMAILED_REQUESTS_PER_TEAM: Rule[] = [
 	{ window: 24 * 60 * 60, max: 300 },
 ];
 
-/** Counts one emailed request against its sender and against the team's address. */
+/**
+ * Counts one emailed request against its sender and against the team's address. The sender is
+ * the envelope's, which anyone can forge, so someone who knows an intake address can spend a real
+ * sender's allowance; the cap on each team's address is what stops a flood. The sender's limit
+ * only keeps one honest but noisy sender from filling an intake on their own.
+ */
 export async function limitEmailedRequests(sender: string, key: string): Promise<boolean> {
 	const bySender = await consumeDurably(
 		`intake-email:${sender.trim().toLowerCase()}`,

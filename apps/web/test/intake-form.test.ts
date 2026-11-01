@@ -1,6 +1,6 @@
 import type { Snapshot } from "@gateweave/track-protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startTrack, TURNSTILE_PASS, TURNSTILE_SITE_KEY } from "./track-worker";
+import { solveTurnstileOn, startTrack, TURNSTILE_PASS, TURNSTILE_SITE_KEY } from "./track-worker";
 
 // A team's public request form (TRK-41) in the built Worker: a page of its own, without a
 // session, that files requests into the team's intake once Turnstile has passed the person.
@@ -122,6 +122,22 @@ describe("request form", () => {
 					"For the <b>board</b>.\n\nSent through the request form by <sam@customer.test>.",
 			}),
 		]);
+	});
+
+	it("refuses a token solved on another host, as a page elsewhere with the same widget would", async () => {
+		const key = await turnOn();
+		solveTurnstileOn("elsewhere.test");
+		try {
+			const response = await submit(key, {
+				title: "From elsewhere",
+				"cf-turnstile-response": TURNSTILE_PASS,
+			});
+			expect(response.status).toBe(403);
+			await response.text();
+		} finally {
+			solveTurnstileOn("track.test");
+		}
+		expect((await snapshot()).issues.some((issue) => issue.title === "From elsewhere")).toBe(false);
 	});
 
 	it("files nothing once the form is off or its link replaced", async () => {

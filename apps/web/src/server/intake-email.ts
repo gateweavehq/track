@@ -45,6 +45,10 @@ export async function handleIntakeEmail(message: ForwardableEmailMessage): Promi
 		.where(sql`lower(${schema.organization.id}) = ${address.workspaceId}`)
 		.get();
 	if (!workspace) return message.setReject("No such address");
+	// The key is checked before anything is counted, so mail to made-up addresses costs no one's
+	// allowance and leaves no record behind.
+	const stub = workspaceStub(workspace.id);
+	if (!(await stub.intakeEmail(address.key))) return message.setReject("No such address");
 	const sender = message.from.trim().toLowerCase();
 	if (!(await limitEmailedRequests(sender, address.key))) {
 		return message.setReject("Too many requests from this sender; try again later");
@@ -53,7 +57,6 @@ export async function handleIntakeEmail(message: ForwardableEmailMessage): Promi
 	const email = await PostalMime.parse(message.raw, { maxPartCount: 200 });
 	const from = email.from && "address" in email.from ? email.from.address : undefined;
 	const { title, description } = requestFromEmail(email, from || sender);
-	const stub = workspaceStub(workspace.id);
 	const filed = await stub.fileRequest({
 		via: "email",
 		key: address.key,

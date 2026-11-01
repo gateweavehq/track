@@ -437,6 +437,11 @@ export class WorkspaceDO extends DurableObject {
 		return findIntake(this.#db, "form", z.string().max(64).parse(key));
 	}
 
+	/** The team an intake email key reaches, or null for an address that is off or never was. */
+	intakeEmail(key: string): IntakeTarget | null {
+		return findIntake(this.#db, "email", z.string().max(64).parse(key));
+	}
+
 	/** Files a request through a team's channel. False when it is off, or the request invalid. */
 	fileRequest(input: unknown): boolean {
 		const parsed = intakeRequest.safeParse(input);

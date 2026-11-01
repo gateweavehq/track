@@ -82,7 +82,7 @@ export async function handleIntakeFormRequest(request: Request): Promise<Respons
 		return formPage(429, where, values, "You have sent a lot of requests. Try again later.");
 	}
 	const token = fields.get("cf-turnstile-response") ?? "";
-	if (!(await verifyTurnstile(secret, token, address))) {
+	if (!(await verifyTurnstile(secret, token, address, url.hostname))) {
 		return formPage(403, where, values, "We could not tell you are a person. Try again.");
 	}
 
@@ -111,13 +111,15 @@ export function describe(description: string, email: string): string | null {
 }
 
 /**
- * Asks Turnstile whether a token is a passed challenge. Each token works once. Anything but a
- * clear yes, including Turnstile being unreachable, is a no.
+ * Asks Turnstile whether a token is a passed challenge, solved on this host: a token from a page
+ * elsewhere that uses the same widget does not count. Each token works once. Anything but a clear
+ * yes, including Turnstile being unreachable, is a no.
  */
 export async function verifyTurnstile(
 	secret: string,
 	token: string,
 	address: string,
+	hostname: string,
 	fetcher: typeof fetch = fetch,
 ): Promise<boolean> {
 	if (!token || token.length > 2048) return false;
@@ -127,8 +129,8 @@ export async function verifyTurnstile(
 			body: new URLSearchParams({ secret, response: token, remoteip: address }),
 		});
 		if (!response.ok) return false;
-		const outcome = (await response.json()) as { success?: unknown };
-		return outcome.success === true;
+		const outcome = (await response.json()) as { success?: unknown; hostname?: unknown };
+		return outcome.success === true && outcome.hostname === hostname;
 	} catch (error) {
 		console.error("intake form: Turnstile could not be reached", error);
 		return false;
