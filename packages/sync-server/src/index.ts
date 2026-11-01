@@ -1,7 +1,7 @@
 export type { GitHubDelivery } from "./github";
 export type { RetentionPolicy } from "./log";
 export type { DigestItem, InboxDigest } from "./notifications";
-export { type Directory, type IssueQuery, MAX_QUERY_LIMIT } from "./queries";
+export { type Directory, type InsightScope, type IssueQuery, MAX_QUERY_LIMIT } from "./queries";
 export type { MemberProfile } from "./state";
 export type { WebhookList, WorkspaceLink } from "./webhooks";
 export {

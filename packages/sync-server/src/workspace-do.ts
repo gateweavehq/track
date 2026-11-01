@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+	type Activity,
 	CloseCode,
 	type Comment,
 	clientMessage,
@@ -63,11 +64,13 @@ import { issueProposals } from "./proposals";
 import {
 	type Directory,
 	findComments,
+	findInsightSource,
 	findIssueById,
 	findIssueByKey,
 	findIssues,
 	findPullRequests,
 	findRelations,
+	type InsightScope,
 	type IssueQuery,
 	lastSortOrder,
 	MAX_QUERY_LIMIT,
@@ -141,6 +144,11 @@ const issueQuery = z.object({
 	text: z.string().max(200).optional(),
 	limit: z.number().int().min(1).max(MAX_QUERY_LIMIT),
 });
+
+const insightScope = z.union([
+	z.object({ teamId: shortId }).strict(),
+	z.object({ projectId: shortId }).strict(),
+]);
 
 /**
  * The outcome of {@link WorkspaceDO.mutate}, mirroring a socket client's ack or reject. `proposed`
@@ -236,6 +244,11 @@ export class WorkspaceDO extends DurableObject {
 
 	comments(issueId: string): Comment[] {
 		return findComments(this.#db, shortId.parse(issueId));
+	}
+
+	/** A team's or a project's issues and their status changes, for insights. */
+	insightSource(scope: InsightScope): { issues: Issue[]; activities: Activity[] } {
+		return findInsightSource(this.#db, insightScope.parse(scope));
 	}
 
 	/** An issue's relations, from either side. */

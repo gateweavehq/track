@@ -1,4 +1,5 @@
 import type {
+	Activity,
 	Comment,
 	Cycle,
 	Issue,
@@ -68,6 +69,7 @@ class FakeWorkspace implements WorkspaceAccess {
 	labels: Label[] = [];
 	templates: IssueTemplate[] = [];
 	comments_: Comment[] = [];
+	activities_: Activity[] = [];
 	mutations: Mutation[] = [];
 	nextResult: MutateResult | null = null;
 	/** What the server would turn into proposals rather than make, as for an agent set so. */
@@ -111,6 +113,13 @@ class FakeWorkspace implements WorkspaceAccess {
 	async issueByKey(teamKey: string, number: number) {
 		if (teamKey !== team.key) return null;
 		return this.issues_.find((issue) => issue.number === number) ?? null;
+	}
+	async insightSource(scope: { teamId: string } | { projectId: string }) {
+		const issues = this.issues_.filter((issue) =>
+			"teamId" in scope ? issue.teamId === scope.teamId : issue.projectId === scope.projectId,
+		);
+		const ids = new Set(issues.map((issue) => issue.id));
+		return { issues, activities: this.activities_.filter((entry) => ids.has(entry.issueId)) };
 	}
 	async comments(issueId: string) {
 		return this.comments_.filter((comment) => comment.issueId === issueId);
@@ -311,6 +320,7 @@ describe("Track MCP tools", () => {
 			"create_label",
 			"create_project",
 			"create_team",
+			"get_insights",
 			"get_issue",
 			"get_workspace",
 			"link_issues",
@@ -320,6 +330,79 @@ describe("Track MCP tools", () => {
 			"update_issue",
 			"update_project",
 		]);
+	});
+
+	it("reads a team's or a project's insights, with keys, names and emails", async () => {
+		const day = 24 * 60 * 60 * 1000;
+		const now = Date.now();
+		workspace.labels.push({
+			id: "l-bug",
+			name: "Bug",
+			color: "#e5484d",
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		workspace.projects.push({
+			id: "p-docs",
+			name: "Docs",
+			description: null,
+			status: "started",
+			leadId: null,
+			targetDate: null,
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		await created({ title: "Done one", project: "Docs" });
+		await created({ title: "Open one", assignee: sam.email, labels: ["Bug"] });
+		const [done, open] = workspace.issues_;
+		if (!done || !open) throw new Error("No issues");
+		Object.assign(done, { status: "done", createdAt: now - 3 * day });
+		open.createdAt = now - 3 * day;
+		const moved = (id: string, from: string, to: string, at: number): Activity => ({
+			id,
+			issueId: done.id,
+			actorId: me.id,
+			change: { type: "status", from, to },
+			proposedBy: null,
+			source: null,
+			createdAt: at,
+			updatedAt: at,
+		});
+		workspace.activities_.push(
+			moved("a1", "backlog", "in_progress", now - 2 * day),
+			moved("a2", "in_progress", "done", now - day),
+		);
+
+		const team = await call("get_insights", { workspace: "acme", team: "eng", weeks: 4 });
+		const project = await call("get_insights", { workspace: "acme", project: "docs" });
+		const both = await call("get_insights", { workspace: "acme", team: "ENG", project: "Docs" });
+		const neither = await call("get_insights", { workspace: "acme" });
+
+		expect(team.isError).toBeFalsy();
+		expect(team.structuredContent).toMatchObject({
+			team: "ENG",
+			timeZone: "UTC",
+			created: 2,
+			closed: 1,
+			open: 1,
+			cycleTime: { medianDays: 1, issues: 1 },
+			openByStatus: [{ status: "Backlog", category: "backlog", count: 1 }],
+			openByTeam: [{ team: "ENG", count: 1 }],
+			openByAssignee: [{ assignee: sam.email, count: 1 }],
+			openByLabel: [{ label: "Bug", count: 1 }],
+		});
+		expect((team.structuredContent as { weeks: unknown[] }).weeks).toHaveLength(4);
+		expect(project.structuredContent).toMatchObject({
+			project: "Docs",
+			created: 1,
+			closed: 1,
+			open: 0,
+			openByTeam: [],
+		});
+		expect(project.structuredContent).not.toHaveProperty("openByStatus");
+		expect((project.structuredContent as { weeks: unknown[] }).weeks).toHaveLength(12);
+		expect(both.content).toEqual([{ type: "text", text: "Give a team or a project, not both." }]);
+		expect(neither.isError).toBe(true);
 	});
 
 	it("lets results grow without breaking clients that cached the output schemas", async () => {
