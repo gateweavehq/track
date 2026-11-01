@@ -96,6 +96,9 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   them, and an agent triages them through proposals. Requests come in from the app, over MCP,
   through each team's public request form (behind Turnstile) and to its intake email address
   (Email Routing). Replying to requesters by email and the triage agent's proposals come next.
+- Insights: a page per team with issues created and closed by week, cycle time and where open
+  issues are, worked out from the local copy. Project updates (on track, at risk, off track, as a
+  history and to webhooks) come next.
 - GitHub integration: link pull requests and close issues from commits. The first part, over a
   webhook per repository or organization, shipped in v0.10.0; a GitHub App comes later.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations

@@ -1,6 +1,6 @@
 import type { Team } from "@gateweave/track-protocol";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Archive, Inbox } from "lucide-react";
+import { Archive, ChartColumn, Inbox } from "lucide-react";
 import { useCallback } from "react";
 import { FILTER_KEYS } from "#/components/issues/filter-menu";
 import { IssuesPage } from "#/components/issues/issues-page";
@@ -106,6 +106,16 @@ function TeamIssues({ team }: { team: Team }) {
 						>
 							<Inbox />
 							{requests > 0 && <span className="tabular-nums">{requests}</span>}
+						</Link>
+					</Button>
+					<Button asChild variant="ghost" size="icon" className="size-8">
+						<Link
+							to="/$workspace/team/$teamKey/insights"
+							params={{ workspace, teamKey: team.key }}
+							aria-label={`${team.name} insights`}
+							title="Insights"
+						>
+							<ChartColumn />
 						</Link>
 					</Button>
 					{

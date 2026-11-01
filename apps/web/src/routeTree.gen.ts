@@ -41,6 +41,7 @@ import { Route as WorkspaceViewViewIdRouteImport } from './routes/$workspace/vie
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as WorkspaceTeamTeamKeyArchiveRouteImport } from './routes/$workspace/team.$teamKey_.archive'
 import { Route as WorkspaceTeamTeamKeyCyclesRouteImport } from './routes/$workspace/team.$teamKey_.cycles'
+import { Route as WorkspaceTeamTeamKeyInsightsRouteImport } from './routes/$workspace/team.$teamKey_.insights'
 import { Route as WorkspaceTeamTeamKeyIntakeRouteImport } from './routes/$workspace/team.$teamKey_.intake'
 
 const IndexRoute = IndexRouteImport.update({
@@ -210,6 +211,12 @@ const WorkspaceTeamTeamKeyCyclesRoute =
     path: '/team/$teamKey/cycles',
     getParentRoute: () => WorkspaceRoute,
   } as any)
+const WorkspaceTeamTeamKeyInsightsRoute =
+  WorkspaceTeamTeamKeyInsightsRouteImport.update({
+    id: '/team/$teamKey_/insights',
+    path: '/team/$teamKey/insights',
+    getParentRoute: () => WorkspaceRoute,
+  } as any)
 const WorkspaceTeamTeamKeyIntakeRoute =
   WorkspaceTeamTeamKeyIntakeRouteImport.update({
     id: '/team/$teamKey_/intake',
@@ -250,6 +257,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/settings/': typeof WorkspaceSettingsIndexRoute
   '/$workspace/team/$teamKey/archive': typeof WorkspaceTeamTeamKeyArchiveRoute
   '/$workspace/team/$teamKey/cycles': typeof WorkspaceTeamTeamKeyCyclesRoute
+  '/$workspace/team/$teamKey/insights': typeof WorkspaceTeamTeamKeyInsightsRoute
   '/$workspace/team/$teamKey/intake': typeof WorkspaceTeamTeamKeyIntakeRoute
 }
 export interface FileRoutesByTo {
@@ -283,6 +291,7 @@ export interface FileRoutesByTo {
   '/$workspace/settings': typeof WorkspaceSettingsIndexRoute
   '/$workspace/team/$teamKey/archive': typeof WorkspaceTeamTeamKeyArchiveRoute
   '/$workspace/team/$teamKey/cycles': typeof WorkspaceTeamTeamKeyCyclesRoute
+  '/$workspace/team/$teamKey/insights': typeof WorkspaceTeamTeamKeyInsightsRoute
   '/$workspace/team/$teamKey/intake': typeof WorkspaceTeamTeamKeyIntakeRoute
 }
 export interface FileRoutesById {
@@ -319,6 +328,7 @@ export interface FileRoutesById {
   '/$workspace/settings/': typeof WorkspaceSettingsIndexRoute
   '/$workspace/team/$teamKey_/archive': typeof WorkspaceTeamTeamKeyArchiveRoute
   '/$workspace/team/$teamKey_/cycles': typeof WorkspaceTeamTeamKeyCyclesRoute
+  '/$workspace/team/$teamKey_/insights': typeof WorkspaceTeamTeamKeyInsightsRoute
   '/$workspace/team/$teamKey_/intake': typeof WorkspaceTeamTeamKeyIntakeRoute
 }
 export interface FileRouteTypes {
@@ -356,6 +366,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings/'
     | '/$workspace/team/$teamKey/archive'
     | '/$workspace/team/$teamKey/cycles'
+    | '/$workspace/team/$teamKey/insights'
     | '/$workspace/team/$teamKey/intake'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -389,6 +400,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings'
     | '/$workspace/team/$teamKey/archive'
     | '/$workspace/team/$teamKey/cycles'
+    | '/$workspace/team/$teamKey/insights'
     | '/$workspace/team/$teamKey/intake'
   id:
     | '__root__'
@@ -424,6 +436,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings/'
     | '/$workspace/team/$teamKey_/archive'
     | '/$workspace/team/$teamKey_/cycles'
+    | '/$workspace/team/$teamKey_/insights'
     | '/$workspace/team/$teamKey_/intake'
   fileRoutesById: FileRoutesById
 }
@@ -664,6 +677,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceTeamTeamKeyCyclesRouteImport
       parentRoute: typeof WorkspaceRoute
     }
+    '/$workspace/team/$teamKey_/insights': {
+      id: '/$workspace/team/$teamKey_/insights'
+      path: '/team/$teamKey/insights'
+      fullPath: '/$workspace/team/$teamKey/insights'
+      preLoaderRoute: typeof WorkspaceTeamTeamKeyInsightsRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
     '/$workspace/team/$teamKey_/intake': {
       id: '/$workspace/team/$teamKey_/intake'
       path: '/team/$teamKey/intake'
@@ -719,6 +739,7 @@ interface WorkspaceRouteChildren {
   WorkspaceViewViewIdRoute: typeof WorkspaceViewViewIdRoute
   WorkspaceTeamTeamKeyArchiveRoute: typeof WorkspaceTeamTeamKeyArchiveRoute
   WorkspaceTeamTeamKeyCyclesRoute: typeof WorkspaceTeamTeamKeyCyclesRoute
+  WorkspaceTeamTeamKeyInsightsRoute: typeof WorkspaceTeamTeamKeyInsightsRoute
   WorkspaceTeamTeamKeyIntakeRoute: typeof WorkspaceTeamTeamKeyIntakeRoute
 }
 
@@ -736,6 +757,7 @@ const WorkspaceRouteChildren: WorkspaceRouteChildren = {
   WorkspaceViewViewIdRoute: WorkspaceViewViewIdRoute,
   WorkspaceTeamTeamKeyArchiveRoute: WorkspaceTeamTeamKeyArchiveRoute,
   WorkspaceTeamTeamKeyCyclesRoute: WorkspaceTeamTeamKeyCyclesRoute,
+  WorkspaceTeamTeamKeyInsightsRoute: WorkspaceTeamTeamKeyInsightsRoute,
   WorkspaceTeamTeamKeyIntakeRoute: WorkspaceTeamTeamKeyIntakeRoute,
 }
 
