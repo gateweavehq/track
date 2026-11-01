@@ -8,6 +8,27 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.16.0] - 2026-11-01
+
+Teams can have Track archive closed issues and close stale ones on its own. Updating a self-hosted
+copy applies a migration in each workspace's database, which runs on its own; there is no D1
+migration and no new setting. The protocol goes to version 18, so open tabs reload and sync
+again. ([#107])
+
+### Added
+
+- Team automations, set by admins in the team settings: archive completed and canceled issues,
+  and cancel backlog and unstarted ones, once no one has touched them for 1 to 24 months. Each is
+  off until turned on, and the settings say how many issues the first run would change. ([#107])
+- Track applies them about once a day, with an entry in each issue's history and an
+  `issue.updated` webhook, but nothing in anyone's inbox. A team's archive page says when issues
+  arrive on their own. ([#107])
+- Over MCP, `get_workspace` gives each team's `archiveAfterMonths` and `closeAfterMonths`. ([#107])
+
+### Changed
+
+- The teams settings wrap a team's actions below its name on narrow screens. ([#107])
+
 ## [0.15.0] - 2026-11-01
 
 Closed issues can be archived out of lists and boards. Updating a self-hosted copy applies a
@@ -558,6 +579,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.16.0]: https://github.com/gateweavehq/track/releases/tag/v0.16.0
 [0.15.0]: https://github.com/gateweavehq/track/releases/tag/v0.15.0
 [0.14.1]: https://github.com/gateweavehq/track/releases/tag/v0.14.1
 [0.14.0]: https://github.com/gateweavehq/track/releases/tag/v0.14.0
@@ -653,3 +675,4 @@ The first pre-release.
 [#102]: https://github.com/gateweavehq/track/pull/102
 [#103]: https://github.com/gateweavehq/track/pull/103
 [#105]: https://github.com/gateweavehq/track/pull/105
+[#107]: https://github.com/gateweavehq/track/pull/107
