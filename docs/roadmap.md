@@ -96,7 +96,8 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - Intake: requests from outside a team wait in its intake until a person accepts or declines
   them, and an agent triages them through proposals. Requests come in from the app, over MCP,
   through each team's public request form (behind Turnstile) and to its intake email address
-  (Email Routing). Replying to requesters by email and the triage agent's proposals come next.
+  (Email Routing). A requester's reply to the decision email becomes a comment on their
+  request.
 - Insights: a page per team with issues created and closed by week, cycle time and where open
   issues are, worked out from the local copy: shipped in v0.17.0. Project updates, a health (on
   track, at risk, off track) and a note kept as the project's history and sent to webhooks, and
