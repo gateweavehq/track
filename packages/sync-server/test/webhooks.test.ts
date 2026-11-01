@@ -346,6 +346,35 @@ describe("delivery", () => {
 		]);
 	});
 
+	it("names an issue's assignee as of each event, and no one when it is unassigned", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await workspace.syncMember(alice);
+		await createIssue(workspace, owner, "issue-1");
+		await createHook(workspace, { events: ["issue.updated"] });
+
+		const assign = (assigneeId: string | null) =>
+			mutate(workspace, owner, {
+				name: "issue.update",
+				args: { id: "issue-1", baseVersion: 0, patch: { assigneeId } },
+			});
+		await assign(alice.id);
+		// Renamed while the issue is hers: the next event says so.
+		await workspace.syncMember({ ...alice, name: "Alice Liddell" });
+		await mutate(workspace, owner, {
+			name: "issue.update",
+			args: { id: "issue-1", baseVersion: 0, patch: { title: "Renamed" } },
+		});
+		await assign(null);
+		await deliver(workspace);
+
+		expect(payloads(received).map((payload) => payload.data)).toMatchObject([
+			{ issue: { assigneeId: alice.id, assignee: { id: alice.id, name: "Alice" } } },
+			{ issue: { assigneeId: alice.id, assignee: { id: alice.id, name: "Alice Liddell" } } },
+			{ issue: { assigneeId: null, assignee: null }, updatedFrom: { assigneeId: alice.id } },
+		]);
+	});
+
 	it("name the issue's status as its team does, and report what removing a status moves", async () => {
 		const received = receiver();
 		const workspace = await workspaceWithTeams();

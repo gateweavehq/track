@@ -269,9 +269,23 @@ class Payloads {
 			key,
 			url: url.href,
 			labels: this.#labelsOf(row.labelIds),
+			assignee: row.assigneeId === null ? null : this.#memberOf(row.assigneeId),
 			statusName: status?.name ?? row.status,
 			statusCategory: status?.category ?? "backlog",
 		};
+	}
+
+	/**
+	 * The member by the name they have now, as people rename themselves. A member who left keeps
+	 * their row, so an issue still assigned to them names them too.
+	 */
+	#memberOf(userId: string): { id: string; name: string } | null {
+		const member = this.db
+			.select({ name: schema.members.name })
+			.from(schema.members)
+			.where(eq(schema.members.userId, userId))
+			.get();
+		return member ? { id: userId, name: member.name } : null;
 	}
 
 	/**
