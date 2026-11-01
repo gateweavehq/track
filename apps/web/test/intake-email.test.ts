@@ -103,6 +103,58 @@ describe("intake email", () => {
 		});
 	});
 
+	it("files the requester's reply to the decision as a comment on the request", async () => {
+		const to = await turnOn();
+		const filed = await track.email(
+			"kim@customer.test",
+			to,
+			message("Kim <kim@customer.test>", to, "Import from Jira"),
+		);
+		expect(filed.outcome).toBe("ok");
+		const request = (await snapshot()).issues.find((issue) => issue.title === "Import from Jira");
+		if (!request) throw new Error("Not filed");
+		await track.mutate(workspaceId, owner, { name: "issue.accept", args: { id: request.id } });
+		const decision = await vi.waitFor(async () => {
+			const sent = (await track.emails()).find((email) => email.to === "kim@customer.test");
+			if (!sent) throw new Error("Not sent yet");
+			return sent;
+		});
+		// The decision is sent with the request's own address to reply to.
+		const replyTo = decision.replyTo ?? "";
+		expect(replyTo).toMatch(
+			new RegExp(`^${workspaceId.toLowerCase()}\\.[a-z2-7]{26}@${INTAKE_EMAIL_DOMAIN}$`),
+		);
+		expect(decision.text).toContain("Reply to this email to add to your request");
+
+		const reply = (from: string) =>
+			[
+				`From: ${from}`,
+				`To: ${replyTo}`,
+				"Subject: Re: Your request was accepted: Import from Jira",
+				`Message-ID: <${crypto.randomUUID()}@customer.test>`,
+				"Date: Sun, 01 Nov 2026 13:00:00 +0000",
+				"Content-Type: text/plain; charset=utf-8",
+				"",
+				"Great, our Jira is the cloud one.",
+				"",
+				"On Sun, Nov 1, 2026 at 12:30 PM Track <track@track.test> wrote:",
+				"> Your request was accepted",
+				"",
+			].join("\r\n");
+		// Only the address the decision went to may reply.
+		expect(
+			await track.email("eve@elsewhere.test", replyTo, reply("eve@elsewhere.test")),
+		).toMatchObject({ outcome: "rejected", rejectReason: "No such address" });
+		expect(
+			(await track.email("kim@customer.test", replyTo, reply("Kim <kim@customer.test>"))).outcome,
+		).toBe("ok");
+
+		const comments = (await snapshot()).comments.filter((each) => each.issueId === request.id);
+		expect(comments).toEqual([
+			expect.objectContaining({ authorId: "email", body: "Great, our Jira is the cloud one." }),
+		]);
+	});
+
 	it("keeps attachments in the bucket and links them from the request", async () => {
 		const to = await turnOn();
 		const png = Buffer.from(

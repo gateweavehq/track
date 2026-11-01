@@ -429,12 +429,14 @@ function CommentItem({ comment }: { comment: Comment }) {
 	const client = useSyncClient();
 	const { userId } = useWorkspace();
 	const role = useMyRole();
-	const author = useMembersById().get(comment.authorId);
+	const members = useMembersById();
+	const author = members.get(comment.authorId);
 	const [editing, setEditing] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const mine = comment.authorId === userId;
 	const canDelete = mine || isAdmin(role);
-	const name = author?.name ?? "Someone";
+	// A requester's reply by email is by Email, as the request is.
+	const name = actorName(comment.authorId, members);
 
 	return (
 		<article
