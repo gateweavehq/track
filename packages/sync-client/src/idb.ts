@@ -33,6 +33,7 @@ interface ReplicaSchema extends DBSchema {
 	proposal: { key: string; value: Entities["proposal"] };
 	relation: { key: string; value: Entities["relation"] };
 	view: { key: string; value: Entities["view"] };
+	template: { key: string; value: Entities["template"] };
 	member: { key: string; value: Entities["member"] };
 	subscription: { key: string; value: Entities["subscription"] };
 	inbox: { key: string; value: Entities["inbox"] };
@@ -116,6 +117,7 @@ class IdbPersistence implements Persistence {
 			proposals,
 			relations,
 			views,
+			templates,
 			members,
 			subscriptions,
 			inbox,
@@ -134,6 +136,7 @@ class IdbPersistence implements Persistence {
 			tx.objectStore("proposal").getAll(),
 			tx.objectStore("relation").getAll(),
 			tx.objectStore("view").getAll(),
+			tx.objectStore("template").getAll(),
 			tx.objectStore("member").getAll(),
 			tx.objectStore("subscription").getAll(),
 			tx.objectStore("inbox").getAll(),
@@ -159,6 +162,7 @@ class IdbPersistence implements Persistence {
 							proposals,
 							relations,
 							views,
+							templates,
 							members,
 							subscriptions,
 							inbox,
@@ -182,6 +186,7 @@ class IdbPersistence implements Persistence {
 			proposal: snapshot.proposals,
 			relation: snapshot.relations,
 			view: snapshot.views,
+			template: snapshot.templates,
 			member: snapshot.members,
 			subscription: snapshot.subscriptions,
 			inbox: snapshot.inbox,

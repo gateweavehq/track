@@ -7,6 +7,7 @@ import {
 	type Issue,
 	type IssuePriority,
 	type IssueRelation,
+	type IssueTemplate,
 	liveStatuses,
 	MAX_LABELS_PER_ISSUE,
 	MEMBER_ROLES,
@@ -251,7 +252,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Get workspace",
 			description:
-				"Lists a workspace's teams (whose keys prefix issue keys), the current and upcoming cycles of the teams that work in cycles, its labels, its projects, its members (who can be assignees), and which member you are.",
+				"Lists a workspace's teams (whose keys prefix issue keys) with their statuses and issue templates, the current and upcoming cycles of the teams that work in cycles, its labels, its projects, its members (who can be assignees), and which member you are.",
 			inputSchema: z.object({ workspace: workspaceInput }),
 			outputSchema: z.looseObject({
 				teams: z.array(
@@ -289,6 +290,22 @@ export function createTrackServer(access: TrackAccess): McpServer {
 							.describe(
 								"The team's statuses, in its workflow order. A new issue without a status gets the first.",
 							),
+						templates: z
+							.array(
+								z.looseObject({
+									name: z.string(),
+									title: z
+										.string()
+										.describe('Where a new issue\'s title starts, such as "Bug: ", or empty.'),
+									description: z.string().nullable().describe(MENTION_OUTPUT),
+									priority: z.enum(PRIORITIES),
+									assignee: z.string().nullable().describe("A member's id."),
+									labels: z.array(z.string()).describe("Label names."),
+								}),
+							)
+							.describe(
+								"The team's issue templates, by name. Name one in create_issue to start from it.",
+							),
 					}),
 				),
 				cycles: z.array(
@@ -322,7 +339,8 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		({ workspace }) =>
 			run(async () => {
 				const opened = await open(access, workspace);
-				const { teams, statuses, cycles, labels, projects, members } = await opened.directory();
+				const directory = await opened.directory();
+				const { teams, statuses, cycles, labels, projects, members } = directory;
 				const now = Date.now();
 				return {
 					teams: teams.map(({ id, key, name, cycles, archiveAfterMonths, closeAfterMonths }) => ({
@@ -334,6 +352,21 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						statuses: liveStatuses(statuses.filter((status) => status.teamId === id)).map(
 							({ key, name, category }) => ({ key, name, category }),
 						),
+						templates: directory.templates
+							.filter((template) => template.teamId === id)
+							.map((template) => {
+								const fill = templateFill(directory, template);
+								return {
+									name: template.name,
+									title: template.title,
+									description: fill.description,
+									priority: priorityName(fill.priority),
+									assignee: fill.assigneeId,
+									labels: fill.labelIds.flatMap(
+										(labelId) => labels.find((label) => label.id === labelId)?.name ?? [],
+									),
+								};
+							}),
 					})),
 					cycles: teams.flatMap((team) => {
 						if (!team.cycles) return [];
@@ -489,10 +522,18 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"create_issue",
 		{
 			title: "Create issue",
-			description: `Creates an issue in a team, and in a project, a cycle or under a parent issue if you name one. It goes to the end of the manual order. ${PROPOSALS_NOTE}`,
+			description: `Creates an issue in a team, and in a project, a cycle or under a parent issue if you name one. It can start from one of the team's templates. It goes to the end of the manual order. ${PROPOSALS_NOTE}`,
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				team: z.string().describe("The team's key, such as ENG."),
+				template: z
+					.string()
+					.trim()
+					.min(1)
+					.optional()
+					.describe(
+						"One of the team's templates, by name (ignoring case), from get_workspace. It fills in the description, priority, assignee and labels you leave out.",
+					),
 				title: z.string().trim().min(1).max(512),
 				description: z.string().max(100_000).optional().describe(MENTION_HELP),
 				status: statusInput
@@ -500,7 +541,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					.describe(
 						"A status of the team: its key or its name (ignoring case), from get_workspace. Without one, the team's first.",
 					),
-				priority: priorityInput.default("none"),
+				priority: priorityInput.optional().describe('Without one, the template\'s, or "none".'),
 				assignee: assigneeInput.optional(),
 				project: projectInput.optional(),
 				cycle: cycleInput.optional().describe(CYCLE_HELP),
@@ -525,22 +566,29 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				const directory = await workspace.directory();
 				const id = uuidv7();
 				const team = teamId(directory, input.team);
+				const fill =
+					input.template === undefined
+						? EMPTY_FILL
+						: templateFill(directory, findTemplate(directory, team, input.template));
 				const proposed = await apply(workspace, {
 					name: "issue.create",
 					args: {
 						id,
 						teamId: team,
 						title: input.title,
-						description: input.description?.trim() ? input.description : null,
+						description: input.description?.trim() ? input.description : fill.description,
 						...(input.status !== undefined && { status: statusKey(directory, team, input.status) }),
-						priority: priorityValue(input.priority),
+						priority: input.priority === undefined ? fill.priority : priorityValue(input.priority),
 						assigneeId:
 							input.assignee === undefined
-								? null
+								? fill.assigneeId
 								: resolveAssignee(directory, workspace.me, input.assignee),
 						projectId: input.project === undefined ? null : projectId(directory, input.project),
 						cycleId: input.cycle === undefined ? null : cycleId(directory, team, input.cycle),
-						labelIds: (input.labels ?? []).map((name) => labelId(directory, name)),
+						labelIds:
+							input.labels === undefined
+								? fill.labelIds
+								: input.labels.map((name) => labelId(directory, name)),
 						parentId:
 							input.parent === undefined ? null : (await findIssue(workspace, input.parent)).id,
 						startDate: input.start_date ?? null,
@@ -1199,6 +1247,41 @@ function statusesToSearch(
 function statusName(directory: Directory, issue: Pick<Issue, "teamId" | "status">): string {
 	const id = statusId(issue.teamId, issue.status);
 	return directory.statuses.find((status) => status.id === id)?.name ?? issue.status;
+}
+
+function findTemplate(directory: Directory, teamId: string, name: string): IssueTemplate {
+	const templates = directory.templates.filter((template) => template.teamId === teamId);
+	const folded = name.trim().toLowerCase();
+	const template = templates.find((template) => template.name.toLowerCase() === folded);
+	if (!template) {
+		const team = directory.teams.find((team) => team.id === teamId);
+		const names = templates.map((template) => template.name).join(", ") || "none";
+		throw new ToolError(`Team ${team?.key} has no template "${name}". Its templates: ${names}.`);
+	}
+	return template;
+}
+
+/** What a template puts in a new issue, as in the app. */
+interface TemplateFill {
+	description: string | null;
+	priority: IssuePriority;
+	assigneeId: string | null;
+	labelIds: string[];
+}
+
+const EMPTY_FILL: TemplateFill = { description: null, priority: 0, assigneeId: null, labelIds: [] };
+
+/** A label deleted since, or an assignee who has left, is left out, as the issue cannot have them. */
+function templateFill(directory: Directory, template: IssueTemplate): TemplateFill {
+	const assignee = directory.members.find(
+		(member) => member.id === template.assigneeId && member.removedAt === null,
+	);
+	return {
+		description: template.description?.trim() ? template.description : null,
+		priority: template.priority,
+		assigneeId: assignee?.id ?? null,
+		labelIds: template.labelIds.filter((id) => directory.labels.some((label) => label.id === id)),
+	};
 }
 
 function labelId(directory: Directory, name: string): string {

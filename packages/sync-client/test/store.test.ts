@@ -3,6 +3,8 @@ import {
 	defaultStatuses,
 	type InboxItem,
 	type Issue,
+	type IssueTemplate,
+	type Label,
 	type Member,
 	type Op,
 	type Project,
@@ -63,6 +65,7 @@ const snapshot: Snapshot = {
 	proposals: [],
 	relations: [],
 	views: [],
+	templates: [],
 	members: [],
 	subscriptions: [],
 	inbox: [],
@@ -902,6 +905,86 @@ describe("Replica", () => {
 			applyOps(r, [put(3, { ...request, status: "done" })]);
 			r.addPending(pending("m1", { name: "issue.archive", args: { id: "i1", archived: true } }));
 			expect(r.getState().issues.get("i1")?.archivedAt).toBeNull();
+		});
+	});
+
+	describe("templates", () => {
+		const bug: Label = { id: "bug", name: "Bug", color: "#e5484d", createdAt: 1, updatedAt: 1 };
+		const bob: Member = {
+			id: "bob",
+			name: "Bob",
+			email: "bob@example.com",
+			image: null,
+			role: "member",
+			proposes: [],
+			removedAt: null,
+		};
+		const withTeamStuff = () => {
+			const r = new Replica("alice");
+			r.reset({ ...snapshot, labels: [bug], members: [bob] });
+			return r;
+		};
+		const fields = {
+			teamId: "t1",
+			name: "Bug report",
+			title: "Bug: ",
+			description: null,
+			priority: 2 as const,
+			labelIds: ["bug"],
+			assigneeId: "bob",
+		};
+		const create = (id: string, args: Partial<typeof fields> & { id: string }) =>
+			pending(id, { name: "template.create", args: { ...fields, ...args } });
+		const template = (version: number, data: IssueTemplate): Op => ({
+			version,
+			entity: "template",
+			id: data.id,
+			op: "put",
+			data,
+		});
+
+		it("predicts creating, changing and deleting one, and replays over the server's row", () => {
+			const r = withTeamStuff();
+			r.addPending(create("m1", { id: "tp1", labelIds: ["bug", "bug"] }));
+			expect(r.getState().templates.get("tp1")).toEqual({
+				id: "tp1",
+				...fields,
+				createdAt: 100,
+				updatedAt: 100,
+			});
+
+			// The server's row wins, and replaying the create over it changes nothing.
+			applyOps(r, [template(3, { id: "tp1", ...fields, createdAt: 50, updatedAt: 50 })]);
+			expect(r.getState().templates.get("tp1")?.createdAt).toBe(50);
+
+			r.addPending(
+				pending("m2", { name: "template.update", args: { id: "tp1", patch: { name: "Bug" } } }),
+			);
+			expect(r.getState().templates.get("tp1")).toMatchObject({ name: "Bug", title: "Bug: " });
+			r.addPending(pending("m3", { name: "template.delete", args: { id: "tp1" } }));
+			expect(r.getState().templates.has("tp1")).toBe(false);
+		});
+
+		it("skips what the server would refuse", () => {
+			const r = withTeamStuff();
+			r.addPending(create("m1", { id: "tp1" }));
+			r.addPending(create("m2", { id: "tp2", name: "BUG REPORT" }));
+			r.addPending(create("m3", { id: "tp3", name: "Other", teamId: "nope" }));
+			r.addPending(create("m4", { id: "tp4", name: "Other", labelIds: ["nope"] }));
+			r.addPending(create("m5", { id: "tp5", name: "Other", assigneeId: "nobody" }));
+			expect([...r.getState().templates.keys()]).toEqual(["tp1"]);
+
+			const left = new Replica("alice");
+			left.reset({ ...snapshot, labels: [bug], members: [{ ...bob, removedAt: 5 }] });
+			left.addPending(create("m1", { id: "tp1" }));
+			expect(left.getState().templates.size).toBe(0);
+		});
+
+		it("predicts that deleting a label takes it off templates", () => {
+			const r = withTeamStuff();
+			r.addPending(create("m1", { id: "tp1" }));
+			r.addPending(pending("m2", { name: "label.delete", args: { id: "bug" } }));
+			expect(r.getState().templates.get("tp1")?.labelIds).toEqual([]);
 		});
 	});
 

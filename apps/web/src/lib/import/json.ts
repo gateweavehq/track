@@ -8,7 +8,13 @@ import {
 } from "@gateweave/track-protocol";
 import { z } from "zod";
 import { EXPORT_FORMAT, EXPORT_VERSION } from "#/lib/export";
-import type { ImportedComment, ImportedIssue, ImportedStatus, ImportSource } from "./plan";
+import type {
+	ImportedComment,
+	ImportedIssue,
+	ImportedStatus,
+	ImportedWorkflowStatus,
+	ImportSource,
+} from "./plan";
 
 // Track's own JSON export (`workspaceToJson`), read back: issues with their comments, relations,
 // parents, labels and their colors, and projects and their details, so a workspace or a team moves
@@ -30,6 +36,9 @@ const exportFile = z.object({
 				key: z.string(),
 				name: z.string(),
 				category: z.enum(STATUS_CATEGORIES),
+				color: z.string().nullable().catch(null),
+				sortOrder: z.string().catch("a0"),
+				removedAt: z.number().nullable().catch(null),
 			}),
 		)
 		.catch([]),
@@ -124,6 +133,21 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 			? { name: status.name, category: status.category }
 			: { name: key, category: "backlog" };
 	};
+	// Each team's live statuses, for an import that keeps the file's teams to add what it lacks.
+	const teamStatuses = new Map<string, ImportedWorkflowStatus[]>();
+	for (const status of file.statuses) {
+		const team = teams.get(status.teamId);
+		if (!team || status.removedAt !== null) continue;
+		const list = teamStatuses.get(team.key) ?? [];
+		list.push({
+			key: status.key,
+			name: status.name,
+			category: status.category,
+			color: status.color,
+			sortOrder: status.sortOrder,
+		});
+		teamStatuses.set(team.key, list);
+	}
 	const members = new Map(file.members.map((member) => [member.id, member]));
 	const labels = new Map(file.labels.map((label) => [label.id, label]));
 	const projects = new Map(file.projects.map((project) => [project.id, project]));
@@ -198,6 +222,7 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 					issueSourceId: sourceId(relation.issueId),
 					relatedIssueSourceId: sourceId(relation.relatedIssueId),
 				})),
+			teamStatuses,
 		},
 		notes,
 	};

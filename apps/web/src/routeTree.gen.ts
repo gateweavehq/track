@@ -34,6 +34,7 @@ import { Route as WorkspaceSettingsLabelsRouteImport } from './routes/$workspace
 import { Route as WorkspaceSettingsMembersRouteImport } from './routes/$workspace/settings.members'
 import { Route as WorkspaceSettingsNotificationsRouteImport } from './routes/$workspace/settings.notifications'
 import { Route as WorkspaceSettingsTeamsRouteImport } from './routes/$workspace/settings.teams'
+import { Route as WorkspaceSettingsTemplatesRouteImport } from './routes/$workspace/settings.templates'
 import { Route as WorkspaceSettingsWebhooksRouteImport } from './routes/$workspace/settings.webhooks'
 import { Route as WorkspaceTeamTeamKeyRouteImport } from './routes/$workspace/team.$teamKey'
 import { Route as WorkspaceViewViewIdRouteImport } from './routes/$workspace/view.$viewId'
@@ -170,6 +171,12 @@ const WorkspaceSettingsTeamsRoute = WorkspaceSettingsTeamsRouteImport.update({
   path: '/teams',
   getParentRoute: () => WorkspaceSettingsRoute,
 } as any)
+const WorkspaceSettingsTemplatesRoute =
+  WorkspaceSettingsTemplatesRouteImport.update({
+    id: '/templates',
+    path: '/templates',
+    getParentRoute: () => WorkspaceSettingsRoute,
+  } as any)
 const WorkspaceSettingsWebhooksRoute =
   WorkspaceSettingsWebhooksRouteImport.update({
     id: '/webhooks',
@@ -235,6 +242,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/notifications': typeof WorkspaceSettingsNotificationsRoute
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
+  '/$workspace/settings/templates': typeof WorkspaceSettingsTemplatesRoute
   '/$workspace/settings/webhooks': typeof WorkspaceSettingsWebhooksRoute
   '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
   '/$workspace/view/$viewId': typeof WorkspaceViewViewIdRoute
@@ -267,6 +275,7 @@ export interface FileRoutesByTo {
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/notifications': typeof WorkspaceSettingsNotificationsRoute
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
+  '/$workspace/settings/templates': typeof WorkspaceSettingsTemplatesRoute
   '/$workspace/settings/webhooks': typeof WorkspaceSettingsWebhooksRoute
   '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
   '/$workspace/view/$viewId': typeof WorkspaceViewViewIdRoute
@@ -302,6 +311,7 @@ export interface FileRoutesById {
   '/$workspace/settings/members': typeof WorkspaceSettingsMembersRoute
   '/$workspace/settings/notifications': typeof WorkspaceSettingsNotificationsRoute
   '/$workspace/settings/teams': typeof WorkspaceSettingsTeamsRoute
+  '/$workspace/settings/templates': typeof WorkspaceSettingsTemplatesRoute
   '/$workspace/settings/webhooks': typeof WorkspaceSettingsWebhooksRoute
   '/$workspace/team/$teamKey': typeof WorkspaceTeamTeamKeyRoute
   '/$workspace/view/$viewId': typeof WorkspaceViewViewIdRoute
@@ -338,6 +348,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings/members'
     | '/$workspace/settings/notifications'
     | '/$workspace/settings/teams'
+    | '/$workspace/settings/templates'
     | '/$workspace/settings/webhooks'
     | '/$workspace/team/$teamKey'
     | '/$workspace/view/$viewId'
@@ -370,6 +381,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings/members'
     | '/$workspace/settings/notifications'
     | '/$workspace/settings/teams'
+    | '/$workspace/settings/templates'
     | '/$workspace/settings/webhooks'
     | '/$workspace/team/$teamKey'
     | '/$workspace/view/$viewId'
@@ -404,6 +416,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings/members'
     | '/$workspace/settings/notifications'
     | '/$workspace/settings/teams'
+    | '/$workspace/settings/templates'
     | '/$workspace/settings/webhooks'
     | '/$workspace/team/$teamKey'
     | '/$workspace/view/$viewId'
@@ -602,6 +615,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceSettingsTeamsRouteImport
       parentRoute: typeof WorkspaceSettingsRoute
     }
+    '/$workspace/settings/templates': {
+      id: '/$workspace/settings/templates'
+      path: '/templates'
+      fullPath: '/$workspace/settings/templates'
+      preLoaderRoute: typeof WorkspaceSettingsTemplatesRouteImport
+      parentRoute: typeof WorkspaceSettingsRoute
+    }
     '/$workspace/settings/webhooks': {
       id: '/$workspace/settings/webhooks'
       path: '/webhooks'
@@ -663,6 +683,7 @@ interface WorkspaceSettingsRouteChildren {
   WorkspaceSettingsMembersRoute: typeof WorkspaceSettingsMembersRoute
   WorkspaceSettingsNotificationsRoute: typeof WorkspaceSettingsNotificationsRoute
   WorkspaceSettingsTeamsRoute: typeof WorkspaceSettingsTeamsRoute
+  WorkspaceSettingsTemplatesRoute: typeof WorkspaceSettingsTemplatesRoute
   WorkspaceSettingsWebhooksRoute: typeof WorkspaceSettingsWebhooksRoute
   WorkspaceSettingsIndexRoute: typeof WorkspaceSettingsIndexRoute
 }
@@ -676,6 +697,7 @@ const WorkspaceSettingsRouteChildren: WorkspaceSettingsRouteChildren = {
   WorkspaceSettingsMembersRoute: WorkspaceSettingsMembersRoute,
   WorkspaceSettingsNotificationsRoute: WorkspaceSettingsNotificationsRoute,
   WorkspaceSettingsTeamsRoute: WorkspaceSettingsTeamsRoute,
+  WorkspaceSettingsTemplatesRoute: WorkspaceSettingsTemplatesRoute,
   WorkspaceSettingsWebhooksRoute: WorkspaceSettingsWebhooksRoute,
   WorkspaceSettingsIndexRoute: WorkspaceSettingsIndexRoute,
 }

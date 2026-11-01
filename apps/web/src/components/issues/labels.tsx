@@ -176,13 +176,18 @@ export function LabelMenu({
 									{selected.has(label.id) && <Check className="ml-auto size-4" />}
 								</CommandItem>
 							))}
-							{canCreate && (
+						</CommandGroup>
+						{/* A group of its own: cmdk hides a group none of whose counted items match, and
+						    it does not count an item it always shows, so in the group above this would
+						    vanish whenever no label matched, the very time it is needed. */}
+						{canCreate && (
+							<CommandGroup forceMount>
 								<CommandItem forceMount value={`create:${name}`} onSelect={create}>
 									<Plus />
 									<span className="truncate">Create label “{name}”</span>
 								</CommandItem>
-							)}
-						</CommandGroup>
+							</CommandGroup>
+						)}
 					</CommandList>
 				</Command>
 			</PopoverContent>

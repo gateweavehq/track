@@ -3,6 +3,7 @@ import type {
 	Cycle,
 	Issue,
 	IssueRelation,
+	IssueTemplate,
 	Label,
 	Member,
 	Mutation,
@@ -67,6 +68,7 @@ class FakeWorkspace implements WorkspaceAccess {
 	statuses: WorkflowStatus[] = defaultStatuses(team.id, 0);
 	issues_: Issue[] = [];
 	labels: Label[] = [];
+	templates: IssueTemplate[] = [];
 	comments_: Comment[] = [];
 	mutations: Mutation[] = [];
 	nextResult: MutateResult | null = null;
@@ -88,6 +90,7 @@ class FakeWorkspace implements WorkspaceAccess {
 			projects: this.projects,
 			cycles: this.cycles,
 			members: [{ ...me, proposes: [], removedAt: null }, sam],
+			templates: this.templates,
 		};
 	}
 	async issues(query: IssueQuery) {
@@ -434,6 +437,7 @@ describe("Track MCP tools", () => {
 						{ key: "done", name: "Done", category: "completed" },
 						{ key: "canceled", name: "Canceled", category: "canceled" },
 					],
+					templates: [],
 				},
 			],
 			cycles: [],
@@ -588,6 +592,98 @@ describe("Track MCP tools", () => {
 		expect(result.isError).toBe(true);
 		expect(result.content).toEqual([{ type: "text", text: "Issue ENG-99 not found." }]);
 		expect(workspace.mutations).toEqual([]);
+	});
+
+	it("starts an issue from a team's template, and lets what it is given win", async () => {
+		workspace.labels = ["Bug", "UI"].map((name) => ({
+			id: name.toLowerCase(),
+			name,
+			color: "#e5484d",
+			createdAt: 0,
+			updatedAt: 0,
+		}));
+		const bug: IssueTemplate = {
+			id: "t-bug",
+			teamId: team.id,
+			name: "Bug report",
+			title: "Bug: ",
+			description: "## Steps",
+			priority: 2,
+			// A label deleted since is left out.
+			labelIds: ["bug", "gone"],
+			assigneeId: sam.id,
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		// Its assignee has left the workspace.
+		const chore = { ...bug, id: "t-chore", name: "Chore", title: "", description: null };
+		workspace.templates = [bug, { ...chore, priority: 0, labelIds: [], assigneeId: "user-gone" }];
+
+		expect((await call("get_workspace", { workspace: "acme" })).structuredContent).toMatchObject({
+			teams: [
+				{
+					key: "ENG",
+					templates: [
+						{
+							name: "Bug report",
+							title: "Bug: ",
+							description: "## Steps",
+							priority: "high",
+							assignee: sam.id,
+							labels: ["Bug"],
+						},
+						{
+							name: "Chore",
+							title: "",
+							description: null,
+							priority: "none",
+							assignee: null,
+							labels: [],
+						},
+					],
+				},
+			],
+		});
+
+		await created({ title: "Bug: Login fails", template: " bug REPORT " });
+		expect(workspace.mutations.at(-1)).toMatchObject({
+			name: "issue.create",
+			args: {
+				title: "Bug: Login fails",
+				description: "## Steps",
+				priority: 2,
+				assigneeId: sam.id,
+				labelIds: ["bug"],
+			},
+		});
+
+		await created({
+			title: "Bug: Safari only",
+			template: "Bug report",
+			description: "On Safari",
+			priority: "low",
+			assignee: "none",
+			labels: ["UI"],
+		});
+		expect(workspace.mutations.at(-1)).toMatchObject({
+			args: { description: "On Safari", priority: 4, assigneeId: null, labelIds: ["ui"] },
+		});
+
+		const count = workspace.mutations.length;
+		const missing = await call("create_issue", {
+			workspace: "acme",
+			team: "ENG",
+			title: "New idea",
+			template: "Feature",
+		});
+		expect(missing.isError).toBe(true);
+		expect(missing.content).toEqual([
+			{
+				type: "text",
+				text: 'Team ENG has no template "Feature". Its templates: Bug report, Chore.',
+			},
+		]);
+		expect(workspace.mutations).toHaveLength(count);
 	});
 
 	it("links issues, reads relations from both sides, and unlinks them", async () => {

@@ -5,6 +5,7 @@ import {
 	type InboxItem,
 	type Issue,
 	type IssueRelation,
+	type IssueTemplate,
 	type Label,
 	type Member,
 	type Project,
@@ -25,6 +26,7 @@ import { compareProjects, type ProjectProgress, projectProgress } from "./projec
 import { blockedIssueIds } from "./relations";
 import { compareViews, isViewVisible } from "./saved-views";
 import { type StatusMap, statusOf, teamStatuses } from "./statuses";
+import { compareTemplates } from "./templates";
 
 // Selectors over the synced state. Each hook keeps its selector stable for the inputs it
 // depends on, so useQuery can skip work when unrelated parts of the state change.
@@ -224,6 +226,27 @@ const selectLabels = (state: SyncState) => [...state.labels.values()].sort(compa
 
 export function useLabels(): Label[] {
 	return useQuery(selectLabels, shallowEqual);
+}
+
+const selectTemplates = (state: SyncState) => [...state.templates.values()].sort(compareTemplates);
+
+/** Every team's issue templates, by name. */
+export function useTemplates(): IssueTemplate[] {
+	return useQuery(selectTemplates, shallowEqual);
+}
+
+/** A team's issue templates, by name. Empty without a team. */
+export function useTeamTemplates(teamId: string | undefined): IssueTemplate[] {
+	return useQuery(
+		useCallback(
+			(state: SyncState) =>
+				[...state.templates.values()]
+					.filter((template) => template.teamId === teamId)
+					.sort(compareTemplates),
+			[teamId],
+		),
+		shallowEqual,
+	);
 }
 
 const selectLabelsById = (state: SyncState) => state.labels;

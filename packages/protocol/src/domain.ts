@@ -415,6 +415,30 @@ export interface Member {
 export const ISSUE_LAYOUTS = ["list", "board", "calendar", "table", "timeline"] as const;
 export type IssueLayout = (typeof ISSUE_LAYOUTS)[number];
 
+/**
+ * A team's starting point for new issues: the title, description, priority, labels and assignee
+ * an issue made from it begins with. Anyone may change them before creating the issue.
+ */
+export interface IssueTemplate {
+	id: string;
+	teamId: string;
+	/** What people pick it by, unique in its team, ignoring case. */
+	name: string;
+	/** The new issue's title, or empty for the person to write one. */
+	title: string;
+	description: string | null;
+	priority: IssuePriority;
+	/** Labels deleted since leave the template with them. */
+	labelIds: string[];
+	/** Someone who has since left the workspace is not assigned. */
+	assigneeId: string | null;
+	createdAt: number;
+	updatedAt: number;
+}
+
+/** Templates a team holds at most. */
+export const MAX_TEMPLATES_PER_TEAM = 50;
+
 /** Saved views a workspace holds at most, shared and personal together. */
 export const MAX_VIEWS = 500;
 
@@ -508,6 +532,7 @@ export interface Entities {
 	proposal: Proposal;
 	relation: IssueRelation;
 	view: SavedView;
+	template: IssueTemplate;
 	member: Member;
 	subscription: Subscription;
 	inbox: InboxItem;
@@ -526,6 +551,7 @@ export const ENTITY_NAMES = [
 	"proposal",
 	"relation",
 	"view",
+	"template",
 	"member",
 	"subscription",
 	"inbox",

@@ -51,6 +51,7 @@ import {
 	teamStatuses,
 	updateStatus,
 } from "./statuses";
+import { createTemplate, deleteTemplate, dropTemplateLabel, updateTemplate } from "./templates";
 import { queueDeliveries } from "./webhooks";
 
 export interface Actor {
@@ -169,6 +170,15 @@ export function applyMutation(
 			break;
 		case "view.delete":
 			deleteView(db, changes, actor, mutation.args);
+			break;
+		case "template.create":
+			createTemplate(db, changes, mutation.args);
+			break;
+		case "template.update":
+			updateTemplate(db, changes, mutation.args);
+			break;
+		case "template.delete":
+			deleteTemplate(db, changes, mutation.args);
 			break;
 		case "agent.update":
 			updateAgent(db, changes, actor, mutation.args);
@@ -797,7 +807,10 @@ function updateLabel(db: Db, changes: ChangeSet, args: MutationArgs<"label.updat
 	if (row) changes.put("label", toLabel(row));
 }
 
-/** Removes the label from every issue that has it, then deletes it. Admins only: it is wide. */
+/**
+ * Removes the label from every issue and template that has it, then deletes it. Admins only: it
+ * is wide.
+ */
 function deleteLabel(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"label.delete">) {
 	requireAdmin(actor, "Only workspace admins can delete labels");
 	const label = findLiveLabel(db, args.id);
@@ -821,6 +834,8 @@ function deleteLabel(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 			issue.labelIds.filter((id) => id !== label.id),
 		);
 	}
+
+	dropTemplateLabel(db, changes, label.id);
 
 	db.update(schema.labels)
 		.set({ deletedAt: changes.now, updatedAt: changes.now })

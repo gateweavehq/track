@@ -60,6 +60,8 @@ export interface IssueDefaults {
 	labelIds?: string[];
 	/** Files the issue as a request in its team's intake. */
 	intake?: boolean;
+	/** A template of the team to start from, which fills in the fields it has. */
+	templateId?: string;
 }
 
 /** Workspace-wide actions, available to pages, the sidebar and keyboard shortcuts. */

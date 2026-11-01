@@ -57,6 +57,20 @@ const importedCreatedAt = z
 	.optional();
 
 const viewName = z.string().trim().min(1).max(80);
+const templateName = z.string().trim().min(1).max(64);
+/**
+ * A template's title may be empty, for the person to write when they use it. It is kept as
+ * written, so a prefix such as "Bug: " keeps its space; the issue's title is trimmed as always.
+ */
+const templateTitle = z.string().max(512);
+const templateFields = {
+	name: templateName,
+	title: templateTitle,
+	description,
+	priority,
+	labelIds: z.array(id).max(MAX_LABELS_PER_ISSUE),
+	assigneeId: id.nullable(),
+};
 const cycleName = z.string().trim().min(1).max(64);
 /**
  * A team's cycles, as an admin sets them. The cycles that have not started are dated anew: the
@@ -328,6 +342,31 @@ export const mutationSchema = z.discriminatedUnion("name", [
 	}),
 	z.object({
 		name: z.literal("view.delete"),
+		args: z.object({ id }),
+	}),
+	// Any member keeps a team's templates, as labels do, up to MAX_TEMPLATES_PER_TEAM a team.
+	z.object({
+		name: z.literal("template.create"),
+		args: z.object({
+			id,
+			teamId: id,
+			name: templateName,
+			title: templateTitle.default(""),
+			description: description.default(null),
+			priority: priority.default(0),
+			labelIds: templateFields.labelIds.default([]),
+			assigneeId: id.nullable().default(null),
+		}),
+	}),
+	z.object({
+		name: z.literal("template.update"),
+		args: z.object({
+			id,
+			patch: z.object(templateFields).partial().refine(nonEmpty, "Empty patch"),
+		}),
+	}),
+	z.object({
+		name: z.literal("template.delete"),
 		args: z.object({ id }),
 	}),
 	// Admins only. Agents themselves are made in settings, like people's memberships.

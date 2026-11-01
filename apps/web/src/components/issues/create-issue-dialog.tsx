@@ -1,12 +1,13 @@
 import {
 	type IssuePriority,
 	type IssueStatus,
+	type IssueTemplate,
 	MAX_LABELS_PER_ISSUE,
 } from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronRight, Layers, Tag } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Layers, Tag } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CycleIcon } from "#/components/cycles/meta";
@@ -15,6 +16,13 @@ import { keepOpenForMentions, useMentions } from "#/components/mention-menu";
 import { ProjectStatusIcon } from "#/components/projects/meta";
 import { Button } from "#/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "#/components/ui/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuTrigger,
+} from "#/components/ui/dropdown-menu";
 import { Kbd } from "#/components/ui/kbd";
 import { type IssueDefaults, useWorkspace } from "#/components/workspace/context";
 import { cycleName } from "#/lib/cycles";
@@ -27,7 +35,9 @@ import {
 	useProjectsById,
 	useTeamStatuses,
 	useTeams,
+	useTeamTemplates,
 } from "#/lib/queries";
+import { applyTemplate, type IssueDraft } from "#/lib/templates";
 import { LabelChips, LabelMenu } from "./labels";
 import { PRIORITY_META, PriorityIcon, StatusIcon } from "./meta";
 import {
@@ -53,12 +63,30 @@ export function CreateIssueDialog({
 	const members = useMembersById();
 	const projects = useProjectsById();
 	const cycles = useCyclesById();
-	const [teamId, setTeamId] = useState(defaults.teamId ?? teams[0]?.id ?? "");
-	const [title, setTitle] = useState("");
-	const [description, setDescription] = useState("");
+	// What the issue starts as: the defaults, then the template asked for, if there is one.
+	const [initial] = useState(() => {
+		const state = client.getState();
+		const draft: IssueDraft = {
+			title: "",
+			description: "",
+			priority: defaults.priority ?? 0,
+			assigneeId: defaults.assigneeId ?? null,
+			// Defaults can come from a URL, so they may name labels that do not exist.
+			labelIds: [...new Set(defaults.labelIds)].filter((id) => state.labels.has(id)),
+		};
+		const template = defaults.templateId ? state.templates.get(defaults.templateId) : undefined;
+		if (!template) return { draft, template: null, teamId: defaults.teamId };
+		const filled = applyTemplate(draft, template, state.labels, state.members);
+		return { draft: filled, template: template.name, teamId: template.teamId };
+	});
+	const [teamId, setTeamId] = useState(initial.teamId ?? teams[0]?.id ?? "");
+	const [title, setTitle] = useState(initial.draft.title);
+	const [description, setDescription] = useState(initial.draft.description);
 	const [statusKey, setStatusKey] = useState<IssueStatus | null>(defaults.status ?? null);
-	const [priority, setPriority] = useState<IssuePriority>(defaults.priority ?? 0);
-	const [assigneeId, setAssigneeId] = useState<string | null>(defaults.assigneeId ?? null);
+	const [priority, setPriority] = useState<IssuePriority>(initial.draft.priority);
+	const [assigneeId, setAssigneeId] = useState<string | null>(initial.draft.assigneeId);
+	/** The name of the template last applied, for its button to show. */
+	const [templateName, setTemplateName] = useState<string | null>(initial.template);
 	// The default comes from the page on screen, whose project may be deleted by now.
 	const [projectId, setProjectId] = useState<string | null>(
 		defaults.projectId && client.getState().projects.has(defaults.projectId)
@@ -67,12 +95,21 @@ export function CreateIssueDialog({
 	);
 	const project = projectId ? projects.get(projectId) : undefined;
 	const [cycleId, setCycleId] = useState<string | null>(defaults.cycleId ?? null);
-	const [labelIds, setLabelIds] = useState(() => {
-		// Defaults can come from a URL, so they may name labels that do not exist.
-		const known = client.getState().labels;
-		return [...new Set(defaults.labelIds)].filter((id) => known.has(id));
-	});
+	const [labelIds, setLabelIds] = useState(initial.draft.labelIds);
 	const team = teams.find((t) => t.id === teamId) ?? teams[0];
+	const templates = useTeamTemplates(team?.id);
+
+	function chooseTemplate(template: IssueTemplate) {
+		const state = client.getState();
+		const current = { title, description, priority, assigneeId, labelIds };
+		const next = applyTemplate(current, template, state.labels, state.members);
+		setTitle(next.title);
+		setDescription(next.description);
+		setPriority(next.priority);
+		setAssigneeId(next.assigneeId);
+		setLabelIds(next.labelIds);
+		setTemplateName(template.name);
+	}
 	// A cycle belongs to one team, so picking another team leaves it behind. One that has
 	// completed takes no more issues.
 	const cycle = cycleId ? cycles.get(cycleId) : undefined;
@@ -167,6 +204,30 @@ export function CreateIssueDialog({
 						<DialogDescription className="sr-only">
 							Give the {noun} a title, then press Enter to create it.
 						</DialogDescription>
+						{templates.length > 0 && (
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button
+										type="button"
+										variant="ghost"
+										size="sm"
+										className="mr-7 ml-auto h-7 max-w-48 px-2 text-muted-foreground"
+									>
+										<FileText />
+										<span className="truncate">{templateName ?? "Template"}</span>
+										<ChevronDown className="size-3.5" />
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end" className="max-w-72">
+									<DropdownMenuLabel>{team?.name} templates</DropdownMenuLabel>
+									{templates.map((template) => (
+										<DropdownMenuItem key={template.id} onSelect={() => chooseTemplate(template)}>
+											<span className="truncate">{template.name}</span>
+										</DropdownMenuItem>
+									))}
+								</DropdownMenuContent>
+							</DropdownMenu>
+						)}
 					</div>
 					<div className="space-y-2 px-4 py-3">
 						<input

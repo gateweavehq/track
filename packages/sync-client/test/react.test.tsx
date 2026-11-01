@@ -32,6 +32,7 @@ const snapshot: Snapshot = {
 	proposals: [],
 	relations: [],
 	views: [],
+	templates: [],
 	members: [],
 	subscriptions: [],
 	inbox: [],

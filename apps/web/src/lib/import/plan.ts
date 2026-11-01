@@ -1,13 +1,15 @@
 import {
 	type Comment,
 	calendarDate,
-	DEFAULT_STATUSES,
+	compareStatuses,
+	defaultStatuses,
 	type Issue,
 	type IssuePriority,
 	type IssueRelation,
 	type Label,
 	liveStatuses,
 	MAX_LABELS_PER_ISSUE,
+	MAX_STATUSES_PER_TEAM,
 	type Member,
 	type MutationInput,
 	mutationSchema,
@@ -15,6 +17,8 @@ import {
 	type ProjectStatus,
 	type RelationType,
 	type StatusCategory,
+	statusId,
+	statusKeyFor,
 	type Team,
 	type WorkflowStatus,
 } from "@gateweave/track-protocol";
@@ -38,6 +42,11 @@ export interface ImportSource {
 	projects?: ImportedProject[];
 	/** Relations between issues of this import. */
 	relations?: ImportedRelation[];
+	/**
+	 * Each team's own statuses, by the team's key, where the source has teams with statuses (a
+	 * Track export). When the import keeps the source's teams, those its team lacks are added.
+	 */
+	teamStatuses?: ReadonlyMap<string, readonly ImportedWorkflowStatus[]>;
 }
 
 export interface ImportedIssue {
@@ -82,6 +91,15 @@ export interface ImportedIssue {
 export interface ImportedStatus {
 	name: string;
 	category: StatusCategory;
+}
+
+/** One of a source team's statuses, as a Track export has it. */
+export interface ImportedWorkflowStatus {
+	key: string;
+	name: string;
+	category: StatusCategory;
+	color: string | null;
+	sortOrder: string;
 }
 
 export interface ImportedPerson {
@@ -159,6 +177,8 @@ export interface ImportPlan {
 	/** Issues, comments and relations an earlier run imported. */
 	skipped: number;
 	newTeams: string[];
+	/** Statuses added to teams, as `Name (KEY)`, the key being the team's. */
+	newStatuses: string[];
 	newLabels: string[];
 	newProjects: string[];
 }
@@ -166,7 +186,8 @@ export interface ImportPlan {
 export interface ImportOptions {
 	/**
 	 * Puts each issue in the team the source keeps it in, matched by key or created, instead of
-	 * the one team. Issues the source puts in no team still go to that one.
+	 * the one team, and adds the statuses that team has in the source and lacks here (only admins
+	 * import, and only admins add statuses). Issues the source puts in no team still go to that one.
 	 */
 	keepTeams?: boolean;
 }
@@ -193,6 +214,7 @@ export async function planImport(
 	// Someone who left the workspace cannot be assigned.
 	const members = [...target.members].filter((member) => member.removedAt === null);
 	const newTeams: string[] = [];
+	const newStatuses: string[] = [];
 	const newLabels: string[] = [];
 	const newProjects: string[] = [];
 
@@ -200,9 +222,12 @@ export async function planImport(
 	const teamFor = (issue: ImportedIssue) => {
 		if (!keepTeams || !issue.team) return teamId;
 		const key = issue.team.key.trim().toUpperCase();
-		const known = teamIds.get(key) ?? teams.find((team) => team.key.toUpperCase() === key)?.id;
+		const cached = teamIds.get(key);
+		if (cached) return cached;
+		const known = teams.find((team) => team.key.toUpperCase() === key)?.id;
 		if (known) {
 			teamIds.set(key, known);
+			addStatuses(known, key);
 			return known;
 		}
 		const id = crypto.randomUUID();
@@ -213,18 +238,79 @@ export async function planImport(
 		mutations.push(create);
 		newTeams.push(`${name} (${key})`);
 		teamIds.set(key, id);
+		// The server gives a new team the built-in statuses.
+		statuses.push(...defaultStatuses(id, 0));
+		addStatuses(id, key);
 		return id;
 	};
 
-	// A team this import makes starts with the built-in statuses.
+	// The source team's live statuses that the team here lacks, by name or by key (a renamed
+	// status is still the same one), in the source's order and each after the one it follows
+	// there. Statuses the source removed stay out: their issues already moved.
+	const sourceStatuses = new Map(
+		[...(source.teamStatuses ?? [])].map(([key, list]) => [key.trim().toUpperCase(), list]),
+	);
+	const addStatuses = (teamId: string, key: string) => {
+		const wanted = [...(sourceStatuses.get(key) ?? [])].sort(compareStatuses);
+		const own = () => liveStatuses(statuses.filter((status) => status.teamId === teamId));
+		// Every key the team has used, removed ones included, as the server never reuses one.
+		const taken = new Set(
+			statuses.filter((status) => status.teamId === teamId).map((status) => status.key),
+		);
+		const matchOf = (status: ImportedWorkflowStatus) => {
+			const name = status.name.trim().toLowerCase();
+			return own().find((here) => here.name.toLowerCase() === name || here.key === status.key);
+		};
+		let previous: WorkflowStatus | undefined;
+		for (const status of wanted) {
+			const match = matchOf(status);
+			if (match) {
+				previous = match;
+				continue;
+			}
+			const live = own();
+			if (live.length >= MAX_STATUSES_PER_TEAM) break;
+			const sameCategory = live.filter((here) => here.category === status.category);
+			const after = previous?.category === status.category ? previous.sortOrder : null;
+			const before =
+				sameCategory.find((here) => after === null || here.sortOrder > after)?.sortOrder ?? null;
+			const name = status.name.trim();
+			const statusKey = taken.has(status.key) ? statusKeyFor(name, taken) : status.key;
+			const create: MutationInput = {
+				name: "status.create",
+				args: {
+					teamId,
+					key: statusKey,
+					name,
+					category: status.category,
+					color: status.color,
+					sortOrder: generateKeyBetween(after, before),
+				},
+			};
+			const parsed = mutationSchema.safeParse(create);
+			// A status the server would refuse leaves its issues to the nearest one of its kind.
+			if (!parsed.success || parsed.data.name !== "status.create") continue;
+			mutations.push(parsed.data);
+			const added: WorkflowStatus = {
+				...parsed.data.args,
+				id: statusId(teamId, statusKey),
+				createdAt: 0,
+				updatedAt: 0,
+				removedAt: null,
+			};
+			statuses.push(added);
+			taken.add(statusKey);
+			newStatuses.push(`${name} (${key})`);
+			previous = added;
+		}
+	};
+
 	const statusFor = (teamId: string, wanted: ImportedStatus): string | undefined => {
 		const own = liveStatuses(statuses.filter((status) => status.teamId === teamId));
-		const options: readonly Pick<WorkflowStatus, "key" | "name" | "category">[] =
-			own.length > 0 ? own : DEFAULT_STATUSES;
 		const name = wanted.name.trim().toLowerCase();
 		return (
-			options.find((status) => status.name.toLowerCase() === name) ??
-			options.find((status) => status.category === wanted.category)
+			own.find((status) => status.name.toLowerCase() === name) ??
+			own.find((status) => status.category === wanted.category)
 		)?.key;
 	};
 
@@ -371,6 +457,7 @@ export async function planImport(
 		relations,
 		skipped,
 		newTeams,
+		newStatuses,
 		newLabels,
 		newProjects,
 	};

@@ -5,9 +5,11 @@ import {
 	displayToStore,
 	firstStatus,
 	type Issue,
+	type IssueTemplate,
 	isAdminRole,
 	isClosedCategory,
 	MAX_LABELS_PER_ISSUE,
+	MAX_TEMPLATES_PER_TEAM,
 	MAX_VIEWS,
 	type MemberRole,
 	type ProposedChange,
@@ -270,6 +272,11 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			for (const issue of [...draft.values("issue")]) {
 				if (issue.labelIds.includes(id)) draft.put("issue", withoutLabel(issue, id, now));
 			}
+			for (const template of [...draft.values("template")]) {
+				if (!template.labelIds.includes(id)) continue;
+				const labelIds = template.labelIds.filter((labelId) => labelId !== id);
+				draft.put("template", { ...template, labelIds, updatedAt: now });
+			}
 			draft.delete("label", id);
 			return;
 		}
@@ -385,6 +392,33 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			if (view && canEditView(view, userId, draft.get("member", userId)?.role)) {
 				draft.delete("view", view.id);
 			}
+			return;
+		}
+		case "template.create": {
+			const { id, teamId, ...fields } = mutation.args;
+			if (draft.get("template", id) || !draft.get("team", teamId)) return;
+			const theirs = [...draft.values("template")].filter((each) => each.teamId === teamId);
+			if (theirs.length >= MAX_TEMPLATES_PER_TEAM || templateNameTaken(theirs, fields.name)) return;
+			if (!templateFieldsValid(draft, fields)) return;
+			const labelIds = [...new Set(fields.labelIds)];
+			draft.put("template", { id, teamId, ...fields, labelIds, createdAt: now, updatedAt: now });
+			return;
+		}
+		case "template.update": {
+			const template = draft.get("template", mutation.args.id);
+			if (!template) return;
+			const { patch } = mutation.args;
+			const theirs = [...draft.values("template")].filter(
+				(each) => each.teamId === template.teamId && each.id !== template.id,
+			);
+			if (patch.name !== undefined && templateNameTaken(theirs, patch.name)) return;
+			if (!templateFieldsValid(draft, patch)) return;
+			const labels = patch.labelIds === undefined ? {} : { labelIds: [...new Set(patch.labelIds)] };
+			draft.put("template", { ...template, ...patch, ...labels, updatedAt: now });
+			return;
+		}
+		case "template.delete": {
+			draft.delete("template", mutation.args.id);
 			return;
 		}
 		case "agent.update": {
@@ -529,6 +563,24 @@ function isLead(draft: Draft, leadId: string | null): boolean {
 	if (leadId === null) return true;
 	const lead = draft.get("member", leadId);
 	return lead !== undefined && lead.role !== "agent" && lead.removedAt === null;
+}
+
+function templateNameTaken(templates: IssueTemplate[], name: string): boolean {
+	const folded = name.toLowerCase();
+	return templates.some((template) => template.name.toLowerCase() === folded);
+}
+
+/** Labels that are all live and an assignee still in the workspace, as the server requires. */
+function templateFieldsValid(
+	draft: Draft,
+	fields: Partial<Pick<IssueTemplate, "labelIds" | "assigneeId">>,
+): boolean {
+	if (fields.labelIds?.some((labelId) => !draft.get("label", labelId))) return false;
+	if (fields.assigneeId) {
+		const assignee = draft.get("member", fields.assigneeId);
+		if (!assignee || assignee.removedAt !== null) return false;
+	}
+	return true;
 }
 
 function withoutLabel(issue: Issue, labelId: string, now: number): Issue {

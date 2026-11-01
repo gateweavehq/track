@@ -421,7 +421,8 @@ canceled issues are left out of it.
 - **Names travel with the key.** MCP takes a status by key or name and lists each team's
   statuses in `get_workspace`; webhooks carry `statusName` and `statusCategory`; inbox emails
   name the status as its team does; an import matches a status by name in the team, then takes
-  the first of its category.
+  the first of its category. An import of a Track export that keeps the file's teams first adds
+  each team's live statuses that the team here lacks by name and by key (`status.create`).
 
 Changing statuses is a breaking change to the protocol (version 16), so clients that predate it
 start from a fresh snapshot.
@@ -575,8 +576,28 @@ sends every address at the domain to the Worker's `email` handler, from one catc
 Without `INTAKE_EMAIL_DOMAIN`, and on the public demo, every address is refused, and the dialog
 in the app says why. Replying to the sender by email is a later step.
 
-Intake is a breaking change to the protocol (version 19), as the issue and team entities gained
+Intake is a breaking change to the protocol (version 20), as the issue and team entities gained
 it.
+
+### Issue templates
+
+A team keeps templates for the issues it files often (`IssueTemplate`, at most 50 a team): a
+name, unique in the team ignoring case, and the title, description, priority, assignee and labels
+a new issue starts with. Any member keeps them, under Settings, Templates, with `template.create`,
+`template.update` and `template.delete` (`packages/sync-server/src/templates.ts`).
+
+- **Using one is the client's business.** The create dialog's Template menu and the command
+  palette's "Create issue from …" fill in the draft (`apps/web/src/lib/templates.ts`), and the
+  person changes what they like before `issue.create` checks it like any other. A template with an
+  empty title or description leaves what was typed. The title is not trimmed, so "Bug: " keeps
+  its space for the rest of the title.
+- **What an issue cannot have is left out.** Deleting a label takes it off templates, as it does
+  issues. An assignee who has since left the workspace stays in the template but is not assigned.
+- **Elsewhere.** `get_workspace` over MCP lists each team's templates, and `create_issue` takes a
+  `template` by name: it fills in the description, priority, assignee and labels the call leaves
+  out.
+
+Templates are a breaking change to the protocol (version 19), as the snapshot gained them.
 
 ### Projects
 
