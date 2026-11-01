@@ -58,6 +58,8 @@ export interface IssueDefaults {
 	projectId?: string | null;
 	cycleId?: string | null;
 	labelIds?: string[];
+	/** Files the issue as a request in its team's intake. */
+	intake?: boolean;
 	/** A template of the team to start from, which fills in the fields it has. */
 	templateId?: string;
 }

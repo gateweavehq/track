@@ -82,6 +82,9 @@ export function mergeActivity(
 			)
 				return { kind: "append" };
 			return previous.added === change.added ? { kind: "skip" } : { kind: "remove" };
+		case "intake":
+			// A request leaves intake once, and is never put back.
+			return append;
 		case "archived":
 			// Archiving and restoring at once leaves no trace.
 			if (previous.type !== "archived") return append;

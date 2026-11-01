@@ -54,7 +54,8 @@ const DAY = 24 * 60 * 60 * 1000;
 
 /**
  * A team's insights over the last `weeks` weeks, this one included. `issues` are the team's, the
- * archived ones too: archiving takes an issue out of lists, not out of what the team did.
+ * archived ones too: archiving takes an issue out of lists, not out of what the team did. Requests
+ * still in intake are left out: nobody has taken them on yet.
  */
 export function teamInsights({
 	teamId,
@@ -88,7 +89,7 @@ export function teamInsights({
 		return weeks[Math.floor(daysBetween(first, day) / 7)];
 	};
 
-	const team = [...issues].filter((issue) => issue.teamId === teamId);
+	const team = [...issues].filter((issue) => issue.teamId === teamId && !issue.intake);
 	const ids = new Set(team.map((issue) => issue.id));
 	const histories = new Map<string, Activity[]>();
 	for (const activity of activities) {

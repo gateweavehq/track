@@ -66,6 +66,7 @@ function issue(id: string, fields: Partial<Issue> = {}): Issue {
 		createdAt: at("2026-10-20"),
 		updatedAt: 0,
 		archivedAt: null,
+		intake: false,
 		...fields,
 	};
 }
@@ -162,13 +163,20 @@ describe("teamInsights", () => {
 		expect(insights.cycleTime).toEqual({ medianDays: 2, issues: 3 });
 	});
 
-	it("breaks open issues down by status, assignee and label", () => {
+	it("breaks open issues down by status, assignee and label, leaving requests in intake out", () => {
 		const issues = [
 			issue("a", { status: "qa", assigneeId: "u1", labelIds: ["bug", "ui"] }),
 			issue("b", { status: "todo", assigneeId: "u1", labelIds: ["bug"] }),
 			issue("c", { status: "todo", assigneeId: null, labelIds: [] }),
 			issue("d", { status: "backlog", assigneeId: "u2", labelIds: ["ui", "bug"] }),
 			issue("done", { status: "done", assigneeId: "u2", labelIds: ["bug"] }),
+			// A request nobody has taken on yet is not the team's work.
+			issue("request", {
+				status: "todo",
+				assigneeId: "u2",
+				intake: true,
+				createdAt: at("2026-11-03"),
+			}),
 		];
 		const insights = teamInsights({
 			teamId: "t1",
@@ -180,6 +188,7 @@ describe("teamInsights", () => {
 			weeks: 4,
 		});
 		expect(insights.open).toBe(4);
+		expect(insights.created).toBe(5);
 		expect(insights.byStatus.map(({ key, count }) => [key.key, count])).toEqual([
 			["backlog", 1],
 			["todo", 2],

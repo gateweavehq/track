@@ -26,6 +26,7 @@ function issue(id: string, overrides: Partial<Issue> = {}): Issue {
 		createdAt: 0,
 		updatedAt: 0,
 		archivedAt: null,
+		intake: false,
 		...overrides,
 	};
 }

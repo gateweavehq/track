@@ -481,6 +481,104 @@ The workspace's alarm applies them (`packages/sync-server/src/automations.ts`).
 
 Automations are a breaking change to the protocol (version 18), as the team entity gained them.
 
+### Intake
+
+Each team has an intake: requests that wait for a person to accept them into the team's workflow
+or decline them (`Issue.intake`). A request is an issue like any other, with the team's number,
+statuses, labels and history; only where it shows differs. It leaves the lists and boards of its
+team, project, cycle and saved views, and My issues, as an archived issue does, and waits on the
+team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search finds it.
+
+- **Filing.** `issue.create` takes `intake: true`. The intake page files requests, and so does
+  the C shortcut while it is on screen; agents file them over MCP. Anyone who may create an issue
+  may file one, agent members included. People without an account use the team's request form
+  or email address (below).
+- **Accepting** (`issue.accept`) takes the request out of intake in its status, or in an open one
+  it names: a closed status is refused, since declining is how a request closes.
+- **Declining** (`issue.decline`) moves it to the team's first canceled status, after posting an
+  optional reply as a comment by the person declining, which the people following the request
+  hear of. A team with no canceled status cannot decline.
+- **People decide.** Both mutations refuse agent members (`forbidden`). An agent triages by
+  working on requests through the ordinary mutations, and by proposing what an admin chose for it
+  (see [Proposals](#proposals)); a person accepts or declines. Deciding on what is no longer a
+  request is a `conflict` ("Someone already decided on this request"), so whoever decides second
+  hears it, and a reply they wrote is not lost unseen. A retried mutation id is answered as
+  applied before that.
+- **A request is never closed.** Declining is how it closes, so `issue.create` refuses a request
+  in a closed status, and `issue.update` refuses to move one into a closed status (`invalid`),
+  whoever sends it, an accepted proposal included. GitHub leaves requests where they are. A change
+  to the workflow that makes a request's status closing, by changing its category or removing it
+  into a closed one, takes the request out of intake as declined, with a history entry and no
+  inbox news, as it restores archived issues. A team whose first status closes takes no requests
+  from its form or address.
+- **Decisions are stamped.** Accepting into another status and declining stamp the status like
+  any change to it, so an offline edit made before them conflicts.
+- **History says it**, as `{ type: "intake", accepted }`, with the status change as an entry of
+  its own. Both send `issue.updated` webhooks, with `intake` in `updatedFrom`.
+- **Out of the way of automations.** A request is not archived, by hand or by a team's
+  automations, and automations do not close it: it waits for a person.
+- **Elsewhere.** Over MCP, `create_issue` and `search_issues` take `intake`, every issue says
+  whether it is a request, and `triage_request` accepts or declines one, for people only. Exports
+  carry `intake`; imports bring issues in out of intake.
+
+#### Request forms
+
+An admin can turn on a team's public request form (`team.update` with `intakeForm`), whose link,
+`/request/:workspaceId/:formKey`, anyone can fill in without an account. The key is 128 random
+bits the Durable Object makes each time the form is turned on (`Team.intakeFormKey`), so turning
+it off, or asking for a new link, retires the old one. It is in every member's replica, so any
+member can share the link. The gateway (`apps/web/src/server/intake-form.ts`) runs before
+TanStack Start and serves the form as a small page of its own:
+
+- **Turnstile keeps bots out.** The page embeds Cloudflare Turnstile, and a submission files
+  nothing until `siteverify` passes its token. Without `TURNSTILE_SITE_KEY` and
+  `TURNSTILE_SECRET_KEY`, and on the public demo, every form answers 404, and the form's dialog
+  in the app says why.
+- **Each client network files at most 10 requests an hour and 30 a day**, across all forms,
+  counted in the `RateLimiter` Durable Object (per IPv6 /64), before Turnstile is asked.
+- **The workspace must exist in D1** before its Durable Object is reached, and a key no team has
+  gets the same 404 as a missing workspace.
+- **The form is the creator.** A request is filed as `INTAKE_FORM_ACTOR_ID` (`form`), shown as
+  "Request form", in the team's first status, with the title and description typed in, and the
+  address the person left, if any, at the end of the description. It tells nobody in their
+  inbox, so a stranger's text cannot mention people into hearing from it; webhooks hear of it,
+  with a `system` actor named "Request form".
+- **Nothing runs on the page but Turnstile.** It is served `no-store`, with a
+  Content-Security-Policy that allows only Turnstile's script and frame and posts only to itself,
+  cannot be framed, and escapes everything it shows. The service worker leaves `/request/` alone.
+
+#### Intake email
+
+An admin can also give a team an intake email address (`team.update` with `intakeEmail`):
+`<workspace id>.<key>@<INTAKE_EMAIL_DOMAIN>`, where the key is 80 random bits as 16 lowercase
+base32 characters (`Team.intakeEmailKey`), new each time the address is turned on. The address
+is lowercase, since mail systems may change its case, and the gateway finds the workspace by its
+id ignoring case. Teams usually forward their support address to it. Cloudflare Email Routing
+sends every address at the domain to the Worker's `email` handler, from one catch-all rule
+(`apps/web/src/server/intake-email.ts`):
+
+- **Mail to an address that leads nowhere is refused** (`setReject`), so its sender hears it went
+  nowhere: another domain or form, a workspace that does not exist, or a key no team has.
+- **Mail a machine sent on its own is dropped without a bounce**: `Auto-Submitted` other than
+  `no`, `Precedence` of bulk, junk, list or auto_reply, auto-reply headers and mailing lists. An
+  out-of-office reply to everyone who wrote would otherwise fill the intake.
+- **Limits.** Each sender files at most 10 requests an hour and 30 a day, and each team's address
+  takes at most 60 an hour and 300 a day, whoever sends them, in the `RateLimiter` Durable Object.
+  Mail over 1 MiB is refused.
+- **What is kept.** postal-mime parses the message. The subject is the title (or "Email from"
+  the sender), and the plain text, or the text of an HTML-only message, the description, cut at
+  20,000 characters and signed with the sender's address. Attachments are not kept; the
+  description says how many were left out.
+- **The address is the creator** (`INTAKE_EMAIL_ACTOR_ID`, `email`, shown as "Email"), with the
+  same rules as the form: the team's first status, nobody's inbox, webhooks with a `system`
+  actor named "Email".
+
+Without `INTAKE_EMAIL_DOMAIN`, and on the public demo, every address is refused, and the dialog
+in the app says why. Replying to the sender by email is a later step.
+
+Intake is a breaking change to the protocol (version 20), as the issue and team entities gained
+it.
+
 ### Issue templates
 
 A team keeps templates for the issues it files often (`IssueTemplate`, at most 50 a team): a
@@ -521,6 +619,8 @@ Durable Object nothing and works offline.
   one person's changes to a status within five minutes, so work started and finished that
   quickly reads as one move and has no cycle time. Under an hour reads as "under an hour".
 - **Open issues by status, assignee and label**, as they are now.
+- **Requests still in intake are left out** of every count: nobody has taken them on yet. Once
+  accepted, a request counts from when it was filed.
 
 ### Projects
 

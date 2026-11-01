@@ -13,12 +13,14 @@ import { useSyncClient } from "@gateweave/track-sync-client/react";
 import {
 	Archive,
 	ArchiveRestore,
+	Ban,
 	CalendarClock,
 	CalendarDays,
 	CircleUserRound,
 	Ellipsis,
 	FileText,
 	Gauge,
+	Inbox,
 	IterationCcw,
 	Layers,
 	ListTree,
@@ -307,6 +309,10 @@ function describe(
 			);
 		case "description":
 			return plain(FileText, "updated the description");
+		case "intake":
+			return change.accepted
+				? plain(Inbox, "accepted the request")
+				: plain(Ban, "declined the request");
 		case "archived":
 			return change.archived
 				? plain(Archive, "archived the issue")

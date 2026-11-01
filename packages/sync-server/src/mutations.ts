@@ -48,6 +48,7 @@ import {
 	deleteStatus,
 	isClosedStatus,
 	seedStatuses,
+	teamStatuses,
 	updateStatus,
 } from "./statuses";
 import { createTemplate, deleteTemplate, dropTemplateLabel, updateTemplate } from "./templates";
@@ -95,7 +96,7 @@ export function applyMutation(
 			break;
 		case "status.update":
 			requireAdmin(actor, "Only workspace admins can manage statuses");
-			updateStatus(db, changes, mutation.args);
+			updateStatus(db, changes, actor.member.userId, mutation.args);
 			break;
 		case "status.delete":
 			requireAdmin(actor, "Only workspace admins can manage statuses");
@@ -112,6 +113,12 @@ export function applyMutation(
 			break;
 		case "issue.archive":
 			archiveIssue(db, changes, actor, mutation.args);
+			break;
+		case "issue.accept":
+			acceptIssue(db, changes, actor, mutation.args);
+			break;
+		case "issue.decline":
+			declineIssue(db, changes, actor, mutation.args);
 			break;
 		case "issue.addLabel":
 			addLabel(db, changes, actor, mutation.args);
@@ -227,6 +234,8 @@ function createTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 		cycles: null,
 		archiveAfterMonths: null,
 		closeAfterMonths: null,
+		intakeFormKey: null,
+		intakeEmailKey: null,
 		issueCounter: 0,
 		createdAt: changes.now,
 		updatedAt: changes.now,
@@ -242,11 +251,21 @@ function updateTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 	if (!team) throw new MutationRejected("not_found", "Team not found");
 	if (args.patch.key && args.patch.key !== team.key) assertTeamKeyFree(db, args.patch.key, team.id);
 
-	const { cycles: schedule, ...patch } = args.patch;
+	const { cycles: schedule, intakeForm, intakeEmail, ...patch } = args.patch;
 	const settings = schedule && { weeks: schedule.weeks, timeZone: schedule.timeZone };
+	// Turned on, the form gets a new link, which retires any it had before.
+	const form = intakeForm === undefined ? {} : { intakeFormKey: intakeForm ? newFormKey() : null };
+	const email =
+		intakeEmail === undefined ? {} : { intakeEmailKey: intakeEmail ? newEmailKey() : null };
 	const row = db
 		.update(schema.teams)
-		.set({ ...patch, ...(schedule !== undefined && { cycles: settings }), updatedAt: changes.now })
+		.set({
+			...patch,
+			...form,
+			...email,
+			...(schedule !== undefined && { cycles: settings }),
+			updatedAt: changes.now,
+		})
 		.where(eq(schema.teams.id, team.id))
 		.returning()
 		.get();
@@ -256,6 +275,21 @@ function updateTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 	if (patch.archiveAfterMonths || patch.closeAfterMonths) automationsDueNow(db, changes.now);
 	// The team's issue keys changed with it.
 	if (row && row.key !== team.key) indexTeamIssues(db, team.id);
+}
+
+/** The secret in a request form's link: 128 random bits, as 32 hex digits. */
+function newFormKey(): string {
+	return crypto.randomUUID().replaceAll("-", "");
+}
+
+/**
+ * The secret in an intake email address: 80 random bits as 16 lowercase base32 letters and
+ * digits, which survive mail systems that change the case of addresses.
+ */
+function newEmailKey(): string {
+	const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+	const bytes = crypto.getRandomValues(new Uint8Array(16));
+	return Array.from(bytes, (byte) => alphabet[byte % 32]).join("");
 }
 
 function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"issue.create">) {
@@ -268,6 +302,10 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 	const first = defaultStatusKey(db, team.id);
 	const requestedStatus = args.status ?? first;
 	assertStatus(db, team.id, requestedStatus);
+	// A request is never closed: declining is how it closes.
+	if (args.intake && isClosedStatus(db, team.id, requestedStatus)) {
+		throw new MutationRejected("invalid", "A request cannot start closed");
+	}
 	assertAssignable(db, args.assigneeId);
 	assertProjectLive(db, args.projectId);
 	assertCycle(db, team.id, args.cycleId);
@@ -312,6 +350,7 @@ function createIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 		labelIds,
 		number,
 		creatorId: actor.member.userId,
+		intake: args.intake ?? false,
 		version: changes.nextVersion,
 		// Fields without a stamp were last written at creation, which every client has seen.
 		fieldStamps: {},
@@ -342,6 +381,14 @@ function updateIssue(
 ) {
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
+	// A request is never closed, by anyone or any proposal: a person declines it instead.
+	if (
+		issue.intake &&
+		args.patch.status !== undefined &&
+		isClosedStatus(db, issue.teamId, args.patch.status)
+	) {
+		throw new MutationRejected("invalid", "Accept or decline a request first");
+	}
 	if (args.patch.assigneeId !== undefined) assertAssignable(db, args.patch.assigneeId);
 	if (args.patch.projectId !== undefined) assertProjectLive(db, args.patch.projectId);
 	// An issue may keep a completed cycle it is already in.
@@ -431,6 +478,9 @@ function archiveIssue(
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
 	if ((issue.archivedAt !== null) === args.archived) return;
+	if (args.archived && issue.intake) {
+		throw new MutationRejected("invalid", "Accept or decline the request before archiving it");
+	}
 	if (args.archived && !isClosedStatus(db, issue.teamId, issue.status)) {
 		throw new MutationRejected("invalid", "Only a completed or canceled issue can be archived");
 	}
@@ -450,6 +500,86 @@ function archiveIssue(
 	}
 	const change = { type: "archived", archived: args.archived } as const;
 	recordActivity(db, changes, issue, actor.member.userId, change);
+}
+
+/**
+ * Takes a request out of intake into its team's workflow, in its status or the open one named.
+ * Deciding on what is no longer a request is a conflict, so whoever decided second hears that
+ * someone else did; a retried mutation id is answered before that, as applied.
+ */
+function acceptIssue(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs<"issue.accept">) {
+	requirePerson(actor, "Only people can accept requests");
+	const issue = findLiveIssue(db, args.id);
+	if (!issue) throw new MutationRejected("not_found", "Issue not found");
+	if (!issue.intake) throw alreadyDecided();
+	if (args.status !== undefined) {
+		assertStatus(db, issue.teamId, args.status);
+		if (isClosedStatus(db, issue.teamId, args.status)) {
+			throw new MutationRejected("invalid", "Decline a request to close it");
+		}
+	}
+	leaveIntake(db, changes, actor, issue, args.status ?? issue.status, true);
+}
+
+/**
+ * Takes a request out of intake into its team's first canceled status, after the reply, if any,
+ * is posted as the person declining. Declining what is no longer a request is a conflict, which
+ * keeps the reply from being lost unseen.
+ */
+function declineIssue(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"issue.decline">,
+) {
+	requirePerson(actor, "Only people can decline requests");
+	const issue = findLiveIssue(db, args.id);
+	if (!issue) throw new MutationRejected("not_found", "Issue not found");
+	if (!issue.intake) throw alreadyDecided();
+	const canceled = teamStatuses(db, issue.teamId).find(
+		(status) => status.removedAt === null && status.category === "canceled",
+	);
+	if (!canceled) {
+		throw new MutationRejected("invalid", "The team has no canceled status to decline into");
+	}
+	if (args.reply) {
+		createComment(db, changes, actor, { ...args.reply, issueId: issue.id });
+	}
+	leaveIntake(db, changes, actor, issue, canceled.key, false);
+}
+
+function alreadyDecided() {
+	return new MutationRejected("conflict", "Someone already decided on this request");
+}
+
+function leaveIntake(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	issue: schema.IssueRow,
+	status: string,
+	accepted: boolean,
+) {
+	const version = changes.nextVersion;
+	const moves = status !== issue.status;
+	// The status is stamped like any change to it, so an offline edit made before conflicts.
+	const fieldStamps = moves
+		? { ...issue.fieldStamps, status: { version, clientId: actor.clientId } }
+		: issue.fieldStamps;
+	const row = db
+		.update(schema.issues)
+		.set({ intake: false, status, fieldStamps, version, updatedAt: changes.now })
+		.where(eq(schema.issues.id, issue.id))
+		.returning()
+		.get();
+	if (row) {
+		changes.put("issue", toIssue(row));
+		changes.events.push({ type: "issue.updated", issue: row, previous: issue });
+	}
+	const actorId = actor.member.userId;
+	recordActivity(db, changes, issue, actorId, { type: "intake", accepted });
+	if (moves)
+		recordActivity(db, changes, issue, actorId, { type: "status", from: issue.status, to: status });
 }
 
 type IssuePatch = MutationArgs<"issue.update">["patch"];

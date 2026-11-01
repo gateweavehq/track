@@ -91,6 +91,8 @@ describe("a Track export read back", () => {
 		cycles: null,
 		archiveAfterMonths: null,
 		closeAfterMonths: null,
+		intakeFormKey: null,
+		intakeEmailKey: null,
 		createdAt: 1,
 		updatedAt: 1,
 	};
@@ -127,6 +129,7 @@ describe("a Track export read back", () => {
 		createdAt: created,
 		updatedAt: created,
 		archivedAt: null,
+		intake: false,
 	};
 	const issues: Issue[] = [
 		{
