@@ -38,6 +38,7 @@ import {
 	toLabel,
 	toMember,
 	toProject,
+	toProjectUpdate,
 	toRelation,
 	toTeam,
 	toView,
@@ -144,6 +145,15 @@ export function applyMutation(
 			break;
 		case "project.delete":
 			deleteProject(db, changes, actor, mutation.args);
+			break;
+		case "projectUpdate.create":
+			createProjectUpdate(db, changes, actor, mutation.args);
+			break;
+		case "projectUpdate.update":
+			updateProjectUpdate(db, changes, actor, mutation.args);
+			break;
+		case "projectUpdate.delete":
+			deleteProjectUpdate(db, changes, actor, mutation.args);
 			break;
 		case "cycle.update":
 			updateCycle(db, changes, mutation.args);
@@ -926,11 +936,109 @@ function deleteProject(
 		}
 	}
 
+	// Its updates go with it, ahead of the project's own delete op.
+	const updates = db
+		.select()
+		.from(schema.projectUpdates)
+		.where(
+			and(eq(schema.projectUpdates.projectId, project.id), isNull(schema.projectUpdates.deletedAt)),
+		)
+		.all();
+	if (updates.length > 0) {
+		db.update(schema.projectUpdates)
+			.set({ deletedAt: changes.now, updatedAt: changes.now })
+			.where(
+				and(
+					eq(schema.projectUpdates.projectId, project.id),
+					isNull(schema.projectUpdates.deletedAt),
+				),
+			)
+			.run();
+		for (const update of updates) changes.delete("projectUpdate", update.id);
+	}
+
 	db.update(schema.projects)
 		.set({ deletedAt: changes.now, updatedAt: changes.now })
 		.where(eq(schema.projects.id, project.id))
 		.run();
 	changes.delete("project", project.id);
+}
+
+/** Any member says how a project is going, agents included: it changes nothing but the record. */
+function createProjectUpdate(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"projectUpdate.create">,
+) {
+	const project = findLiveProject(db, args.projectId);
+	if (!project) throw new MutationRejected("not_found", "Project not found");
+	if (db.select().from(schema.projectUpdates).where(eq(schema.projectUpdates.id, args.id)).get()) {
+		throw new MutationRejected("invalid", "Project update id already exists");
+	}
+
+	const row: schema.ProjectUpdateRow = {
+		...args,
+		authorId: actor.member.userId,
+		createdAt: importedTime(actor, changes, args.createdAt),
+		updatedAt: changes.now,
+		deletedAt: null,
+	};
+	db.insert(schema.projectUpdates).values(row).run();
+	changes.put("projectUpdate", toProjectUpdate(row));
+	changes.events.push({ type: "project_update.created", update: row, project });
+}
+
+/** An update says what its author thought, so only they change it, as with a comment. */
+function updateProjectUpdate(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"projectUpdate.update">,
+) {
+	const found = findLiveProjectUpdate(db, args.id);
+	if (!found) throw new MutationRejected("not_found", "Project update not found");
+	const { update, project } = found;
+	if (update.authorId !== actor.member.userId) {
+		throw new MutationRejected("forbidden", "Only the author can edit a project update");
+	}
+	const changed = (Object.entries(args.patch) as [keyof typeof args.patch, unknown][]).some(
+		([field, value]) => update[field] !== value,
+	);
+	if (!changed) return;
+
+	const row = db
+		.update(schema.projectUpdates)
+		.set({ ...args.patch, updatedAt: changes.now })
+		.where(eq(schema.projectUpdates.id, update.id))
+		.returning()
+		.get();
+	if (row) {
+		changes.put("projectUpdate", toProjectUpdate(row));
+		changes.events.push({ type: "project_update.updated", update: row, project });
+	}
+}
+
+/** The author takes an update back; admins can too, for moderation. */
+function deleteProjectUpdate(
+	db: Db,
+	changes: ChangeSet,
+	actor: Actor,
+	args: MutationArgs<"projectUpdate.delete">,
+) {
+	const found = findLiveProjectUpdate(db, args.id);
+	if (!found) throw new MutationRejected("not_found", "Project update not found");
+	const { update, project } = found;
+	if (update.authorId !== actor.member.userId) {
+		requireAdmin(actor, "Only the author or an admin can delete a project update");
+	}
+
+	db.update(schema.projectUpdates)
+		.set({ deletedAt: changes.now, updatedAt: changes.now })
+		.where(eq(schema.projectUpdates.id, update.id))
+		.run();
+	changes.delete("projectUpdate", update.id);
+	changes.events.push({ type: "project_update.deleted", update, project });
 }
 
 /** Any member names a cycle. The server makes, dates and completes them. */
@@ -1284,6 +1392,17 @@ function findLiveProject(db: Db, id: string) {
 		.from(schema.projects)
 		.where(and(eq(schema.projects.id, id), isNull(schema.projects.deletedAt)))
 		.get();
+}
+
+/** A live update of a live project, with its project. */
+function findLiveProjectUpdate(db: Db, id: string) {
+	const update = db
+		.select()
+		.from(schema.projectUpdates)
+		.where(and(eq(schema.projectUpdates.id, id), isNull(schema.projectUpdates.deletedAt)))
+		.get();
+	const project = update && findLiveProject(db, update.projectId);
+	return update && project ? { update, project } : undefined;
 }
 
 function findLiveLabel(db: Db, id: string) {

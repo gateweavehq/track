@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { FILTER_KEYS } from "#/components/issues/filter-menu";
 import { IssuesPage } from "#/components/issues/issues-page";
 import { DeleteProjectButton, ProjectDetails } from "#/components/projects/project-detail";
+import { ProjectUpdates } from "#/components/projects/project-updates";
 import { Button } from "#/components/ui/button";
 import { SaveViewButton } from "#/components/views/view-controls";
 import { useWorkspaceActions } from "#/components/workspace/context";
@@ -89,12 +90,15 @@ function ProjectIssues({ project }: { project: Project }) {
 				</Link>
 			}
 			intro={
-				<div className="relative">
-					<ProjectDetails project={project} />
-					<div className="absolute top-3 right-3">
-						<DeleteProjectButton project={project} issueCount={issues.length} />
+				<>
+					<div className="relative">
+						<ProjectDetails project={project} />
+						<div className="absolute top-3 right-3">
+							<DeleteProjectButton project={project} issueCount={issues.length} />
+						</div>
 					</div>
-				</div>
+					<ProjectUpdates project={project} />
+				</>
 			}
 			issues={issues}
 			defaults={{ projectId: project.id }}

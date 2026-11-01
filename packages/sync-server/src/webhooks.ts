@@ -18,7 +18,7 @@ import { and, asc, count, desc, eq, inArray, isNotNull, lt, lte, min, ne } from 
 import { z } from "zod";
 import * as schema from "./db/schema";
 import { MutationRejected } from "./rejected";
-import { type Db, toComment, toIssue, toProposal } from "./state";
+import { type Db, toComment, toIssue, toProject, toProjectUpdate, toProposal } from "./state";
 
 /**
  * Webhooks, delivered by the workspace's own Durable Object. A change queues its deliveries in
@@ -52,7 +52,13 @@ export type ChangeEvent =
 	// The row as decided: it carries who decided it and when.
 	| { type: "proposal.accepted" | "proposal.dismissed"; proposal: schema.ProposalRow }
 	// The row as it was. Also removed, one by one, when either of its issues is deleted.
-	| { type: "relation.created" | "relation.deleted"; relation: schema.RelationRow };
+	| { type: "relation.created" | "relation.deleted"; relation: schema.RelationRow }
+	// The update as it is now, or as it was when deleted, and its project as it is.
+	| {
+			type: "project_update.created" | "project_update.updated" | "project_update.deleted";
+			update: schema.ProjectUpdateRow;
+			project: schema.ProjectRow;
+	  };
 
 /** How long a receiver has to answer. */
 export const DELIVERY_TIMEOUT_MS = 10_000;
@@ -178,6 +184,7 @@ class Payloads {
 
 	/** `teamIds` are the teams whose webhooks hear it: a relation can join two teams' issues. */
 	build(event: ChangeEvent): { teamIds: string[]; body: string } | undefined {
+		if ("update" in event) return this.#projectUpdate(event);
 		let issueRow: schema.IssueRow | undefined;
 		if ("issue" in event) issueRow = event.issue;
 		else if ("comment" in event) issueRow = this.#issue(event.comment.issueId);
@@ -240,6 +247,26 @@ class Payloads {
 			payload = { type: event.type, timestamp: this.#timestamp, data: change };
 		}
 		return { teamIds, body: JSON.stringify(payload) };
+	}
+
+	/** A project belongs to no team, so no team's webhook hears of it: `teamIds` is empty. */
+	#projectUpdate(event: Extract<ChangeEvent, { update: unknown }>) {
+		const url = new URL(
+			`/${encodeURIComponent(this.link.slug)}/project/${encodeURIComponent(event.project.id)}`,
+			this.link.origin,
+		);
+		const payload: WebhookPayload = {
+			type: event.type,
+			timestamp: this.#timestamp,
+			data: {
+				workspace: { id: this.link.id, slug: this.link.slug },
+				version: this.version,
+				actor: this.#actor,
+				project: { ...toProject(event.project), url: url.href },
+				update: toProjectUpdate(event.update),
+			},
+		};
+		return { teamIds: [], body: JSON.stringify(payload) };
 	}
 
 	#issue(id: string) {

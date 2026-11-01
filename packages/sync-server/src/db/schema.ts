@@ -16,6 +16,7 @@ import {
 	MEMBER_ROLES,
 	type NotificationKind,
 	type NotificationLevel,
+	PROJECT_HEALTHS,
 	PROJECT_STATUSES,
 	type ProposedChange,
 	PULL_REQUEST_STATES,
@@ -139,6 +140,24 @@ export const projects = sqliteTable("projects", {
 	updatedAt: integer("updated_at").notNull(),
 	deletedAt: integer("deleted_at"),
 });
+
+/** Posts on how projects are going. Deleting a project deletes its updates. */
+export const projectUpdates = sqliteTable(
+	"project_updates",
+	{
+		id: text("id").primaryKey(),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id),
+		authorId: text("author_id").notNull(),
+		health: text("health", { enum: PROJECT_HEALTHS }).notNull(),
+		body: text("body").notNull(),
+		createdAt: integer("created_at").notNull(),
+		updatedAt: integer("updated_at").notNull(),
+		deletedAt: integer("deleted_at"),
+	},
+	(table) => [index("project_updates_project_idx").on(table.projectId)],
+);
 
 /**
  * Teams' cycles, which the server schedules. Completed cycles stay. One that never started is
@@ -494,6 +513,7 @@ export type StatusRow = typeof statuses.$inferSelect;
 export type IssueRow = typeof issues.$inferSelect;
 export type LabelRow = typeof labels.$inferSelect;
 export type ProjectRow = typeof projects.$inferSelect;
+export type ProjectUpdateRow = typeof projectUpdates.$inferSelect;
 export type CycleRow = typeof cycles.$inferSelect;
 export type CommentRow = typeof comments.$inferSelect;
 export type ActivityRow = typeof activities.$inferSelect;
