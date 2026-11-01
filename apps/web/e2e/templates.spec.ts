@@ -66,3 +66,40 @@ test("a team's template starts new issues, from the palette and from the create 
 	await page.goto(`/${slug}/team/ENG`);
 	await expect(issueRow(page, "Bug: Login fails on Safari")).toBeVisible();
 });
+
+test("a template on a schedule creates its issue on its own, as Track", async ({ page }) => {
+	const { slug } = await startWorkspace(page);
+	await page.goto(`/${slug}/settings/templates`);
+	await page.getByRole("button", { name: "Create template" }).click();
+	const editor = page.getByRole("dialog", { name: "Create template" });
+	await editor.getByLabel("Name").fill("Standup");
+	await editor.getByLabel("Create an issue on a schedule").check();
+	// A schedule's issues need a title.
+	await editor.getByRole("button", { name: "Create template" }).click();
+	await expect(editor.getByRole("alert")).toHaveText(
+		"A template that repeats needs an issue title",
+	);
+	await editor.getByLabel("Issue title").fill("Daily standup notes");
+	await editor.getByLabel("Unit").selectOption("day");
+	// It starts today, so its first issue is due at once.
+	await expect(editor.getByText(/^Every day, Track creates an issue at midnight/)).toBeVisible();
+	await editor.getByRole("button", { name: "Create template" }).click();
+	await expect(editor).toBeHidden();
+
+	const templates = page.getByRole("list", { name: "Engineering templates" });
+	await expect(templates.getByRole("listitem")).toContainText("Every day, next");
+
+	await page.goto(`/${slug}/team/ENG`);
+	await issueRow(page, "Daily standup notes").click();
+	const properties = page.getByRole("complementary", { name: "Properties" });
+	await expect(properties.getByText("Track")).toBeVisible();
+
+	// Turned off, the template stays for people to use.
+	await page.goto(`/${slug}/settings/templates`);
+	await page.getByRole("button", { name: "Edit Standup" }).click();
+	const edit = page.getByRole("dialog", { name: "Edit Standup" });
+	await edit.getByLabel("Create an issue on a schedule").uncheck();
+	await edit.getByRole("button", { name: "Save" }).click();
+	await expect(edit).toBeHidden();
+	await expect(templates.getByRole("listitem")).not.toContainText("Every day");
+});

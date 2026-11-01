@@ -21,6 +21,7 @@ import {
 	type Proposal,
 	type PullRequest,
 	RELATION_KINDS,
+	REPEAT_UNITS,
 	relationFrom,
 	relationOf,
 	statusId,
@@ -350,6 +351,21 @@ export function createTrackServer(access: TrackAccess): McpServer {
 									priority: z.enum(PRIORITIES),
 									assignee: z.string().nullable().describe("A member's id."),
 									labels: z.array(z.string()).describe("Label names."),
+									repeat: z
+										.looseObject({
+											every: z.number(),
+											unit: z.enum(REPEAT_UNITS),
+											startsOn: z.string().describe("YYYY-MM-DD, the first day."),
+											timeZone: z.string(),
+										})
+										.nullable()
+										.describe(
+											"When Track makes an issue from it on its own: on startsOn and every that many units after, at midnight in the time zone. Null when only people use it.",
+										),
+									nextOn: z
+										.string()
+										.nullable()
+										.describe("YYYY-MM-DD, the day of its next issue, while it repeats."),
 								}),
 							)
 							.describe(
@@ -424,6 +440,8 @@ export function createTrackServer(access: TrackAccess): McpServer {
 									labels: fill.labelIds.flatMap(
 										(labelId) => labels.find((label) => label.id === labelId)?.name ?? [],
 									),
+									repeat: template.repeat,
+									nextOn: template.nextOn,
 								};
 							}),
 					})),

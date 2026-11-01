@@ -70,7 +70,6 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const key = issueKey(team, issue);
 	const assignee = issue.assigneeId ? members.get(issue.assigneeId) : undefined;
-	const creator = members.get(issue.creatorId);
 	const project = useProject(issue.projectId ?? "");
 	const cycle = useCycle(issue.cycleId ?? "");
 	const parent = useIssueById(issue.parentId);
@@ -316,9 +315,7 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 					<dl className="space-y-2 pt-4 text-xs text-muted-foreground">
 						<div className="flex justify-between gap-2 px-2">
 							<dt>Created by</dt>
-							<dd className="truncate text-foreground/80">
-								{creator?.name ?? actorName(issue.creatorId, members)}
-							</dd>
+							<dd className="truncate text-foreground/80">{actorName(issue.creatorId, members)}</dd>
 						</div>
 						<div className="flex justify-between gap-2 px-2">
 							<dt>Created</dt>

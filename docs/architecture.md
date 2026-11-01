@@ -631,6 +631,36 @@ a new issue starts with. Any member keeps them, under Settings, Templates, with 
 
 Templates are a breaking change to the protocol (version 19), as the snapshot gained them.
 
+### Recurring issues
+
+A template can also make its issue on its own, on a schedule (`IssueTemplate.repeat`): every 1 to
+99 days, weeks or months from a first day, at midnight in a time zone the schedule names. The
+template dialog sets it, starting from the team's cycle time zone or the browser's. The workspace's
+alarm makes the issues (`packages/sync-server/src/recurring.ts`).
+
+- **Days count from the first.** Day and week steps add up from `startsOn`; a month step keeps
+  its day of the month, or takes the last day of a shorter month and goes back to the day after
+  it (`nextRepeatDay` in `packages/protocol/src/repeat.ts`, which the replica predicts with).
+- **The server keeps the next day** in `nextOn`, which the snapshot carries for the app to show,
+  and the day it last made an issue, which it keeps to itself. Saving a schedule plans the next
+  day from today, after that last day, so changing a schedule never makes a second issue on a day
+  that has one. Changing the rest of the template leaves the plan alone.
+- **One issue for days missed.** If the alarm is held up past several days, the template makes one
+  issue and plans the next day from today.
+- **The issue is the template's, as `issue.create` would make it**: its title, description,
+  priority, labels and assignee, without labels deleted since or an assignee who has left, in the
+  team's first not-started status, so it is ready to pick up, after every other issue.
+- **Track creates it** (`SYSTEM_ACTOR_ID`). The assignee hears of it as of any issue assigned to
+  them, webhooks get `issue.created`, and the issue shows Track as its creator.
+- **A schedule needs a title**, which the server checks on create and update, so its issues never
+  come without one.
+- **The alarm** plans the next scheduled issue with the rest of its work. A run makes at most 50
+  issues and looks again a minute later when there are more. Saving a schedule wakes it, so a
+  schedule that starts today makes its first issue at once.
+- **Elsewhere.** `get_workspace` over MCP gives each template's `repeat` and `nextOn`.
+
+Schedules are a breaking change to the protocol (version 24), as the template entity gained them.
+
 ### Insights
 
 Each team has an insights page (`/$workspace/team/$teamKey/insights`, `?weeks=4|12|26`),

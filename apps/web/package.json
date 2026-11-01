@@ -44,7 +44,7 @@
 		"clsx": "2.1.1",
 		"cmdk": "1.1.1",
 		"drizzle-orm": "catalog:",
-		"fractional-indexing": "4.0.0",
+		"fractional-indexing": "catalog:",
 		"lucide-react": "1.62.0",
 		"postal-mime": "4.0.5",
 		"radix-ui": "1.8.1",

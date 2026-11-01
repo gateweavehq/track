@@ -1,4 +1,11 @@
-import { MAX_TEMPLATES_PER_TEAM, type MutationArgs } from "@gateweave/track-protocol";
+import {
+	addDays,
+	dayIn,
+	MAX_TEMPLATES_PER_TEAM,
+	type MutationArgs,
+	nextRepeatDay,
+	type TemplateRepeat,
+} from "@gateweave/track-protocol";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
 import type { ChangeSet } from "./log";
@@ -8,6 +15,7 @@ import { activeMember, type Db, toTemplate } from "./state";
 // Issue templates: a team's starting points for new issues. Any member keeps them, as labels.
 // Using one is the client's business: it fills in a new issue, which `issue.create` then checks
 // like any other, so a template whose label was deleted or whose assignee left still works.
+// A template on a schedule also makes issues on its own, from the alarm (`recurring.ts`).
 
 export function createTemplate(db: Db, changes: ChangeSet, args: MutationArgs<"template.create">) {
 	if (findTemplate(db, args.id))
@@ -29,10 +37,13 @@ export function createTemplate(db: Db, changes: ChangeSet, args: MutationArgs<"t
 	assertNameFree(db, team.id, args.name);
 	const labelIds = liveLabels(db, args.labelIds);
 	assertAssignable(db, args.assigneeId);
+	if (args.repeat) assertTitled(args.title);
 
 	const row: schema.TemplateRow = {
 		...args,
 		labelIds,
+		nextOn: args.repeat && nextRepeatOn(args.repeat, null, changes.now),
+		repeatedOn: null,
 		createdAt: changes.now,
 		updatedAt: changes.now,
 	};
@@ -47,10 +58,17 @@ export function updateTemplate(db: Db, changes: ChangeSet, args: MutationArgs<"t
 	if (patch.name !== undefined) assertNameFree(db, template.teamId, patch.name, template.id);
 	if (patch.assigneeId !== undefined) assertAssignable(db, patch.assigneeId);
 	const labels = patch.labelIds === undefined ? {} : { labelIds: liveLabels(db, patch.labelIds) };
+	const repeat = patch.repeat === undefined ? template.repeat : patch.repeat;
+	if (repeat) assertTitled(patch.title ?? template.title);
+	// A schedule is planned anew only when it changes, never past the day of the last issue.
+	const schedule =
+		patch.repeat === undefined
+			? {}
+			: { nextOn: patch.repeat && nextRepeatOn(patch.repeat, template.repeatedOn, changes.now) };
 
 	const row = db
 		.update(schema.templates)
-		.set({ ...patch, ...labels, updatedAt: changes.now })
+		.set({ ...patch, ...labels, ...schedule, updatedAt: changes.now })
 		.where(eq(schema.templates.id, template.id))
 		.returning()
 		.get();
@@ -84,6 +102,27 @@ export function dropTemplateLabel(db: Db, changes: ChangeSet, labelId: string): 
 			.returning()
 			.get();
 		if (row) changes.put("template", toTemplate(row));
+	}
+}
+
+/**
+ * The day a schedule makes its next issue: today or later, in its time zone, and after
+ * `repeatedOn`, the day it last made one.
+ */
+export function nextRepeatOn(
+	repeat: TemplateRepeat,
+	repeatedOn: string | null,
+	now: number,
+): string {
+	const today = dayIn(repeat.timeZone, now);
+	const from = repeatedOn !== null && repeatedOn >= today ? addDays(repeatedOn, 1) : today;
+	return nextRepeatDay(repeat, from);
+}
+
+/** A template that makes issues on its own must give them a title. */
+function assertTitled(title: string) {
+	if (title.trim() === "") {
+		throw new MutationRejected("invalid", "A template that repeats needs a title");
 	}
 }
 

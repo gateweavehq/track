@@ -79,6 +79,7 @@ import {
 	MAX_QUERY_LIMIT,
 	readDirectory,
 } from "./queries";
+import { nextRecurringAt, runRecurring } from "./recurring";
 import { MutationRejected } from "./rejected";
 import { nextReminderAt, remindDue } from "./reminders";
 import { hasRequesterNotices, type RequesterNotice, takeRequesterNotices } from "./requesters";
@@ -546,8 +547,8 @@ export class WorkspaceDO extends DurableObject {
 
 	/**
 	 * Moves teams' cycles on at their boundaries, reminds assignees of issues due today, runs teams'
-	 * automations, compacts the log when that is due, and sends the webhook deliveries and the inbox
-	 * digests that are.
+	 * automations, makes the issues of templates on a schedule, compacts the log when that is due,
+	 * and sends the webhook deliveries and the inbox digests that are.
 	 */
 	override async alarm(): Promise<void> {
 		const now = Date.now();
@@ -555,6 +556,7 @@ export class WorkspaceDO extends DurableObject {
 		this.#broadcast(this.ctx.storage.transactionSync(() => advanceCycles(this.#db, now)));
 		this.#broadcast(this.ctx.storage.transactionSync(() => remindDue(this.#db, now)));
 		this.#broadcast(this.ctx.storage.transactionSync(() => runAutomations(this.#db, now)));
+		this.#broadcast(this.ctx.storage.transactionSync(() => runRecurring(this.#db, now)));
 		if (now >= this.#compactionDue()) {
 			this.ctx.storage.transactionSync(() => {
 				compact(this.#db, now, RETENTION);
@@ -587,8 +589,8 @@ export class WorkspaceDO extends DurableObject {
 				),
 			);
 		}
-		// Cycles were just moved on, reminders sent and automations run, so one that is still due is
-		// a clock disagreement: look again in a minute rather than straight away.
+		// Cycles were just moved on, reminders sent, automations run and scheduled issues made, so one
+		// that is still due is a clock disagreement, or more than a batch: look again in a minute.
 		const soon = (at: number | null) =>
 			at === null ? Number.POSITIVE_INFINITY : Math.max(at, Date.now() + 60_000);
 		const next = more
@@ -600,6 +602,7 @@ export class WorkspaceDO extends DurableObject {
 					soon(nextCycleChange(this.#db, Date.now())),
 					soon(nextReminderAt(this.#db, Date.now())),
 					soon(nextAutomationsAt(this.#db)),
+					soon(nextRecurringAt(this.#db)),
 				);
 		await this.ctx.storage.setAlarm(next);
 	}

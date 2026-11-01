@@ -1,6 +1,7 @@
 import {
 	AGENT_CHANGE_KINDS,
 	compareStatuses,
+	dayIn,
 	defaultStatuses,
 	displayToStore,
 	firstStatus,
@@ -12,10 +13,12 @@ import {
 	MAX_TEMPLATES_PER_TEAM,
 	MAX_VIEWS,
 	type MemberRole,
+	nextRepeatDay,
 	type ProposedChange,
 	privateId,
 	type SavedView,
 	statusId,
+	type TemplateRepeat,
 	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import type { Draft, PendingMutation } from "./store";
@@ -437,8 +440,18 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			const theirs = [...draft.values("template")].filter((each) => each.teamId === teamId);
 			if (theirs.length >= MAX_TEMPLATES_PER_TEAM || templateNameTaken(theirs, fields.name)) return;
 			if (!templateFieldsValid(draft, fields)) return;
+			if (fields.repeat && fields.title.trim() === "") return;
 			const labelIds = [...new Set(fields.labelIds)];
-			draft.put("template", { id, teamId, ...fields, labelIds, createdAt: now, updatedAt: now });
+			const nextOn = fields.repeat && nextIssueDay(fields.repeat, now);
+			draft.put("template", {
+				id,
+				teamId,
+				...fields,
+				labelIds,
+				nextOn,
+				createdAt: now,
+				updatedAt: now,
+			});
 			return;
 		}
 		case "template.update": {
@@ -450,8 +463,15 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			);
 			if (patch.name !== undefined && templateNameTaken(theirs, patch.name)) return;
 			if (!templateFieldsValid(draft, patch)) return;
+			const repeat = patch.repeat === undefined ? template.repeat : patch.repeat;
+			if (repeat && (patch.title ?? template.title).trim() === "") return;
 			const labels = patch.labelIds === undefined ? {} : { labelIds: [...new Set(patch.labelIds)] };
-			draft.put("template", { ...template, ...patch, ...labels, updatedAt: now });
+			// The server also skips the day of the last issue, which the replica does not know.
+			const schedule =
+				patch.repeat === undefined
+					? {}
+					: { nextOn: patch.repeat && nextIssueDay(patch.repeat, now) };
+			draft.put("template", { ...template, ...patch, ...labels, ...schedule, updatedAt: now });
 			return;
 		}
 		case "template.delete": {
@@ -632,6 +652,11 @@ function templateFieldsValid(
 		if (!assignee || assignee.removedAt !== null) return false;
 	}
 	return true;
+}
+
+/** The day a schedule makes its next issue, from today in its time zone. */
+function nextIssueDay(repeat: TemplateRepeat, now: number): string {
+	return nextRepeatDay(repeat, dayIn(repeat.timeZone, now));
 }
 
 function withoutLabel(issue: Issue, labelId: string, now: number): Issue {
