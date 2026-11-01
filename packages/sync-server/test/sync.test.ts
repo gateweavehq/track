@@ -697,7 +697,7 @@ describe("intake", () => {
 		});
 	});
 
-	it("lets agents file and work on requests, but only people decide on them", async () => {
+	it("lets agents file and work on requests, and turns their decisions into proposals", async () => {
 		const { workspace, admin } = await withTeam();
 		const agent = await TestClient.live(workspace, triage);
 		const request = await fileRequest(agent, "issue-1");
@@ -706,15 +706,78 @@ describe("intake", () => {
 			args: { id: request.id, baseVersion: request.version, patch: { priority: 2 } },
 		});
 
-		expect(await agent.mutate({ name: "issue.accept", args: { id: request.id } })).toMatchObject({
-			type: "reject",
-			reason: "forbidden",
+		// No admin set it to propose anything: deciding on a request is a person's, always.
+		await agent.apply({ name: "issue.accept", args: { id: request.id, status: "todo" } });
+		const proposals = async () =>
+			(await snapshotOf(workspace)).proposals.filter((proposal) => proposal.issueId === request.id);
+		expect(await proposals()).toEqual([
+			expect.objectContaining({
+				agentId: triage.id,
+				change: { type: "intake", accepted: true, status: "todo", reply: null },
+			}),
+		]);
+		// Proposing again replaces it, as for any field.
+		await agent.apply({
+			name: "issue.decline",
+			args: { id: request.id, reply: { id: "comment-1", body: "We track this in ENG-9." } },
 		});
+		expect(await proposals()).toEqual([
+			expect.objectContaining({
+				change: { type: "intake", accepted: false, status: null, reply: "We track this in ENG-9." },
+			}),
+		]);
+		const snapshot = await snapshotOf(workspace);
+		expect(snapshot.comments).toEqual([]);
+		expect(await issueOf(admin, request.id)).toMatchObject({ intake: true, priority: 2 });
+	});
+
+	it("makes an agent's proposed decline the person's, with the reply it drafted", async () => {
+		const { workspace, admin } = await withTeam();
+		const agent = await TestClient.live(workspace, triage);
+		const request = await fileRequest(admin, "issue-1");
+		await agent.apply({
+			name: "issue.decline",
+			args: { id: request.id, reply: { id: "comment-1", body: "Out of scope." } },
+		});
+		const [proposal] = (await snapshotOf(workspace)).proposals;
+		if (!proposal) throw new Error("No proposal");
+
+		expect(
+			await agent.mutate({ name: "proposal.accept", args: { id: proposal.id } }),
+		).toMatchObject({ type: "reject", reason: "forbidden" });
+		await admin.apply({ name: "proposal.accept", args: { id: proposal.id } });
+		expect(await issueOf(admin, request.id)).toMatchObject({ intake: false, status: "canceled" });
+		const snapshot = await snapshotOf(workspace);
+		expect(snapshot.proposals).toEqual([]);
+		expect(snapshot.comments).toEqual([
+			expect.objectContaining({ authorId: owner.id, body: "Out of scope.", issueId: request.id }),
+		]);
+		expect(
+			snapshot.activities
+				.filter((activity) => activity.issueId === request.id)
+				.map(({ actorId, change, proposedBy }) => ({ actorId, change, proposedBy })),
+		).toEqual([
+			{ actorId: owner.id, change: { type: "intake", accepted: false }, proposedBy: triage.id },
+			{
+				actorId: owner.id,
+				change: { type: "status", from: "backlog", to: "canceled" },
+				proposedBy: triage.id,
+			},
+		]);
+	});
+
+	it("settles agents' proposed decisions once a person decides on the request", async () => {
+		const { workspace, admin } = await withTeam();
+		const agent = await TestClient.live(workspace, triage);
+		const request = await fileRequest(admin, "issue-1");
+		await agent.apply({ name: "issue.decline", args: { id: request.id } });
+		await admin.apply({ name: "issue.accept", args: { id: request.id } });
+		expect((await snapshotOf(workspace)).proposals).toEqual([]);
+		// Nothing is left to propose on what is no longer a request.
 		expect(await agent.mutate({ name: "issue.decline", args: { id: request.id } })).toMatchObject({
 			type: "reject",
-			reason: "forbidden",
+			reason: "conflict",
 		});
-		expect(await issueOf(admin, request.id)).toMatchObject({ intake: true, priority: 2 });
 	});
 
 	it("files requests through a team's form while an admin has it on", async () => {

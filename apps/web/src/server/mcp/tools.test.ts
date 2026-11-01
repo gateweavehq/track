@@ -253,9 +253,21 @@ class FakeWorkspace implements WorkspaceAccess {
 			const issue = this.issues_.find((issue) => issue.id === mutation.args.id);
 			if (issue) Object.assign(issue, { archivedAt: mutation.args.archived ? 1 : null, version });
 		} else if (mutation.name === "issue.accept" || mutation.name === "issue.decline") {
-			// The rule the server applies: only people take a request out of intake.
+			// The rule the server applies: only people take a request out of intake, and an agent's
+			// decision waits as a proposal.
 			if (this.me.role === "agent") {
-				return { ok: false, reason: "forbidden", message: "Only people can accept requests" };
+				propose(
+					mutation.args.id,
+					mutation.name === "issue.accept"
+						? { type: "intake", accepted: true, status: mutation.args.status ?? null, reply: null }
+						: {
+								type: "intake",
+								accepted: false,
+								status: null,
+								reply: mutation.args.reply?.body ?? null,
+							},
+				);
+				return { ok: true, version, proposed };
 			}
 			const issue = this.issues_.find((issue) => issue.id === mutation.args.id);
 			if (issue && mutation.name === "issue.accept") {
@@ -867,6 +879,34 @@ describe("Track MCP tools", () => {
 			archived: false,
 		});
 		expect(restored.structuredContent).toMatchObject({ archived: false });
+	});
+
+	it("tells an agent its decision on a request waits for a person", async () => {
+		await call("create_issue", {
+			workspace: "acme",
+			team: "ENG",
+			title: "Dark mode",
+			intake: true,
+		});
+		workspace.me = { ...me, role: "agent" };
+		const declined = await call("triage_request", {
+			workspace: "acme",
+			key: "ENG-1",
+			decision: "decline",
+			reply: "Already planned in ENG-9.",
+		});
+		expect(declined.structuredContent).toMatchObject({
+			intake: true,
+			proposed: [{ change: "decline", to: "Already planned in ENG-9." }],
+		});
+		const accepted = await call("triage_request", {
+			workspace: "acme",
+			key: "ENG-1",
+			decision: "accept",
+		});
+		expect(accepted.structuredContent).toMatchObject({
+			proposed: [{ change: "accept", to: null }],
+		});
 	});
 
 	it("files requests into intake, finds them, and accepts or declines them", async () => {

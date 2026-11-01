@@ -543,6 +543,20 @@ function withChange(draft: Draft, issue: Issue, change: ProposedChange, now: num
 			if (issue.labelIds.length >= MAX_LABELS_PER_ISSUE) return null;
 			return { ...issue, labelIds: [...issue.labelIds, change.labelId], updatedAt: now };
 		}
+		case "intake": {
+			if (!issue.intake) return null;
+			if (change.accepted) {
+				const status = change.status ?? issue.status;
+				if (!isLiveStatus(draft, issue.teamId, status)) return null;
+				if (isClosedStatus(draft, issue.teamId, status)) return null;
+				return { ...issue, intake: false, status, updatedAt: now };
+			}
+			const canceled = teamStatuses(draft, issue.teamId)
+				.sort(compareStatuses)
+				.find((status) => status.category === "canceled");
+			if (!canceled) return null;
+			return { ...issue, intake: false, status: canceled.key, updatedAt: now };
+		}
 	}
 }
 
