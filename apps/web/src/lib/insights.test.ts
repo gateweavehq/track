@@ -6,7 +6,14 @@ import {
 	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
-import { formatDays, projectInsights, teamInsights, weekStart } from "./insights";
+import {
+	formatDays,
+	insightSearch,
+	matchesInsightSearch,
+	projectInsights,
+	teamInsights,
+	weekStart,
+} from "./insights";
 
 const ZONE = "Europe/Istanbul";
 const HOUR = 60 * 60 * 1000;
@@ -241,6 +248,29 @@ describe("projectInsights", () => {
 		]);
 		expect(insights.byLabel).toEqual([{ key: "bug", count: 1 }]);
 		expect(insights).not.toHaveProperty("openIssues");
+	});
+});
+
+describe("insightSearch", () => {
+	it("keeps what it understands of an address and drops the rest", () => {
+		expect(insightSearch.parse({ weeks: 4, label: "l1", assignee: "none" })).toEqual({
+			weeks: 4,
+			label: "l1",
+			assignee: "none",
+		});
+		expect(insightSearch.parse({ weeks: 7, label: "", assignee: 3 })).toEqual({});
+	});
+
+	it("keeps the issues with the label and the assignee, or with no assignee", () => {
+		const bug = issue("a", { labelIds: ["bug"], assigneeId: "u1" });
+		const plain = issue("b", { assigneeId: null });
+		expect(matchesInsightSearch(bug, {})).toBe(true);
+		expect(matchesInsightSearch(bug, { label: "bug" })).toBe(true);
+		expect(matchesInsightSearch(plain, { label: "bug" })).toBe(false);
+		expect(matchesInsightSearch(bug, { assignee: "u1" })).toBe(true);
+		expect(matchesInsightSearch(bug, { assignee: "none" })).toBe(false);
+		expect(matchesInsightSearch(plain, { assignee: "none" })).toBe(true);
+		expect(matchesInsightSearch(bug, { label: "bug", assignee: "u2" })).toBe(false);
 	});
 });
 

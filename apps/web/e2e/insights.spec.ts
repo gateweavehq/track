@@ -48,6 +48,17 @@ test("a team's insights count what it created and closed, and how long work took
 	await expect(
 		page.getByRole("table", { name: "Issues created and closed by week" }),
 	).toBeAttached();
+
+	// Only the issues assigned to someone: neither is, so nothing counts, and the address says so.
+	await page.getByRole("combobox", { name: "Assignee" }).selectOption({ index: 2 });
+	await expect(page).toHaveURL(/assignee=/);
+	await expect(stat("Created")).toHaveText("0");
+	await page.getByRole("combobox", { name: "Assignee" }).selectOption("none");
+	await expect(stat("Created")).toHaveText("2");
+	await expect(page).toHaveURL(/weeks=4/);
+	await page.getByRole("button", { name: "Clear filters" }).click();
+	await expect(page).not.toHaveURL(/assignee=/);
+	await expect(stat("Created")).toHaveText("2");
 });
 
 test("a project's insights count its issues, and only them", async ({ page }) => {

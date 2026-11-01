@@ -1,25 +1,19 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { z } from "zod";
 import { TeamInsights } from "#/components/teams/team-insights";
 import { Button } from "#/components/ui/button";
 import { Notice } from "#/components/workspace/notice";
-import { INSIGHT_RANGES, type InsightRange } from "#/lib/insights";
+import { type InsightSearch, insightSearch } from "#/lib/insights";
 import { useTeamByKey } from "#/lib/queries";
 import { useDocumentTitle } from "#/lib/title";
 
-// The range is in the address, so a link shares the same view. Twelve weeks unless it says.
-const insightsSearch = z.object({
-	weeks: z.literal(INSIGHT_RANGES).optional().catch(undefined),
-});
-
 export const Route = createFileRoute("/$workspace/team/$teamKey_/insights")({
-	validateSearch: insightsSearch,
+	validateSearch: insightSearch,
 	component: TeamInsightsPage,
 });
 
 function TeamInsightsPage() {
 	const { workspace, teamKey } = Route.useParams();
-	const { weeks = 12 } = Route.useSearch();
+	const search = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
 	const team = useTeamByKey(teamKey);
 	useDocumentTitle(team ? `${team.name} insights` : undefined);
@@ -44,9 +38,16 @@ function TeamInsightsPage() {
 		<TeamInsights
 			key={team.id}
 			team={team}
-			weeks={weeks}
-			onWeeksChange={(next: InsightRange) =>
-				void navigate({ search: { weeks: next === 12 ? undefined : next }, replace: true })
+			search={search}
+			onSearchChange={(patch: Partial<InsightSearch>) =>
+				void navigate({
+					// Twelve weeks is the default, so the address leaves it out.
+					search: (prev) => {
+						const next = { ...prev, ...patch };
+						return { ...next, weeks: next.weeks === 12 ? undefined : next.weeks };
+					},
+					replace: true,
+				})
 			}
 		/>
 	);

@@ -8,6 +8,7 @@ import {
 	type StatusCategory,
 	type WorkflowStatus,
 } from "@gateweave/track-protocol";
+import { z } from "zod";
 import { type StatusMap, statusOf, teamStatuses } from "./statuses";
 
 // Insights into a team's or a project's issues, worked out from the local copy: nothing here asks the server, so they show
@@ -18,6 +19,30 @@ import { type StatusMap, statusOf, teamStatuses } from "./statuses";
 /** How far back the insights look, in weeks. */
 export const INSIGHT_RANGES = [4, 12, 26] as const;
 export type InsightRange = (typeof INSIGHT_RANGES)[number];
+
+/**
+ * What an insights page shows, kept in its address so a link shares the same view: the range
+ * (twelve weeks unless it says), and optionally only the issues with a label or an assignee
+ * (`none` for unassigned ones). Anything it does not understand is dropped, not refused.
+ */
+export const insightSearch = z.object({
+	weeks: z.literal(INSIGHT_RANGES).optional().catch(undefined),
+	label: z.string().min(1).max(64).optional().catch(undefined),
+	assignee: z.string().min(1).max(64).optional().catch(undefined),
+});
+export type InsightSearch = z.infer<typeof insightSearch>;
+
+/** The assignee filter's value for issues assigned to no one. */
+export const UNASSIGNED = "none";
+
+/** Whether an issue is among those an insights page's filters keep. */
+export function matchesInsightSearch(issue: Issue, search: InsightSearch): boolean {
+	if (search.label !== undefined && !issue.labelIds.includes(search.label)) return false;
+	if (search.assignee === undefined) return true;
+	return search.assignee === UNASSIGNED
+		? issue.assigneeId === null
+		: issue.assigneeId === search.assignee;
+}
 
 export interface InsightWeek {
 	/** The week's Monday, `YYYY-MM-DD` in the time zone the insights are worked out in. */
