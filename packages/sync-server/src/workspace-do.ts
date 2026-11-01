@@ -99,7 +99,12 @@ import {
 	removeMember,
 	upsertMember,
 } from "./state";
-import { releaseFileStorage, reserveFileStorage, type StorageReservation } from "./storage";
+import {
+	forgetFileStorage,
+	releaseFileStorage,
+	reserveFileStorage,
+	type StorageReservation,
+} from "./storage";
 import {
 	createWebhook,
 	deleteWebhook,
@@ -277,6 +282,11 @@ export class WorkspaceDO extends DurableObject {
 
 	releaseFileStorage(bytes: number): void {
 		releaseFileStorage(this.#db, z.number().int().nonnegative().parse(bytes));
+	}
+
+	/** Drops the count of the workspace's file bytes, which goes stale while there is no quota. */
+	forgetFileStorage(): void {
+		forgetFileStorage(this.#db);
 	}
 
 	/** A team's or a project's issues and their status changes, for insights. */

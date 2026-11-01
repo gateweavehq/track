@@ -66,18 +66,18 @@ Everything except `BETTER_AUTH_SECRET` is optional. Set them in the Cloudflare d
 pnpm wrangler secret put BETTER_AUTH_URL
 ```
 
-| Name                        | What it does                                                               |
-| --------------------------- | -------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`        | Signs sessions. Required.                                                  |
-| `BETTER_AUTH_URL`           | The address people use, such as `https://track.example.com`. Turns on MCP. |
-| `GITHUB_CLIENT_ID`          | Turns on "Sign in with GitHub", with `GITHUB_CLIENT_SECRET`.               |
-| `GITHUB_CLIENT_SECRET`      | The client secret of the same GitHub OAuth app.                            |
-| `GITHUB_APP_SLUG`           | Turns on the GitHub App, with the three below. See below.                  |
-| `GITHUB_APP_CLIENT_ID`      | The GitHub App's client ID.                                                |
-| `GITHUB_APP_CLIENT_SECRET`  | The GitHub App's client secret.                                            |
-| `GITHUB_APP_WEBHOOK_SECRET` | The secret that signs the GitHub App's deliveries.                         |
-| `EMAIL_FROM`                | Turns on email, such as `Gateweave Track <track@example.com>`.             |
-| `ATTACHMENT_QUOTA_MB`       | Limits each workspace's attached files, such as `1024`. Unlimited unset.   |
+| Name                        | What it does                                                                  |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`        | Signs sessions. Required.                                                     |
+| `BETTER_AUTH_URL`           | The address people use, such as `https://track.example.com`. Turns on MCP.    |
+| `GITHUB_CLIENT_ID`          | Turns on "Sign in with GitHub", with `GITHUB_CLIENT_SECRET`.                  |
+| `GITHUB_CLIENT_SECRET`      | The client secret of the same GitHub OAuth app.                               |
+| `GITHUB_APP_SLUG`           | Turns on the GitHub App, with the three below. See below.                     |
+| `GITHUB_APP_CLIENT_ID`      | The GitHub App's client ID.                                                   |
+| `GITHUB_APP_CLIENT_SECRET`  | The GitHub App's client secret.                                               |
+| `GITHUB_APP_WEBHOOK_SECRET` | The secret that signs the GitHub App's deliveries.                            |
+| `EMAIL_FROM`                | Turns on email, such as `Gateweave Track <track@example.com>`.                |
+| `ATTACHMENT_QUOTA_MB`       | Limits each workspace's attached files, such as `1024`. Unset or blank: none. |
 
 ### Your own domain
 

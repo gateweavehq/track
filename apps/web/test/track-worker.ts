@@ -221,7 +221,8 @@ function builtModules(): V4ModuleDefinition[] {
  * and its stand-in passes the token `TURNSTILE_PASS` only. Email Routing sends every address at
  * `INTAKE_EMAIL_DOMAIN` to the Worker, through `email`.
  *
- * `vars` sets more of its configuration, such as `ATTACHMENT_QUOTA_MB`.
+ * `vars` sets more of its configuration, such as `ATTACHMENT_QUOTA_MB`. `isolateVars[i]` adds to
+ * it for copy `i` alone, as a deployment's old and new versions would differ while both run.
  *
  * With `isolates` above 1, more copies of the Worker share the database and Durable Objects but
  * nothing in memory, as isolates in production do. `fetchIn` reaches a given one.
@@ -232,7 +233,13 @@ export async function startTrack(
 		isolates = 1,
 		demo = false,
 		vars = {},
-	}: { isolates?: number; demo?: boolean; vars?: Record<string, string> } = {},
+		isolateVars = [],
+	}: {
+		isolates?: number;
+		demo?: boolean;
+		vars?: Record<string, string>;
+		isolateVars?: Record<string, string>[];
+	} = {},
 ) {
 	const config = JSON.parse(readFileSync(join(serverDir, "wrangler.json"), "utf8")) as BuiltConfig;
 	const outbound: string[] = [];
@@ -277,6 +284,7 @@ export async function startTrack(
 									GITHUB_APP_WEBHOOK_SECRET: GITHUB_APP.webhookSecret,
 								}),
 						...vars,
+						...isolateVars[index],
 					},
 					// Nor any bucket for attached files.
 					...(!demo && {
