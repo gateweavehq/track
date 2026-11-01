@@ -331,7 +331,7 @@ class GitHubEvents {
 
 	/**
 	 * Moves an issue to a status further along its team's order, as GitHub. An issue in a closed
-	 * status stays where it is.
+	 * status stays where it is, and so does a request in intake.
 	 */
 	#advance(issueId: string, to: Target, source: ActivitySource): void {
 		// Read again: an earlier commit of the same push may have moved it.
@@ -340,7 +340,8 @@ class GitHubEvents {
 			.from(schema.issues)
 			.where(and(eq(schema.issues.id, issueId), isNull(schema.issues.deletedAt)))
 			.get();
-		if (!issue) return;
+		// A request waits for a person to accept or decline it; a pull request decides neither.
+		if (!issue || issue.intake) return;
 		const statuses = teamStatuses(this.db, issue.teamId);
 		const current = statuses.find((status) => status.key === issue.status);
 		if (current && isClosedCategory(current.category)) return;

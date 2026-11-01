@@ -118,6 +118,8 @@ export function CreateIssueDialog({
 	// Each team has its own statuses: the one picked if the team has it, else the team's first.
 	const teamStatuses = useTeamStatuses(team?.id);
 	const status = teamStatuses.find((option) => option.key === statusKey) ?? teamStatuses[0];
+	const intake = defaults.intake === true;
+	const noun = intake ? "request" : "issue";
 
 	function submit() {
 		if (!team || !title.trim()) return;
@@ -142,12 +144,14 @@ export function CreateIssueDialog({
 				// A label picked here may have been deleted elsewhere since.
 				labelIds: labelIds.filter((id) => client.getState().labels.has(id)),
 				sortOrder: sortOrderAfter(client.getState().issues.values()),
+				...(intake && { intake: true }),
 			},
 		});
 		if (!sent) return;
 		onClose();
 		const created = client.getState().issues.get(id);
-		toast.success(created ? `Created ${issueKey(team, created)}` : "Issue created", {
+		const made = intake ? "Filed" : "Created";
+		toast.success(created ? `${made} ${issueKey(team, created)}` : `${made} the ${noun}`, {
 			description: title.trim(),
 			action: {
 				label: "Open",
@@ -194,9 +198,11 @@ export function CreateIssueDialog({
 							</Button>
 						</TeamPicker>
 						<ChevronRight className="size-4 text-muted-foreground" />
-						<DialogTitle className="text-sm font-normal">New issue</DialogTitle>
+						<DialogTitle className="text-sm font-normal">
+							{intake ? `New request for ${team?.name ?? "the team"}'s intake` : "New issue"}
+						</DialogTitle>
 						<DialogDescription className="sr-only">
-							Give the issue a title, then press Enter to create it.
+							Give the {noun} a title, then press Enter to create it.
 						</DialogDescription>
 						{templates.length > 0 && (
 							<DropdownMenu>
@@ -227,7 +233,7 @@ export function CreateIssueDialog({
 						<input
 							value={title}
 							onChange={(event) => setTitle(event.target.value)}
-							placeholder="Issue title"
+							placeholder={intake ? "Request title" : "Issue title"}
 							aria-label="Title"
 							maxLength={512}
 							autoFocus
@@ -331,7 +337,7 @@ export function CreateIssueDialog({
 							<Kbd>Enter</Kbd>
 						</span>
 						<Button type="submit" size="sm" disabled={!team || !title.trim()}>
-							Create issue
+							{intake ? "File request" : "Create issue"}
 						</Button>
 					</div>
 				</form>

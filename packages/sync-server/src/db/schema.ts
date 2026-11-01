@@ -40,6 +40,10 @@ export const teams = sqliteTable("teams", {
 	cycles: text("cycles", { mode: "json" }).$type<CycleSettings>(),
 	archiveAfterMonths: integer("archive_after_months"),
 	closeAfterMonths: integer("close_after_months"),
+	/** The secret in the link to the team's public request form; null while the form is off. */
+	intakeFormKey: text("intake_form_key").unique(),
+	/** The secret in the team's intake email address; null while it is off. */
+	intakeEmailKey: text("intake_email_key").unique(),
 	issueCounter: integer("issue_counter").notNull().default(0),
 	createdAt: integer("created_at").notNull(),
 	updatedAt: integer("updated_at").notNull(),
@@ -100,6 +104,8 @@ export const issues = sqliteTable(
 		updatedAt: integer("updated_at").notNull(),
 		/** When a closed issue was archived; reopening it clears this. */
 		archivedAt: integer("archived_at"),
+		/** A request waiting in its team's intake, until a person accepts or declines it. */
+		intake: integer("intake", { mode: "boolean" }).notNull().default(false),
 		deletedAt: integer("deleted_at"),
 	},
 	(table) => [

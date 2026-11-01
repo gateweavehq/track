@@ -124,6 +124,19 @@ describe("team automations", () => {
 		expect(inbox.find((item) => item.issueId === "backlog-old")).toBeUndefined();
 	});
 
+	it("leave requests in intake alone, however long they wait", async () => {
+		const { as, automate, run, age, issues } = await setup();
+		await as(alice, {
+			name: "issue.create",
+			args: { id: "request", teamId: TEAM_ID, title: "Request", sortOrder: "a0", intake: true },
+		});
+		await automate({ closeAfterMonths: 3, archiveAfterMonths: 3 });
+		await age(4, "request");
+		await run();
+		// A request is never closed, so nothing here would archive it either.
+		expect((await issues()).get("request")).toMatchObject({ status: "backlog", intake: true });
+	});
+
 	it("archive closed issues untouched past the team's wait, and later what they closed", async () => {
 		const { workspace, issue, automate, run, age, issues, now } = await setup();
 		await issue("done-old", "done");

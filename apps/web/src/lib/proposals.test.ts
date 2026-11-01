@@ -25,6 +25,7 @@ function issue(id: string, updatedAt: number): Issue {
 		createdAt: 0,
 		updatedAt,
 		archivedAt: null,
+		intake: false,
 	};
 }
 

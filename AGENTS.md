@@ -86,7 +86,11 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    the object checks their signature against the connection's secret before reading them.
    The unsubscribe link in an inbox email (`apps/web/src/server/unsubscribe.ts`) carries no
    session either: its token, signed with `BETTER_AUTH_SECRET`, names the member, and it can only
-   turn their email off. Non-members get the same 404 or "not found" as a missing workspace. The verified member
+   turn their email off. A team's public request form (`apps/web/src/server/intake-form.ts`) and
+   its intake email address (`apps/web/src/server/intake-email.ts`) carry no member either: the
+   channel's key, which the object makes, admits them after Turnstile or a rate limit, a key no
+   team has gets the same 404 or refusal as a missing workspace, and they can only file a request
+   into that team's intake. Non-members get the same 404 or "not found" as a missing workspace. The verified member
    travels in `MEMBER_HEADER` or as the `member` argument of `mutate`, which only a gateway sets.
 7. **Server code never reaches the browser bundle.** In server functions, import server modules
    dynamically inside the handler, as `apps/web/src/lib/session.ts` does.

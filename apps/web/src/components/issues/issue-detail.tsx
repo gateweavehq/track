@@ -21,6 +21,7 @@ import {
 	DialogTitle,
 } from "#/components/ui/dialog";
 import { useWorkspace } from "#/components/workspace/context";
+import { actorName } from "#/lib/actors";
 import { cycleName, stateIn } from "#/lib/cycles";
 import { formatDateTime, formatRelative } from "#/lib/dates";
 import { useHotkeys } from "#/lib/hotkeys";
@@ -38,6 +39,7 @@ import { cn } from "#/lib/utils";
 import { ArchivedNotice, ArchiveIssueButton } from "./archive";
 import { AttachButton, useAttachFiles } from "./attach-files";
 import { DateField } from "./date-field";
+import { IntakeNotice } from "./intake";
 import { IssueActivity } from "./issue-activity";
 import { ParentPicker } from "./issue-picker";
 import { IssueProposals } from "./issue-proposals";
@@ -116,7 +118,9 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 				<div className="ml-auto" />
 				<CopyBranchButton issueKey={key} title={issue.title} />
 				<SubscribeButton issueId={issue.id} />
-				<ArchiveIssueButton issue={issue} closed={isClosedCategory(issueStatus.category)} />
+				{!issue.intake && (
+					<ArchiveIssueButton issue={issue} closed={isClosedCategory(issueStatus.category)} />
+				)}
 				<Button
 					variant="ghost"
 					size="icon"
@@ -130,6 +134,7 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 
 			<div className="flex flex-1 flex-col lg:flex-row">
 				<article className="min-w-0 space-y-4 px-6 py-8 lg:flex-1 lg:px-12">
+					<IntakeNotice issue={issue} team={team} />
 					<ArchivedNotice issue={issue} />
 					{parent && parentKey && (
 						<Link
@@ -311,7 +316,9 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 					<dl className="space-y-2 pt-4 text-xs text-muted-foreground">
 						<div className="flex justify-between gap-2 px-2">
 							<dt>Created by</dt>
-							<dd className="truncate text-foreground/80">{creator?.name ?? "Unknown"}</dd>
+							<dd className="truncate text-foreground/80">
+								{creator?.name ?? actorName(issue.creatorId, members)}
+							</dd>
 						</div>
 						<div className="flex justify-between gap-2 px-2">
 							<dt>Created</dt>

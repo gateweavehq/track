@@ -154,7 +154,10 @@ function archiveUntouched(
 	return issues.length;
 }
 
-/** The team's live, unarchived issues in these statuses that no one touched for the months. */
+/**
+ * The team's live, unarchived issues in these statuses that no one touched for the months.
+ * Requests in intake wait for a person to decide on them, so automations leave them alone.
+ */
 function untouched(
 	db: Db,
 	teamId: string,
@@ -171,6 +174,7 @@ function untouched(
 				eq(schema.issues.teamId, teamId),
 				isNull(schema.issues.deletedAt),
 				isNull(schema.issues.archivedAt),
+				eq(schema.issues.intake, false),
 				inArray(schema.issues.status, statuses),
 				lt(schema.issues.updatedAt, now - months * AUTOMATION_MONTH_MS),
 			),
