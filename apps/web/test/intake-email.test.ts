@@ -1,5 +1,5 @@
 import type { Snapshot } from "@gateweave/track-protocol";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { INTAKE_EMAIL_DOMAIN, startTrack } from "./track-worker";
 
 // A team's intake email address (TRK-41) in the built Worker: Email Routing hands it mail, and
@@ -84,6 +84,16 @@ describe("intake email", () => {
 		);
 		expect(result.outcome).toBe("ok");
 		const [request] = (await snapshot()).issues.filter((issue) => issue.title === "Export fails");
+		// Whoever wrote hears of the decision at the address they wrote from.
+		if (request) {
+			await track.mutate(workspaceId, owner, { name: "issue.accept", args: { id: request.id } });
+			await vi.waitFor(async () => {
+				const emails = (await track.emails()).filter((email) => email.to === "sam@customer.test");
+				expect(emails.map((email) => email.subject)).toEqual([
+					"Your request was accepted: Export fails",
+				]);
+			});
+		}
 		expect(request).toMatchObject({
 			teamId: "team-eng",
 			intake: true,

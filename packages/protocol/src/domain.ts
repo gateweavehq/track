@@ -508,7 +508,9 @@ export type InboxEvent =
 	/** Someone mentioned the member: in a comment, or in the description when it is null. */
 	| { type: "mention"; commentId: string | null }
 	/** The issue, assigned to the member, is due on `on` (`YYYY-MM-DD`). Track reminds them. */
-	| { type: "due"; on: string };
+	| { type: "due"; on: string }
+	/** Someone took the request out of its team's intake: accepted it, or declined it. */
+	| { type: "intake"; accepted: boolean };
 
 /**
  * An issue in a member's inbox, private to them. There is one per issue, holding its newest

@@ -698,7 +698,7 @@ describe("delivery", () => {
 	it("counts an unreachable receiver as a failure", async () => {
 		vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Network connection lost"));
 		const workspace = await workspaceWithTeams();
-		await createHook(workspace);
+		const { webhook } = await createHook(workspace);
 		await createIssue(workspace, owner, "issue-1");
 
 		await deliver(workspace);
@@ -711,6 +711,8 @@ describe("delivery", () => {
 				error: "Could not reach the receiver: Network connection lost",
 			},
 		]);
+		// The retry would go out seconds from now, into a later test's receiver; pausing drops it.
+		ok(await workspace.updateWebhook(owner, link, webhook.id, { active: false }));
 	});
 
 	it("queues nothing for a rejected or repeated mutation", async () => {

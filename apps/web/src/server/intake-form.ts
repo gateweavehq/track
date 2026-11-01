@@ -92,6 +92,7 @@ export async function handleIntakeFormRequest(request: Request): Promise<Respons
 		key: formKey,
 		title,
 		description: describe(description, email),
+		requester: email ? { workspaceId: workspace.id, email } : null,
 		sortOrder: generateKeyBetween(await stub.lastSortOrder(), null),
 	});
 	if (!filed) return notFound();

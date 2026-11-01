@@ -57,8 +57,15 @@ export async function handleIntakeEmail(message: ForwardableEmailMessage): Promi
 	const email = await PostalMime.parse(message.raw, { maxPartCount: 200 });
 	const from = email.from && "address" in email.from ? email.from.address : undefined;
 	const { title, description } = requestFromEmail(email, from || sender);
+	const replyTo = (from || sender).trim().toLowerCase();
 	const filed = await stub.fileRequest({
 		via: "email",
+		// The address it came from hears of the decision. Anyone can forge it, but all they get
+		// is a short note, written by the team, sent to an address that wrote to it.
+		requester:
+			replyTo.length <= 254 && replyTo.includes("@")
+				? { workspaceId: workspace.id, email: replyTo }
+				: null,
 		key: address.key,
 		title,
 		description,

@@ -1,4 +1,4 @@
-import type { InboxEvent } from "@gateweave/track-protocol";
+import { type InboxEvent, mentionsAsText } from "@gateweave/track-protocol";
 import type { Email } from "./mailer";
 
 /** An email before it is addressed. */
@@ -121,6 +121,53 @@ export function inboxDigestEmail({
 	});
 }
 
+/**
+ * Tells whoever filed a request through a team's form or by email what the team decided, with
+ * the reply that came with a decline. They are not a member, so there is nothing to open.
+ */
+export function requestDecisionEmail({
+	workspace,
+	team,
+	title,
+	accepted,
+	reply,
+}: {
+	workspace: string;
+	team: string;
+	title: string;
+	accepted: boolean;
+	reply: string | null;
+}): Message {
+	const who = `${clip(team, 60)} at ${clip(workspace, 60)}`;
+	const request = clip(title, 120);
+	const decided = accepted ? "accepted" : "declined";
+	// Mentions name members by id; a requester only needs the names.
+	const text = reply ? mentionsAsText(reply).replace(/\r\n?/g, "\n").trim() : "";
+	const answer = text.length > 4000 ? `${text.slice(0, 3999)}…` : text || null;
+	return compose({
+		subject: `Your request was ${decided}: ${request}`,
+		heading: `Your request was ${decided}`,
+		body: [
+			accepted
+				? `${who} accepted your request "${request}" and will take it on.`
+				: `${who} declined your request "${request}".`,
+		],
+		sections: answer
+			? [
+					{
+						text: answer
+							.split("\n")
+							.map((line) => `> ${line}`)
+							.join("\n"),
+						html: `<p style="margin:0 0 16px;padding-left:12px;border-left:3px solid #e5e5e5;color:#404040;white-space:pre-wrap">${escapeHtml(answer)}</p>`,
+					},
+				]
+			: [],
+		footer:
+			"You get this because you sent this request through the team's form or by email. It is the only email about it.",
+	});
+}
+
 function summary(item: DigestEntry, issue: string): string {
 	const actor = clip(item.actor, 60);
 	switch (item.event.type) {
@@ -138,6 +185,8 @@ function summary(item: DigestEntry, issue: string): string {
 			return `${actor} mentioned you in ${issue}`;
 		case "due":
 			return `${issue} is due ${dueDay(item.event.on)}`;
+		case "intake":
+			return `${actor} ${item.event.accepted ? "accepted" : "declined"} the request ${issue}`;
 	}
 }
 
@@ -168,7 +217,8 @@ function compose({
 	body: string[];
 	/** Blocks after the body, such as the issues of a digest. */
 	sections?: { text: string; html: string }[];
-	action: { label: string; url: string };
+	/** The button; left out for someone with nothing to open, such as a requester. */
+	action?: { label: string; url: string };
 	footer: string;
 	/** A link that ends the footer's sentence. */
 	footerLink?: { label: string; url: string };
@@ -176,7 +226,7 @@ function compose({
 	const text = [
 		...body,
 		...sections.map((section) => section.text),
-		`${action.label}: ${action.url}`,
+		...(action ? [`${action.label}: ${action.url}`] : []),
 		footerLink ? `${footer} ${footerLink.label}: ${footerLink.url}` : footer,
 		`— ${PRODUCT}`,
 	].join("\n\n");
@@ -195,8 +245,12 @@ function compose({
 <p style="margin:0 0 24px;font-size:13px;font-weight:600;color:#525252">${PRODUCT}</p>
 <h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">${escapeHtml(heading)}</h1>
 ${paragraphs}
-<p style="margin:24px 0"><a href="${escapeHtml(action.url)}" style="display:inline-block;padding:10px 16px;background:#171717;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600">${escapeHtml(action.label)}</a></p>
-<p style="margin:0 0 16px;font-size:13px;color:#525252">Or paste this link into your browser:<br><span style="word-break:break-all">${escapeHtml(action.url)}</span></p>
+${
+	action
+		? `<p style="margin:24px 0"><a href="${escapeHtml(action.url)}" style="display:inline-block;padding:10px 16px;background:#171717;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600">${escapeHtml(action.label)}</a></p>
+<p style="margin:0 0 16px;font-size:13px;color:#525252">Or paste this link into your browser:<br><span style="word-break:break-all">${escapeHtml(action.url)}</span></p>`
+		: ""
+}
 <p style="margin:24px 0 0;font-size:13px;color:#737373">${footerHtml}</p>
 </div>
 </body>
