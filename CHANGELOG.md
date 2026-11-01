@@ -8,6 +8,24 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.15.0] - 2026-11-01
+
+Closed issues can be archived out of lists and boards. Updating a self-hosted copy applies a
+migration in each workspace's database, which runs on its own; there is no D1 migration and no
+new setting. The protocol goes to version 17, so open tabs reload and sync again. ([#105])
+
+### Added
+
+- Archive a completed or canceled issue from its page, and it leaves the lists and boards of its
+  team, project, cycle and saved views, and My issues. Search, its page, its history and the
+  progress of its project, cycle and parent keep it. ([#105])
+- Each team has an archive page, linked from the team page once something is in it and from the
+  command palette, where archived issues can be restored. Reopening an archived issue restores
+  it too. ([#105])
+- Over MCP, `search_issues` takes `archived`, every issue says whether it is archived, and
+  `update_issue` archives or restores an issue. Webhooks send it as `issue.updated`, with
+  `archivedAt`. ([#105])
+
 ## [0.14.1] - 2026-11-01
 
 Webhook payloads name the issue's assignee. Updating a self-hosted copy needs no migration and no
@@ -540,6 +558,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.15.0]: https://github.com/gateweavehq/track/releases/tag/v0.15.0
 [0.14.1]: https://github.com/gateweavehq/track/releases/tag/v0.14.1
 [0.14.0]: https://github.com/gateweavehq/track/releases/tag/v0.14.0
 [0.13.1]: https://github.com/gateweavehq/track/releases/tag/v0.13.1
@@ -633,3 +652,4 @@ The first pre-release.
 [#100]: https://github.com/gateweavehq/track/pull/100
 [#102]: https://github.com/gateweavehq/track/pull/102
 [#103]: https://github.com/gateweavehq/track/pull/103
+[#105]: https://github.com/gateweavehq/track/pull/105
