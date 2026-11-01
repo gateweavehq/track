@@ -501,6 +501,27 @@ a new issue starts with. Any member keeps them, under Settings, Templates, with 
 
 Templates are a breaking change to the protocol (version 19), as the snapshot gained them.
 
+### Insights
+
+Each team has an insights page (`/$workspace/team/$teamKey/insights`, `?weeks=4|12|26`),
+linked from the team page and the palette, worked out in the browser from the replica
+(`apps/web/src/lib/insights.ts`). Nothing is stored or computed on the server, so it costs the
+Durable Object nothing and works offline.
+
+- **Created and closed by week**, weeks starting on Monday, in the time zone of the team's
+  cycles; a team without cycles has none, so its weeks are in the viewer's own time zone, and two
+  people in different zones can see an issue in different weeks. Closing is
+  read from history: a status change from an open category into a closed one, so reopening and
+  closing again counts twice. An issue filed straight into a closed status (an import, a note
+  of done work) counts as closed when it was created. Archived issues count: archiving takes an
+  issue out of lists, not out of what the team did.
+- **Cycle time** is the median, over issues done in the range and still done, from the first
+  move into a started status to the completion that stands. An issue filed straight into a
+  started status started when it was created; one never marked started has none. History merges
+  one person's changes to a status within five minutes, so work started and finished that
+  quickly reads as one move and has no cycle time. Under an hour reads as "under an hour".
+- **Open issues by status, assignee and label**, as they are now.
+
 ### Projects
 
 A project groups issues from any team toward a goal. It has a name, a description, a status
