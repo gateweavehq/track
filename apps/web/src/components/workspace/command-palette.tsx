@@ -3,6 +3,7 @@ import type { SyncState } from "@gateweave/track-sync-client";
 import { shallowEqual, useQuery } from "@gateweave/track-sync-client/react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import {
+	Archive,
 	ArrowLeftRight,
 	Bot,
 	CircleUserRound,
@@ -170,6 +171,17 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 			run: () =>
 				void navigate({
 					to: "/$workspace/team/$teamKey",
+					params: { workspace: slug, teamKey: team.key },
+				}),
+		})),
+		...teams.map((team) => ({
+			id: `archive-${team.id}`,
+			label: `Go to ${team.name} archive`,
+			icon: Archive,
+			keywords: [team.key, "archived", "restore"],
+			run: () =>
+				void navigate({
+					to: "/$workspace/team/$teamKey/archive",
 					params: { workspace: slug, teamKey: team.key },
 				}),
 		})),

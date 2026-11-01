@@ -58,6 +58,7 @@ function issue(id: string, fields: Partial<Issue> = {}): Issue {
 		version: 1,
 		createdAt: 0,
 		updatedAt: 0,
+		archivedAt: null,
 		...fields,
 	};
 }

@@ -143,6 +143,9 @@ const issueSummary = z.looseObject({
 	estimate: z.number().nullable().describe("Points."),
 	url: z.string(),
 	updatedAt: z.string(),
+	archived: z
+		.boolean()
+		.describe("Whether it is archived: closed and out of lists, though search still finds it."),
 });
 const issueDetail = issueSummary.extend({
 	description: z.string().nullable().describe(MENTION_OUTPUT),
@@ -361,6 +364,10 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						'Only issues in a cycle: "current" or "next" for each team\'s, or a number, with team.',
 					),
 				parent: keyInput.optional().describe("Only the sub-issues of this issue: its key."),
+				archived: z
+					.boolean()
+					.optional()
+					.describe("True for archived issues only, false to leave them out. Left out, both."),
 				text: z
 					.string()
 					.max(200)
@@ -393,6 +400,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					projectId: input.project === undefined ? undefined : projectId(directory, input.project),
 					parentId:
 						input.parent === undefined ? undefined : (await findIssue(workspace, input.parent)).id,
+					archived: input.archived,
 					text: input.text,
 					limit: input.limit,
 				});
@@ -521,7 +529,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"update_issue",
 		{
 			title: "Update issue",
-			description: `Changes an issue's title, description, status, priority, assignee, project, cycle, labels, parent, dates or estimate. Fields you leave out stay as they are. ${PROPOSALS_NOTE}`,
+			description: `Changes an issue's title, description, status, priority, assignee, project, cycle, labels, parent, dates or estimate, or archives or restores it. Fields you leave out stay as they are. ${PROPOSALS_NOTE}`,
 			inputSchema: z.object({
 				workspace: workspaceInput,
 				key: keyInput,
@@ -561,6 +569,12 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					.nullable()
 					.optional()
 					.describe(ESTIMATE_HELP + " Null clears it."),
+				archived: z
+					.boolean()
+					.optional()
+					.describe(
+						"True archives a completed or canceled issue, taking it out of lists; false restores it. Reopening an issue restores it too.",
+					),
 			}),
 			outputSchema: issueDetail.extend({ proposed: proposedOutput }),
 			annotations: {
@@ -602,7 +616,12 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				};
 				const added = (input.add_labels ?? []).map((name) => labelId(directory, name));
 				const removed = (input.remove_labels ?? []).map((name) => labelId(directory, name));
-				if (Object.keys(patch).length === 0 && added.length === 0 && removed.length === 0) {
+				if (
+					Object.keys(patch).length === 0 &&
+					added.length === 0 &&
+					removed.length === 0 &&
+					input.archived === undefined
+				) {
 					throw new ToolError("Nothing to change.");
 				}
 				const proposed: Proposal[] = [];
@@ -629,6 +648,15 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						...(await apply(workspace, {
 							name: "issue.removeLabel",
 							args: { id: issue.id, labelId: id },
+						})),
+					);
+				}
+				// Last, so a status that closes the issue in the same call lets it be archived.
+				if (input.archived !== undefined) {
+					proposed.push(
+						...(await apply(workspace, {
+							name: "issue.archive",
+							args: { id: issue.id, archived: input.archived },
 						})),
 					);
 				}
@@ -1133,6 +1161,7 @@ function summarize(
 		estimate: issue.estimate,
 		url: `${access.origin}/${encodeURIComponent(workspace.slug)}/issue/${key}`,
 		updatedAt: new Date(issue.updatedAt).toISOString(),
+		archived: issue.archivedAt !== null,
 	};
 }
 

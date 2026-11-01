@@ -129,6 +129,12 @@ export interface Issue {
 	version: number;
 	createdAt: number;
 	updatedAt: number;
+	/**
+	 * When the issue was archived, or null. Only a closed issue is archived, and reopening it
+	 * restores it. Archived issues leave lists and boards but stay in search, in history and in
+	 * the progress of their project, cycle and parent.
+	 */
+	archivedAt: number | null;
 }
 
 export const PROJECT_STATUSES = ["planned", "started", "paused", "completed", "canceled"] as const;
@@ -256,6 +262,8 @@ export type ActivityChange =
 	| { type: "dueDate"; from: string | null; to: string | null }
 	| { type: "estimate"; from: number | null; to: number | null }
 	| { type: "label"; labelId: string; added: boolean }
+	/** Archived, or restored: by hand, or by reopening the issue. */
+	| { type: "archived"; archived: boolean }
 	/** Recorded on both issues, each from its own side. */
 	| { type: "relation"; kind: RelationKind; issueId: string; added: boolean };
 

@@ -425,6 +425,36 @@ canceled issues are left out of it.
 Changing statuses is a breaking change to the protocol (version 16), so clients that predate it
 start from a fresh snapshot.
 
+### Archive
+
+A closed issue can be archived (`issue.archive`, `Issue.archivedAt`): it leaves the lists and
+boards of its team, project, cycle and saved views, and My issues, but nothing else changes. Search
+finds it, its page and history stay, and it still counts in the progress of its project, cycle and
+parent, since it was done or canceled. Each team has an archive page
+(`/$workspace/team/$teamKey/archive`), linked from the team page once something is in it, with
+a way to restore each issue.
+
+- **Only a closed issue is archived.** `issue.archive` refuses an issue whose status is not of the
+  completed or canceled category, and asking for what the issue already is changes nothing. Any
+  member or agent may archive or restore, as any of them may close or reopen.
+- **Reopening restores it.** An `issue.update` that moves an archived issue to a status that does
+  not close it clears `archivedAt` in the same write, with a history entry of its own. So does
+  removing a status into an open one, or changing a closed status's category to an open one, for
+  every archived issue in it; like the change to the workflow, those reach nobody's inbox.
+- **History says it**, as `{ type: "archived", archived }`. Archiving and restoring within the
+  merge window leaves no trace, as for labels.
+- **The replica keeps archived issues.** They are part of the snapshot like any live issue, so the
+  archive works offline and the replica predicts archiving by the same rules. Keeping them out of
+  the replica's hot set is a later step.
+- **Elsewhere.** Webhooks send an archive or restore as `issue.updated`, with `archivedAt` in
+  `updatedFrom`. Over MCP, `search_issues` takes `archived` (only archived issues, or none) and
+  every issue says whether it is archived; `update_issue` takes `archived` to archive or restore,
+  after the other changes, so one call can close an issue and archive it. Exports carry
+  `archivedAt`; imports bring issues in unarchived.
+
+Archiving is a breaking change to the protocol (version 17), so clients that predate it start from
+a fresh snapshot.
+
 ### Projects
 
 A project groups issues from any team toward a goal. It has a name, a description, a status

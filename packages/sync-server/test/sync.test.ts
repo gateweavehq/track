@@ -459,6 +459,127 @@ describe("issues", () => {
 	});
 });
 
+describe("archive", () => {
+	async function update(client: TestClient, id: string, patch: IssuePatch) {
+		const { version } = await issueOf(client, id);
+		return client.apply({ name: "issue.update", args: { id, baseVersion: version, patch } });
+	}
+	const archive = (client: TestClient, id: string, archived: boolean) =>
+		client.mutate({ name: "issue.archive", args: { id, archived } });
+
+	async function historyOf(workspace: Workspace, issueId: string) {
+		const { activities } = await snapshotOf(workspace);
+		return activities
+			.filter((activity) => activity.issueId === issueId)
+			.map(({ actorId, change }) => ({ actorId, change }));
+	}
+
+	it("archives a closed issue for everyone, refuses an open one, and restores it", async () => {
+		const { workspace, admin } = await withTeam();
+		const viewer = await TestClient.live(workspace, alice);
+		const issue = await createIssue(admin, "issue-1");
+
+		expect(await archive(admin, issue.id, true)).toMatchObject({
+			type: "reject",
+			reason: "invalid",
+			message: "Only a completed or canceled issue can be archived",
+		});
+		await update(admin, issue.id, { status: "done" });
+		expect(await archive(admin, issue.id, true)).toMatchObject({ type: "ack" });
+		const archived = await viewer.op(
+			(op) => op.op === "put" && op.entity === "issue" && op.data.archivedAt !== null,
+		);
+		expect(archived).toMatchObject({ entity: "issue", data: { id: issue.id, status: "done" } });
+		// Archived issues stay in the replica, for search, history and progress.
+		expect((await snapshotOf(workspace)).issues).toEqual([
+			expect.objectContaining({ id: issue.id, archivedAt: expect.any(Number) }),
+		]);
+		expect(await historyOf(workspace, issue.id)).toContainEqual({
+			actorId: owner.id,
+			change: { type: "archived", archived: true },
+		});
+
+		// Asking again changes nothing.
+		const before = (await snapshotOf(workspace)).version;
+		await archive(admin, issue.id, true);
+		expect((await snapshotOf(workspace)).version).toBe(before);
+
+		await archive(viewer, issue.id, false);
+		expect(await issueOf(admin, issue.id)).toMatchObject({ archivedAt: null });
+		expect(await historyOf(workspace, issue.id)).toContainEqual({
+			actorId: alice.id,
+			change: { type: "archived", archived: false },
+		});
+	});
+
+	it("restores an archived issue that is reopened, and keeps one moved between closed statuses", async () => {
+		const { workspace, admin } = await withTeam();
+		const member = await TestClient.live(workspace, alice);
+		const issue = await createIssue(admin, "issue-1");
+		await update(admin, issue.id, { status: "done" });
+		await archive(admin, issue.id, true);
+
+		await update(member, issue.id, { status: "canceled" });
+		expect(await issueOf(admin, issue.id)).toMatchObject({ archivedAt: expect.any(Number) });
+
+		await update(member, issue.id, { status: "in_progress" });
+		expect(await issueOf(admin, issue.id)).toMatchObject({
+			status: "in_progress",
+			archivedAt: null,
+		});
+		expect((await historyOf(workspace, issue.id)).slice(-2)).toEqual([
+			{ actorId: alice.id, change: { type: "status", from: "done", to: "in_progress" } },
+			{ actorId: alice.id, change: { type: "archived", archived: false } },
+		]);
+	});
+
+	it("restores archived issues whose status stops closing them", async () => {
+		const { admin } = await withTeam();
+		const moved = await createIssue(admin, "issue-1");
+		const recategorized = await createIssue(admin, "issue-2");
+		await admin.apply({
+			name: "status.create",
+			args: {
+				teamId: TEAM_ID,
+				key: "wontfix",
+				name: "Won't fix",
+				category: "canceled",
+				sortOrder: "z0",
+			},
+		});
+		await update(admin, moved.id, { status: "canceled" });
+		await update(admin, recategorized.id, { status: "wontfix" });
+		await archive(admin, moved.id, true);
+		await archive(admin, recategorized.id, true);
+
+		await admin.apply({
+			name: "status.delete",
+			args: { teamId: TEAM_ID, key: "canceled", moveTo: "backlog" },
+		});
+		expect(await issueOf(admin, moved.id)).toMatchObject({ status: "backlog", archivedAt: null });
+
+		await admin.apply({
+			name: "status.update",
+			args: { teamId: TEAM_ID, key: "wontfix", patch: { category: "started" } },
+		});
+		expect(await issueOf(admin, recategorized.id)).toMatchObject({ archivedAt: null });
+	});
+
+	it("leaves an archived issue out of server-side queries that ask so", async () => {
+		const { workspace, admin } = await withTeam();
+		await createIssue(admin, "issue-1", "Open");
+		const done = await createIssue(admin, "issue-2", "Archived");
+		await update(admin, done.id, { status: "done" });
+		await archive(admin, done.id, true);
+
+		const titles = async (archived?: boolean) =>
+			(await workspace.issues({ archived, limit: 10 })).map((issue) => issue.title).sort();
+		expect(await titles()).toEqual(["Archived", "Open"]);
+		expect(await titles(false)).toEqual(["Open"]);
+		expect(await titles(true)).toEqual(["Archived"]);
+	});
+});
+
 describe("relations", () => {
 	function relate(
 		client: TestClient,
@@ -2404,6 +2525,7 @@ describe("search", () => {
 			db.run(sql`alter table issues drop column estimate`);
 			db.run(sql`drop index issues_parent_idx`);
 			db.run(sql`alter table issues drop column parent_id`);
+			db.run(sql`alter table issues drop column archived_at`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${search.when}`);
 			await migrate(db, migrations);
 		});

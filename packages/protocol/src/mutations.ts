@@ -169,6 +169,11 @@ export const mutationSchema = z.discriminatedUnion("name", [
 		name: z.literal("issue.delete"),
 		args: z.object({ id }),
 	}),
+	/** Archives a closed issue, or restores an archived one. */
+	z.object({
+		name: z.literal("issue.archive"),
+		args: z.object({ id, archived: z.boolean() }),
+	}),
 	// Adding and removing labels are set operations rather than a patch of `labelIds`, so that
 	// people labeling the same issue at the same time never conflict.
 	z.object({

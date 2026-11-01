@@ -8,7 +8,7 @@ import {
 	type StatusCategory,
 	statusId,
 } from "@gateweave/track-protocol";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { recordActivity } from "./activity";
 import * as schema from "./db/schema";
 import type { ChangeSet } from "./log";
@@ -127,6 +127,44 @@ export function updateStatus(
 		.returning()
 		.get();
 	if (row) changes.put("status", toStatus(row));
+	if (
+		args.patch.category !== undefined &&
+		isClosedCategory(status.category) &&
+		!isClosedCategory(args.patch.category)
+	) {
+		restoreArchived(db, changes, args.teamId, status.key);
+	}
+}
+
+/**
+ * Restores the team's archived issues in a status that no longer closes them, as reopening one
+ * does: an open issue is never archived. Like the change to the workflow that caused it, nobody's
+ * inbox hears of it.
+ */
+function restoreArchived(db: Db, changes: ChangeSet, teamId: string, key: string): void {
+	const archived = db
+		.select()
+		.from(schema.issues)
+		.where(
+			and(
+				eq(schema.issues.teamId, teamId),
+				eq(schema.issues.status, key),
+				isNotNull(schema.issues.archivedAt),
+				isNull(schema.issues.deletedAt),
+			),
+		)
+		.all();
+	for (const issue of archived) {
+		const row = db
+			.update(schema.issues)
+			.set({ archivedAt: null, version: changes.nextVersion, updatedAt: changes.now })
+			.where(eq(schema.issues.id, issue.id))
+			.returning()
+			.get();
+		if (!row) continue;
+		changes.put("issue", toIssue(row));
+		changes.events.push({ type: "issue.updated", issue: row, previous: issue, quiet: true });
+	}
 }
 
 /**
@@ -172,6 +210,8 @@ export function deleteStatus(
 			),
 		)
 		.all();
+	// Moved into a status that does not close them, archived issues are restored.
+	const reopens = !isClosedStatus(db, args.teamId, args.moveTo);
 	for (const issue of issues) {
 		// Stamped like any status change, so an offline edit made before it conflicts instead of
 		// putting the issue back in a status that is gone.
@@ -179,6 +219,7 @@ export function deleteStatus(
 			.update(schema.issues)
 			.set({
 				status: args.moveTo,
+				...(reopens ? { archivedAt: null } : {}),
 				fieldStamps: {
 					...issue.fieldStamps,
 					status: { version: changes.nextVersion, clientId: `status:${status.id}` },

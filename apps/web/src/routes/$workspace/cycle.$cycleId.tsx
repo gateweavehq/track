@@ -59,7 +59,7 @@ function CyclePage() {
 function CycleIssues({ cycle, team }: { cycle: Cycle; team: Team }) {
 	const { workspace } = Route.useParams();
 	const actions = useWorkspaceActions();
-	const issues = useCycleIssues(cycle.id);
+	const issues = useCycleIssues(cycle.id, { listed: true });
 	const search = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
 	const setSearch = useCallback(

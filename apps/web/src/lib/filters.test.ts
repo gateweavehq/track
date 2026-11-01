@@ -36,6 +36,7 @@ const base: Issue = {
 	version: 1,
 	createdAt: 1,
 	updatedAt: 1,
+	archivedAt: null,
 };
 
 const targets = {

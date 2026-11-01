@@ -82,6 +82,10 @@ export function mergeActivity(
 			)
 				return { kind: "append" };
 			return previous.added === change.added ? { kind: "skip" } : { kind: "remove" };
+		case "archived":
+			// Archiving and restoring at once leaves no trace.
+			if (previous.type !== "archived") return append;
+			return previous.archived === change.archived ? { kind: "skip" } : { kind: "remove" };
 		case "title":
 			return previous.type === "title" ? retarget({ ...change, from: previous.from }) : append;
 		case "status":

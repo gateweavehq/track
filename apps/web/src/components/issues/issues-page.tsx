@@ -69,6 +69,7 @@ export function IssuesPage({
 	onDisplayChange,
 	offeredFilters,
 	filterActions,
+	headerActions,
 	intro,
 	scope,
 }: {
@@ -93,6 +94,8 @@ export function IssuesPage({
 	offeredFilters: readonly IssueFilterKey[];
 	/** Shown at the end of the row of filters in force, such as a way to save them. */
 	filterActions?: ReactNode;
+	/** Shown in the header before the filter menu, such as a link to the team's archive. */
+	headerActions?: ReactNode;
 }) {
 	const actions = useWorkspaceActions();
 	const teams = useTeamsById();
@@ -204,6 +207,7 @@ export function IssuesPage({
 								className="h-8 w-14 rounded-md border bg-transparent pr-2 pl-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring sm:w-32 lg:w-56"
 							/>
 						</div>
+						{headerActions}
 						<FilterMenu filters={active} onChange={onFiltersChange} offered={offeredFilters} />
 						{(view === "list" || view === "board") && (
 							<DisplayMenu display={display} onChange={onDisplayChange} layout={view} />
