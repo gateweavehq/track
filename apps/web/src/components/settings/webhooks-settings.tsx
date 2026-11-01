@@ -51,6 +51,9 @@ const EVENT_LABELS: Record<WebhookEventType, string> = {
 	"proposal.dismissed": "Proposal dismissed",
 	"relation.created": "Relation added",
 	"relation.deleted": "Relation removed",
+	"project_update.created": "Project update posted",
+	"project_update.updated": "Project update edited",
+	"project_update.deleted": "Project update deleted",
 };
 
 /** A secret just made, shown once. */
@@ -495,6 +498,11 @@ function WebhookDialog({
 									</option>
 								))}
 							</select>
+							{teamId && events.some((event) => event.startsWith("project_update.")) && (
+								<p className="text-xs text-muted-foreground">
+									Projects belong to no team, so only a webhook for all teams sends project updates.
+								</p>
+							)}
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor={`${formId}-agent`}>For agent</Label>

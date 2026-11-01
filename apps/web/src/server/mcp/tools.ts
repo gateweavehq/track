@@ -14,7 +14,9 @@ import {
 	type Member,
 	type MutationInput,
 	mutationSchema,
+	PROJECT_HEALTHS,
 	PROJECT_STATUSES,
+	type ProjectUpdate,
 	type Proposal,
 	type PullRequest,
 	RELATION_KINDS,
@@ -59,6 +61,8 @@ export interface WorkspaceAccess {
 	issueByKey(teamKey: string, number: number): Promise<Issue | null>;
 	/** A live issue's comments, oldest first. */
 	comments(issueId: string): Promise<Comment[]>;
+	/** A live project's updates, the latest first. */
+	projectUpdates(projectId: string): Promise<ProjectUpdate[]>;
 	/** A live issue's open proposals, oldest first. */
 	proposals(issueId: string): Promise<Proposal[]>;
 	/** A live issue's relations, from either side, oldest first. */
@@ -173,6 +177,14 @@ const commentOutput = z.looseObject({
 	createdAt: z.string(),
 	edited: z.boolean(),
 });
+const projectUpdateOutput = z.looseObject({
+	id: z.string(),
+	health: z.enum(PROJECT_HEALTHS),
+	author: z.string().nullable().describe("The author's email."),
+	body: z.string().describe("Markdown."),
+	createdAt: z.string(),
+	edited: z.boolean(),
+});
 const pullRequestOutput = z.looseObject({
 	repository: z.string().describe("Such as acme/app."),
 	number: z.number(),
@@ -218,6 +230,7 @@ type ProjectOutput = z.infer<typeof projectOutput>;
 type IssueSummary = z.infer<typeof issueSummary>;
 type IssueDetail = z.infer<typeof issueDetail>;
 type CommentOutput = z.infer<typeof commentOutput>;
+type ProjectUpdateOutput = z.infer<typeof projectUpdateOutput>;
 type RelationOutput = z.infer<typeof relationOutput>;
 type ProposalOutput = z.infer<typeof proposalOutput>;
 
@@ -319,7 +332,17 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					}),
 				),
 				labels: z.array(z.looseObject({ name: z.string(), color: z.string() })),
-				projects: z.array(z.looseObject({ id: z.string(), name: z.string(), status: z.string() })),
+				projects: z.array(
+					z.looseObject({
+						id: z.string(),
+						name: z.string(),
+						status: z.string(),
+						health: z
+							.enum(PROJECT_HEALTHS)
+							.nullable()
+							.describe("How it is going, as its latest update says; null before any update."),
+					}),
+				),
 				members: z.array(
 					z.looseObject({
 						id: z.string(),
@@ -340,7 +363,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			run(async () => {
 				const opened = await open(access, workspace);
 				const directory = await opened.directory();
-				const { teams, statuses, cycles, labels, projects, members } = directory;
+				const { teams, statuses, cycles, labels, projects, members, projectHealth } = directory;
 				const now = Date.now();
 				return {
 					teams: teams.map(({ id, key, name, cycles, archiveAfterMonths, closeAfterMonths }) => ({
@@ -385,7 +408,12 @@ export function createTrackServer(access: TrackAccess): McpServer {
 							}));
 					}),
 					labels: labels.map(({ name, color }) => ({ name, color })),
-					projects: projects.map(({ id, name, status }) => ({ id, name, status })),
+					projects: projects.map(({ id, name, status }) => ({
+						id,
+						name,
+						status,
+						health: projectHealth[id] ?? null,
+					})),
 					members: members
 						.filter((member) => member.removedAt === null)
 						.map(({ id, name, email, role }) => ({ id, name, email, role })),
@@ -1079,6 +1107,73 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			}),
 	);
 
+	server.registerTool(
+		"post_project_update",
+		{
+			title: "Post project update",
+			description:
+				"Posts an update on how a project is going, as you: its health and what you have to say. The latest update gives the project its health. Everyone in the workspace sees it at once, and agent members can post too.",
+			inputSchema: z.object({
+				workspace: workspaceInput,
+				project: projectInput,
+				health: z
+					.enum(PROJECT_HEALTHS)
+					.describe('"on_track", "at_risk" or "off_track", as you see it.'),
+				body: z
+					.string()
+					.trim()
+					.min(1)
+					.max(100_000)
+					.describe("Markdown: what happened, what comes next, and what is in the way."),
+			}),
+			outputSchema: projectUpdateOutput,
+			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				const projectIdValue = projectId(await workspace.directory(), input.project);
+				const id = uuidv7();
+				await apply(workspace, {
+					name: "projectUpdate.create",
+					args: { id, projectId: projectIdValue, health: input.health, body: input.body },
+				});
+				const update = (await workspace.projectUpdates(projectIdValue)).find(
+					(update) => update.id === id,
+				);
+				// Only a concurrent delete of the project gets here.
+				if (!update) throw new ToolError("The project was deleted.");
+				return projectUpdateView(await workspace.directory(), update);
+			}),
+	);
+
+	server.registerTool(
+		"list_project_updates",
+		{
+			title: "List project updates",
+			description:
+				"Reads a project's updates, the latest first: how it has been going, in its people's words.",
+			inputSchema: z.object({
+				workspace: workspaceInput,
+				project: projectInput,
+				limit: z.number().int().min(1).max(100).default(10),
+			}),
+			outputSchema: z.looseObject({ updates: z.array(projectUpdateOutput) }),
+			annotations: { readOnlyHint: true, openWorldHint: false },
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				const directory = await workspace.directory();
+				const updates = await workspace.projectUpdates(projectId(directory, input.project));
+				return {
+					updates: updates
+						.slice(0, input.limit)
+						.map((update) => projectUpdateView(directory, update)),
+				};
+			}),
+	);
+
 	return server;
 }
 
@@ -1420,6 +1515,17 @@ function commentView(directory: Directory, comment: Comment): CommentOutput {
 		body: comment.body,
 		createdAt: new Date(comment.createdAt).toISOString(),
 		edited: comment.updatedAt > comment.createdAt,
+	};
+}
+
+function projectUpdateView(directory: Directory, update: ProjectUpdate): ProjectUpdateOutput {
+	return {
+		id: update.id,
+		health: update.health,
+		author: emailOf(directory, update.authorId),
+		body: update.body,
+		createdAt: new Date(update.createdAt).toISOString(),
+		edited: update.updatedAt > update.createdAt,
 	};
 }
 

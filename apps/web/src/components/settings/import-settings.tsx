@@ -644,6 +644,7 @@ function contents(plan: ImportPlan): string {
 		countOf(plan.issues, "issue"),
 		plan.comments > 0 && countOf(plan.comments, "comment"),
 		plan.relations > 0 && countOf(plan.relations, "relation"),
+		plan.projectUpdates > 0 && countOf(plan.projectUpdates, "project update"),
 	].filter((part) => typeof part === "string");
 	const last = parts.pop() ?? "";
 	return parts.length > 0 ? `${parts.join(", ")} and ${last}` : last;
