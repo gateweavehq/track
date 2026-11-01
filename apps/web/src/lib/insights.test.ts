@@ -131,6 +131,8 @@ describe("teamInsights", () => {
 			issue("never-started", { status: "done" }),
 			issue("reopened", { status: "in_progress" }),
 			issue("before", { status: "done" }),
+			// Filed straight into In Progress, so started when it was created.
+			issue("filed-started", { status: "done", createdAt: at("2026-11-01", 12) }),
 		];
 		const activities = [
 			moved("fast", "todo", "in_progress", at("2026-11-02", 9)),
@@ -145,6 +147,7 @@ describe("teamInsights", () => {
 			moved("reopened", "done", "in_progress", at("2026-11-03")),
 			moved("before", "todo", "in_progress", at("2026-08-01")),
 			moved("before", "in_progress", "done", at("2026-08-02")),
+			moved("filed-started", "in_progress", "done", at("2026-11-03", 12)),
 		];
 		const insights = teamInsights({
 			teamId: "t1",
@@ -155,8 +158,8 @@ describe("teamInsights", () => {
 			now: NOW,
 			weeks: 4,
 		});
-		// 0.25 days and 4 days.
-		expect(insights.cycleTime).toEqual({ medianDays: 2.125, issues: 2 });
+		// 0.25, 2 and 4 days.
+		expect(insights.cycleTime).toEqual({ medianDays: 2, issues: 3 });
 	});
 
 	it("breaks open issues down by status, assignee and label", () => {
@@ -204,8 +207,9 @@ describe("weekStart", () => {
 });
 
 describe("formatDays", () => {
-	it("says hours under a day, then days", () => {
-		expect(formatDays(0.01)).toBe("1 hour");
+	it("says under an hour, then hours under a day, then days", () => {
+		expect(formatDays(0.01)).toBe("under an hour");
+		expect(formatDays(0.05)).toBe("1 hour");
 		expect(formatDays(0.25)).toBe("6 hours");
 		expect(formatDays(1)).toBe("1 day");
 		expect(formatDays(2.125)).toBe("2.1 days");

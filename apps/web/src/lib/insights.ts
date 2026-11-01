@@ -112,7 +112,9 @@ export function teamInsights({
 		const firstStatus =
 			history[0]?.change.type === "status" ? history[0].change.from : issue.status;
 		if (isClosedCategory(categoryOf(firstStatus)) && created) created.closed += 1;
-		let started: number | null = null;
+		// Likewise, one filed straight into a started status, from the create dialog or over MCP,
+		// was started when it was created.
+		let started: number | null = categoryOf(firstStatus) === "started" ? issue.createdAt : null;
 		let completed: number | null = null;
 		for (const entry of history) {
 			if (entry.change.type !== "status") continue;
@@ -172,8 +174,12 @@ export function weekStart(day: string): string {
 	return addDays(day, -((weekday + 6) % 7));
 }
 
-/** A duration in days as people say it: hours under a day, then days to one decimal. */
+/**
+ * A duration in days as people say it: under an hour, then hours under a day, then days to one
+ * decimal. Rounding fast work up to an hour would overstate it.
+ */
 export function formatDays(days: number): string {
+	if (days * 24 < 1) return "under an hour";
 	if (days < 1) {
 		const hours = Math.max(1, Math.round(days * 24));
 		return `${hours} ${hours === 1 ? "hour" : "hours"}`;

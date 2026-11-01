@@ -27,7 +27,7 @@ test("a team's insights count what it created and closed, and how long work took
 	await expect(stat("Open now")).toHaveText("1");
 	await expect(stat("Created")).toHaveText("2");
 	await expect(stat("Closed")).toHaveText("1");
-	await expect(stat("Median cycle time")).toHaveText("1 hour");
+	await expect(stat("Median cycle time")).toHaveText("under an hour");
 
 	const byStatus = page.getByRole("region", { name: "Open by status" });
 	await expect(byStatus.getByRole("listitem")).toHaveCount(1);
