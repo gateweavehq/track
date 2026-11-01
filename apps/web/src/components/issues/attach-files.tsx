@@ -21,13 +21,13 @@ export function useAttachFiles(
 	textarea: RefObject<HTMLTextAreaElement | null>,
 	setValue: (next: string) => void,
 ) {
-	const { id: workspaceId, demo } = useWorkspace();
+	const { id: workspaceId, userId, demo } = useWorkspace();
 	if (demo) return null;
 
 	function attach(files: readonly File[]) {
 		const element = textarea.current;
 		if (!element || files.length === 0) return;
-		const markdown = startUploads(workspaceId, files);
+		const markdown = startUploads(workspaceId, userId, files);
 		if (!markdown) return;
 		const { value, caret } = insertParagraph(
 			element.value,
@@ -71,7 +71,7 @@ export function useAttachFiles(
  * Starts uploading what can be uploaded, and returns the Markdown that links it. Offline, or when
  * an upload cannot get through, the file waits in the browser's outbox and uploads later.
  */
-function startUploads(workspaceId: string, files: readonly File[]): string | null {
+function startUploads(workspaceId: string, userId: string, files: readonly File[]): string | null {
 	const accepted = files.filter((file) => {
 		if (file.size === 0) toast.error(`${file.name} is empty`);
 		else if (file.size > MAX_FILE_BYTES) {
@@ -93,6 +93,7 @@ function startUploads(workspaceId: string, files: readonly File[]): string | nul
 		outbox.add({
 			path,
 			workspaceId,
+			userId,
 			name,
 			type: file.type,
 			blob: file,

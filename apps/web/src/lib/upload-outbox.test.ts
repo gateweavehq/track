@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import { memoryOutboxStore, type PendingUpload, UploadOutbox } from "./upload-outbox";
 
 let made = 0;
-function upload(name: string, workspaceId = "ws-1"): PendingUpload {
+function upload(name: string, workspaceId = "ws-1", userId = "user-1"): PendingUpload {
 	made += 1;
 	return {
 		path: `/api/files/${workspaceId}/${name}`,
 		workspaceId,
+		userId,
 		name,
 		type: "text/plain",
 		blob: new Blob([name]),
@@ -106,12 +107,53 @@ describe("UploadOutbox", () => {
 		expect(refusing.size).toBe(0);
 	});
 
+	it("keeps a file waiting while the session has run out, and uploads it after signing in", async () => {
+		const store = memoryOutboxStore();
+		let signedIn = false;
+		const { fetch } = gateway(() => (signedIn ? 201 : 401));
+		const outbox = new UploadOutbox({ store, fetch });
+		const file = upload("screenshot.png");
+
+		expect(await outbox.add(file)).toEqual({ status: "waiting" });
+		expect(await store.all()).toEqual([file]);
+		expect(outbox.pending(file.path).waiting).toBe(true);
+
+		signedIn = true;
+		await outbox.drain();
+		expect(await store.all()).toEqual([]);
+		expect(outbox.pending(file.path).waiting).toBe(false);
+	});
+
+	it("uploads only the signed-in person's files, never under someone else's session", async () => {
+		const store = memoryOutboxStore();
+		const { fetch, sent } = gateway(() => 201);
+		const theirs = upload("theirs.txt", "ws-1", "user-1");
+		await store.put(theirs);
+
+		const outbox = new UploadOutbox({ store, fetch });
+		outbox.setUser("user-2");
+		await outbox.load();
+		expect(outbox.pending(theirs.path).waiting).toBe(false);
+		await outbox.drain();
+		expect(sent).toEqual([]);
+		expect(await store.all()).toEqual([theirs]);
+
+		// Back as the person who attached it, it goes up.
+		outbox.setUser("user-1");
+		await outbox.load();
+		expect(outbox.pending(theirs.path).waiting).toBe(true);
+		await outbox.drain();
+		expect(sent).toEqual([theirs.path]);
+		expect(await store.all()).toEqual([]);
+	});
+
 	it("picks up what an earlier visit left waiting", async () => {
 		const store = memoryOutboxStore();
 		const left = upload("left.txt");
 		await store.put(left);
 		const { fetch, sent } = gateway(() => 201);
 		const outbox = new UploadOutbox({ store, fetch });
+		outbox.setUser("user-1");
 		const settled: boolean[] = [];
 		outbox.onSettled((_file, _result, firstTry) => settled.push(firstTry));
 

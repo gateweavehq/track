@@ -10,9 +10,10 @@ const RETRY_MS = 30_000;
  * comes back, and every so often while something waits. Says so when files that had to wait
  * are uploaded, or are refused for good. Renders nothing.
  */
-export function UploadOutboxDrain() {
+export function UploadOutboxDrain({ userId }: { userId: string }) {
 	useEffect(() => {
 		const outbox = uploadOutbox();
+		outbox.setUser(userId);
 		let uploaded: string[] = [];
 		let announce: ReturnType<typeof setTimeout> | undefined;
 		// A file's first try is reported where it was attached; these are the ones that waited.
@@ -51,7 +52,7 @@ export function UploadOutboxDrain() {
 			clearInterval(timer);
 			window.removeEventListener("online", drain);
 		};
-	}, []);
+	}, [userId]);
 	return null;
 }
 

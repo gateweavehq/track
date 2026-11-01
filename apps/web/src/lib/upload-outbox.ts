@@ -2,11 +2,17 @@
 // when the connection comes back, as mutations do in the replica's queue. The link is in the text
 // from the start; this keeps the file until the gateway has it. The gateway refuses an id in use
 // (409), so sending a file twice, from a retry or from two tabs, leaves it as it was.
+//
+// One browser can be signed in as different people over time, and the outbox outlives a session
+// that expires without a sign-out. Each file remembers who attached it, and only goes up while
+// that person is signed in, never under someone else's session.
 
 /** A file waiting to upload. Its path names the workspace and the file's id. */
 export interface PendingUpload {
 	path: string;
 	workspaceId: string;
+	/** Who attached it: only their session uploads it. */
+	userId: string;
 	name: string;
 	type: string;
 	blob: Blob;
@@ -47,6 +53,8 @@ export class UploadOutbox {
 	#again = false;
 	/** Files added and not tried yet. */
 	#fresh = new Set<string>();
+	/** Who is signed in: only their files are shown as waiting and uploaded. */
+	#userId: string | null = null;
 	readonly #preview: (blob: Blob) => string | null;
 
 	constructor({
@@ -68,8 +76,20 @@ export class UploadOutbox {
 		this.#preview = preview;
 	}
 
+	/**
+	 * Says who is signed in. Only their files upload; anyone else's wait until they sign in
+	 * again on this browser, or are deleted when someone signs out.
+	 */
+	setUser(userId: string | null): void {
+		if (userId === this.#userId) return;
+		this.#userId = userId;
+		this.#loaded = null;
+		for (const path of [...this.#pending.keys()]) this.#unmark(path);
+	}
+
 	/** Keeps a file to upload and tries at once. Resolves with what became of it this time. */
 	async add(upload: PendingUpload): Promise<UploadResult> {
+		this.setUser(upload.userId);
 		await this.#store.put(upload);
 		this.#fresh.add(upload.path);
 		this.#mark(upload);
@@ -106,7 +126,9 @@ export class UploadOutbox {
 
 	async #drainAll(): Promise<void> {
 		await this.load();
-		const waiting = (await this.#store.all()).sort((a, b) => a.createdAt - b.createdAt);
+		const waiting = (await this.#store.all())
+			.filter((upload) => upload.userId === this.#userId)
+			.sort((a, b) => a.createdAt - b.createdAt);
 		let stopped = false;
 		for (const upload of waiting) {
 			if (stopped) {
@@ -137,8 +159,11 @@ export class UploadOutbox {
 		}
 		// 409: the file is there already, from an earlier try or another tab.
 		if (response.ok || response.status === 409) return { status: "uploaded" };
-		// The server is busy or down for now; anything else will be refused again.
-		if (response.status >= 500 || response.status === 429) return { status: "waiting" };
+		// The server is busy or down for now, or the session ran out while the file waited and it
+		// goes up once its owner signs in again. Anything else will be refused again.
+		if (response.status >= 500 || response.status === 429 || response.status === 401) {
+			return { status: "waiting" };
+		}
 		const body = (await response.json().catch(() => null)) as { error?: string } | null;
 		return {
 			status: "failed",
@@ -152,7 +177,9 @@ export class UploadOutbox {
 			this.#loaded = this.#store
 				.all()
 				.then((uploads) => {
-					for (const upload of uploads) this.#mark(upload);
+					for (const upload of uploads) {
+						if (upload.userId === this.#userId) this.#mark(upload);
+					}
 				})
 				.catch(() => {});
 		}

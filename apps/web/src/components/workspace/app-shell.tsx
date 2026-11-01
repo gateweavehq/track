@@ -43,7 +43,7 @@ import { SyncBadge } from "./sync-status";
 import { UploadOutboxDrain } from "./upload-outbox";
 
 export function AppShell({ children }: { children: ReactNode }) {
-	const { name, demo } = useWorkspace();
+	const { name, demo, userId } = useWorkspace();
 	const [menuOpen, setMenuOpen] = useState(false);
 	const pathname = useRouterState({ select: (state) => state.location.pathname });
 
@@ -55,7 +55,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 		<div className="flex h-dvh flex-col overflow-hidden">
 			{demo && <DemoBanner />}
 			{/* The demo keeps no files, so nothing ever waits to upload there. */}
-			{!demo && <UploadOutboxDrain />}
+			{!demo && <UploadOutboxDrain userId={userId} />}
 			<div className="flex min-h-0 flex-1">
 				{menuOpen && (
 					<button
