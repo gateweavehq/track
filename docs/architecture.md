@@ -619,6 +619,9 @@ Durable Object nothing and works offline.
   one person's changes to a status within five minutes, so work started and finished that
   quickly reads as one move and has no cycle time. Under an hour reads as "under an hour".
 - **Open issues by status, assignee and label**, as they are now.
+- **Filters.** A page can count only the issues with a label, or assigned to someone or to no
+  one (`?label=<id>&assignee=<id>|none`), all of the numbers above alike. The address keeps
+  them with the range, so a link shares the same view.
 - **Requests still in intake are left out** of every count: nobody has taken them on yet. Once
   accepted, a request counts from when it was filed.
 

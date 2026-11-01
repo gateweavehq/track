@@ -3,9 +3,9 @@ import { LabelDot } from "#/components/issues/labels";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { axisTop, useWidth } from "#/lib/chart";
 import { formatShortDay } from "#/lib/dates";
-import type { InsightCount, InsightRange, Insights } from "#/lib/insights";
-import { formatDays, INSIGHT_RANGES, type InsightWeek } from "#/lib/insights";
-import { useLabelsById, useMembersById } from "#/lib/queries";
+import type { InsightCount, InsightSearch, Insights } from "#/lib/insights";
+import { formatDays, INSIGHT_RANGES, type InsightWeek, UNASSIGNED } from "#/lib/insights";
+import { useActiveMembers, useLabels, useLabelsById, useMembersById } from "#/lib/queries";
 import { cn } from "#/lib/utils";
 
 /**
@@ -16,20 +16,21 @@ import { cn } from "#/lib/utils";
 export function InsightsPage({
 	trail,
 	insights,
-	weeks,
-	onWeeksChange,
+	search,
+	onSearchChange,
 	breakdown,
 }: {
 	/** The link back to what the insights are of, in the header. */
 	trail: ReactNode;
 	insights: Insights;
-	weeks: InsightRange;
-	onWeeksChange: (weeks: InsightRange) => void;
+	search: InsightSearch;
+	onSearchChange: (patch: Partial<InsightSearch>) => void;
 	breakdown: ReactNode;
 }) {
 	const members = useMembersById();
 	const labels = useLabelsById();
 	const { cycleTime } = insights;
+	const weeks = search.weeks ?? 12;
 
 	return (
 		<div className="flex h-full flex-col overflow-y-auto">
@@ -40,7 +41,7 @@ export function InsightsPage({
 			</header>
 			<div className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6">
 				<fieldset className="flex flex-wrap items-center gap-2">
-					<legend className="sr-only">Range</legend>
+					<legend className="sr-only">What to count</legend>
 					<span className="text-sm text-muted-foreground" aria-hidden>
 						Last
 					</span>
@@ -50,7 +51,7 @@ export function InsightsPage({
 								key={range}
 								type="button"
 								aria-pressed={range === weeks}
-								onClick={() => onWeeksChange(range)}
+								onClick={() => onSearchChange({ weeks: range })}
 								className={cn(
 									"rounded px-2.5 py-1 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
 									range === weeks && "bg-muted font-medium text-foreground",
@@ -60,6 +61,7 @@ export function InsightsPage({
 							</button>
 						))}
 					</div>
+					<InsightFilters search={search} onSearchChange={onSearchChange} />
 				</fieldset>
 
 				<dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -117,6 +119,62 @@ export function InsightsPage({
 				</div>
 			</div>
 		</div>
+	);
+}
+
+const SELECT_CLASS =
+	"h-8 max-w-48 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+/** Only the issues with a label, or assigned to someone (or no one). */
+function InsightFilters({
+	search,
+	onSearchChange,
+}: {
+	search: InsightSearch;
+	onSearchChange: (patch: Partial<InsightSearch>) => void;
+}) {
+	const labels = useLabels();
+	const members = useActiveMembers();
+	const filtered = search.label !== undefined || search.assignee !== undefined;
+	return (
+		<>
+			<select
+				aria-label="Label"
+				value={search.label ?? ""}
+				onChange={(event) => onSearchChange({ label: event.target.value || undefined })}
+				className={SELECT_CLASS}
+			>
+				<option value="">Any label</option>
+				{labels.map((label) => (
+					<option key={label.id} value={label.id}>
+						{label.name}
+					</option>
+				))}
+			</select>
+			<select
+				aria-label="Assignee"
+				value={search.assignee ?? ""}
+				onChange={(event) => onSearchChange({ assignee: event.target.value || undefined })}
+				className={SELECT_CLASS}
+			>
+				<option value="">Anyone</option>
+				<option value={UNASSIGNED}>No assignee</option>
+				{members.map((member) => (
+					<option key={member.id} value={member.id}>
+						{member.name}
+					</option>
+				))}
+			</select>
+			{filtered && (
+				<button
+					type="button"
+					onClick={() => onSearchChange({ label: undefined, assignee: undefined })}
+					className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+				>
+					Clear filters
+				</button>
+			)}
+		</>
 	);
 }
 
