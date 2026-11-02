@@ -78,8 +78,11 @@ different protocol versions in production. It also gives self-hosters one thing 
 
 The DO keeps a replica of membership for two reasons: it authorizes writes (for example, only
 admins manage teams) and clients need member names to render assignees. Better Auth hooks push
-every join, role change and removal to the DO. The replica also heals itself, because each time a
-member connects their current profile is upserted.
+every join, role change and removal to the DO. Two removals pass no organization hook, so they
+have hooks of their own: leaving (`/organization/leave`, an after-hook on the path) and deleting
+a user, whose memberships go by cascade (a database hook notes their workspaces before the
+delete and tells each one after). A removal closes the person's sockets. The replica also heals
+itself, because each time a member connects their current profile is upserted.
 
 ### Roles and invitations
 
@@ -576,8 +579,10 @@ team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search fi
   object makes when it first emails the decision, longer than a team's 16 so the two never read
   as one another. A reply there becomes a comment on the request by Email, as the request was,
   without the text it quotes and with its attachments kept as a request's are. Only the address
-  the decision went to may reply, within the same allowance as requests; anything else gets the
-  refusal a missing address does. The people who follow the request hear of it in their inbox; a
+  the decision went to may reply, and each request takes only so many replies. The gateway asks
+  the object (`replyTarget`, which writes nothing) whether the key and sender match before it
+  counts the reply or stores its attachments; anything else gets the refusal a missing address
+  does, and costs nothing. The people who follow the request hear of it in their inbox; a
   stranger's text subscribes and mentions nobody.
 - **Out of the way of automations.** A request is not archived, by hand or by a team's
   automations, and automations do not close it: it waits for a person.

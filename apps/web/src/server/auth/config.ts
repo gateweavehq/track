@@ -6,6 +6,7 @@ import { betterAuth } from "better-auth/minimal";
 import { jwt, organization } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { and, count, eq, gt } from "drizzle-orm";
+import { z } from "zod";
 import { slugProblem } from "../../lib/slug";
 import type { Database } from "../db";
 import { schema } from "../db";
@@ -53,6 +54,8 @@ export interface AuthConfig {
 export function createAuth(config: AuthConfig) {
 	const membershipChanged = async (workspaceId: string, userId: string) =>
 		config.onMembershipChange?.(workspaceId, userId);
+	// Between a user deletion's before and after hooks: the workspaces they belonged to.
+	const workspacesOfDeletedUsers = new Map<string, string[]>();
 	const { mailer } = config;
 
 	return betterAuth({
@@ -141,12 +144,41 @@ export function createAuth(config: AuthConfig) {
 					throw new APIError("FORBIDDEN", { message: "Only admins can see invitations" });
 				}
 			}),
+			after: createAuthMiddleware(async (ctx) => {
+				// Leaving deletes the member row without calling `afterRemoveMember` (Better Auth
+				// 1.7, organization/routes/crud-members.mjs), so the workspace is told here. The
+				// endpoint answers with the member it removed, or with an error.
+				if (ctx.path !== "/organization/leave") return;
+				const left = leftMember.safeParse(ctx.context.returned);
+				if (left.success) await membershipChanged(left.data.organizationId, left.data.userId);
+			}),
 		},
 		databaseHooks: {
 			user: {
 				update: {
 					after: async (user) => {
 						await config.onUserUpdated?.(user.id);
+					},
+				},
+				// Deleting a user takes their memberships with it by cascade, which no organization
+				// hook sees, so their workspaces are noted first and told once the rows are gone.
+				// Every Better Auth path that deletes a user goes through here.
+				delete: {
+					before: async (user) => {
+						const rows = await config.db
+							.select({ workspaceId: schema.member.organizationId })
+							.from(schema.member)
+							.where(eq(schema.member.userId, user.id))
+							.all();
+						workspacesOfDeletedUsers.set(
+							user.id,
+							rows.map((row) => row.workspaceId),
+						);
+					},
+					after: async (user) => {
+						const workspaceIds = workspacesOfDeletedUsers.get(user.id) ?? [];
+						workspacesOfDeletedUsers.delete(user.id);
+						await Promise.all(workspaceIds.map((id) => membershipChanged(id, user.id)));
 					},
 				},
 			},
@@ -278,6 +310,9 @@ export const DEMO_BLOCKED_PATHS: ReadonlySet<string> = new Set([
 
 /** Lets an agent act as the user in Track: read and change what the user can. */
 export const MCP_SCOPE = "track";
+
+/** What `/organization/leave` answers with once someone has left. */
+const leftMember = z.object({ organizationId: z.string(), userId: z.string() });
 
 /** Owners and admins can invite, matching Better Auth's default access control. */
 function canInvite(role: string) {

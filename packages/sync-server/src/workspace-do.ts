@@ -86,8 +86,10 @@ import { MutationRejected } from "./rejected";
 import { nextReminderAt, remindDue } from "./reminders";
 import {
 	fileReply,
+	findReplyTarget,
 	hasRequesterNotices,
 	type RequesterNotice,
+	replyAddress,
 	requesterReply,
 	takeRequesterNotices,
 } from "./requesters";
@@ -543,6 +545,16 @@ export class WorkspaceDO extends DurableObject {
 			return outcome?.result ?? { version: currentVersion(this.#db), ops: [] };
 		});
 		return filed;
+	}
+
+	/**
+	 * Whether a reply to `key` from `from` would be filed: the key is a request's and the sender
+	 * the one its decision went to. The email gateway asks before it counts or stores anything,
+	 * so mail to a made-up address costs nothing. Writes nothing.
+	 */
+	replyTarget(key: string, from: string): boolean {
+		const address = replyAddress.safeParse({ key, from });
+		return address.success && findReplyTarget(this.#db, address.data) !== null;
 	}
 
 	/**
