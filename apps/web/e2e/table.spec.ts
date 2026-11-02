@@ -152,3 +152,85 @@ test("a long table renders the rows near the screen, and scrolls to the end", as
 	await expect(last).toHaveAttribute("aria-rowindex", "151");
 	await expect(rowOf(page, titles[0] ?? "")).toHaveCount(0);
 });
+
+test("rows are measured, so the keyboard reaches every row at a larger font size", async ({
+	page,
+}) => {
+	// A reader's larger default font: rows are 2.5rem, 50 pixels here rather than 40.
+	await page.addInitScript(() => {
+		document.addEventListener("DOMContentLoaded", () => {
+			const style = document.createElement("style");
+			style.textContent = "html { font-size: 20px !important; }";
+			document.head.append(style);
+		});
+	});
+	const { slug } = await startWorkspace(page);
+	const count = 120;
+	const titles = Array.from(
+		{ length: count },
+		(_, index) => `Large issue ${String(index + 1).padStart(3, "0")}`,
+	);
+	await page.goto(`/${slug}/settings/import`);
+	await page.getByRole("button", { name: "File", exact: true }).click();
+	await page.locator('input[type="file"]').setInputFiles({
+		name: "large.csv",
+		mimeType: "text/csv",
+		buffer: Buffer.from(["Title", ...titles, ""].join("\r\n")),
+	});
+	await page.getByRole("button", { name: `Import ${count} issues` }).click();
+	await expect(page.getByRole("status")).toHaveText(`Imported ${count} issues.`);
+	await expect(syncBadge(page)).toHaveText("Live");
+
+	await page.goto(`/${slug}/team/ENG?view=table`);
+	const first = titles[0] as string;
+	const last = titles[count - 1] as string;
+	await expect(rowOf(page, first)).toBeVisible();
+	expect((await rowOf(page, first).boundingBox())?.height).toBe(50);
+
+	/** Expects the issue's row to have focus, on screen and under nothing: no header, no bar. */
+	async function expectFocused(title: string) {
+		const row = rowOf(page, title);
+		await expect(row.getByRole("link", { name: title })).toBeFocused();
+		await expect(row).toBeInViewport();
+		// The row is wider than the screen, so its centre is taken across the part on screen.
+		const uncovered = await row.evaluate((element) => {
+			const box = element.getBoundingClientRect();
+			const right = Math.min(box.right, window.innerWidth);
+			const hit = document.elementFromPoint((box.left + right) / 2, box.top + box.height / 2);
+			return hit !== null && element.contains(hit);
+		});
+		expect(uncovered, `${title} is not covered`).toBe(true);
+	}
+
+	// Down past rows that were not rendered, then back up under the header.
+	await rowOf(page, first).getByRole("link", { name: first }).focus();
+	await press(page, "j", 80);
+	await expectFocused(titles[80] as string);
+	await expect(rowOf(page, first)).toHaveCount(0);
+	// Screen readers still hear each row's place among all of them, the header row first.
+	await expect(page.getByRole("table")).toHaveAttribute("aria-rowcount", String(count + 1));
+	await expect(rowOf(page, titles[80] as string)).toHaveAttribute("aria-rowindex", "82");
+	await press(page, "k", 50);
+	await expectFocused(titles[30] as string);
+
+	// With an issue picked, the bulk bar floats over the bottom: rows stop clear of it too.
+	await rowOf(page, titles[30] as string)
+		.getByRole("checkbox")
+		.click();
+	const bar = page.getByRole("region", { name: "Selected issues" });
+	await expect(bar).toContainText("1 issue selected");
+	await press(page, "j", count);
+	await expectFocused(last);
+	await expect(rowOf(page, last)).toHaveAttribute("aria-rowindex", String(count + 1));
+	await page.keyboard.press("Escape");
+	await expect(bar).toBeHidden();
+
+	// And all the way back up from the last row to the first.
+	await press(page, "k", count - 1);
+	await expectFocused(first);
+	await expect(rowOf(page, first)).toHaveAttribute("aria-rowindex", "2");
+});
+
+async function press(page: Page, key: string, times: number) {
+	for (let step = 0; step < times; step++) await page.keyboard.press(key);
+}

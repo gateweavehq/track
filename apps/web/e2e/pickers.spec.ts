@@ -35,3 +35,32 @@ test("a picker opened just as the last one closes stays open", async ({ page }) 
 	await expect(properties.getByRole("button", { name: /^Todo/ })).toBeVisible();
 	await expect(syncBadge(page)).toHaveText("Live");
 });
+
+// A picker that closed used to fade out, and stayed on the page until it had. A click in that
+// moment on what it still covered, such as the next row's picker in a table, went to the fading
+// picker and was lost, and its options were still there for screen readers (and tests) to find.
+test("a click on the next picker just as the last one closes opens it", async ({ page }) => {
+	const { slug } = await startWorkspace(page);
+	const first = unique("Sort the inbox");
+	const second = unique("Answer the mail");
+	await createIssue(page, first);
+	await createIssue(page, second);
+	await page.goto(`/${slug}/team/ENG?view=table`);
+	const priorityOf = (title: string) =>
+		page
+			.getByRole("row")
+			.filter({ hasText: title })
+			.getByRole("button", { name: /^Priority: / });
+
+	await priorityOf(first).click();
+	const box = await priorityOf(second).boundingBox();
+	if (!box) throw new Error("No priority button");
+	await page.getByRole("option", { name: "High" }).click();
+	// At once, as a person does, rather than waiting for the first picker to go as Playwright would.
+	await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+	await expect(priorityOf(second)).toHaveAttribute("aria-expanded", "true");
+	await page.getByRole("option", { name: "Urgent" }).click();
+	await expect(priorityOf(second)).toHaveAccessibleName("Priority: Urgent");
+	await expect(priorityOf(first)).toHaveAccessibleName("Priority: High");
+	await expect(syncBadge(page)).toHaveText("Live");
+});
