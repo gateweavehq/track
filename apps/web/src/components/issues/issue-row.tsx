@@ -51,6 +51,10 @@ interface IssueRowProps {
 	onMenuChange: (issueId: string, menu: IssueField | null) => void;
 	onSelect: (issueId: string) => void;
 	registerRow: (issueId: string, link: HTMLAnchorElement | null) => void;
+	/** Where it is in the whole list, counting from 1, which renders only the rows near the screen. */
+	position: number;
+	/** How many entries the whole list has. */
+	setSize: number;
 }
 
 /**
@@ -73,20 +77,26 @@ export const IssueRow = memo(function IssueRow({
 	onMenuChange,
 	onSelect,
 	registerRow,
+	position,
+	setSize,
 }: IssueRowProps) {
 	const { slug } = useWorkspace();
 	const update = useUpdateIssue();
 	const issueStatus = useIssueStatus(issue);
 	const key = issueKey(team, issue);
-	const [rowRef, drag] = useDraggableIssue<HTMLDivElement>(issue.id);
+	const [rowRef, drag] = useDraggableIssue<HTMLLIElement>(issue.id);
 	const menuProps = (field: IssueField) => ({
 		open: menu === field,
 		onOpenChange: (open: boolean) => onMenuChange(issue.id, open ? field : null),
 	});
 
 	return (
-		<div
+		<li
 			ref={rowRef}
+			// biome-ignore lint/a11y/noRedundantRoles: explicit, as Safari drops list semantics under list-style: none
+			role="listitem"
+			aria-posinset={position}
+			aria-setsize={setSize}
 			data-selected={selected}
 			data-checked={checked}
 			className={cn(
@@ -181,7 +191,7 @@ export const IssueRow = memo(function IssueRow({
 					</RowButton>
 				</AssigneePicker>
 			)}
-		</div>
+		</li>
 	);
 });
 

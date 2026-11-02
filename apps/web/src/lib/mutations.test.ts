@@ -2,7 +2,7 @@ import { defaultStatuses, type MutationInput, type Snapshot } from "@gateweave/t
 import { type MutationError, SyncClient, type Transport } from "@gateweave/track-sync-client";
 import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { batchFailure, rejectionReporter, send, sendBatch } from "./mutations";
+import { batchFailure, changeName, rejectionReporter, send, sendBatch } from "./mutations";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
@@ -86,6 +86,33 @@ describe("rejectionReporter", () => {
 		vi.advanceTimersByTime(300);
 		expect(toast.error).toHaveBeenLastCalledWith("Your change was not saved", {
 			description: "Issue not found.",
+		});
+	});
+});
+
+describe("changeName", () => {
+	const keys = new Map([["i1", "ENG-1"]]);
+	const keyOf = (id: string) => keys.get(id);
+
+	it("names an issue that is still here by its key", () => {
+		expect(changeName({ name: "issue.delete", args: { id: "i1" } }, keyOf)).toBe("ENG-1");
+		expect(
+			changeName({ name: "comment.create", args: { id: "c1", issueId: "i1", body: "Hi" } }, keyOf),
+		).toBe("ENG-1");
+	});
+
+	it("keeps refusals of issues that are gone apart, by what changed and which id", () => {
+		vi.useFakeTimers();
+		const report = rejectionReporter((error) => changeName(error.mutation, keyOf));
+		for (const id of ["gone-1", "gone-2"]) {
+			report({
+				message: "Issue not found",
+				mutation: { name: "issue.update", args: { id, baseVersion: 1, patch: {} } },
+			} as unknown as MutationError);
+		}
+		vi.advanceTimersByTime(300);
+		expect(toast.error).toHaveBeenCalledWith("2 changes were not saved", {
+			description: "issue.update gone-1, issue.update gone-2: Issue not found.",
 		});
 	});
 });

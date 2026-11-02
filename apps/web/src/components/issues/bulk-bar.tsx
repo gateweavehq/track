@@ -95,6 +95,7 @@ export function BulkBar({
 	return (
 		<section
 			aria-label="Selected issues"
+			data-bulk-bar
 			className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-fit max-w-[calc(100vw-2rem)] items-center gap-1 overflow-x-auto rounded-lg border bg-popover p-1.5 text-popover-foreground shadow-lg"
 		>
 			<span className="shrink-0 px-2 text-sm font-medium tabular-nums">{count} selected</span>

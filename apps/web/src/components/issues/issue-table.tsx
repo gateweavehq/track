@@ -69,6 +69,7 @@ import {
 	ProjectPicker,
 	StatusPicker,
 } from "./pickers";
+import { scrollParent } from "./rows-on-screen";
 import { Estimate } from "./schedule";
 import { useIssueSelection } from "./selection";
 
@@ -254,15 +255,6 @@ function useRowsOnScreen(count: number, body: RefObject<HTMLTableSectionElement 
 
 function clamp(row: number, count: number) {
 	return Math.min(Math.max(row, 0), count);
-}
-
-/** The nearest ancestor that scrolls vertically, or none when the document itself scrolls. */
-function scrollParent(element: HTMLElement): HTMLElement | null {
-	for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-		const { overflowY } = getComputedStyle(parent);
-		if (overflowY === "auto" || overflowY === "scroll") return parent;
-	}
-	return null;
 }
 
 function ColumnsMenu({

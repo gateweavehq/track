@@ -15,24 +15,26 @@ export const BUDGETS = {
 	 */
 	openFromCacheMs: 1500,
 	/**
-	 * One person creates an issue; this is the time until another person's open list shows it,
-	 * from the click to the row in the other browser.
+	 * One person renames an issue that another person's open list shows on screen; this is the
+	 * time from the Enter that saves it until the new title is in the other browser's page. The
+	 * list renders only the rows near the screen, so the issue is one the reader is looking at.
 	 */
 	editPropagationMs: 100,
 	/**
 	 * Every issue in a view of the whole workspace (2,000+) is picked with Ctrl/Cmd+A and given
 	 * another priority from the bulk-edit bar; this is the time from the click until every picked
-	 * row shows it. A development container measured about 1,200 ms. Before changes were batched
+	 * row on screen shows it. A development container measured about 90 ms, down from 1,200 ms
+	 * before the list rendered only the rows near the screen (TRK-74). Before changes were batched
 	 * (TRK-72), a third as many took 2 s, and the server's answers then froze the tab for 18 s or
 	 * more.
 	 */
-	bulkEditMs: 3500,
+	bulkEditMs: 300,
 	/**
 	 * The page's longest task from that click until the server has answered every change, about
-	 * 1,200 ms there. It is the frame that renders every changed row: the list draws all its rows,
-	 * not only those on screen, and rebuilding the replica takes a few milliseconds of it.
+	 * 60 ms there. It was 1,300 ms while the list drew all its rows, not only those near the
+	 * screen, in the frame that rendered every changed row.
 	 */
-	bulkEditLongestTaskMs: 3500,
+	bulkEditLongestTaskMs: 200,
 } as const;
 
 /** How many times each measurement runs. The median of these is compared with the budget. */
