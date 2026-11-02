@@ -37,6 +37,7 @@ function issue(id: string, overrides: Record<string, unknown> = {}) {
 		project: null,
 		parent: null,
 		labels: { nodes: [] },
+		relations: { nodes: [] },
 		...overrides,
 	};
 }
@@ -67,7 +68,17 @@ describe("readLinearImport", () => {
 									priority: 4,
 									estimate: 2.5,
 								}),
-								issue("3", { state: { name: "Duplicate", type: "duplicate" } }),
+								issue("3", {
+									state: { name: "Duplicate", type: "duplicate" },
+									relations: {
+										nodes: [
+											{ id: "r2", type: "duplicate", relatedIssue: { id: "1" } },
+											// Linear's guess, and a second relation between the same two issues.
+											{ id: "r3", type: "similar", relatedIssue: { id: "2" } },
+											{ id: "r4", type: "related", relatedIssue: { id: "1" } },
+										],
+									},
+								}),
 							]),
 						}
 					: {
@@ -82,11 +93,50 @@ describe("readLinearImport", () => {
 										assignee: { name: "Ada", email: "ada@example.test" },
 										project: { name: "Launch" },
 										labels: { nodes: [{ name: "Bug", color: "#EB5757" }] },
+										relations: {
+											nodes: [{ id: "r1", type: "blocks", relatedIssue: { id: "2" } }],
+										},
 									}),
 								],
 								"c1",
 							),
 						};
+			}
+			if (operation === "Projects") {
+				return {
+					team: {
+						projects: page([
+							{
+								name: "Launch",
+								description: "Ship v1",
+								content: "## Scope\n\nEverything",
+								targetDate: "2024-03-01",
+								status: { type: "started" },
+								lead: { name: "Ada", email: "ada@example.test" },
+								projectUpdates: {
+									nodes: [
+										{
+											id: "u1",
+											body: "Slipping a week",
+											health: "atRisk",
+											createdAt: "2024-01-03T00:00:00.000Z",
+											user: { name: "Ada" },
+										},
+									],
+								},
+							},
+							{
+								name: "Someday",
+								description: "",
+								content: null,
+								targetDate: null,
+								status: { type: "backlog" },
+								lead: null,
+								projectUpdates: { nodes: [] },
+							},
+						]),
+					},
+				};
 			}
 			return {
 				comments: page([
@@ -117,6 +167,7 @@ describe("readLinearImport", () => {
 			"Issues",
 			"Issues",
 			"Comments",
+			"Projects",
 		]);
 		expect(source.name).toBe("Linear");
 		expect(source.labelColors?.get("Bug")).toBe("#EB5757");
@@ -144,6 +195,46 @@ describe("readLinearImport", () => {
 				comments: [],
 			},
 			{ status: { name: "Duplicate", category: "canceled" } },
+		]);
+		expect(source.relations).toEqual([
+			{
+				sourceId: "linear:relation:r1",
+				type: "blocks",
+				issueSourceId: "linear:1",
+				relatedIssueSourceId: "linear:2",
+			},
+			{
+				sourceId: "linear:relation:r2",
+				type: "duplicate",
+				issueSourceId: "linear:3",
+				relatedIssueSourceId: "linear:1",
+			},
+		]);
+		expect(source.projects).toEqual([
+			{
+				name: "Launch",
+				description: "Ship v1\n\n## Scope\n\nEverything",
+				status: "started",
+				lead: { name: "Ada", email: "ada@example.test" },
+				targetDate: "2024-03-01",
+				updates: [
+					{
+						sourceId: "linear:project-update:u1",
+						health: "at_risk",
+						body: "Slipping a week",
+						author: "Ada",
+						createdAt: Date.UTC(2024, 0, 3),
+					},
+				],
+			},
+			{
+				name: "Someday",
+				description: null,
+				status: "planned",
+				lead: null,
+				targetDate: null,
+				updates: [],
+			},
 		]);
 	});
 

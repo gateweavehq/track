@@ -1,4 +1,5 @@
 import type { IssuePriority, StatusCategory } from "@gateweave/track-protocol";
+import { jiraToMarkdown } from "./jira-markup";
 import type {
 	ImportedComment,
 	ImportedIssue,
@@ -151,6 +152,8 @@ export function readCsvImport(text: string, knownLabels: readonly string[] = [])
 		),
 	];
 	const jira = names.includes("issue key") && (index.issueId >= 0 || index.type >= 0);
+	// Jira's text is in its wiki markup; Track's is Markdown.
+	const markdown = (value: string) => (jira ? jiraToMarkdown(value) : value);
 
 	const raw = (row: string[], at: number) => (at < 0 ? "" : unguard(row[at] ?? "").trim());
 	const cell = (row: string[], column: Column) => raw(row, index[column]);
@@ -181,12 +184,18 @@ export function readCsvImport(text: string, knownLabels: readonly string[] = [])
 		const comments: ImportedComment[] = [];
 		commentColumns.forEach((at, n) => {
 			const comment = readComment(raw(row, at), people);
-			if (comment) comments.push({ sourceId: `${sourceId}:comment:${n}`, ...comment });
+			if (comment) {
+				comments.push({
+					sourceId: `${sourceId}:comment:${n}`,
+					...comment,
+					body: markdown(comment.body),
+				});
+			}
 		});
 		issues.push({
 			sourceId,
 			title,
-			description: cell(row, "description") || null,
+			description: markdown(cell(row, "description")) || null,
 			status: withCategory(toStatus(cell(row, "status")), cell(row, "statusCategory")),
 			priority: toPriority(cell(row, "priority")),
 			labels: [...new Set(labels)],

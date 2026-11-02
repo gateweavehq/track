@@ -1467,7 +1467,13 @@ imports, so validation, permissions and fan-out are the ordinary ones.
   both issues exist, and then the archived issues are archived (see [Archive](#archive)).
 - **Repeating an import is safe.** An imported issue's or comment's id is made from its id in
   the source (`import-` and a SHA-256 prefix), and the plan skips ids the workspace already has.
-  Relations and project updates from a JSON export are made the same way.
+  Relations and project updates from a JSON export or a Linear team are made the same way.
+- **A Linear team brings its relations and projects.** Blocks, duplicate and related relations
+  between the team's issues come along ("similar" is Linear's guess and stays behind), as do the
+  team's projects with their description and document, status, lead, target date and updates.
+- **Jira's text becomes Markdown.** A Jira export keeps descriptions and comments in Jira's wiki
+  markup; `jira-markup.ts` turns headings, lists, code, tables, links and inline styles into
+  Markdown, and embedded attachments, which stay in Jira, into a note naming the file.
   A run that stopped part way is finished by running it again.
 - **Original dates are an admin's to keep.** `issue.create`, `comment.create` and
   `projectUpdate.create` take an optional `createdAt`, which only owners and admins may send, and

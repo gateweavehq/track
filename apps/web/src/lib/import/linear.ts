@@ -1,14 +1,22 @@
-import type { StatusCategory } from "@gateweave/track-protocol";
+import type {
+	ProjectHealth,
+	ProjectStatus,
+	RelationType,
+	StatusCategory,
+} from "@gateweave/track-protocol";
 import type {
 	ImportedComment,
 	ImportedIssue,
+	ImportedProject,
+	ImportedRelation,
 	ImportedStatus,
 	ImportSource,
 	ReadOptions,
 } from "./plan";
 
 // Issues from a Linear team, read in the browser with Linear's GraphQL API, which allows it. A
-// personal API key reads them; it goes to Linear and nowhere else.
+// personal API key reads them; it goes to Linear and nowhere else. Their comments, their
+// relations, and the team's projects with their updates come along.
 
 const API = "https://api.linear.app/graphql";
 
@@ -38,6 +46,32 @@ interface LinearIssue {
 	project: { name: string } | null;
 	parent: { id: string } | null;
 	labels: { nodes: { name: string; color: string }[] };
+	relations: { nodes: LinearRelation[] };
+}
+
+interface LinearRelation {
+	id: string;
+	/** blocks, duplicate, related or similar, from this issue to `relatedIssue`. */
+	type: string;
+	relatedIssue: { id: string } | null;
+}
+
+interface LinearProject {
+	name: string;
+	description: string;
+	content: string | null;
+	targetDate: string | null;
+	status: { type: string } | null;
+	lead: { name: string; email: string } | null;
+	projectUpdates: {
+		nodes: {
+			id: string;
+			body: string;
+			health: string;
+			createdAt: string;
+			user: { name: string } | null;
+		}[];
+	};
 }
 
 interface LinearComment {
@@ -51,7 +85,7 @@ interface LinearComment {
 }
 
 // Pages of 100 keep each query well under Linear's limit of 10,000 complexity points: an issue
-// with up to 20 labels costs about 31.
+// with up to 20 labels and 10 relations costs about 52.
 const ISSUES = `query Issues($team: ID!, $after: String) {
 	issues(first: 100, after: $after, filter: { team: { id: { eq: $team } } }) {
 		nodes {
@@ -61,6 +95,7 @@ const ISSUES = `query Issues($team: ID!, $after: String) {
 			project { name }
 			parent { id }
 			labels(first: 20) { nodes { name color } }
+			relations(first: 10) { nodes { id type relatedIssue { id } } }
 		}
 		pageInfo { hasNextPage endCursor }
 	}
@@ -76,6 +111,21 @@ const COMMENTS = `query Comments($team: ID!, $after: String) {
 			externalUser { name }
 		}
 		pageInfo { hasNextPage endCursor }
+	}
+}`;
+
+// Pages of 25 projects with up to 25 updates each stay under the limit too.
+const PROJECTS = `query Projects($team: String!, $after: String) {
+	team(id: $team) {
+		projects(first: 25, after: $after) {
+			nodes {
+				name description content targetDate
+				status { type }
+				lead { name email }
+				projectUpdates(first: 25) { nodes { id body health createdAt user { name } } }
+			}
+			pageInfo { hasNextPage endCursor }
+		}
 	}
 }`;
 
@@ -101,14 +151,26 @@ export async function readLinearImport(
 ): Promise<ImportSource> {
 	const read = { issues: 0, comments: 0 };
 	const found: LinearIssue[] = [];
-	for await (const page of pages<LinearIssue>(apiKey, ISSUES, "issues", team.id, options)) {
+	for await (const page of pages<LinearIssue>(
+		apiKey,
+		ISSUES,
+		(data) => data.issues,
+		team.id,
+		options,
+	)) {
 		found.push(...page);
 		read.issues = found.length;
 		options.onProgress?.({ ...read });
 	}
 
 	const comments = new Map<string, ImportedComment[]>();
-	for await (const page of pages<LinearComment>(apiKey, COMMENTS, "comments", team.id, options)) {
+	for await (const page of pages<LinearComment>(
+		apiKey,
+		COMMENTS,
+		(data) => data.comments,
+		team.id,
+		options,
+	)) {
 		for (const comment of page) {
 			if (!comment.issue) continue;
 			const list = comments.get(comment.issue.id) ?? [];
@@ -122,6 +184,17 @@ export async function readLinearImport(
 			read.comments++;
 		}
 		options.onProgress?.({ ...read });
+	}
+
+	const projects: ImportedProject[] = [];
+	for await (const page of pages<LinearProject>(
+		apiKey,
+		PROJECTS,
+		(data) => (data.team as { projects?: Page<LinearProject> } | null)?.projects,
+		team.id,
+		options,
+	)) {
+		projects.push(...page.map(toProject));
 	}
 
 	const labelColors = new Map<string, string>();
@@ -147,7 +220,75 @@ export async function readLinearImport(
 			comments: comments.get(issue.id) ?? [],
 		};
 	});
-	return { name: "Linear", issues, labelColors };
+	return { name: "Linear", issues, labelColors, projects, relations: toRelations(found) };
+}
+
+const RELATION_TYPES: Record<string, RelationType> = {
+	blocks: "blocks",
+	duplicate: "duplicate",
+	related: "related",
+};
+
+/**
+ * Linear's relations, each read from the issue it starts at. Two issues have one relation in
+ * Track, so the first between a pair wins. "Similar" is Linear's own guess, and stays behind.
+ */
+function toRelations(issues: readonly LinearIssue[]): ImportedRelation[] {
+	const pairs = new Set<string>();
+	const relations: ImportedRelation[] = [];
+	for (const issue of issues) {
+		for (const relation of issue.relations?.nodes ?? []) {
+			const type = RELATION_TYPES[relation.type];
+			if (!type || !relation.relatedIssue) continue;
+			const pair = [issue.id, relation.relatedIssue.id].sort().join(" ");
+			if (pairs.has(pair)) continue;
+			pairs.add(pair);
+			relations.push({
+				sourceId: `linear:relation:${relation.id}`,
+				type,
+				issueSourceId: `linear:${issue.id}`,
+				relatedIssueSourceId: `linear:${relation.relatedIssue.id}`,
+			});
+		}
+	}
+	return relations;
+}
+
+const PROJECT_STATUSES: Record<string, ProjectStatus> = {
+	backlog: "planned",
+	planned: "planned",
+	started: "started",
+	paused: "paused",
+	completed: "completed",
+	canceled: "canceled",
+};
+
+const HEALTHS: Record<string, ProjectHealth> = {
+	onTrack: "on_track",
+	atRisk: "at_risk",
+	offTrack: "off_track",
+};
+
+function toProject(project: LinearProject): ImportedProject {
+	// A project's summary is its description; the document under it, its content.
+	const description = [project.description, project.content]
+		.map((part) => part?.trim() ?? "")
+		.filter(Boolean)
+		.join("\n\n");
+	return {
+		name: project.name,
+		description: description || null,
+		status: PROJECT_STATUSES[project.status?.type ?? ""] ?? "planned",
+		lead: project.lead,
+		targetDate: project.targetDate,
+		updates: project.projectUpdates.nodes.map((update) => ({
+			sourceId: `linear:project-update:${update.id}`,
+			health: HEALTHS[update.health] ?? "on_track",
+			body: update.body,
+			author: update.user?.name ?? null,
+			createdAt: Date.parse(update.createdAt),
+		})),
+	};
 }
 
 /** Linear's states are the team's own, as in Track, and each has one of a few types. */
@@ -168,14 +309,14 @@ const LINEAR_CATEGORIES: Record<string, StatusCategory> = {
 async function* pages<T>(
 	apiKey: string,
 	document: string,
-	field: string,
+	pick: (data: Record<string, unknown>) => unknown,
 	team: string,
 	options: ReadOptions,
 ) {
 	let after: string | null = null;
 	do {
-		const data: Record<string, Page<T>> = await query(apiKey, document, { team, after }, options);
-		const page = data[field];
+		const data: Record<string, unknown> = await query(apiKey, document, { team, after }, options);
+		const page = pick(data) as Page<T> | undefined;
 		if (!page) return;
 		yield page.nodes;
 		after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
