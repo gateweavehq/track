@@ -188,11 +188,10 @@ export class SyncClient {
 
 		this.#replica.addPending(...pending);
 		const [one] = pending;
+		// One message per mutation, as for one at a time, which a tab of an earlier build still reads.
 		this.#write(
 			(p) => p.addPending(...pending),
-			pending.length === 1 && one
-				? { type: "mutation", pending: one }
-				: { type: "mutations", pending },
+			pending.map((each): TabMessage => ({ type: "mutation", pending: each })),
 		);
 		for (const each of pending) this.#send(each);
 		return confirmed;
@@ -295,10 +294,6 @@ export class SyncClient {
 			case "mutation":
 				this.#replica.addPending(message.pending);
 				this.#send(message.pending);
-				return;
-			case "mutations":
-				this.#replica.addPending(...message.pending);
-				for (const pending of message.pending) this.#send(pending);
 				return;
 			case "status?":
 				if (this.#role === "leader") {
@@ -591,7 +586,7 @@ export class SyncClient {
 	 */
 	#write(
 		write: (persistence: Persistence) => Promise<void>,
-		message?: TabMessage,
+		message?: TabMessage | TabMessage[],
 		{ state = false } = {},
 	): void {
 		this.#writes = this.#writes.then(async () => {
@@ -606,9 +601,9 @@ export class SyncClient {
 				if (state) this.#storageDirty = true;
 				console.warn("sync: could not write to local storage", error);
 			}
-			if (message) {
+			for (const each of message === undefined ? [] : [message].flat()) {
 				try {
-					this.#tabs.post(message);
+					this.#tabs.post(each);
 				} catch {
 					// The tab group is already closed.
 				}
