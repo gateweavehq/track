@@ -25,7 +25,8 @@ export interface Persistence {
 	replace(snapshot: Snapshot): Promise<void>;
 	/** Applies ops and records `version` as the confirmed version, atomically. */
 	applyOps(ops: readonly Op[], version: number): Promise<void>;
-	addPending(mutation: PendingMutation): Promise<void>;
+	/** Stores mutations in order, in one write. */
+	addPending(...mutations: PendingMutation[]): Promise<void>;
 	removePending(id: string): Promise<void>;
 	close(): void;
 }
@@ -61,8 +62,8 @@ export class MemoryPersistence implements Persistence {
 		snapshot.version = version;
 	}
 
-	async addPending(mutation: PendingMutation): Promise<void> {
-		this.#pending.push(structuredClone(mutation));
+	async addPending(...mutations: PendingMutation[]): Promise<void> {
+		for (const mutation of mutations) this.#pending.push(structuredClone(mutation));
 	}
 
 	async removePending(id: string): Promise<void> {

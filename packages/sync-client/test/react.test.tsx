@@ -103,10 +103,22 @@ it("skips renders when the selection is unchanged", async () => {
 	);
 	const before = teamRenders;
 
-	act(() => void client.mutate(make.issue("t1", "Unrelated")));
+	// Subscribers hear of changes at the next frame, so each step waits for it.
+	await act(async () => {
+		void client.mutate(make.issue("t1", "Unrelated"));
+		await nextFrame();
+	});
 	expect(teamRenders).toBe(before);
 
-	act(() => void client.mutate(make.team("OPS", "Operations")));
+	await act(async () => {
+		void client.mutate(make.team("OPS", "Operations"));
+		await nextFrame();
+	});
 	expect(teamRenders).toBe(before + 1);
 	expect(screen.getByText("2 teams")).toBeTruthy();
 });
+
+/** Long enough for the client to tell its subscribers, which it does once a frame. */
+function nextFrame(): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, 50));
+}

@@ -358,6 +358,12 @@ without waking a hibernated Durable Object.
   the original version without writing again.
 - A message that is not valid protocol closes the socket with `4400`. A mutation that is valid
   protocol but has an invalid body is rejected by id, and the connection stays open.
+- **Many at once.** `SyncClient.mutateAll` queues a batch, as bulk edit sends it: the replica,
+  IndexedDB (one transaction) take it in one go, and the other tabs and the socket still get one
+  `mutation` or `mutate` message per mutation, so the server applies or refuses each
+  on its own. The replica rebuilds its visible state when it is read, not on every change, and
+  the client tells its subscribers once per animation frame. A burst of a thousand answers
+  replays the pending mutations and re-renders a few times, not a thousand.
 
 ### Server-side clients
 

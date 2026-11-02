@@ -208,3 +208,85 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 		await reader.context.close();
 	}
 });
+
+test("a bulk change to every issue in a list stays within budget", async ({ browser }) => {
+	test.setTimeout(180_000);
+	const { context, page } = await openAs(browser, "maya");
+	try {
+		const bar = page.getByRole("region", { name: "Selected issues" });
+		await page.locator("[data-checked] a").first().focus();
+		await page.keyboard.press("ControlOrMeta+a");
+		await expect(bar).toContainText("issues selected");
+		const picked = await page.locator("[data-checked=true]").count();
+
+		const times: number[] = [];
+		const longest: number[] = [];
+		for (let run = 0; run < RUNS; run++) {
+			const priority = run % 2 === 0 ? "High" : "Low";
+			// Long tasks while the change runs, and the click's time, both from inside the page.
+			await page.evaluate(() => {
+				const w = window as unknown as { __longest: number };
+				w.__longest = 0;
+				new PerformanceObserver((list) => {
+					for (const entry of list.getEntries()) {
+						w.__longest = Math.max(w.__longest, entry.duration);
+					}
+				}).observe({ type: "longtask" });
+			});
+			await bar.getByRole("button", { name: "Priority" }).click();
+			// The click on the option is the one stamped: the menu's button was clicked first.
+			await page.evaluate(() => {
+				document.addEventListener(
+					"click",
+					() => {
+						(window as unknown as { __clickedAt: number }).__clickedAt = performance.now();
+					},
+					{ capture: true, once: true },
+				);
+			});
+			const done = page.evaluate(
+				({ label, count }) =>
+					new Promise<number>((resolve) => {
+						const check = () => {
+							const shown = document.querySelectorAll(
+								`[data-checked="true"] button[aria-label="${label}"]`,
+							).length;
+							if (shown === count) resolve(performance.now());
+							else requestAnimationFrame(check);
+						};
+						requestAnimationFrame(check);
+					}),
+				{ label: `Priority: ${priority}`, count: picked },
+			);
+			await page.getByRole("option", { name: priority }).click();
+			const doneAt = await done;
+			const clickedAt = await page.evaluate(
+				() => (window as unknown as { __clickedAt: number }).__clickedAt,
+			);
+			times.push(doneAt - clickedAt);
+			// Let the server's answers arrive before the long tasks are read and the next run.
+			await expect(page.getByText(/unsynced/)).toBeHidden({ timeout: 60_000 });
+			await page.waitForTimeout(500);
+			longest.push(
+				await page.evaluate(() => (window as unknown as { __longest: number }).__longest),
+			);
+		}
+		const result = record({
+			name: "Bulk change to a whole list",
+			budgetMs: BUDGETS.bulkEditMs,
+			runsMs: times,
+			note: `${picked} issues picked, priority set from the bar`,
+		});
+		const blocked = record({
+			name: "Longest task during a bulk change",
+			budgetMs: BUDGETS.bulkEditLongestTaskMs,
+			runsMs: longest,
+			note: "from the click until the server has answered every change",
+		});
+		expect(picked).toBeGreaterThan(100);
+		expect(result.medianMs, "median bulk change time").toBeLessThan(BUDGETS.bulkEditMs);
+		expect(blocked.medianMs, "median longest task").toBeLessThan(BUDGETS.bulkEditLongestTaskMs);
+	} finally {
+		await context.close();
+	}
+});

@@ -221,10 +221,11 @@ class IdbPersistence implements Persistence {
 		]);
 	}
 
-	async addPending(mutation: PendingMutation): Promise<void> {
-		// Unsent mutations exist nowhere else, so this write asks for full durability.
+	async addPending(...mutations: PendingMutation[]): Promise<void> {
+		// Unsent mutations exist nowhere else, so this write asks for full durability. A batch goes
+		// in one transaction, so it is stored whole or not at all.
 		const tx = this.db.transaction("pending", "readwrite", { durability: "strict" });
-		await Promise.all([tx.store.add(mutation), tx.done]);
+		await Promise.all([...mutations.map((mutation) => tx.store.add(mutation)), tx.done]);
 	}
 
 	async removePending(id: string): Promise<void> {
