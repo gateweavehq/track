@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Database, schema } from "../db";
 import { createAuth } from "./config";
 
@@ -77,7 +77,7 @@ describe("Better Auth's hooks", () => {
 		]);
 	});
 
-	it("forgets a user's workspaces when deleting them fails, and tells none", async () => {
+	it("tells a user's workspaces nothing while deleting them fails, and only once it succeeds", async () => {
 		const now = new Date();
 		await db.insert(schema.user).values({ id: "u-erin", name: "Erin", email: "erin@example.com" });
 		await db.insert(schema.organization).values({
@@ -109,13 +109,9 @@ describe("Better Auth's hooks", () => {
 				told.push(workspaceId);
 			},
 		});
-		// What the before hook noted lives in a Map no caller reaches; this watches it let go.
-		const forgotten = vi.spyOn(Map.prototype, "delete");
 		try {
 			await expect((await auth.$context).internalAdapter.deleteUser("u-erin")).rejects.toThrow();
-			expect(forgotten.mock.calls).toContainEqual(["u-erin"]);
 		} finally {
-			forgotten.mockRestore();
 			await d1.prepare("DROP TRIGGER keep_erin").run();
 		}
 		expect(told).toEqual([]);
@@ -123,8 +119,22 @@ describe("Better Auth's hooks", () => {
 			[expect.objectContaining({ organizationId: "w-hooli" })],
 		);
 
-		// Once it goes through, the workspace hears of it as usual.
+		// She joins another workspace before the delete is tried again. The one that goes through
+		// tells the workspaces she belongs to then, each once, and nothing from the failed try.
+		await db.insert(schema.organization).values({
+			id: "w-pied",
+			name: "Pied Piper",
+			slug: "pied",
+			createdAt: now,
+		});
+		await db.insert(schema.member).values({
+			id: "m-erin-pied",
+			organizationId: "w-pied",
+			userId: "u-erin",
+			role: "member",
+			createdAt: now,
+		});
 		await (await auth.$context).internalAdapter.deleteUser("u-erin");
-		expect(told).toEqual(["w-hooli"]);
+		expect(told.sort()).toEqual(["w-hooli", "w-pied"]);
 	});
 });
