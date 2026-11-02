@@ -8,6 +8,29 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.23.0] - 2026-11-02
+
+Teams can move from Jira, and moving from Linear keeps more. Updating a self-hosted copy needs no
+migration and no new setting; the protocol stays at version 25. ([#174], [#175], [#176], [#177])
+
+### Added
+
+- Settings, Import reads Jira's CSV export (Filters, Export, Export Excel CSV (all fields)):
+  every label, comments with who wrote them, Jira's dates, parents named by issue id, story
+  points, issue types other than Task as labels, and the status category of a team's own status
+  names. Descriptions and comments in Jira's wiki markup become Markdown: headings, lists, code
+  with its language, tables, links, quotes and inline styles. Attachments stay in Jira, and each
+  one shown in the text becomes a note naming its file. ([#176], [#177])
+- A Linear import brings the relations between the team's issues (blocks, duplicate, related)
+  and the team's projects with their description and document, status, lead, target date and
+  updates. ([#177])
+
+### Fixed
+
+- In local development (`pnpm dev`), the optional settings that `.dev.vars.example` says to
+  uncomment, such as the Turnstile keys, `INTAKE_EMAIL_DOMAIN` and the GitHub App's, now take
+  effect. Before, the list of settings it loaded stopped at `EMAIL_FROM`. ([#174])
+
 ## [0.22.0] - 2026-11-02
 
 Long lists and tables are much faster, issues with very long comment threads keep working, text
@@ -818,6 +841,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.23.0]: https://github.com/gateweavehq/track/releases/tag/v0.23.0
 [0.22.0]: https://github.com/gateweavehq/track/releases/tag/v0.22.0
 [0.21.1]: https://github.com/gateweavehq/track/releases/tag/v0.21.1
 [0.21.0]: https://github.com/gateweavehq/track/releases/tag/v0.21.0
@@ -964,3 +988,7 @@ The first pre-release.
 [#171]: https://github.com/gateweavehq/track/pull/171
 [#172]: https://github.com/gateweavehq/track/pull/172
 [#173]: https://github.com/gateweavehq/track/pull/173
+[#174]: https://github.com/gateweavehq/track/pull/174
+[#175]: https://github.com/gateweavehq/track/pull/175
+[#176]: https://github.com/gateweavehq/track/pull/176
+[#177]: https://github.com/gateweavehq/track/pull/177
