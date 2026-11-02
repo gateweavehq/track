@@ -49,6 +49,11 @@ interface PickerProps<V> {
 	/** Pass both to control the popover, for example to open it from a keyboard shortcut. */
 	open?: boolean;
 	onOpenChange?: (open: boolean) => void;
+	/**
+	 * For several issues whose values differ: nothing is checked, and every choice is sent, even
+	 * the value given, which is only where the menu starts.
+	 */
+	mixed?: boolean;
 }
 
 function OptionPicker<V extends string | number | null>({
@@ -59,6 +64,7 @@ function OptionPicker<V extends string | number | null>({
 	children,
 	open: controlledOpen,
 	onOpenChange,
+	mixed = false,
 }: PickerProps<V> & { options: Option<V>[]; placeholder: string }) {
 	const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
 	const open = controlledOpen ?? uncontrolledOpen;
@@ -81,7 +87,7 @@ function OptionPicker<V extends string | number | null>({
 									keywords={[option.label, ...(option.keywords ?? [])]}
 									onSelect={() => {
 										setOpen(false);
-										if (option.value !== value) onChange(option.value);
+										if (mixed || option.value !== value) onChange(option.value);
 									}}
 								>
 									{option.icon}
@@ -91,7 +97,7 @@ function OptionPicker<V extends string | number | null>({
 											{option.detail}
 										</span>
 									)}
-									{option.value === value && (
+									{!mixed && option.value === value && (
 										<Check className={cn("size-4 shrink-0", !option.detail && "ml-auto")} />
 									)}
 								</CommandItem>

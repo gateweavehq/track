@@ -6,6 +6,8 @@ import type { Db } from "./state";
 // outside this object, but uploads to one workspace pass through here one at a time, so a
 // reservation is atomic: two uploads cannot both take the last of the space. The count starts
 // from what R2 holds the first time it is needed, as files were attached before it existed.
+// Without a quota nothing is counted, so the gateway forgets the count then, and turning a
+// quota on again starts it from R2 once more instead of from a total that missed uploads.
 
 const KEY = "file_bytes";
 
@@ -35,6 +37,11 @@ export function releaseFileStorage(db: Db, bytes: number): void {
 	const row = db.select().from(schema.meta).where(eq(schema.meta.key, KEY)).get();
 	if (!row) return;
 	write(db, Math.max(0, Number(row.value) - bytes));
+}
+
+/** Drops the count, so that the next reservation starts it from the bucket again. */
+export function forgetFileStorage(db: Db): void {
+	db.delete(schema.meta).where(eq(schema.meta.key, KEY)).run();
 }
 
 function write(db: Db, bytes: number) {

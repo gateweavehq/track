@@ -74,7 +74,7 @@ async function upload(
 	if (!(await reserveFileStorage(bucket, workspaceId, length))) {
 		return error(
 			413,
-			"This workspace's files are full. Delete some or ask an admin for more space",
+			"This workspace's files are full. Whoever runs this Track can raise its limit",
 		);
 	}
 	try {
