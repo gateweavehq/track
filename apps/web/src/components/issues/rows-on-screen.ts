@@ -1,4 +1,4 @@
-import { type RefObject, useLayoutEffect, useState } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 /**
  * How far past the visible part a list still renders, so scrolling does not reveal blank space
@@ -87,4 +87,88 @@ export function scrollParent(element: HTMLElement): HTMLElement | null {
 		if (overflowY === "auto" || overflowY === "scroll") return parent;
 	}
 	return null;
+}
+
+/**
+ * The real heights of a list's kinds of entry, each found in `container` by its selector. They are
+ * set in rem, so they follow the browser's font size: `defaults` stand in until one of each has
+ * rendered. Measured from the first rendered one of each, and again whenever it resizes.
+ */
+export function useMeasuredHeights<K extends string>(
+	container: RefObject<HTMLElement | null>,
+	selectors: Readonly<Record<K, string>>,
+	defaults: Readonly<Record<K, number>>,
+): Readonly<Record<K, number>> {
+	const [heights, setHeights] = useState(defaults);
+	const watched = useRef<(Element | null)[]>([]);
+	const observer = useRef<ResizeObserver | null>(null);
+	useEffect(() => () => observer.current?.disconnect(), []);
+	// After every render, since the entries measured may have scrolled away and been unmounted.
+	useLayoutEffect(() => {
+		const element = container.current;
+		if (!element) return;
+		const keys = Object.keys(selectors) as K[];
+		const found = keys.map((key) => element.querySelector(selectors[key]));
+		if (
+			found.length === watched.current.length &&
+			found.every((entry, index) => entry === watched.current[index])
+		) {
+			return;
+		}
+		watched.current = found;
+		const measure = () => {
+			setHeights((current) => {
+				let next = current;
+				keys.forEach((key, index) => {
+					const height = found[index]?.getBoundingClientRect().height || current[key];
+					if (height !== current[key]) next = { ...next, [key]: height };
+				});
+				return next;
+			});
+		};
+		measure();
+		observer.current?.disconnect();
+		observer.current = new ResizeObserver(measure);
+		for (const entry of found) if (entry) observer.current.observe(entry);
+	});
+	return heights;
+}
+
+/**
+ * How far down from the top of `view` the scroller's own sticky children, such as the page's
+ * header and its filters, cover what scrolls beneath them.
+ */
+export function stickyCover(scroller: HTMLElement | null, viewTop: number): number {
+	let covered = 0;
+	for (const child of scroller?.children ?? []) {
+		if (getComputedStyle(child).position !== "sticky") continue;
+		covered = Math.max(covered, child.getBoundingClientRect().bottom - viewTop);
+	}
+	return covered;
+}
+
+/**
+ * Scrolls the scrolling ancestor of `list`, or the page, so the entry from `top` to `bottom`
+ * pixels into the list is in view: clear of what `covered` says sticks over the top of the
+ * scroller, and of the bulk-edit bar. Says whether it scrolled.
+ */
+export function revealEntry(
+	list: HTMLElement,
+	top: number,
+	bottom: number,
+	covered: (scroller: HTMLElement | null, viewTop: number) => number,
+): boolean {
+	const scroller = scrollParent(list);
+	const view = scroller?.getBoundingClientRect() ?? { top: 0, bottom: window.innerHeight };
+	const clearTop = view.top + covered(scroller, view.top);
+	// The bulk-edit bar floats over the bottom while issues are picked.
+	const bar = document.querySelector("[data-bulk-bar]")?.getBoundingClientRect().top;
+	const clearBottom = Math.min(view.bottom, bar ?? view.bottom);
+	const listTop = list.getBoundingClientRect().top;
+	const start = listTop + top;
+	const end = listTop + bottom;
+	const delta = start < clearTop ? start - clearTop : end > clearBottom ? end - clearBottom : 0;
+	if (delta === 0) return false;
+	(scroller ?? window).scrollBy({ top: delta });
+	return true;
 }
