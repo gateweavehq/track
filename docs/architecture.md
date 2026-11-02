@@ -585,10 +585,11 @@ team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search fi
   object makes when it first emails the decision, longer than a team's 16 so the two never read
   as one another. A reply there becomes a comment on the request by Email, as the request was,
   without the text it quotes and with its attachments kept as a request's are. Only the address
-  the decision went to may reply, and each request takes only so many replies. The gateway asks
-  the object (`replyTarget`, which writes nothing) whether the key and sender match before it
-  counts the reply or stores its attachments; anything else gets the refusal a missing address
-  does, and costs nothing. The people who follow the request hear of it in their inbox; a
+  the decision went to may reply, and each request takes only so many replies. Before it reads
+  the message, the gateway checks the key's form and asks the object (`replyTarget`, which writes
+  nothing) whether a request has the key; once it has read it, it compares the sender with the
+  address the decision went to, all before it counts the reply or stores its attachments. Anything
+  else gets the refusal a missing address does, and costs no parsing or allowance. The people who follow the request hear of it in their inbox; a
   stranger's text subscribes and mentions nobody.
 - **Out of the way of automations.** A request is not archived, by hand or by a team's
   automations, and automations do not close it: it waits for a person.

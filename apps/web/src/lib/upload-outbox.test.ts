@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { memoryOutboxStore, type PendingUpload, UploadOutbox } from "./upload-outbox";
+import { memoryOutboxStore, type PendingUpload, refusals, UploadOutbox } from "./upload-outbox";
 
 let made = 0;
 function upload(name: string, workspaceId = "ws-1", userId = "user-1"): PendingUpload {
@@ -107,6 +107,30 @@ describe("UploadOutbox", () => {
 
 		const fresh = new UploadOutbox({ store: memoryOutboxStore(), fetch: gateway(() => 412).fetch });
 		expect(await fresh.add(upload("pasted.png"))).toMatchObject({ status: "failed", taken: true });
+	});
+
+	it("picks out every file of a batch refused for good, each taken one with its copy", async () => {
+		// The first is too large, the second and fourth links hold someone else's files (TRK-70).
+		const answers = [413, 412, 201, 412];
+		const files = ["big.bin", "one.png", "fine.txt", "two.png"].map((name) => upload(name));
+		const { fetch } = gateway(
+			(path) => answers[files.findIndex((file) => file.path === path)] ?? 500,
+		);
+		const outbox = new UploadOutbox({ store: memoryOutboxStore(), fetch });
+		const outcomes = await Promise.all(files.map((file) => outbox.add(file)));
+
+		expect(
+			refusals(files, outcomes).map(({ item, taken }) => ({
+				name: item.name,
+				taken,
+				blob: item.blob,
+			})),
+		).toEqual([
+			{ name: "big.bin", taken: false, blob: files[0]?.blob },
+			{ name: "one.png", taken: true, blob: files[1]?.blob },
+			{ name: "two.png", taken: true, blob: files[3]?.blob },
+		]);
+		expect(refusals(files, outcomes)[0]?.message).toBe(`Refused ${files[0]?.path}.`);
 	});
 
 	it("keeps a file the server cannot take now, and drops one it refuses for good", async () => {
