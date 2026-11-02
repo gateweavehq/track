@@ -43,7 +43,8 @@ Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
   Progress for a draft, In Review when opened, Done when merged.
 - **Your data is yours.** Export a workspace or one team as CSV or JSON from Settings, Export. It
   is built in the browser from its local copy, so it works offline. Settings, Import reads either
-  file back, into the same workspace or another, and brings issues in from GitHub and Linear.
+  file back, into the same workspace or another, and brings issues in from GitHub, Linear and
+  Jira (its CSV export, with comments).
 
 ## Tech stack
 

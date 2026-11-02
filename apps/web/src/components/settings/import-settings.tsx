@@ -390,6 +390,10 @@ function FileForm({ onLoaded }: SourceFormProps) {
 				CSV files need one row per issue with a title column, and are read by column names such as
 				Status, Priority, Assignee, Labels and Due date.
 			</p>
+			<p className="text-sm text-muted-foreground">
+				From Jira: search for the issues in Filters, then Export, Export Excel CSV (all fields). Its
+				comments, labels, issue types, story points and parents come along.
+			</p>
 			<label
 				htmlFor={inputId}
 				className="flex max-w-md cursor-pointer items-center gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground hover:bg-accent focus-within:ring-1 focus-within:ring-ring"
