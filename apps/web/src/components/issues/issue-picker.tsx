@@ -1,4 +1,4 @@
-import type { Issue, RelationKind } from "@gateweave/track-protocol";
+import type { Issue, RelationKind, SyncedIssue } from "@gateweave/track-protocol";
 import { Check, ListTree } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import {
@@ -10,7 +10,7 @@ import {
 	CommandList,
 } from "#/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover";
-import { issueKey, matchesQuery } from "#/lib/issues";
+import { issueKey, lastTouched, matchesQuery } from "#/lib/issues";
 import { useIssuesById, useTeamsById } from "#/lib/queries";
 import { ADDABLE_RELATIONS, RELATION_META } from "#/lib/relations";
 import { IssueStatusIcon } from "./meta";
@@ -168,7 +168,7 @@ function IssueOptions({
 		return [...issues.values()]
 			.filter((other) => !excluded.has(other.id))
 			.map((other) => ({ issue: other, key: issueKey(teams.get(other.teamId), other) }))
-			.sort((a, b) => b.issue.updatedAt - a.issue.updatedAt);
+			.sort((a, b) => lastTouched(b.issue) - lastTouched(a.issue));
 	}, [issues, teams, excluded]);
 	const shown = useMemo(
 		() =>
@@ -210,7 +210,7 @@ function IssueOptions({
 }
 
 /** The issue and every issue under it. */
-function withSubIssues(issues: ReadonlyMap<string, Issue>, issueId: string): Set<string> {
+function withSubIssues(issues: ReadonlyMap<string, SyncedIssue>, issueId: string): Set<string> {
 	const children = new Map<string, string[]>();
 	for (const issue of issues.values()) {
 		if (issue.parentId === null) continue;

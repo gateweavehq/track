@@ -6,6 +6,7 @@ import {
 } from "@gateweave/track-protocol";
 import { and, asc, eq, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { recordActivity } from "./activity";
+import { syncArchive } from "./archive";
 import * as schema from "./db/schema";
 import { ChangeSet, type WriteResult } from "./log";
 import { type Db, toIssue } from "./state";
@@ -148,6 +149,7 @@ function archiveUntouched(
 			.get();
 		if (!row) continue;
 		changes.put("issue", toIssue(row));
+		syncArchive(db, changes, issue, row);
 		changes.events.push({ type: "issue.updated", issue: row, previous: issue, quiet: true });
 		recordActivity(db, changes, issue, SYSTEM_ACTOR_ID, { type: "archived", archived: true });
 	}

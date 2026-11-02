@@ -1,4 +1,4 @@
-import type { InboxItem, Issue } from "@gateweave/track-protocol";
+import type { InboxItem, SyncedIssue } from "@gateweave/track-protocol";
 import { z } from "zod";
 
 export const INBOX_TABS = ["inbox", "snoozed", "archived"] as const;
@@ -11,7 +11,8 @@ export const inboxSearch = z.object({
 
 export interface InboxEntry {
 	item: InboxItem;
-	issue: Issue;
+	/** An archived issue as its slim row. */
+	issue: SyncedIssue;
 }
 
 /** Which tab an item is on at `now`. */
@@ -28,7 +29,7 @@ export function tabOf(item: InboxItem, now: number): InboxTab {
  */
 export function inboxEntries(
 	items: Iterable<InboxItem>,
-	issues: ReadonlyMap<string, Issue>,
+	issues: ReadonlyMap<string, SyncedIssue>,
 	tab: InboxTab,
 	now: number,
 ): InboxEntry[] {
@@ -47,7 +48,7 @@ export function inboxEntries(
 /** Items in the inbox, not snoozed or archived, that have news the member has not read. */
 export function unreadCount(
 	items: Iterable<InboxItem>,
-	issues: ReadonlyMap<string, Issue>,
+	issues: ReadonlyMap<string, SyncedIssue>,
 	now: number,
 ): number {
 	let count = 0;

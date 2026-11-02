@@ -6,7 +6,7 @@ import { StatusIcon } from "#/components/issues/meta";
 import { useWorkspace } from "#/components/workspace/context";
 import { teamZone } from "#/lib/cycles";
 import { type InsightSearch, matchesInsightSearch, teamInsights } from "#/lib/insights";
-import { useActivitiesById, useIssuesById, useStatuses } from "#/lib/queries";
+import { useActiveIssuesById, useActivitiesById, useStatuses } from "#/lib/queries";
 
 /** A team's insights, in its cycles' time zone when it has cycles. */
 export function TeamInsights({
@@ -19,7 +19,8 @@ export function TeamInsights({
 	onSearchChange: (patch: Partial<InsightSearch>) => void;
 }) {
 	const { slug } = useWorkspace();
-	const issues = useIssuesById();
+	// Archived issues' history and labels stay on the server, so insights read the others.
+	const issues = useActiveIssuesById();
 	const activities = useActivitiesById();
 	const statuses = useStatuses();
 	const insights = useMemo(

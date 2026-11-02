@@ -1,15 +1,18 @@
 import { runInDurableObject } from "cloudflare:test";
 import {
+	type ActiveIssue,
 	AGENT_CHANGE_KINDS,
 	type AgentChangeKind,
 	CloseCode,
-	type Issue,
 	type IssueRelation,
+	isActiveIssue,
 	MAX_LABELS_PER_ISSUE,
 	MAX_VIEWS,
 	type MutationInput,
+	type Op,
 	PING,
 	PONG,
+	type SyncedIssue,
 } from "@gateweave/track-protocol";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/durable-sqlite";
@@ -19,7 +22,7 @@ import migrations from "../drizzle/migrations";
 import type { MemberProfile, MutateResult } from "../src";
 import * as schema from "../src/db/schema";
 import { compact } from "../src/log";
-import { freshWorkspace, TestClient, type Workspace } from "./client";
+import { freshWorkspace, storedHistory, TestClient, type Workspace, whole } from "./client";
 
 const owner: MemberProfile = {
 	id: "user-owner",
@@ -53,8 +56,13 @@ async function createIssue(client: TestClient, id: string, title = "Ship sync") 
 	return issueOf(client, id);
 }
 
-/** Latest state of an issue as seen by `client`. */
-async function issueOf(client: TestClient, id: string): Promise<Issue> {
+/** Latest state of an issue that is not archived, as seen by `client`. */
+async function issueOf(client: TestClient, id: string): Promise<ActiveIssue> {
+	return whole(await rowOf(client, id));
+}
+
+/** Latest state of an issue as seen by `client`: whole, or an archived issue's slim row. */
+async function rowOf(client: TestClient, id: string): Promise<SyncedIssue> {
 	await client.op((op) => op.entity === "issue" && op.id === id);
 	const op = client
 		.ops()
@@ -461,17 +469,20 @@ describe("issues", () => {
 
 describe("archive", () => {
 	async function update(client: TestClient, id: string, patch: IssuePatch) {
-		const { version } = await issueOf(client, id);
-		return client.apply({ name: "issue.update", args: { id, baseVersion: version, patch } });
+		const row = await rowOf(client, id);
+		// An archived issue's slim row has no version: the client has seen all it was sent.
+		const baseVersion = isActiveIssue(row) ? row.version : (client.through ?? 0);
+		return client.apply({ name: "issue.update", args: { id, baseVersion, patch } });
 	}
 	const archive = (client: TestClient, id: string, archived: boolean) =>
 		client.mutate({ name: "issue.archive", args: { id, archived } });
 
+	// Replicas do not hold an archived issue's history, so this reads what the workspace stores.
 	async function historyOf(workspace: Workspace, issueId: string) {
-		const { activities } = await snapshotOf(workspace);
-		return activities
-			.filter((activity) => activity.issueId === issueId)
-			.map(({ actorId, change }) => ({ actorId, change }));
+		return (await storedHistory(workspace, issueId)).map(({ actorId, change }) => ({
+			actorId,
+			change,
+		}));
 	}
 
 	it("archives a closed issue for everyone, refuses an open one, and restores it", async () => {
@@ -490,7 +501,7 @@ describe("archive", () => {
 			(op) => op.op === "put" && op.entity === "issue" && op.data.archivedAt !== null,
 		);
 		expect(archived).toMatchObject({ entity: "issue", data: { id: issue.id, status: "done" } });
-		// Archived issues stay in the replica, for search, history and progress.
+		// Archived issues stay in the replica, slim, for links, search and progress.
 		expect((await snapshotOf(workspace)).issues).toEqual([
 			expect.objectContaining({ id: issue.id, archivedAt: expect.any(Number) }),
 		]);
@@ -520,7 +531,7 @@ describe("archive", () => {
 		await archive(admin, issue.id, true);
 
 		await update(member, issue.id, { status: "canceled" });
-		expect(await issueOf(admin, issue.id)).toMatchObject({ archivedAt: expect.any(Number) });
+		expect(await rowOf(admin, issue.id)).toMatchObject({ archivedAt: expect.any(Number) });
 
 		await update(member, issue.id, { status: "in_progress" });
 		expect(await issueOf(admin, issue.id)).toMatchObject({
@@ -563,6 +574,207 @@ describe("archive", () => {
 			args: { teamId: TEAM_ID, key: "wontfix", patch: { category: "started" } },
 		});
 		expect(await issueOf(admin, recategorized.id)).toMatchObject({ archivedAt: null });
+	});
+
+	const triage: MemberProfile = { ...owner, id: "user-triage", name: "Triage", role: "agent" };
+
+	/** A closed issue with a description, a label, a comment, history and an agent's proposal. */
+	async function withDetails() {
+		const { workspace, admin } = await withTeam();
+		await workspace.syncMember(triage);
+		await admin.apply({
+			name: "label.create",
+			args: { id: "label-bug", name: "Bug", color: "#e5484d" },
+		});
+		await admin.apply({
+			name: "agent.update",
+			args: { id: triage.id, patch: { proposes: ["title"] } },
+		});
+		const issue = await createIssue(admin, "issue-1");
+		await update(admin, issue.id, { description: "Steps to reproduce", estimate: 3 });
+		await admin.apply({ name: "issue.addLabel", args: { id: issue.id, labelId: "label-bug" } });
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "comment-1", issueId: issue.id, body: "Seen on staging" },
+		});
+		const proposal = await workspace.mutate(triage, "mcp:triage", "m-1", {
+			name: "issue.update",
+			args: {
+				id: issue.id,
+				baseVersion: (await issueOf(admin, issue.id)).version,
+				patch: { title: "Ship sync faster" },
+			},
+		});
+		expect(proposal).toMatchObject({ ok: true, proposed: [expect.anything()] });
+		await update(admin, issue.id, { status: "done" });
+		return { workspace, admin, issue };
+	}
+
+	/** Alice, connected from the workspace as it is now, so she hears only what comes next. */
+	async function liveFrom(workspace: Workspace) {
+		const client = await TestClient.connect(workspace, alice);
+		await client.hello((await snapshotOf(workspace)).version);
+		return client;
+	}
+
+	/** The rows a replica ends up with after applying `ops` in order. */
+	function replay(ops: readonly Op[]) {
+		const rows = new Map<string, unknown>();
+		for (const op of ops) {
+			if (op.op === "put") rows.set(`${op.entity}:${op.id}`, op.data);
+			else rows.delete(`${op.entity}:${op.id}`);
+		}
+		return rows;
+	}
+
+	/** The rows of an issue and of its comments, history and proposals among `rows`. */
+	function ofIssue(rows: Map<string, unknown>, issueId: string) {
+		return new Map(
+			[...rows].filter(([key, row]) => {
+				const { id, issueId: of = id } = row as { id: string; issueId?: string };
+				const entity = key.split(":")[0] ?? "";
+				return of === issueId && ["issue", "comment", "activity", "proposal"].includes(entity);
+			}),
+		);
+	}
+
+	/** Which entities a replica holds of an issue. */
+	const heldOf = (rows: Map<string, unknown>, issueId: string) =>
+		[...ofIssue(rows, issueId).keys()].map((key) => key.split(":")[0]).sort();
+
+	const slim = (fields: Partial<SyncedIssue> = {}) => ({
+		id: "issue-1",
+		teamId: TEAM_ID,
+		number: 1,
+		title: "Ship sync",
+		status: "done",
+		projectId: null,
+		cycleId: null,
+		parentId: null,
+		estimate: 3,
+		archivedAt: expect.any(Number),
+		...fields,
+	});
+
+	it("keeps an archived issue slim, without its comments, history or proposals", async () => {
+		const { workspace, admin, issue } = await withDetails();
+		const before = await snapshotOf(workspace);
+		const viewer = await liveFrom(workspace);
+		expect(before.comments).toHaveLength(1);
+		expect(before.proposals).toHaveLength(1);
+		const history = before.activities.map((activity) => activity.id);
+		expect(history.length).toBeGreaterThan(0);
+
+		expect(await archive(admin, issue.id, true)).toMatchObject({ type: "ack" });
+		await viewer.op(
+			(op) => op.entity === "issue" && op.op === "put" && op.data.archivedAt !== null,
+		);
+		const ops = viewer.ops();
+		expect(ops.find((op) => op.entity === "issue")).toEqual({
+			version: expect.any(Number),
+			entity: "issue",
+			id: issue.id,
+			op: "put",
+			data: slim(),
+		});
+		// What replicas held of it goes, and the history entry that says it was archived never comes.
+		expect(ops.filter((op) => op.entity !== "issue")).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ entity: "comment", id: "comment-1", op: "delete" }),
+				expect.objectContaining({ entity: "proposal", id: before.proposals[0]?.id, op: "delete" }),
+				...history.map((id) => expect.objectContaining({ entity: "activity", id, op: "delete" })),
+			]),
+		);
+		expect(ops.filter((op) => op.op === "put" && op.entity !== "issue")).toEqual([]);
+
+		const after = await snapshotOf(workspace);
+		expect(after.issues).toEqual([slim()]);
+		expect(after.comments).toEqual([]);
+		expect(after.activities).toEqual([]);
+		expect(after.proposals).toEqual([]);
+		// The workspace keeps all of it.
+		expect(await storedHistory(workspace, issue.id)).toContainEqual(
+			expect.objectContaining({ change: { type: "archived", archived: true } }),
+		);
+		expect(await workspace.comments(issue.id)).toHaveLength(1);
+		expect(await workspace.issue(issue.id)).toMatchObject({
+			description: "Steps to reproduce",
+			labelIds: ["label-bug"],
+		});
+	});
+
+	it("sends later writes to an archived issue slim, to a client that is live or catching up", async () => {
+		const { workspace, admin, issue } = await withDetails();
+		await archive(admin, issue.id, true);
+		const viewer = await liveFrom(workspace);
+		await update(admin, issue.id, { title: "Ship sync again" });
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "comment-2", issueId: issue.id, body: "Still seen" },
+		});
+		await viewer.op((op) => op.entity === "comment" && op.id === "comment-2");
+		expect(viewer.ops()).toEqual([
+			expect.objectContaining({
+				entity: "issue",
+				op: "put",
+				data: slim({ title: "Ship sync again" }),
+			}),
+			...viewer
+				.ops()
+				.slice(1)
+				.map(() => expect.objectContaining({ op: "delete" })),
+		]);
+		expect(viewer.ops().map((op) => op.entity)).toContain("activity");
+
+		// A client that saw the issue whole catches up to the same slim row and nothing else.
+		const late = await TestClient.connect(workspace, alice);
+		expect(await late.hello(0)).toMatchObject({ type: "ready" });
+		const rows = replay(late.ops());
+		expect(heldOf(rows, issue.id)).toEqual(["issue"]);
+		expect(rows.get(`issue:${issue.id}`)).toEqual(slim({ title: "Ship sync again" }));
+	});
+
+	it("sends an issue back whole when it is restored, with its comments, history and proposals", async () => {
+		const { workspace, admin, issue } = await withDetails();
+		await archive(admin, issue.id, true);
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "comment-2", issueId: issue.id, body: "Still seen" },
+		});
+		const viewer = await liveFrom(workspace);
+		await archive(viewer, issue.id, false);
+		await viewer.op(
+			(op) => op.entity === "issue" && op.op === "put" && op.data.archivedAt === null,
+		);
+
+		const snapshot = await snapshotOf(workspace);
+		expect(snapshot.issues).toEqual([
+			expect.objectContaining({
+				description: "Steps to reproduce",
+				labelIds: ["label-bug"],
+				archivedAt: null,
+				version: expect.any(Number),
+			}),
+		]);
+		expect(snapshot.comments.map((comment) => comment.id)).toEqual(["comment-1", "comment-2"]);
+		expect(snapshot.proposals).toHaveLength(1);
+		expect(snapshot.activities.map((activity) => activity.change)).toContainEqual({
+			type: "archived",
+			archived: false,
+		});
+
+		// What a replica holds after the ops is what the snapshot holds, live or catching up.
+		const fromSnapshot = new Map<string, unknown>([
+			...snapshot.issues.map((row) => [`issue:${row.id}`, row] as const),
+			...snapshot.comments.map((row) => [`comment:${row.id}`, row] as const),
+			...snapshot.activities.map((row) => [`activity:${row.id}`, row] as const),
+			...snapshot.proposals.map((row) => [`proposal:${row.id}`, row] as const),
+		]);
+		const late = await TestClient.connect(workspace, alice);
+		await late.hello(0);
+		expect(ofIssue(replay(late.ops()), issue.id)).toEqual(fromSnapshot);
+		// The viewer connected while it was archived, so the ops alone bring it all back.
+		expect(ofIssue(replay(viewer.ops()), issue.id)).toEqual(fromSnapshot);
 	});
 
 	it("leaves an archived issue out of server-side queries that ask so", async () => {
@@ -1569,7 +1781,7 @@ describe("labels", () => {
 		expect(reuse).toMatchObject({ type: "reject", reason: "not_found" });
 		const snapshot = await snapshotOf(workspace);
 		expect(snapshot.labels.map((label) => label.id)).toEqual(["label-docs"]);
-		expect(snapshot.issues[0]?.labelIds).toEqual(["label-docs"]);
+		expect(whole(snapshot.issues[0]).labelIds).toEqual(["label-docs"]);
 	});
 });
 
@@ -2685,7 +2897,7 @@ describe("proposals", () => {
 		let n = 0;
 		const asTriage = (mutation: MutationInput) =>
 			workspace.mutate(triage, AGENT, `m-${++n}`, mutation);
-		const setStatus = (status: Issue["status"]) =>
+		const setStatus = (status: ActiveIssue["status"]) =>
 			asTriage({
 				name: "issue.update",
 				args: { id: issue.id, baseVersion: issue.version, patch: { status } },

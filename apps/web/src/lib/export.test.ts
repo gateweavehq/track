@@ -12,6 +12,8 @@ import {
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import {
+	ARCHIVED_EXPORT_NOTE,
+	archivedInExport,
 	CSV_COLUMNS,
 	type ExportSource,
 	exportFileName,
@@ -299,6 +301,47 @@ describe("issuesToCsv", () => {
 	it("has only the header for a workspace without issues", () => {
 		expect(rows(issuesToCsv(source([])))).toHaveLength(1);
 	});
+
+	it("lists archived issues last, with only what the replica holds of them", () => {
+		const csv = issuesToCsv(
+			source([
+				issue({
+					id: "a",
+					teamId: "t1",
+					number: 1,
+					title: "Old",
+					status: "done",
+					description: "Never in the replica",
+					priority: 2,
+					projectId: "p1",
+					estimate: 3,
+					archivedAt: CREATED,
+				}),
+				issue({ id: "b", teamId: "t1", number: 2, title: "New" }),
+			]),
+		);
+		expect(rows(csv).slice(1)).toEqual([
+			expect.arrayContaining(["ENG-2", "New"]),
+			[
+				"ENG-1",
+				"Old",
+				"",
+				"Engineering",
+				"Done",
+				"",
+				"",
+				"",
+				"Launch",
+				"",
+				"",
+				"",
+				"",
+				"3",
+				"",
+				"",
+			],
+		]);
+	});
 });
 
 describe("workspaceToJson", () => {
@@ -378,6 +421,43 @@ describe("workspaceToJson", () => {
 		expect(doc.activities.map((item: Activity) => item.id)).toEqual(["x2"]);
 		// The relation reaches an issue of another team, which the file does not hold.
 		expect(doc.relations).toEqual([]);
+	});
+
+	it("lists archived issues apart, slim, and says their details are not included", () => {
+		const old = issue({
+			id: "z",
+			teamId: "t1",
+			number: 7,
+			title: "Old",
+			status: "done",
+			description: "Never in the replica",
+			labelIds: ["l1"],
+			archivedAt: CREATED,
+		});
+		const doc = JSON.parse(workspaceToJson(source([...issues, old])));
+		expect(doc.issues.map((item: Issue) => item.id)).toEqual(["b", "a"]);
+		expect(doc.archivedIssues).toEqual([
+			{
+				id: "z",
+				key: "ENG-7",
+				teamId: "t1",
+				number: 7,
+				title: "Old",
+				status: "done",
+				projectId: null,
+				cycleId: null,
+				parentId: null,
+				estimate: null,
+				archivedAt: CREATED,
+			},
+		]);
+		expect(doc.notes).toEqual([ARCHIVED_EXPORT_NOTE]);
+		expect(ARCHIVED_EXPORT_NOTE).toContain("not included yet");
+		expect(archivedInExport(source([...issues, old]))).toBe(1);
+		expect(archivedInExport(source([...issues, old]), "t2")).toBe(0);
+
+		// Without archived issues there is nothing to say.
+		expect(JSON.parse(workspaceToJson(full))).toMatchObject({ archivedIssues: [], notes: [] });
 	});
 });
 

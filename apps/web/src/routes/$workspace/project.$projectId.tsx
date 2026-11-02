@@ -59,7 +59,7 @@ function ProjectPage() {
 function ProjectIssues({ project }: { project: Project }) {
 	const { workspace } = Route.useParams();
 	const actions = useWorkspaceActions();
-	const issues = useProjectIssues(project.id, { listed: true });
+	const issues = useProjectIssues(project.id);
 	const search = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
 	const setSearch = useCallback(

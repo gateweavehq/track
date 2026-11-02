@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import migrations from "../drizzle/migrations";
 import type { MemberProfile } from "../src";
 import * as schema from "../src/db/schema";
-import { freshWorkspace, type Workspace } from "./client";
+import { freshWorkspace, type Workspace, whole } from "./client";
 
 const owner: MemberProfile = {
 	id: "user-owner",
@@ -70,9 +70,7 @@ async function statusesOf(workspace: Workspace): Promise<WorkflowStatus[]> {
 }
 
 async function issueOf(workspace: Workspace, id: string) {
-	const issue = (await workspace.snapshot(owner)).issues.find((issue) => issue.id === id);
-	if (!issue) throw new Error(`No issue ${id}`);
-	return issue;
+	return whole((await workspace.snapshot(owner)).issues.find((issue) => issue.id === id));
 }
 
 describe("statuses", () => {

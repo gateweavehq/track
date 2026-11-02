@@ -6,7 +6,8 @@ import {
 	cycleState,
 	dayIn,
 	daysBetween,
-	type Issue,
+	isActiveIssue,
+	type SyncedIssue,
 	startOfDay,
 	type Team,
 } from "@gateweave/track-protocol";
@@ -89,7 +90,7 @@ export interface CycleProgress {
 }
 
 export function cycleProgress(
-	issues: Iterable<Issue>,
+	issues: Iterable<Pick<SyncedIssue, "teamId" | "status" | "estimate">>,
 	statuses: StatusMap = new Map(),
 ): CycleProgress {
 	const progress: CycleProgress = { issues: { done: 0, total: 0 }, points: { done: 0, total: 0 } };
@@ -118,11 +119,13 @@ export interface BurnUpDay {
  * A cycle's burn-up, from its first day to its last, or to today while it runs. It is worked out
  * from issue history: when each issue joined or left the cycle, and how its status changed. An
  * issue with no history of either has been as it is since it was made. Canceled issues leave the
- * scope, as they leave the cycle's progress.
+ * scope, as they leave the cycle's progress. The replica holds no history of archived issues, so
+ * an archived issue counts as it is now on every day: its last day, the one completed cycles are
+ * judged by, is still right.
  */
 export function burnUp(
 	cycle: Cycle,
-	issues: Iterable<Issue>,
+	issues: Iterable<SyncedIssue>,
 	activities: Iterable<Activity>,
 	timeZone: string,
 	now: number,
@@ -171,8 +174,9 @@ export function burnUp(
 		let status = statuses[0]?.from ?? issue.status;
 
 		let next = 0;
+		const createdAt = isActiveIssue(issue) ? issue.createdAt : Number.NEGATIVE_INFINITY;
 		for (const slot of days) {
-			if (slot.at < issue.createdAt) continue;
+			if (slot.at < createdAt) continue;
 			for (; next < history.length; next += 1) {
 				const entry = history[next];
 				if (!entry || entry.updatedAt > slot.at) break;

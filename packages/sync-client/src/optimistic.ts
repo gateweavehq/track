@@ -1,4 +1,5 @@
 import {
+	type ActiveIssue,
 	AGENT_CHANGE_KINDS,
 	compareStatuses,
 	dayIn,
@@ -7,6 +8,7 @@ import {
 	firstStatus,
 	type Issue,
 	type IssueTemplate,
+	isActiveIssue,
 	isAdminRole,
 	isClosedCategory,
 	MAX_LABELS_PER_ISSUE,
@@ -17,8 +19,10 @@ import {
 	type ProposedChange,
 	privateId,
 	type SavedView,
+	type SyncedIssue,
 	statusId,
 	type TemplateRepeat,
+	toSyncedIssue,
 	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import type { Draft, PendingMutation } from "./store";
@@ -81,11 +85,10 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			// closing them declines the requests in it: a request is never closed.
 			if (patch.category !== undefined) {
 				const closes = isClosedCategory(patch.category);
+				// Restoring waits for the server, which sends the issue back whole.
 				for (const issue of [...draft.values("issue")]) {
-					if (issue.teamId !== teamId || issue.status !== key) continue;
-					if (!closes && issue.archivedAt !== null) {
-						draft.put("issue", { ...issue, archivedAt: null, updatedAt: now });
-					} else if (closes && issue.intake) {
+					if (issue.teamId !== teamId || issue.status !== key || !isActiveIssue(issue)) continue;
+					if (closes && issue.intake) {
 						draft.put("issue", { ...issue, intake: false, updatedAt: now });
 					}
 				}
@@ -103,10 +106,13 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			draft.put("status", { ...status, removedAt: now, updatedAt: now });
 			const reopens = !isClosedCategory(target.category);
 			for (const issue of [...draft.values("issue")]) {
-				if (issue.teamId === teamId && issue.status === key) {
-					const archivedAt = reopens ? null : issue.archivedAt;
+				if (issue.teamId !== teamId || issue.status !== key) continue;
+				if (isActiveIssue(issue)) {
 					const intake = reopens && issue.intake;
-					draft.put("issue", { ...issue, status: moveTo, archivedAt, intake, updatedAt: now });
+					draft.put("issue", { ...issue, status: moveTo, intake, updatedAt: now });
+				} else if (!reopens) {
+					// An archived issue it reopens comes back from the server whole.
+					draft.put("issue", { ...issue, status: moveTo });
 				}
 			}
 			return;
@@ -155,7 +161,8 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 		}
 		case "issue.update": {
 			const { id, patch } = mutation.args;
-			const issue = draft.get("issue", id);
+			// An archived issue is the server's to change: the replica holds only part of it.
+			const issue = wholeIssue(draft, id);
 			if (patch.projectId && !draft.get("project", patch.projectId)) return;
 			if (!issue) return;
 			if (patch.cycleId && patch.cycleId !== issue.cycleId) {
@@ -166,25 +173,22 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			if (issue.intake && patch.status !== undefined) {
 				if (isClosedStatus(draft, issue.teamId, patch.status)) return;
 			}
-			// Reopening an archived issue restores it.
-			const reopened =
-				patch.status !== undefined && !isClosedStatus(draft, issue.teamId, patch.status);
-			const archivedAt = reopened ? null : issue.archivedAt;
-			draft.put("issue", { ...issue, ...patch, archivedAt, updatedAt: now });
+			draft.put("issue", { ...issue, ...patch, updatedAt: now });
 			return;
 		}
 		case "issue.archive": {
 			const { id, archived } = mutation.args;
 			const issue = draft.get("issue", id);
 			if (!issue || (issue.archivedAt !== null) === archived) return;
-			if (archived && issue.intake) return;
-			if (archived && !isClosedStatus(draft, issue.teamId, issue.status)) return;
-			draft.put("issue", { ...issue, archivedAt: archived ? now : null, updatedAt: now });
+			// Restoring waits for the server, which sends the issue back whole with all it had.
+			if (!isActiveIssue(issue) || issue.intake) return;
+			if (!isClosedStatus(draft, issue.teamId, issue.status)) return;
+			archive(draft, issue, now);
 			return;
 		}
 		case "issue.accept": {
 			const { id, status } = mutation.args;
-			const issue = draft.get("issue", id);
+			const issue = wholeIssue(draft, id);
 			if (!issue?.intake || isAgent(draft, userId)) return;
 			if (status !== undefined) {
 				if (!isLiveStatus(draft, issue.teamId, status)) return;
@@ -200,7 +204,7 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 		}
 		case "issue.decline": {
 			const { id, reply } = mutation.args;
-			const issue = draft.get("issue", id);
+			const issue = wholeIssue(draft, id);
 			if (!issue?.intake || isAgent(draft, userId)) return;
 			const canceled = teamStatuses(draft, issue.teamId)
 				.sort(compareStatuses)
@@ -239,14 +243,14 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 				}
 			}
 			for (const child of [...draft.values("issue")]) {
-				if (child.parentId === id) draft.put("issue", { ...child, parentId: null, updatedAt: now });
+				if (child.parentId === id) changeIssue(draft, child, { parentId: null }, now);
 			}
 			draft.delete("issue", id);
 			return;
 		}
 		case "issue.addLabel": {
 			const { id, labelId } = mutation.args;
-			const issue = draft.get("issue", id);
+			const issue = wholeIssue(draft, id);
 			if (!issue || !draft.get("label", labelId) || issue.labelIds.includes(labelId)) return;
 			if (issue.labelIds.length >= MAX_LABELS_PER_ISSUE) return;
 			draft.put("issue", { ...issue, labelIds: [...issue.labelIds, labelId], updatedAt: now });
@@ -254,7 +258,7 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 		}
 		case "issue.removeLabel": {
 			const { id, labelId } = mutation.args;
-			const issue = draft.get("issue", id);
+			const issue = wholeIssue(draft, id);
 			if (!issue?.labelIds.includes(labelId)) return;
 			draft.put("issue", withoutLabel(issue, labelId, now));
 			return;
@@ -273,7 +277,9 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 		case "label.delete": {
 			const { id } = mutation.args;
 			for (const issue of [...draft.values("issue")]) {
-				if (issue.labelIds.includes(id)) draft.put("issue", withoutLabel(issue, id, now));
+				if (isActiveIssue(issue) && issue.labelIds.includes(id)) {
+					draft.put("issue", withoutLabel(issue, id, now));
+				}
 			}
 			for (const template of [...draft.values("template")]) {
 				if (!template.labelIds.includes(id)) continue;
@@ -304,8 +310,7 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			const role = draft.get("member", userId)?.role;
 			if (!draft.get("project", id) || role === undefined || !isAdminRole(role)) return;
 			for (const issue of [...draft.values("issue")]) {
-				if (issue.projectId === id)
-					draft.put("issue", { ...issue, projectId: null, updatedAt: now });
+				if (issue.projectId === id) changeIssue(draft, issue, { projectId: null }, now);
 			}
 			for (const update of [...draft.values("projectUpdate")]) {
 				if (update.projectId === id) draft.delete("projectUpdate", update.id);
@@ -354,7 +359,8 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 		}
 		case "comment.create": {
 			const { id, issueId, body } = mutation.args;
-			if (draft.get("comment", id) || !draft.get("issue", issueId)) return;
+			// A comment on an archived issue never reaches the replica.
+			if (draft.get("comment", id) || !wholeIssue(draft, issueId)) return;
 			const createdAt = Math.min(mutation.args.createdAt ?? now, now);
 			draft.put("comment", { id, issueId, body, authorId: userId, createdAt, updatedAt: now });
 			return;
@@ -493,7 +499,7 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 		}
 		case "proposal.accept": {
 			const proposal = draft.get("proposal", mutation.args.id);
-			const issue = proposal && draft.get("issue", proposal.issueId);
+			const issue = proposal && wholeIssue(draft, proposal.issueId);
 			// Once the server has decided, the proposal is gone and the issue already has the change.
 			if (!proposal || !issue || draft.get("member", userId)?.role === "agent") return;
 			const accepted = withChange(draft, issue, proposal.change, now);
@@ -540,7 +546,12 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 }
 
 /** The issue with a proposed change made, or null where the server would not make it. */
-function withChange(draft: Draft, issue: Issue, change: ProposedChange, now: number): Issue | null {
+function withChange(
+	draft: Draft,
+	issue: ActiveIssue,
+	change: ProposedChange,
+	now: number,
+): ActiveIssue | null {
 	switch (change.type) {
 		case "title":
 			return { ...issue, title: change.to, updatedAt: now };
@@ -659,7 +670,46 @@ function nextIssueDay(repeat: TemplateRepeat, now: number): string {
 	return nextRepeatDay(repeat, dayIn(repeat.timeZone, now));
 }
 
-function withoutLabel(issue: Issue, labelId: string, now: number): Issue {
+/** The issue, if the replica holds it whole: not archived. */
+function wholeIssue(draft: Draft, id: string): ActiveIssue | undefined {
+	const issue = draft.get("issue", id);
+	return issue && isActiveIssue(issue) ? issue : undefined;
+}
+
+/** Changes fields that an archived issue's slim row has too; only a whole one has `updatedAt`. */
+function changeIssue(
+	draft: Draft,
+	issue: SyncedIssue,
+	change: Partial<Pick<Issue, "projectId" | "cycleId" | "parentId">>,
+	now: number,
+): void {
+	draft.put(
+		"issue",
+		isActiveIssue(issue) ? { ...issue, ...change, updatedAt: now } : { ...issue, ...change },
+	);
+}
+
+/**
+ * Archives an issue as the server will send it: slim, and without its comments, history,
+ * proposals and the pull requests that link no other issue the replica holds whole.
+ */
+function archive(draft: Draft, issue: ActiveIssue, now: number): void {
+	draft.put("issue", toSyncedIssue({ ...issue, archivedAt: now, updatedAt: now }));
+	for (const entity of ["comment", "activity", "proposal"] as const) {
+		for (const row of [...draft.values(entity)]) {
+			if (row.issueId === issue.id) draft.delete(entity, row.id);
+		}
+	}
+	for (const pullRequest of [...draft.values("pullRequest")]) {
+		if (!pullRequest.issueIds.includes(issue.id)) continue;
+		const linked = pullRequest.issueIds.map((id) => draft.get("issue", id));
+		if (!linked.some((other) => other !== undefined && isActiveIssue(other))) {
+			draft.delete("pullRequest", pullRequest.id);
+		}
+	}
+}
+
+function withoutLabel(issue: ActiveIssue, labelId: string, now: number): ActiveIssue {
 	return { ...issue, labelIds: issue.labelIds.filter((id) => id !== labelId), updatedAt: now };
 }
 

@@ -1,22 +1,23 @@
-import type {
-	Activity,
-	Comment,
-	Cycle,
-	InboxItem,
-	Issue,
-	IssueRelation,
-	IssueTemplate,
-	Label,
-	Member,
-	Project,
-	ProjectUpdate,
-	Proposal,
-	PullRequest,
-	SavedView,
-	Snapshot,
-	Subscription,
-	Team,
-	WorkflowStatus,
+import {
+	type Activity,
+	type Comment,
+	type Cycle,
+	type InboxItem,
+	type Issue,
+	type IssueRelation,
+	type IssueTemplate,
+	type Label,
+	type Member,
+	type Project,
+	type ProjectUpdate,
+	type Proposal,
+	type PullRequest,
+	type SavedView,
+	type Snapshot,
+	type Subscription,
+	type Team,
+	toSyncedIssue,
+	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import { and, asc, eq, getTableColumns, isNull, sql } from "drizzle-orm";
 import type { DrizzleSqliteDODatabase } from "drizzle-orm/durable-sqlite";
@@ -77,7 +78,8 @@ export const toInboxItem = ({ emailAt: _, ...item }: schema.InboxItemRow): Inbox
 
 /**
  * The workspace as `memberId` sees it: everything, with their own subscriptions and inbox. Those
- * of deleted issues are removed with them.
+ * of deleted issues are removed with them. Archived issues are slim, without their comments,
+ * history, proposals and pull requests.
  */
 export function readSnapshot(db: Db, memberId: string): Snapshot {
 	const issues = db
@@ -85,8 +87,10 @@ export function readSnapshot(db: Db, memberId: string): Snapshot {
 		.from(schema.issues)
 		.where(isNull(schema.issues.deletedAt))
 		.all()
-		.map(toIssue);
-	const live = new Set(issues.map((issue) => issue.id));
+		.map((row) => toSyncedIssue(toIssue(row)));
+	const active = new Set(issues.flatMap((issue) => (issue.archivedAt === null ? [issue.id] : [])));
+	// Live issues that are not archived: the ones replicas hold whole.
+	const whole = and(isNull(schema.issues.deletedAt), isNull(schema.issues.archivedAt));
 	return {
 		version: currentVersion(db),
 		teams: db.select().from(schema.teams).all().map(toTeam),
@@ -123,7 +127,7 @@ export function readSnapshot(db: Db, memberId: string): Snapshot {
 			.select(getTableColumns(schema.comments))
 			.from(schema.comments)
 			.innerJoin(schema.issues, eq(schema.issues.id, schema.comments.issueId))
-			.where(and(isNull(schema.comments.deletedAt), isNull(schema.issues.deletedAt)))
+			.where(and(isNull(schema.comments.deletedAt), whole))
 			.orderBy(asc(schema.comments.createdAt), asc(schema.comments.id))
 			.all()
 			.map(toComment),
@@ -131,7 +135,7 @@ export function readSnapshot(db: Db, memberId: string): Snapshot {
 			.select(getTableColumns(schema.activities))
 			.from(schema.activities)
 			.innerJoin(schema.issues, eq(schema.issues.id, schema.activities.issueId))
-			.where(isNull(schema.issues.deletedAt))
+			.where(whole)
 			// Insertion order, which breaks ties between entries written in the same millisecond.
 			.orderBy(sql`${schema.activities}.rowid`)
 			.all()
@@ -140,7 +144,7 @@ export function readSnapshot(db: Db, memberId: string): Snapshot {
 			.select(getTableColumns(schema.proposals))
 			.from(schema.proposals)
 			.innerJoin(schema.issues, eq(schema.issues.id, schema.proposals.issueId))
-			.where(and(eq(schema.proposals.status, "open"), isNull(schema.issues.deletedAt)))
+			.where(and(eq(schema.proposals.status, "open"), whole))
 			.orderBy(asc(schema.proposals.createdAt), asc(schema.proposals.id))
 			.all()
 			.map(toProposal),
@@ -181,7 +185,7 @@ export function readSnapshot(db: Db, memberId: string): Snapshot {
 			.from(schema.pullRequests)
 			.orderBy(asc(schema.pullRequests.createdAt), asc(schema.pullRequests.id))
 			.all()
-			.filter((pullRequest) => pullRequest.issueIds.some((id) => live.has(id)))
+			.filter((pullRequest) => pullRequest.issueIds.some((id) => active.has(id)))
 			.map(toPullRequest),
 	};
 }

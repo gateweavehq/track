@@ -3,9 +3,9 @@ import {
 	calendarDate,
 	compareStatuses,
 	defaultStatuses,
-	type Issue,
 	type IssuePriority,
 	type IssueRelation,
+	isActiveIssue,
 	type Label,
 	liveStatuses,
 	MAX_LABELS_PER_ISSUE,
@@ -19,6 +19,7 @@ import {
 	type ProjectUpdate,
 	type RelationType,
 	type StatusCategory,
+	type SyncedIssue,
 	statusId,
 	statusKeyFor,
 	type Team,
@@ -155,7 +156,8 @@ export interface ReadOptions {
 
 /** The part of a workspace an import reads, to match names and skip what is there. */
 export interface ImportTarget {
-	issues: ReadonlyMap<string, Issue>;
+	/** Archived ones as their slim rows: enough to skip what an earlier run brought in. */
+	issues: ReadonlyMap<string, SyncedIssue>;
 	comments: ReadonlyMap<string, Comment>;
 	relations: ReadonlyMap<string, IssueRelation>;
 	/** Updates an earlier run brought in are skipped. */
@@ -537,9 +539,13 @@ function byCreation(a: { createdAt: number | null }, b: { createdAt: number | nu
 	return (a.createdAt ?? Number.MAX_SAFE_INTEGER) - (b.createdAt ?? Number.MAX_SAFE_INTEGER);
 }
 
-function lastSortOrder(issues: Iterable<Issue>): string | null {
+/** The last manual order among the issues lists show; archived ones have none in the replica. */
+function lastSortOrder(issues: Iterable<SyncedIssue>): string | null {
 	let last: string | null = null;
-	for (const issue of issues) if (last === null || issue.sortOrder > last) last = issue.sortOrder;
+	for (const issue of issues) {
+		if (!isActiveIssue(issue)) continue;
+		if (last === null || issue.sortOrder > last) last = issue.sortOrder;
+	}
 	return last;
 }
 

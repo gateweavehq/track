@@ -384,6 +384,94 @@ describe("offline", () => {
 	});
 });
 
+describe("archive", () => {
+	/** What a replica holds that belongs to the issue: its comments, history and proposals. */
+	function detailsOf(client: SyncClient, issueId: string) {
+		const { comments, activities, proposals } = client.getState();
+		return [...comments.values(), ...activities.values(), ...proposals.values()]
+			.filter((row) => row.issueId === issueId)
+			.sort((a, b) => a.id.localeCompare(b.id));
+	}
+
+	it("keeps an archived issue slim in memory and in storage, and restores it whole", async () => {
+		const ws = setup();
+		const key = `archive-${ws.id}`;
+		const alice = await ws.live("alice");
+		const bob = await ws.live("bob", { persistence: openIdbPersistence(key) });
+		const team = make.team();
+		await alice.mutate(team);
+		const created = make.issue(team.args.id, "Old work");
+		const { id } = created.args;
+		await alice.mutate(created);
+		await alice.mutate({
+			name: "issue.update",
+			args: {
+				id,
+				baseVersion: issueBy(alice, "Old work").version,
+				patch: { description: "All the details", status: "done", estimate: 2 },
+			},
+		});
+		await alice.mutate({
+			name: "comment.create",
+			args: { id: uuidv7(), issueId: id, body: "Done and dusted" },
+		});
+		await waitForConvergence(alice, bob);
+		expect(detailsOf(bob, id).length).toBeGreaterThan(1);
+
+		await alice.mutate({ name: "issue.archive", args: { id, archived: true } });
+		await waitForConvergence(alice, bob);
+		const slim = {
+			id,
+			teamId: team.args.id,
+			number: 1,
+			title: "Old work",
+			status: "done",
+			projectId: null,
+			cycleId: null,
+			parentId: null,
+			estimate: 2,
+			archivedAt: expect.any(Number),
+		};
+		for (const client of [alice, bob]) {
+			expect(client.getState().issues.get(id)).toEqual(slim);
+			expect(client.getState().activeIssues.has(id)).toBe(false);
+			expect(detailsOf(client, id)).toEqual([]);
+		}
+
+		// What the replica stored is slim too: reopened offline, it shows the same.
+		await bob.close();
+		const offline = ws.network("bob");
+		offline.offline();
+		const reopened = ws.client("bob", { network: offline, persistence: openIdbPersistence(key) });
+		await waitFor(() => reopened.getStatus().loaded);
+		expect(reopened.getState().issues.get(id)).toEqual(slim);
+		expect(detailsOf(reopened, id)).toEqual([]);
+		await reopened.close();
+
+		// Restoring sends it back whole, with its comments and history, to memory and storage.
+		const network = ws.network("bob");
+		const synced = await ws.live("bob", { network, persistence: openIdbPersistence(key) });
+		await alice.mutate({ name: "issue.archive", args: { id, archived: false } });
+		await waitForConvergence(alice, synced);
+		for (const client of [alice, synced]) {
+			expect(issueBy(client, "Old work")).toMatchObject({
+				description: "All the details",
+				archivedAt: null,
+			});
+			expect(detailsOf(client, id)).toEqual(detailsOf(alice, id));
+			expect(detailsOf(client, id).length).toBeGreaterThan(1);
+		}
+		expect(network.snapshots).toBe(0);
+		await synced.close();
+
+		network.offline();
+		const restored = ws.client("bob", { network, persistence: openIdbPersistence(key) });
+		await waitFor(() => restored.getStatus().loaded);
+		expect(issueBy(restored, "Old work").description).toBe("All the details");
+		expect(detailsOf(restored, id)).toEqual(detailsOf(alice, id));
+	});
+});
+
 describe("connection loss", () => {
 	it("reconnects after the network comes back", async () => {
 		const ws = setup();

@@ -8,7 +8,7 @@ import { useHotkeys } from "#/lib/hotkeys";
 import { issueKey } from "#/lib/issues";
 import { send } from "#/lib/mutations";
 import { groupProposals, proposingAgents } from "#/lib/proposals";
-import { useIssuesById, useMembersById, useProposals, useTeamsById } from "#/lib/queries";
+import { useActiveIssuesById, useMembersById, useProposals, useTeamsById } from "#/lib/queries";
 import { ProposalItem } from "./proposal-item";
 
 /**
@@ -27,7 +27,8 @@ export function ProposalsPage({
 	const client = useSyncClient();
 	const navigate = useNavigate();
 	const proposals = useProposals();
-	const issues = useIssuesById();
+	// Proposals of archived issues stay on the server.
+	const issues = useActiveIssuesById();
 	const teams = useTeamsById();
 	const members = useMembersById();
 	const [selectedId, setSelectedId] = useState<string | null>(null);

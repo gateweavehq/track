@@ -1,4 +1,4 @@
-import type { Cycle, CycleState, Issue, Team } from "@gateweave/track-protocol";
+import type { Cycle, CycleState, SyncedIssue, Team } from "@gateweave/track-protocol";
 import { Link } from "@tanstack/react-router";
 import { Settings2 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -31,7 +31,7 @@ export function TeamCyclesPage({ team }: { team: Team }) {
 
 	const rows = useMemo(() => {
 		const now = Date.now();
-		const byCycle = new Map<string, Issue[]>();
+		const byCycle = new Map<string, SyncedIssue[]>();
 		for (const issue of issues.values()) {
 			if (issue.cycleId === null) continue;
 			const planned = byCycle.get(issue.cycleId);

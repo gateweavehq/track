@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { cycleState, type Snapshot } from "@gateweave/track-protocol";
+import { cycleState, isActiveIssue, type Snapshot } from "@gateweave/track-protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ISSUES, LABELS, PEOPLE, PROJECTS, TEAMS } from "../src/server/demo/sample-data";
 import { startTrack } from "./track-worker";
@@ -108,7 +108,9 @@ describe("on the demo deployment", () => {
 			[visitor?.user.email, ...Object.values(PEOPLE).map((person) => person.email)].sort(),
 		);
 		const maya = data.members.find((member) => member.email === PEOPLE.maya.email);
-		expect(data.issues.some((issue) => issue.assigneeId === maya?.id)).toBe(true);
+		expect(data.issues.some((issue) => isActiveIssue(issue) && issue.assigneeId === maya?.id)).toBe(
+			true,
+		);
 	});
 
 	it("plans sample issues into Engineering's current cycle, some of them done", async () => {
