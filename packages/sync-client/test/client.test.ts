@@ -92,6 +92,37 @@ describe("mutations", () => {
 		expect(issueBy(bob, "From Alice")).toEqual(issueBy(alice, "From Alice"));
 	});
 
+	// TRK-79: the server refuses NUL characters and lone surrogates, which pasted text can carry.
+	it("cleans pasted text before sending it, so the server takes it", async () => {
+		const ws = setup();
+		const onReject = vi.fn();
+		const alice = await ws.live("alice", { onReject });
+		const bob = await ws.live("bob");
+		const team = make.team();
+		await alice.mutate(team);
+		const create = make.issue(team.args.id, "Fix\0 the login \ud83d");
+		await alice.mutate({
+			...create,
+			args: { ...create.args, description: "Steps:\0 1. 🐛 修复 \udc00 2." },
+		});
+		await alice.mutate({
+			name: "comment.create",
+			args: { id: uuidv7(), issueId: create.args.id, body: "\0Same here 👍\ud800" },
+		});
+		await waitForConvergence(alice, bob);
+
+		expect(onReject).not.toHaveBeenCalled();
+		for (const client of [alice, bob]) {
+			expect(client.getState().issues.get(create.args.id)).toMatchObject({
+				title: "Fix the login �",
+				description: "Steps: 1. 🐛 修复 � 2.",
+			});
+			expect([...client.getState().comments.values()].map((comment) => comment.body)).toEqual([
+				"Same here 👍�",
+			]);
+		}
+	});
+
 	it("rolls back and reports a rejected mutation", async () => {
 		const ws = setup();
 		const onReject = vi.fn();

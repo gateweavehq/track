@@ -244,6 +244,9 @@ describe("replying to a decision", () => {
 		expect(await workspace.fileReply({ ...reply, key: "a".repeat(26) })).toBe(false);
 		expect(await workspace.fileReply({ ...reply, key: key.slice(0, 16) })).toBe(false);
 		expect(await workspace.fileReply({ ...reply, body: "   " })).toBe(false);
+		// The gateway cleans what mail brings; the object refuses whatever it let through (TRK-79).
+		expect(await workspace.fileReply({ ...reply, body: "Hello\0" })).toBe(false);
+		expect(await workspace.fileReply({ ...reply, body: "Hello \ud83d" })).toBe(false);
 		expect((await workspace.snapshot(owner)).comments).toEqual([]);
 
 		await as(owner, { name: "issue.delete", args: { id: request.id } });

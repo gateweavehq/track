@@ -1557,6 +1557,14 @@ on its own.
 result. The UI does not wait for it. Rejections also reach an `onReject` callback, so the app can
 report them in one place.
 
+The protocol refuses user text with a NUL character or a lone surrogate (`userText` in
+`packages/protocol/src/text.ts`): SQLite's `length` and `glob` stop at a NUL, and a lone surrogate
+is stored as three bytes that read back as U+FFFD, so the text would change silently. Text pasted
+into the app can carry either unseen, so `mutate()` cleans every string first (`cleanText`: NULs
+dropped, lone surrogates made U+FFFD). The request form and intake email clean what strangers send
+the same way before filing it, and the object still refuses whatever reaches it uncleaned, as it
+does for agents over MCP. Text stored before the check stays as it is.
+
 ### Starting offline
 
 A service worker (`apps/web/service-worker/sw.ts`, built into `/sw.js`) lets the app start with

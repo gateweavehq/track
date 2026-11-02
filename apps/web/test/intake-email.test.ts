@@ -312,6 +312,53 @@ describe("intake email", () => {
 		expect(await titles()).toContain("Real request");
 	});
 
+	// TRK-79: Track refuses NUL characters, but mail from outside is filed without them instead.
+	it("files mail carrying NUL characters with them taken out, and replies too", async () => {
+		const to = await turnOn();
+		const raw = (from: string, address: string, subject: string, text: string) =>
+			[
+				`From: ${from}`,
+				`To: ${address}`,
+				`Subject: ${subject}`,
+				`Message-ID: <${crypto.randomUUID()}@customer.test>`,
+				"Date: Sun, 01 Nov 2026 12:00:00 +0000",
+				"Content-Type: text/plain; charset=utf-8",
+				"Content-Transfer-Encoding: quoted-printable",
+				"",
+				text,
+				"",
+			].join("\r\n");
+		const sent = await track.email(
+			"nul@customer.test",
+			to,
+			raw(
+				"nul@customer.test",
+				to,
+				"=?UTF-8?Q?Export=00_breaks_=F0=9F=A7=AA?=",
+				"Steps=00 to repeat: =E6=BC=A2=E5=AD=97",
+			),
+		);
+		expect(sent.outcome).toBe("ok");
+		const request = (await snapshot()).issues.find((issue) => issue.title.startsWith("Export b"));
+		expect(request).toMatchObject({
+			title: "Export breaks 🧪",
+			description: "Steps to repeat: 漢字\n\nSent by email from <nul@customer.test>.",
+		});
+		if (!request) throw new Error("Not filed");
+
+		await track.mutate(workspaceId, owner, { name: "issue.accept", args: { id: request.id } });
+		const decision = await vi.waitFor(async () => {
+			const email = (await track.emails()).find((each) => each.to === "nul@customer.test");
+			if (!email) throw new Error("Not sent yet");
+			return email;
+		});
+		const replyTo = decision.replyTo ?? "";
+		const reply = raw("nul@customer.test", replyTo, "Re: Accepted", "Thanks=00 a lot");
+		expect((await track.email("nul@customer.test", replyTo, reply)).outcome).toBe("ok");
+		const comments = (await snapshot()).comments.filter((each) => each.issueId === request.id);
+		expect(comments.map((comment) => comment.body)).toEqual(["Thanks a lot"]);
+	});
+
 	it("limits how many requests one sender emails", async () => {
 		const to = await turnOn();
 		const outcomes: string[] = [];

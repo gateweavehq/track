@@ -14,28 +14,29 @@ import {
 import { issueFilters } from "./filters";
 import { MAX_REPEAT_EVERY, REPEAT_UNITS } from "./repeat";
 import { STATUS_CATEGORIES, STATUS_KEY_PATTERN } from "./statuses";
+import { userText } from "./text";
 
 /** Client-generated ids. UUIDv7 is recommended so ids sort by creation time. */
 const id = z.string().min(1).max(64);
 const teamKey = z
 	.string()
 	.regex(/^[A-Z][A-Z0-9]{0,6}$/, "1-7 uppercase letters or digits, starting with a letter");
-const teamName = z.string().trim().min(1).max(64);
+const teamName = userText.trim().min(1).max(64);
 const automationMonths = z.number().int().min(1).max(MAX_AUTOMATION_MONTHS);
-const title = z.string().trim().min(1).max(512);
-const description = z.string().max(100_000).nullable();
+const title = userText.trim().min(1).max(512);
+const description = userText.max(100_000).nullable();
 /** The key of one of the team's statuses. */
 export const statusKey = z
 	.string()
 	.regex(STATUS_KEY_PATTERN, "Lowercase letters, digits and underscores, starting with a letter");
 const status = statusKey;
-const statusName = z.string().trim().min(1).max(32);
+const statusName = userText.trim().min(1).max(32);
 const statusCategory = z.enum(STATUS_CATEGORIES);
 const priority = z.literal(ISSUE_PRIORITIES);
 const sortOrder = z.string().min(1).max(128);
-const labelName = z.string().trim().min(1).max(64);
+const labelName = userText.trim().min(1).max(64);
 const labelColor = z.string().regex(/^#[0-9a-f]{6}$/, "A lowercase hex color, like #e5484d");
-const projectName = z.string().trim().min(1).max(64);
+const projectName = userText.trim().min(1).max(64);
 const projectStatus = z.enum(PROJECT_STATUSES);
 const projectHealth = z.enum(PROJECT_HEALTHS);
 /** `YYYY-MM-DD`, and a day that exists: 2026-02-30 is refused. */
@@ -48,7 +49,7 @@ export const calendarDate = z
 	}, "Not a real calendar date");
 /** Points. Teams pick their own scale; 0 is a valid size, for work too small to count. */
 export const estimate = z.number().int().min(0).max(1000);
-const commentBody = z.string().trim().min(1).max(100_000);
+const commentBody = userText.trim().min(1).max(100_000);
 /**
  * When an issue, comment or project update was first written, in the tracker it is imported
  * from (epoch ms). Only admins may set it, and the server keeps it no later than its own clock.
@@ -59,13 +60,13 @@ const importedCreatedAt = z
 	.min(Date.UTC(2000, 0, 1))
 	.optional();
 
-const viewName = z.string().trim().min(1).max(80);
-const templateName = z.string().trim().min(1).max(64);
+const viewName = userText.trim().min(1).max(80);
+const templateName = userText.trim().min(1).max(64);
 /**
  * A template's title may be empty, for the person to write when they use it. It is kept as
  * written, so a prefix such as "Bug: " keeps its space; the issue's title is trimmed as always.
  */
-const templateTitle = z.string().max(512);
+const templateTitle = userText.max(512);
 const timeZone = z.string().min(1).max(64).refine(isTimeZone, "Not a time zone");
 /** A template's schedule. One that repeats needs a title, which the server checks. */
 const templateRepeat = z.object({
@@ -83,7 +84,7 @@ const templateFields = {
 	assigneeId: id.nullable(),
 	repeat: templateRepeat.nullable(),
 };
-const cycleName = z.string().trim().min(1).max(64);
+const cycleName = userText.trim().min(1).max(64);
 /**
  * A team's cycles, as an admin sets them. The cycles that have not started are dated anew: the
  * first starts on `startsOn` and each of the rest the day after the one before ends.

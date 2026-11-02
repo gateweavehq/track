@@ -211,6 +211,42 @@ describe("planImport", () => {
 		expect(argsOf(kept, "issue.create")[0]?.status).toBe("todo");
 	});
 
+	// TRK-79: names the server would refuse, a NUL or half an emoji, are cleaned before the check
+	// that would otherwise send the team's issues elsewhere or drop the status.
+	it("cleans team and status names, and cuts them without splitting an emoji", async () => {
+		const status = {
+			key: "qa",
+			name: "Ready\0 for QA",
+			category: "started" as const,
+			color: null,
+			sortOrder: "a2",
+		};
+		const plan = await planImport(
+			{
+				name: "Linear",
+				teamStatuses: new Map([["LONG", [status]]]),
+				issues: [
+					imported({ sourceId: "a", team: { key: "LONG", name: `${"x".repeat(63)}🧪` } }),
+					imported({ sourceId: "b", team: { key: "NUL", name: "Design\0 🎨" } }),
+				],
+			},
+			target(),
+			"t1",
+			{ keepTeams: true },
+		);
+		const teams = argsOf(plan, "team.create");
+		expect(teams.map(({ key, name }) => ({ key, name }))).toEqual([
+			{ key: "LONG", name: "x".repeat(63) },
+			{ key: "NUL", name: "Design 🎨" },
+		]);
+		expect(argsOf(plan, "issue.create").map((args) => args.teamId)).toEqual(
+			teams.map((team) => team.id),
+		);
+		expect(argsOf(plan, "status.create")).toEqual([
+			expect.objectContaining({ teamId: teams[0]?.id, name: "Ready for QA" }),
+		]);
+	});
+
 	it("skips what an earlier run imported, and brings in what is new", async () => {
 		const first = await planImport(github, target(), "t1");
 		const [epic, crash] = argsOf(first, "issue.create");

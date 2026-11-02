@@ -96,6 +96,7 @@ interface PullRequestFields {
 	draft?: boolean;
 	merged_at?: string | null;
 	branch?: string;
+	user?: { login: string } | null;
 }
 
 function pullRequest(action: string, fields: PullRequestFields = {}) {
@@ -318,6 +319,24 @@ describe("pull requests", () => {
 			}),
 		);
 		expect(await statuses(workspace)).toMatchObject({ "issue-2": "done", "issue-3": "done" });
+	});
+
+	// TRK-79: GitHub's text is stored as typed text is, without NUL characters or lone surrogates.
+	it("are stored with their text cleaned", async () => {
+		const { workspace, deliver } = await setup();
+		await deliver(
+			"pull_request",
+			pullRequest("opened", {
+				title: "Fix\0 login \ud83d",
+				branch: "eng-1-\0fix",
+				user: { login: "octo\0cat" },
+			}),
+		);
+		expect((await pullRequests(workspace))[0]).toMatchObject({
+			title: "Fix login \ufffd",
+			branch: "eng-1-fix",
+			author: "octocat",
+		});
 	});
 
 	it("never move an issue back, nor out of done or canceled", async () => {

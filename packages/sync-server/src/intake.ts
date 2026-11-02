@@ -1,6 +1,7 @@
 import {
 	INTAKE_EMAIL_ACTOR_ID,
 	INTAKE_FORM_ACTOR_ID,
+	userText,
 	type WebhookActor,
 } from "@gateweave/track-protocol";
 import { eq } from "drizzle-orm";
@@ -40,8 +41,8 @@ export type IntakeChannel = keyof typeof CHANNELS;
 export const intakeRequest = z.object({
 	via: z.enum(["form", "email"]),
 	key: z.string().max(64),
-	title: z.string().trim().min(1).max(512),
-	description: z.string().max(100_000).nullable(),
+	title: userText.trim().min(1).max(512),
+	description: userText.max(100_000).nullable(),
 	sortOrder: z.string().min(1).max(64),
 	/**
 	 * Whoever filed it, to tell of the decision on it, if they left an address; with the

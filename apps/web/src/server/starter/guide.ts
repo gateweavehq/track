@@ -1,6 +1,12 @@
 // The guided start: a new workspace's first team and a few issues that show Track by doing. Pure:
 // no Worker APIs, so the steps can be tested on their own.
-import type { IssuePriority, IssueStatus, MutationInput } from "@gateweave/track-protocol";
+import {
+	cleanText,
+	cutText,
+	type IssuePriority,
+	type IssueStatus,
+	type MutationInput,
+} from "@gateweave/track-protocol";
 import { generateNKeysBetween } from "fractional-indexing";
 import { suggestKey } from "#/lib/teams";
 
@@ -33,6 +39,14 @@ export function guideTeamId(workspaceId: string): string {
 	return `guide-${workspaceId}`.slice(0, 64);
 }
 
+/**
+ * The workspace's name as a team's: cleaned, as the server refuses NUL characters and lone
+ * surrogates, and cut to fit without splitting an emoji.
+ */
+function teamName(name: string): string {
+	return cutText(cleanText(name).trim(), 64).trim();
+}
+
 /** The team, then its issues in the order they are listed. */
 export function guideSteps({ workspace, ownerId, mcpUrl, newId }: GuideOptions): {
 	teamKey: string;
@@ -47,7 +61,7 @@ export function guideSteps({ workspace, ownerId, mcpUrl, newId }: GuideOptions):
 		mutations: [
 			{
 				name: "team.create",
-				args: { id: teamId, key: teamKey, name: workspace.name.trim().slice(0, 64) },
+				args: { id: teamId, key: teamKey, name: teamName(workspace.name) },
 			},
 			...issues.map(
 				(issue, index): MutationInput => ({
