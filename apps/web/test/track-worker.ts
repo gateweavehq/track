@@ -389,6 +389,19 @@ export async function startTrack(
 		/** A `fetch` that reaches the Worker directly. Redirects are returned, not followed. */
 		fetch: (input: string | URL | Request, init?: RequestInit) => fetchIn(0, input, init),
 		fetchIn,
+		/**
+		 * Opens a WebSocket to the Worker, as a browser would, with `headers` on the handshake.
+		 * Resolves to the open socket, or to the status that refused it.
+		 */
+		async socket(url: string, headers: Record<string, string>) {
+			const response = await mf.dispatchFetch(url, {
+				headers: { ...headers, upgrade: "websocket" },
+			});
+			const ws = response.webSocket;
+			if (!ws) return { status: response.status, ws: null };
+			ws.accept();
+			return { status: response.status, ws };
+		},
 		/** URLs the Worker tried to fetch from outside, other than webhooks to the receiver. */
 		outbound,
 		/** Webhook deliveries to `RECEIVER_HOST`, oldest first. */

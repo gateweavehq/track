@@ -78,8 +78,11 @@ different protocol versions in production. It also gives self-hosters one thing 
 
 The DO keeps a replica of membership for two reasons: it authorizes writes (for example, only
 admins manage teams) and clients need member names to render assignees. Better Auth hooks push
-every join, role change and removal to the DO. The replica also heals itself, because each time a
-member connects their current profile is upserted.
+every join, role change and removal to the DO. Two removals pass no organization hook, so they
+have hooks of their own: leaving (`/organization/leave`, an after-hook on the path) and deleting
+a user, whose memberships go by cascade (a database hook notes their workspaces before the
+delete and tells each one after). A removal closes the person's sockets. The replica also heals
+itself, because each time a member connects their current profile is upserted.
 
 ### Roles and invitations
 
