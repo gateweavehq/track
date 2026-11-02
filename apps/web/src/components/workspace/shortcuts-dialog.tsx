@@ -31,6 +31,7 @@ const SHORTCUTS: { group: string; items: { keys: string[][]; label: string }[] }
 			{ keys: [["Enter"]], label: "Open the selected issue" },
 			{ keys: [["X"]], label: "Select the issue to change with others" },
 			{ keys: [["Shift", "X"]], label: "Select every issue up to this one" },
+			{ keys: [[MOD_LABEL, "A"]], label: "Select every issue shown" },
 			{ keys: [["Esc"]], label: "Clear the selection" },
 			{ keys: [["/"]], label: "Filter issues" },
 			{ keys: [[MOD_LABEL, "B"]], label: "Switch between list and board" },
