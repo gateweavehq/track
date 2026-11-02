@@ -93,6 +93,8 @@ export const IssueRow = memo(function IssueRow({
 	return (
 		<li
 			ref={rowRef}
+			// biome-ignore lint/a11y/noRedundantRoles: explicit, as Safari drops list semantics under list-style: none
+			role="listitem"
 			aria-posinset={position}
 			aria-setsize={setSize}
 			data-selected={selected}

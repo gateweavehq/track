@@ -270,6 +270,8 @@ export function IssueList({
 			// `contents`, so the header sticks within the list rather than within this item.
 			<li
 				key={`group-${entry.group.key}`}
+				// biome-ignore lint/a11y/noRedundantRoles: explicit, as Safari drops list semantics under list-style: none and display: contents
+				role="listitem"
 				aria-posinset={(entryIndex.get(entry) ?? 0) + 1}
 				aria-setsize={entries.length}
 				className="contents"
@@ -320,7 +322,13 @@ export function IssueList({
 	return (
 		<>
 			{/* While issues are picked, room below the last row to scroll it clear of the bar. */}
-			<ul ref={root} aria-label="Issues" className={cn(checking && "pb-20")}>
+			<ul
+				ref={root}
+				// biome-ignore lint/a11y/noRedundantRoles: explicit, as Safari drops list semantics under list-style: none and display: contents
+				role="list"
+				aria-label="Issues"
+				className={cn(checking && "pb-20")}
+			>
 				<Spacer height={offsets[header ?? first] ?? 0} />
 				{rendered}
 				<Spacer height={(offsets[offsets.length - 1] ?? 0) - (offsets[last] ?? 0)} />
