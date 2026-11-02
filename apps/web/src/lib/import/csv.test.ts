@@ -46,6 +46,12 @@ describe("readCsvImport", () => {
 		]);
 	});
 
+	it("leaves the text of a file that is not Jira's as it is", () => {
+		const { source } = readCsvImport('Title,Description\nFix it,"h2. Not a heading, *not bold*"\n');
+		expect(source.name).toBe("CSV");
+		expect(source.issues[0]?.description).toBe("h2. Not a heading, *not bold*");
+	});
+
 	it("explains a file it cannot read", () => {
 		expect(() => readCsvImport("")).toThrow("empty");
 		expect(() => readCsvImport("Key,Status\nENG-1,Done\n")).toThrow("column of titles");
@@ -236,7 +242,7 @@ describe("a Jira CSV export", () => {
 			'"Steps:\n# open the cart\n# pay"',
 			"3.0",
 			"10040",
-			'"03/Nov/26 9:05 AM;5b10ac8d82e05b22cc7d4ef5;Seen on iOS 18; not on macOS."',
+			'"03/Nov/26 9:05 AM;5b10ac8d82e05b22cc7d4ef5;Seen on *iOS 18*; not on macOS."',
 			'"04/Nov/26 11:30 PM;712020:ffff0000-1111-2222-3333-444455556666;Fixed in the next build."',
 		].join(","),
 		[
@@ -297,7 +303,8 @@ describe("a Jira CSV export", () => {
 		expect(bug).toMatchObject({
 			title: "Checkout fails on Safari",
 			reference: "SHOP-12",
-			description: "Steps:\n# open the cart\n# pay",
+			// Jira's markup turns into Markdown.
+			description: "Steps:\n1. open the cart\n1. pay",
 			// A status of the team's own naming means what its category says.
 			status: { name: "QA Ready", category: "started" },
 			priority: 1,
@@ -309,7 +316,7 @@ describe("a Jira CSV export", () => {
 			parentSourceId: epic?.sourceId,
 			comments: [
 				{
-					body: "Seen on iOS 18; not on macOS.",
+					body: "Seen on **iOS 18**; not on macOS.",
 					author: "Grace Hopper",
 					createdAt: Date.UTC(2026, 10, 3, 9, 5),
 				},
