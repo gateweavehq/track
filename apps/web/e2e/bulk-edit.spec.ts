@@ -88,3 +88,31 @@ test("a table picks issues too: all at once, and the closed ones archived", asyn
 	await expect(bar).toBeHidden();
 	await expect(syncBadge(page)).toHaveText("Live");
 });
+
+test("a board picks cards too, and moves them to another column at once", async ({ page }) => {
+	const { slug } = await startWorkspace(page);
+	const titles = [unique("Sketch the icon"), unique("Pick the colors"), unique("Name the app")];
+	for (const title of titles) await createIssue(page, title);
+	await page.goto(`/${slug}/team/ENG`);
+	await page.getByRole("button", { name: "Board", exact: true }).click();
+	const todo = page.getByRole("region", { name: "Todo" });
+	await expect(todo.getByRole("link")).toHaveCount(0);
+
+	const bar = page.getByRole("region", { name: "Selected issues" });
+	await page.getByRole("checkbox", { name: "Select ENG-1" }).click();
+	await page.getByRole("checkbox", { name: "Select ENG-3" }).click({ modifiers: ["Shift"] });
+	await expect(bar).toContainText("3 issues selected");
+	await page.getByRole("checkbox", { name: "Select ENG-2" }).click();
+	await expect(bar).toContainText("2 issues selected");
+
+	await bar.getByRole("button", { name: "Status" }).click();
+	await page.getByRole("option", { name: "Todo" }).click();
+	await expect(todo.getByRole("link")).toHaveCount(2);
+	await expect(todo).toContainText("ENG-1");
+	await expect(todo).toContainText("ENG-3");
+	// Esc goes to an open menu first, so it waits for the status menu to be gone.
+	await expect(page.getByRole("dialog")).toBeHidden();
+	await page.keyboard.press("Escape");
+	await expect(bar).toBeHidden();
+	await expect(syncBadge(page)).toHaveText("Live");
+});
