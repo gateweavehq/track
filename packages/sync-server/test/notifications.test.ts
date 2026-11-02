@@ -14,12 +14,13 @@ import {
 	LINK_HEADER,
 	MEMBER_HEADER,
 	type MemberProfile,
+	SESSION_HEADER,
 	type WorkspaceDO,
 	type WorkspaceLink,
 } from "../src";
 import * as schema from "../src/db/schema";
 import { remindDue } from "../src/reminders";
-import { freshWorkspace, type Workspace, whole } from "./client";
+import { freshWorkspace, SESSION, type Workspace, whole } from "./client";
 
 const owner: MemberProfile = {
 	id: "user-owner",
@@ -95,6 +96,7 @@ async function connect(workspace: Workspace, member: MemberProfile, link: Worksp
 			Upgrade: "websocket",
 			[MEMBER_HEADER]: JSON.stringify(member),
 			[LINK_HEADER]: JSON.stringify(link),
+			[SESSION_HEADER]: JSON.stringify(SESSION),
 		},
 	});
 	response.webSocket?.accept();

@@ -36,6 +36,11 @@ export const CloseCode = {
 	ProtocolMismatch: 4001,
 	/** The user is no longer a member of the workspace. */
 	Forbidden: 4003,
+	/**
+	 * The session the socket was opened with has ended: signed out, revoked or expired. The client
+	 * asks the gateway whether its current cookie still works, then reconnects or asks for a sign-in.
+	 */
+	SessionEnded: 4401,
 	/** The client sent a message that is not valid protocol. */
 	InvalidMessage: 4400,
 } as const;

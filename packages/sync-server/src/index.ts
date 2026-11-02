@@ -12,6 +12,8 @@ export {
 	MEMBER_HEADER,
 	type MutateResult,
 	RETENTION,
+	SESSION_HEADER,
+	type SocketSession,
 	type WebhookResult,
 	WorkspaceDO,
 } from "./workspace-do";

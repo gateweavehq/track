@@ -13,6 +13,7 @@ import { schema } from "../db";
 import type { Mailer } from "../email/mailer";
 import { invitationEmail, passwordResetEmail, verificationEmail } from "../email/templates";
 import { agentMembers } from "./agents";
+import { EndedSessions } from "./ended-sessions";
 
 export interface AuthConfig {
 	db: Database;
@@ -32,6 +33,12 @@ export interface AuthConfig {
 	onWorkspaceRenamed?: (workspaceId: string, slug: string) => Promise<void>;
 	/** Called after a user's profile changes. */
 	onUserUpdated?: (userId: string) => Promise<void>;
+	/**
+	 * Called in the background after sessions end before their time: signed out, revoked, or
+	 * ended by a password reset or by deleting the user. Once per user per request, with every
+	 * session of theirs that ended in it. Sync sockets opened with them must close.
+	 */
+	onSessionsEnded?: (userId: string, sessionIds: string[]) => Promise<void>;
 	/**
 	 * The public demo: accounts are created only by the server, so these paths refuse requests
 	 * that arrive over HTTP (see DEMO_BLOCKED_PATHS). Server-side `auth.api` calls are unaffected.
@@ -60,6 +67,10 @@ export function createAuth(config: AuthConfig) {
 	// object is gone.
 	const workspacesOfDeletedUsers = new WeakMap<object, string[]>();
 	const { mailer } = config;
+	const endedSessions = new EndedSessions(
+		async (userId, sessionIds) => config.onSessionsEnded?.(userId, sessionIds),
+		config.runInBackground,
+	);
 
 	return betterAuth({
 		secret: config.secret,
@@ -148,6 +159,8 @@ export function createAuth(config: AuthConfig) {
 				}
 			}),
 			after: createAuthMiddleware(async (ctx) => {
+				// The request is over: the sessions it ended are reported together (see below).
+				endedSessions.flush(ctx.context);
 				// Leaving deletes the member row without calling `afterRemoveMember` (Better Auth
 				// 1.7, organization/routes/crud-members.mjs), so the workspace is told here. The
 				// endpoint answers with the member it removed, or with an error.
@@ -157,6 +170,17 @@ export function createAuth(config: AuthConfig) {
 			}),
 		},
 		databaseHooks: {
+			// Every Better Auth path that ends a session deletes its row through here, one by one
+			// even when it ends many (`deleteManyWithHooks`, 1.7). Sync sockets outlive the request
+			// that checked their session, so they are told, once the request is over and all
+			// together. The hook gets the endpoint's context, whose `context` the after hook sees.
+			session: {
+				delete: {
+					after: async (session, context) => {
+						endedSessions.add(context?.context ?? null, session.userId, session.id);
+					},
+				},
+			},
 			user: {
 				update: {
 					after: async (user) => {

@@ -5,6 +5,7 @@ import { mailer } from "../email";
 import { authRateLimits } from "../rate-limit";
 import {
 	deleteWorkspaceFiles,
+	endSessionsEverywhere,
 	syncMembership,
 	syncUserEverywhere,
 	workspaceStub,
@@ -54,6 +55,9 @@ function buildAuth() {
 		onMembershipChange: (workspaceId, userId) =>
 			logFailure(syncMembership(db, workspaceId, userId), "membership sync"),
 		onUserUpdated: (userId) => logFailure(syncUserEverywhere(db, userId), "profile sync"),
+		// A socket this misses still closes when its session would have run out.
+		onSessionsEnded: (userId, sessionIds) =>
+			logFailure(endSessionsEverywhere(db, userId, sessionIds), "closing ended sessions' sockets"),
 		onWorkspaceDeleted: async (workspaceId) => {
 			// Nobody can reach the files once the membership is gone, so the deletion need not hold
 			// up the response, however many there are.

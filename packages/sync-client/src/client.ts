@@ -454,6 +454,9 @@ export class SyncClient {
 		this.#disconnect();
 		if (code === CloseCode.ProtocolMismatch) this.#fail("outdated");
 		else if (code === CloseCode.Forbidden) this.#fail("forbidden");
+		// The session the socket was opened with ended. The browser may hold another by now, such as
+		// after signing in again in another tab: the probe tells, and reconnects with it if so.
+		else if (code === CloseCode.SessionEnded) void this.#probe();
 		else if (opened) this.#scheduleRetry();
 		else void this.#probe();
 	}

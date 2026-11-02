@@ -23,7 +23,14 @@ import migrations from "../drizzle/migrations";
 import type { MemberProfile, MutateResult } from "../src";
 import * as schema from "../src/db/schema";
 import { compact } from "../src/log";
-import { freshWorkspace, storedHistory, TestClient, type Workspace, whole } from "./client";
+import {
+	freshWorkspace,
+	SESSION,
+	storedHistory,
+	TestClient,
+	type Workspace,
+	whole,
+} from "./client";
 
 const owner: MemberProfile = {
 	id: "user-owner",
@@ -108,7 +115,11 @@ describe("connection", () => {
 	it("answers keepalive pings", async () => {
 		const workspace = freshWorkspace();
 		const response = await workspace.fetch("https://workspace/socket", {
-			headers: { Upgrade: "websocket", "x-track-member": JSON.stringify(owner) },
+			headers: {
+				Upgrade: "websocket",
+				"x-track-member": JSON.stringify(owner),
+				"x-track-session": JSON.stringify(SESSION),
+			},
 		});
 		const ws = response.webSocket;
 		if (!ws) throw new Error("no socket");
@@ -2986,6 +2997,59 @@ describe("membership", () => {
 		expect((await client.closed()).code).toBe(CloseCode.Forbidden);
 		const removed = (await snapshotOf(workspace)).members.find((m) => m.id === alice.id);
 		expect(removed?.removedAt).toEqual(expect.any(Number));
+	});
+
+	it("closes the sockets of sessions that ended, and only those", async () => {
+		const { workspace, admin } = await withTeam();
+		const ended = { id: "session-ended", expiresAt: Number.MAX_SAFE_INTEGER };
+		const alsoEnded = { id: "session-also-ended", expiresAt: Number.MAX_SAFE_INTEGER };
+		const signedOut = await TestClient.connect(workspace, alice, undefined, ended);
+		await signedOut.hello();
+		const revoked = await TestClient.connect(workspace, alice, undefined, alsoEnded);
+		await revoked.hello();
+		const stillIn = await TestClient.live(workspace, alice);
+		// Another person's socket with the same session id is not theirs to close.
+		const other = await TestClient.connect(workspace, bob, undefined, ended);
+		await other.hello();
+
+		await workspace.endSessions(alice.id, [ended.id, alsoEnded.id]);
+
+		expect((await signedOut.closed()).code).toBe(CloseCode.SessionEnded);
+		expect((await revoked.closed()).code).toBe(CloseCode.SessionEnded);
+		await createIssue(admin, "issue-after-sign-out");
+		await stillIn.op((op) => op.entity === "issue" && op.id === "issue-after-sign-out");
+		await other.op((op) => op.entity === "issue" && op.id === "issue-after-sign-out");
+	});
+
+	it("refuses a socket's messages once its session has run out", async () => {
+		const { workspace } = await withTeam();
+		const session = { id: "session-short", expiresAt: Date.now() + 200 };
+		// The owner, who could make the team were the socket still theirs.
+		const client = await TestClient.connect(workspace, owner, undefined, session);
+		await client.hello();
+
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		client.send({
+			type: "mutate",
+			id: "after-expiry",
+			mutation: { name: "team.create", args: { id: "team-late", key: "LATE", name: "Late" } },
+		});
+
+		expect((await client.closed()).code).toBe(CloseCode.SessionEnded);
+		expect((await snapshotOf(workspace)).teams.map((team) => team.id)).not.toContain("team-late");
+	});
+
+	it("sends nothing more to a socket whose session has run out", async () => {
+		const { workspace, admin } = await withTeam();
+		const session = { id: "session-short", expiresAt: Date.now() + 200 };
+		const client = await TestClient.connect(workspace, alice, undefined, session);
+		await client.hello();
+
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		await createIssue(admin, "issue-after-expiry");
+
+		expect((await client.closed()).code).toBe(CloseCode.SessionEnded);
+		expect(client.ops().some((op) => op.id === "issue-after-expiry")).toBe(false);
 	});
 
 	it("wipes all data when the workspace is destroyed", async () => {

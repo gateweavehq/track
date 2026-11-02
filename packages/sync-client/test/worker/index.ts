@@ -1,4 +1,4 @@
-import { MEMBER_HEADER, type MemberProfile } from "@gateweave/track-sync-server";
+import { MEMBER_HEADER, type MemberProfile, SESSION_HEADER } from "@gateweave/track-sync-server";
 
 export { WorkspaceDO } from "@gateweave/track-sync-server";
 
@@ -39,7 +39,12 @@ export default {
 		const stub = env.WORKSPACE.getByName(workspace);
 		if (endpoint === "socket") {
 			return stub.fetch("https://workspace/socket", {
-				headers: { Upgrade: "websocket", [MEMBER_HEADER]: JSON.stringify(member) },
+				headers: {
+					Upgrade: "websocket",
+					[MEMBER_HEADER]: JSON.stringify(member),
+					// Sessions are the app's to end; here they last.
+					[SESSION_HEADER]: JSON.stringify({ id: user, expiresAt: Number.MAX_SAFE_INTEGER }),
+				},
 			});
 		}
 		if (request.method === "HEAD") return new Response(null, { status: 204 });

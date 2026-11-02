@@ -6,10 +6,11 @@ import {
 	MEMBER_HEADER,
 	type MemberProfile,
 	type RequesterNotice,
+	SESSION_HEADER,
 	type WorkspaceDO,
 	type WorkspaceLink,
 } from "../src";
-import { freshWorkspace, type Workspace } from "./client";
+import { freshWorkspace, SESSION, type Workspace } from "./client";
 
 // What people hear of a decision on a request (TRK-41): the members who follow it, in their
 // inbox, and whoever filed it through a form or by email, by email.
@@ -42,6 +43,7 @@ async function setup({ link = true } = {}) {
 				Upgrade: "websocket",
 				[MEMBER_HEADER]: JSON.stringify(owner),
 				[LINK_HEADER]: JSON.stringify(LINK),
+				[SESSION_HEADER]: JSON.stringify(SESSION),
 			},
 		});
 		response.webSocket?.accept();
