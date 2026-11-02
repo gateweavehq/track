@@ -558,6 +558,11 @@ function PlanSummary({ sourceName, plan }: { sourceName: string; plan: ImportPla
 			<p>
 				From {sourceName}: {contents(plan)}.
 			</p>
+			{plan.archived > 0 && (
+				<p className="text-muted-foreground">
+					{countOf(plan.archived, "issue")} will be archived, as in {sourceName}.
+				</p>
+			)}
 			{plan.skipped > 0 && (
 				<p className="text-muted-foreground">
 					{countOf(plan.skipped, "item")} imported before will be skipped.
@@ -633,6 +638,8 @@ function describeMutation(mutation: MutationInput): string {
 			return `The team “${mutation.args.name}”`;
 		case "relation.create":
 			return "A relation";
+		case "issue.archive":
+			return "Archiving an issue";
 		default:
 			return mutation.name;
 	}

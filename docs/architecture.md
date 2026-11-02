@@ -221,6 +221,13 @@ secret, which never leaves it, before it reads the body. See [GitHub](#github).
 see the HTTP status of a refused WebSocket handshake, so the client uses this probe to tell
 "offline" apart from "signed out" or "no longer a member".
 
+Two more reads go through the same gateway and the same checks, for what replicas leave out of
+archived issues (see [Archive](#archive)): `GET /api/sync/:slug/issues/:id` (one issue whole) and
+`GET /api/sync/:slug/archive` (`?team=` for one team's). Each becomes an RPC call with the
+verified member. The DO checks again that the member is an active one, without writing, and
+refuses anyone else; a refusal is the gateway's `404` for a missing workspace. It answers only
+for its own live issues, so an id from another workspace is `404 Issue not found`.
+
 Better Auth limits how often each client calls `/api/auth/*`. For example, it allows 3 sign-in
 attempts per 10 seconds and 3 password-reset requests per minute. It identifies the client by
 `CF-Connecting-IP`. Cloudflare sets that header and clients cannot. Counts are kept in memory,
@@ -328,6 +335,16 @@ and a delta whose `from` is beyond its version plus one means it missed somethin
 If `since` is older than the compaction floor, or newer than the server (for example, after a
 local database wipe), the server replies `reset` and the client fetches a new snapshot. A
 protocol version mismatch closes the socket with code `4001` so the client can prompt a reload.
+
+Beside the snapshot, a connected browser may ask over HTTP for what its replica leaves out of
+archived issues: `IssueDetails` (one issue, with its comments, history, open proposals and pull
+requests) and `ArchivedIssues` (archived issues with their comments and history), whose inputs
+are the zod schemas `issueDetailsRequest` and `archivedIssuesRequest` in `packages/protocol`.
+These are plain request and response, not sync: nothing in them reaches the replica or IndexedDB,
+and they need a connection. They are HTTP rather than socket messages because only the leader
+tab holds the socket, while any tab may open an archived issue or export, and because an
+export's answer can be large. They are additions, so `PROTOCOL_VERSION` stays at 25: older
+clients never ask for them, and nothing they send or receive changed.
 
 Clients keep the socket alive by sending the plain-text frame `ping`. The runtime answers `pong`
 without waking a hibernated Durable Object.
@@ -478,12 +495,24 @@ a way to restore each issue.
     and title. Burn-ups draw an archived issue as it is now on every day, since its history is not
     there; a completed cycle is judged by its last day, which is still right. Insights and label
     counts leave archived issues out.
-  - An archived issue's page shows the slim row and a way to restore it, and says that the full
-    issue, with its history, needs a connection and comes in a later version. Loading it on demand,
-    and exporting archived issues whole, are later steps. Until then the CSV export gives archived
-    issues' rows with only what the replica knows, and the JSON export lists them apart in
-    `archivedIssues`, slim, with a note in `notes` that their details are not included; the app
-    says so when it exports them, and the JSON import says it leaves them behind.
+  - **An archived issue's page asks for the rest on demand.** While the browser is connected,
+    `ArchivedIssueDetail` fetches the issue whole (`GET /api/sync/:slug/issues/:id`,
+    `useIssueDetails` in `apps/web/src/lib/archived.ts`) and shows its description, labels,
+    priority, assignee, dates, pull requests, proposals, comments and history, read-only, with
+    Restore as the way to edit. The answer lives in the component's state only: it is never put in
+    the replica or IndexedDB, and it is asked for again when the slim row changes or the
+    connection comes back. Offline the page shows the slim row and says the rest is on the server.
+  - **Exports fetch archived issues whole.** When the slice being exported has archived issues,
+    the app asks the server for them (`GET /api/sync/:slug/archive`) and exports them whole: the
+    CSV fills in their cells, and the JSON lists them apart in `archivedIssues`, with their
+    comments and history among the others. The server's list decides which issues are archived,
+    so each issue is in the file once. Offline, the export stops and says the archived issues
+    need a connection, offering to export without them; a JSON export made that way says in
+    `notes` how many it left out. It never passes a slim row off as an issue.
+  - **The JSON import brings archived issues along**, archived: after their comments and
+    relations are in, each is archived (`issue.archive`) if the status it gets here closes it.
+    Exports made by version 0.20 hold archived issues slim; the import leaves those behind and
+    says so.
   - The replica predicts archiving as the server will send it, slim and without the rows above.
     It does not predict restoring, or any edit to an archived issue: it has no version or details
     to work from, and the server sends the whole issue back.
@@ -495,7 +524,8 @@ a way to restore each issue.
   `updatedFrom`. Over MCP, `search_issues` takes `archived` (only archived issues, or none) and
   every issue says whether it is archived; `update_issue` takes `archived` to archive or restore,
   after the other changes, so one call can close an issue and archive it. Exports carry
-  `archivedAt`; imports bring issues in unarchived.
+  `archivedAt`; the JSON import archives what was archived, and other imports bring issues in
+  unarchived.
 
 Archiving is a breaking change to the protocol (version 17), so clients that predate it start from
 a fresh snapshot. Slim archived issues are another (version 25): every client drops its cache and
@@ -1371,7 +1401,7 @@ imports, so validation, permissions and fan-out are the ordinary ones.
   in one team; it then also adds each team's live statuses that the team here lacks. Otherwise
   statuses are matched as above: the file names each issue's status and its category. History
   stays behind, since activity belongs to the people who made it. Relations are sent last, once
-  both issues exist.
+  both issues exist, and then the archived issues are archived (see [Archive](#archive)).
 - **Repeating an import is safe.** An imported issue's or comment's id is made from its id in
   the source (`import-` and a SHA-256 prefix), and the plan skips ids the workspace already has.
   Relations and project updates from a JSON export are made the same way.

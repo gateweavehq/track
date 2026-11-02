@@ -790,6 +790,94 @@ describe("archive", () => {
 		expect(await titles(false)).toEqual(["Open"]);
 		expect(await titles(true)).toEqual(["Archived"]);
 	});
+
+	it("answers a member an archived issue whole, and writes nothing", async () => {
+		const { workspace, admin, issue } = await withDetails();
+		await archive(admin, issue.id, true);
+		await createIssue(admin, "issue-2", "Still open");
+		const viewer = await liveFrom(workspace);
+		const before = (await snapshotOf(workspace)).version;
+
+		const details = await workspace.issueDetails(alice, { issueId: issue.id });
+		if (!details.ok) throw new Error(details.message);
+		expect(details.value.issue).toMatchObject({
+			id: issue.id,
+			description: "Steps to reproduce",
+			labelIds: ["label-bug"],
+			archivedAt: expect.any(Number),
+			version: expect.any(Number),
+		});
+		expect(details.value.comments.map((comment) => comment.id)).toEqual(["comment-1"]);
+		expect(details.value.activities.map((activity) => activity.change)).toContainEqual({
+			type: "archived",
+			archived: true,
+		});
+		expect(details.value.proposals).toMatchObject([
+			{ issueId: issue.id, change: { type: "title" } },
+		]);
+		expect(details.value.pullRequests).toEqual([]);
+
+		// Every archived issue of the workspace, or of a team, whole, for an export.
+		const archived = await workspace.archivedIssues(alice, { teamId: null });
+		if (!archived.ok) throw new Error(archived.message);
+		expect(archived.value.issues.map((row) => row.id)).toEqual([issue.id]);
+		expect(archived.value.issues[0]).toMatchObject({ description: "Steps to reproduce" });
+		expect(archived.value.comments.map((comment) => comment.id)).toEqual(["comment-1"]);
+		expect(archived.value.activities).toEqual(details.value.activities);
+		expect(await workspace.archivedIssues(alice, { teamId: TEAM_ID })).toMatchObject({
+			ok: true,
+			value: { issues: [{ id: issue.id }] },
+		});
+		expect(await workspace.archivedIssues(alice, { teamId: "team-other" })).toEqual({
+			ok: true,
+			value: { issues: [], comments: [], activities: [] },
+		});
+
+		// Reading is not writing: no version, and nothing for replicas. The next write's op is the
+		// first the viewer hears.
+		expect((await snapshotOf(workspace)).version).toBe(before);
+		await update(admin, "issue-2", { title: "Still open, renamed" });
+		await viewer.op((op) => op.entity === "issue" && op.id === "issue-2");
+		expect(viewer.ops()).toEqual([
+			expect.objectContaining({ version: before + 1, entity: "issue", id: "issue-2" }),
+		]);
+	});
+
+	it("refuses whoever is not a member, and ids of issues it does not have", async () => {
+		const { workspace, admin, issue } = await withDetails();
+		await archive(admin, issue.id, true);
+		const forbidden = { ok: false, reason: "forbidden", message: "Not a workspace member" };
+
+		// Bob was never a member here, then is one and is removed: a read lets in neither.
+		expect(await workspace.issueDetails(bob, { issueId: issue.id })).toEqual(forbidden);
+		expect(await workspace.archivedIssues(bob, { teamId: null })).toEqual(forbidden);
+		await workspace.syncMember(bob);
+		expect(await workspace.issueDetails(bob, { issueId: issue.id })).toMatchObject({ ok: true });
+		await workspace.removeMember(bob.id);
+		expect(await workspace.issueDetails(bob, { issueId: issue.id })).toEqual(forbidden);
+		expect(await workspace.archivedIssues(bob, { teamId: null })).toEqual(forbidden);
+
+		// Another workspace's issue is not found here, though its id is real there.
+		const other = freshWorkspace();
+		const stranger = await TestClient.live(other, owner);
+		await stranger.apply({ name: "team.create", args: { id: TEAM_ID, key: "OPS", name: "Ops" } });
+		await createIssue(stranger, "issue-elsewhere");
+		expect(await other.issueDetails(owner, { issueId: "issue-elsewhere" })).toMatchObject({
+			ok: true,
+		});
+		const notFound = { ok: false, reason: "not_found", message: "Issue not found" };
+		expect(await workspace.issueDetails(owner, { issueId: "issue-elsewhere" })).toEqual(notFound);
+		expect(await other.issueDetails(owner, { issueId: issue.id })).toEqual(notFound);
+
+		// Nor is a deleted one, and an id that is not one is refused as invalid.
+		await createIssue(admin, "issue-2");
+		await admin.apply({ name: "issue.delete", args: { id: "issue-2" } });
+		expect(await workspace.issueDetails(owner, { issueId: "issue-2" })).toEqual(notFound);
+		for (const input of [{ issueId: "" }, { issueId: "x".repeat(65) }, {}, null]) {
+			expect(await workspace.issueDetails(owner, input)).toMatchObject({ reason: "invalid" });
+		}
+		expect(await workspace.archivedIssues(owner, {})).toMatchObject({ reason: "invalid" });
+	});
 });
 
 describe("intake", () => {

@@ -1,9 +1,16 @@
-import type { ActiveIssue, ArchivedIssue, SyncedIssue, Team } from "@gateweave/track-protocol";
+import type {
+	ActiveIssue,
+	ArchivedIssue,
+	Issue,
+	SyncedIssue,
+	Team,
+} from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link } from "@tanstack/react-router";
 import {
 	Archive,
 	ArchiveRestore,
+	Bot,
 	ChevronRight,
 	CloudOff,
 	Gauge,
@@ -13,13 +20,17 @@ import {
 import type { ReactNode } from "react";
 import { CycleIcon } from "#/components/cycles/meta";
 import { useReadOnView } from "#/components/inbox/hooks";
+import { Markdown } from "#/components/markdown";
+import { MemberAvatar } from "#/components/members/member-avatar";
 import { ProjectStatusIcon } from "#/components/projects/meta";
 import { Button } from "#/components/ui/button";
 import { useWorkspace } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
+import { actorName } from "#/lib/actors";
+import { useIssueDetails } from "#/lib/archived";
 import { monthsLabel } from "#/lib/automations";
 import { cycleName, stateIn } from "#/lib/cycles";
-import { formatDateTime, formatRelative } from "#/lib/dates";
+import { formatDateTime, formatDay, formatRelative } from "#/lib/dates";
 import { estimateLabel, issueKey } from "#/lib/issues";
 import { send } from "#/lib/mutations";
 import {
@@ -27,12 +38,17 @@ import {
 	useCycle,
 	useIssueById,
 	useIssueStatus,
+	useMembersById,
 	useProject,
 	useStatuses,
 	useTeamsById,
 } from "#/lib/queries";
 import { statusOf } from "#/lib/statuses";
-import { StatusIcon } from "./meta";
+import { ArchivedActivity } from "./issue-activity";
+import { LabelChips } from "./labels";
+import { PRIORITY_META, PriorityIcon, StatusIcon } from "./meta";
+import { ProposalItem } from "./proposal-item";
+import { PullRequestList } from "./pull-requests";
 
 /** Archives or restores an issue. Asking for what the issue already is changes nothing. */
 function useArchive() {
@@ -64,9 +80,10 @@ export function ArchiveIssueButton({ issue, closed }: { issue: ActiveIssue; clos
 
 /**
  * An archived issue's page. The replica keeps only a slim row of it (`ArchivedIssue`): what lists,
- * links, search and progress need. Its description, labels, comments and history stay on the
- * server, so the page shows what it has, says so, and offers to restore it, which brings the
- * whole issue back.
+ * links, search and progress need. While there is a connection the page asks the server for the
+ * rest (description, labels, comments, history, proposals and pull requests) and shows it
+ * read-only, without putting it in the replica. Offline it shows what the replica has, and says
+ * so. Restoring the issue brings the whole of it back to edit.
  */
 export function ArchivedIssueDetail({ issue, team }: { issue: ArchivedIssue; team: Team }) {
 	const { slug } = useWorkspace();
@@ -78,6 +95,8 @@ export function ArchivedIssueDetail({ issue, team }: { issue: ArchivedIssue; tea
 	const teams = useTeamsById();
 	const key = issueKey(team, issue);
 	const parentKey = parent ? issueKey(teams.get(parent.teamId), parent) : null;
+	const full = useIssueDetails(slug, issue.id, issue);
+	const details = full.status === "loaded" ? full.details : null;
 	useReadOnView(issue.id);
 
 	return (
@@ -138,12 +157,14 @@ export function ArchivedIssueDetail({ issue, team }: { issue: ArchivedIssue; tea
 					</Link>
 				)}
 				<h1 className="text-2xl font-semibold tracking-tight break-words">{issue.title}</h1>
+				{details?.issue.description && <Markdown source={details.issue.description} />}
 
 				<dl className="grid max-w-md grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
 					<Field label="Status">
 						<StatusIcon status={status} />
 						{status.name}
 					</Field>
+					{details && <WholeFields issue={details.issue} />}
 					<Field label="Project">
 						{project ? (
 							<>
@@ -171,19 +192,113 @@ export function ArchivedIssueDetail({ issue, team }: { issue: ArchivedIssue; tea
 							estimateLabel(issue.estimate)
 						)}
 					</Field>
+					{details && <DateFields issue={details.issue} />}
 				</dl>
 
-				<div className="flex gap-3 rounded-md border border-dashed px-4 py-3 text-sm text-muted-foreground">
-					<CloudOff className="mt-0.5 size-4 shrink-0" />
-					<p>
-						This browser keeps only an archived issue&rsquo;s title, status and links. Its
-						description, labels, comments and history are kept on the server; showing them here
-						needs a connection and comes in a later version of Track. Restore the issue to see and
-						edit all of it.
+				{details ? (
+					<>
+						<PullRequestList issueId={issue.id} pullRequests={details.pullRequests} />
+						{details.proposals.length > 0 && (
+							<section
+								aria-labelledby="proposals-heading"
+								className="space-y-3 rounded-lg border bg-muted/40 p-3"
+							>
+								<h2
+									id="proposals-heading"
+									className="flex items-center gap-1.5 text-sm font-medium"
+								>
+									<Bot aria-hidden className="size-4 text-muted-foreground" />
+									Proposed by agents
+								</h2>
+								<ul className="space-y-2">
+									{details.proposals.map((proposal) => (
+										<ProposalItem key={proposal.id} proposal={proposal} readOnly />
+									))}
+								</ul>
+							</section>
+						)}
+						<ArchivedActivity
+							issue={details.issue}
+							activity={details.activities}
+							comments={details.comments}
+						/>
+						<p className="text-sm text-muted-foreground">
+							An archived issue cannot be changed. Restore it to edit it or to comment.
+						</p>
+					</>
+				) : full.status === "loading" ? (
+					<p aria-busy className="text-sm text-muted-foreground">
+						Loading the rest of the issue…
 					</p>
-				</div>
+				) : (
+					<div className="flex gap-3 rounded-md border border-dashed px-4 py-3 text-sm text-muted-foreground">
+						<CloudOff className="mt-0.5 size-4 shrink-0" />
+						{full.status === "failed" ? (
+							<div className="space-y-2">
+								<p>
+									The rest of this issue could not be loaded from the server. Its description,
+									labels, comments and history are still kept there.
+								</p>
+								<Button variant="outline" size="sm" onClick={full.retry}>
+									Try again
+								</Button>
+							</div>
+						) : (
+							<p>
+								This browser keeps only an archived issue&rsquo;s title, status and links. Its
+								description, labels, comments and history are kept on the server, and show here when
+								you are online. Restore the issue to see and edit all of it.
+							</p>
+						)}
+					</div>
+				)}
 			</article>
 		</div>
+	);
+}
+
+/** What only the server's copy of an archived issue has: priority, assignee and labels. */
+function WholeFields({ issue }: { issue: Issue }) {
+	const members = useMembersById();
+	const assignee = issue.assigneeId ? members.get(issue.assigneeId) : undefined;
+	return (
+		<>
+			<Field label="Priority">
+				<PriorityIcon priority={issue.priority} />
+				{PRIORITY_META[issue.priority].label}
+			</Field>
+			<Field label="Assignee">
+				<MemberAvatar member={assignee} className="size-4" />
+				{issue.assigneeId ? (
+					actorName(issue.assigneeId, members)
+				) : (
+					<span className="text-muted-foreground">Unassigned</span>
+				)}
+			</Field>
+			<Field label="Labels">
+				{issue.labelIds.length > 0 ? (
+					<LabelChips labelIds={issue.labelIds} className="flex-wrap" />
+				) : (
+					<span className="text-muted-foreground">No labels</span>
+				)}
+			</Field>
+		</>
+	);
+}
+
+/** The server's copy's dates, and who made the issue. */
+function DateFields({ issue }: { issue: Issue }) {
+	const members = useMembersById();
+	return (
+		<>
+			{issue.startDate && <Field label="Start date">{formatDay(issue.startDate)}</Field>}
+			{issue.dueDate && <Field label="Due date">{formatDay(issue.dueDate)}</Field>}
+			<Field label="Created">
+				<span title={formatDateTime(issue.createdAt)}>
+					{formatRelative(issue.createdAt)} by {actorName(issue.creatorId, members)}
+				</span>
+			</Field>
+		</>
 	);
 }
 

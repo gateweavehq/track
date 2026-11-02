@@ -1,11 +1,11 @@
 import {
 	type ActiveIssue,
 	type Activity,
-	ARCHIVED_ISSUE_FIELDS,
-	type ArchivedIssue,
+	type ArchivedIssues,
 	type Comment,
 	type Cycle,
 	compareStatuses,
+	type Issue,
 	type IssueRelation,
 	isActiveIssue,
 	type Label,
@@ -21,10 +21,12 @@ import { PRIORITY_META } from "#/components/issues/meta";
 import { issueKey } from "./issues";
 import { statusOf } from "./statuses";
 
-// Exports are built in the browser from the local replica: no server route, so nothing new
-// can leak data, and it works offline. These functions only turn data into the file's text.
-// The replica holds an archived issue as a slim row, so an export has only that of it, and says
-// so: the CSV leaves the cells it does not know empty, and the JSON lists those issues apart.
+// Exports are built in the browser from the local replica, and these functions only turn data
+// into the file's text. The replica holds an archived issue as a slim row, so the rest of the
+// archived issues comes from the server (`fetchArchivedIssues`) and is passed in as `archived`,
+// read the way the page of one is: through the sync gateway, for members only. Without it, as
+// offline, an export leaves archived issues out and says so; it never passes a slim row off as a
+// whole issue.
 
 export const EXPORT_FORMAT = "gateweave-track-export";
 export const EXPORT_VERSION = 1;
@@ -49,22 +51,27 @@ export const CSV_COLUMNS = [
 	"Updated",
 ] as const;
 
-/** What an export reads: the replica's tables, plus which workspace they belong to. */
+/** What an export reads: the replica's tables, read more than once, and whose workspace they are. */
 export interface ExportSource {
 	workspace: { slug: string; name: string };
-	teams: Iterable<Team>;
-	statuses: Iterable<WorkflowStatus>;
-	members: Iterable<Member>;
-	labels: Iterable<Label>;
-	projects: Iterable<Project>;
+	teams: readonly Team[];
+	statuses: readonly WorkflowStatus[];
+	members: readonly Member[];
+	labels: readonly Label[];
+	projects: readonly Project[];
 	/** Exported whole, with their projects. Sources from before project updates have none. */
-	projectUpdates?: Iterable<ProjectUpdate>;
-	cycles: Iterable<Cycle>;
+	projectUpdates?: readonly ProjectUpdate[];
+	cycles: readonly Cycle[];
 	/** Archived ones as their slim rows, as the replica holds them. */
-	issues: Iterable<SyncedIssue>;
-	comments: Iterable<Comment>;
-	activities: Iterable<Activity>;
-	relations: Iterable<IssueRelation>;
+	issues: readonly SyncedIssue[];
+	comments: readonly Comment[];
+	activities: readonly Activity[];
+	relations: readonly IssueRelation[];
+	/**
+	 * The archived issues whole, with their comments and history, as the server sent them. Left
+	 * out, the export has no archived issues, and the JSON's `notes` say how many it left out.
+	 */
+	archived?: ArchivedIssues | null;
 }
 
 /** The tables of a replica as an export source. Proposals are not exported. */
@@ -74,17 +81,17 @@ export function exportSourceFrom(
 ): ExportSource {
 	return {
 		workspace,
-		teams: state.teams.values(),
-		statuses: state.statuses.values(),
-		members: state.members.values(),
-		labels: state.labels.values(),
-		projects: state.projects.values(),
-		projectUpdates: state.projectUpdates.values(),
-		cycles: state.cycles.values(),
-		issues: state.issues.values(),
-		comments: state.comments.values(),
-		activities: state.activities.values(),
-		relations: state.relations.values(),
+		teams: [...state.teams.values()],
+		statuses: [...state.statuses.values()],
+		members: [...state.members.values()],
+		labels: [...state.labels.values()],
+		projects: [...state.projects.values()],
+		projectUpdates: [...state.projectUpdates.values()],
+		cycles: [...state.cycles.values()],
+		issues: [...state.issues.values()],
+		comments: [...state.comments.values()],
+		activities: [...state.activities.values()],
+		relations: [...state.relations.values()],
 	};
 }
 
@@ -101,8 +108,10 @@ interface Slice {
 	/** The cycles of the slice's teams, so every issue's cycle is in the file. */
 	cycles: Cycle[];
 	issues: ActiveIssue[];
-	/** The slice's archived issues, of which the replica holds only `ARCHIVED_ISSUE_FIELDS`. */
-	archived: ArchivedIssue[];
+	/** The slice's archived issues whole, from the server. Empty when it was not asked. */
+	archived: Issue[];
+	/** How many archived issues the replica has in the slice that the export leaves out. */
+	archivedLeftOut: number;
 	comments: Comment[];
 	activities: Activity[];
 	/** Relations between two issues of the slice, so both ends are in the file. */
@@ -120,16 +129,23 @@ function sliceOf(source: ExportSource, teamId: string | null): Slice {
 	const teamsById = new Map(teams.map((team) => [team.id, team]));
 	const rank = new Map(teams.map((team, index) => [team.id, index]));
 	const all = [...source.issues];
-	const sliced = all
-		.filter((issue) => teamId === null || issue.teamId === teamId)
-		.sort(
-			(a, b) =>
-				(rank.get(a.teamId) ?? Number.MAX_SAFE_INTEGER) -
-					(rank.get(b.teamId) ?? Number.MAX_SAFE_INTEGER) || a.number - b.number,
-		);
-	const issues = sliced.filter(isActiveIssue);
-	const archived = sliced.flatMap((issue) => (isActiveIssue(issue) ? [] : [slim(issue)]));
-	const issueIds = new Set(sliced.map((issue) => issue.id));
+	const inSlice = (issue: { teamId: string }) => teamId === null || issue.teamId === teamId;
+	type Numbered = { teamId: string; number: number };
+	const byTeamAndNumber = (a: Numbered, b: Numbered) =>
+		(rank.get(a.teamId) ?? Number.MAX_SAFE_INTEGER) -
+			(rank.get(b.teamId) ?? Number.MAX_SAFE_INTEGER) || a.number - b.number;
+	// The server's archived issues are the ones exported as archived, even one the replica has not
+	// heard was archived yet: each issue is in the file once.
+	const archived = (source.archived?.issues ?? []).filter(inSlice).sort(byTeamAndNumber);
+	const archivedIds = new Set(archived.map((issue) => issue.id));
+	const issues = all
+		.filter(
+			(issue): issue is ActiveIssue =>
+				inSlice(issue) && isActiveIssue(issue) && !archivedIds.has(issue.id),
+		)
+		.sort(byTeamAndNumber);
+	const archivedLeftOut = source.archived ? 0 : archivedInExport(source, teamId);
+	const issueIds = new Set([...issues, ...archived].map((issue) => issue.id));
 	const members = [...source.members];
 	const labels = [...source.labels];
 	const projects = [...source.projects];
@@ -157,10 +173,11 @@ function sliceOf(source: ExportSource, teamId: string | null): Slice {
 			),
 		issues,
 		archived,
-		comments: [...source.comments]
+		archivedLeftOut,
+		comments: unique([...source.comments, ...(source.archived?.comments ?? [])])
 			.filter((comment) => issueIds.has(comment.issueId))
 			.sort((a, b) => a.createdAt - b.createdAt),
-		activities: [...source.activities]
+		activities: unique([...source.activities, ...(source.archived?.activities ?? [])])
 			.filter((activity) => issueIds.has(activity.issueId))
 			.sort((a, b) => a.createdAt - b.createdAt),
 		relations: [...source.relations]
@@ -170,28 +187,34 @@ function sliceOf(source: ExportSource, teamId: string | null): Slice {
 		membersById: new Map(members.map((member) => [member.id, member])),
 		labelsById: new Map(labels.map((label) => [label.id, label])),
 		projectsById: new Map(projects.map((project) => [project.id, project])),
-		issuesById: new Map(all.map((issue) => [issue.id, issue])),
+		issuesById: new Map([...all, ...archived].map((issue) => [issue.id, issue])),
 	};
 }
 
-/** Only what the replica holds of an archived issue, whatever row it was given. */
-function slim(issue: ArchivedIssue): ArchivedIssue {
-	return Object.fromEntries(
-		ARCHIVED_ISSUE_FIELDS.map((field) => [field, issue[field]]),
-	) as unknown as ArchivedIssue;
+/** Rows by id, the first of each: a comment can be in the replica and in the server's answer. */
+function unique<T extends { id: string }>(rows: T[]): T[] {
+	const seen = new Set<string>();
+	return rows.filter((row) => !seen.has(row.id) && seen.add(row.id));
 }
 
-/** How many of a slice's issues are archived, and so exported without their details. */
+/**
+ * How many of a slice's issues the replica holds archived, slim: an export needs the server for
+ * them. Zero, it is complete from the replica alone.
+ */
 export function archivedInExport(source: ExportSource, teamId: string | null = null): number {
-	return sliceOf(source, teamId).archived.length;
+	return [...source.issues].filter(
+		(issue) => !isActiveIssue(issue) && (teamId === null || issue.teamId === teamId),
+	).length;
 }
 
-/** What a JSON export says about its archived issues, when it has any. */
-export const ARCHIVED_EXPORT_NOTE =
-	"Archived issues are listed in archivedIssues with only their key, title, status, project, " +
-	"cycle, parent, estimate and when they were archived. Their description, labels, comments " +
-	"and history are not included yet: the browser that made this export does not keep them. " +
-	"Restore an issue before exporting to include all of it.";
+/** What a JSON export made without the server says about the archived issues it left out. */
+export function archivedLeftOutNote(count: number): string {
+	return (
+		`${count} archived ${count === 1 ? "issue is" : "issues are"} not in this export. ` +
+		"This browser keeps only a short record of archived issues, and the rest is on the server, " +
+		"which could not be reached. Export again while online to include them."
+	);
+}
 
 // CSV
 
@@ -212,13 +235,13 @@ const BYTE_ORDER_MARK = "﻿";
 /**
  * One row per issue, by team and number, as RFC 4180 CSV with a byte order mark. People are their
  * email, labels their names joined with ", ", dates `YYYY-MM-DD` and timestamps ISO 8601 in UTC.
- * Pass `teamId` for one team's issues. Archived issues follow, with only what the replica holds of
- * them; the cells it does not know are empty.
+ * Pass `teamId` for one team's issues. Archived issues follow, whole, when `archived` has them;
+ * without it they are left out.
  */
 export function issuesToCsv(source: ExportSource, teamId: string | null = null): string {
 	const slice = sliceOf(source, teamId);
 	const rows: string[][] = [[...CSV_COLUMNS]];
-	for (const issue of slice.issues) {
+	for (const issue of [...slice.issues, ...slice.archived]) {
 		const team = slice.teamsById.get(issue.teamId);
 		rows.push([
 			issueKey(team, issue),
@@ -240,27 +263,6 @@ export function issuesToCsv(source: ExportSource, teamId: string | null = null):
 			issue.estimate === null ? "" : String(issue.estimate),
 			new Date(issue.createdAt).toISOString(),
 			new Date(issue.updatedAt).toISOString(),
-		]);
-	}
-	for (const issue of slice.archived) {
-		const team = slice.teamsById.get(issue.teamId);
-		rows.push([
-			issueKey(team, issue),
-			issue.title,
-			"",
-			team?.name ?? "",
-			statusOf(slice.statusesById, issue).name,
-			"",
-			"",
-			"",
-			(issue.projectId && slice.projectsById.get(issue.projectId)?.name) || "",
-			parentKey(slice, issue.parentId),
-			"",
-			"",
-			"",
-			issue.estimate === null ? "" : String(issue.estimate),
-			"",
-			"",
 		]);
 	}
 	return BYTE_ORDER_MARK + rows.map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
@@ -307,12 +309,12 @@ export function workspaceToJson(
 				...issue,
 				key: issueKey(slice.teamsById.get(issue.teamId), issue),
 			})),
-			// Never left out without a word: they are here with what the replica holds of them.
+			// Whole, from the server. Never left out without a word: `notes` says so when they are.
 			archivedIssues: slice.archived.map((issue) => ({
 				...issue,
 				key: issueKey(slice.teamsById.get(issue.teamId), issue),
 			})),
-			notes: slice.archived.length > 0 ? [ARCHIVED_EXPORT_NOTE] : [],
+			notes: slice.archivedLeftOut > 0 ? [archivedLeftOutNote(slice.archivedLeftOut)] : [],
 			comments: slice.comments,
 			activities: slice.activities,
 			relations: slice.relations,

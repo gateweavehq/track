@@ -27,6 +27,17 @@ const STATE_META: Record<PullRequestState, { label: string; icon: LucideIcon; cl
  */
 export function PullRequests({ issue }: { issue: Issue }) {
 	const pullRequests = useIssuePullRequests(issue.id);
+	return <PullRequestList issueId={issue.id} pullRequests={pullRequests} />;
+}
+
+/** The pull requests given, such as an archived issue's from the server. Nothing when none. */
+export function PullRequestList({
+	issueId,
+	pullRequests,
+}: {
+	issueId: string;
+	pullRequests: readonly PullRequest[];
+}) {
 	if (pullRequests.length === 0) return null;
 	return (
 		<section aria-labelledby="pull-requests-heading" className="space-y-2">
@@ -35,7 +46,7 @@ export function PullRequests({ issue }: { issue: Issue }) {
 			</h2>
 			<ul className="rounded-lg border">
 				{pullRequests.map((pullRequest) => (
-					<PullRequestRow key={pullRequest.id} pullRequest={pullRequest} issueId={issue.id} />
+					<PullRequestRow key={pullRequest.id} pullRequest={pullRequest} issueId={issueId} />
 				))}
 			</ul>
 		</section>
