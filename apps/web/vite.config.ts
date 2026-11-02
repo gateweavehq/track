@@ -8,19 +8,7 @@ import { devtools } from "@tanstack/devtools-vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig, type Plugin, transformWithOxc } from "vite";
-
-/**
- * Settings Track runs without (see src/server/env.d.ts). `secrets.required` in wrangler.jsonc
- * stops a deploy that lacks BETTER_AUTH_SECRET, but in local dev it also drops every other key
- * from .dev.vars. So in dev, these are added to the list when .dev.vars sets them.
- */
-const OPTIONAL_SECRETS = [
-	"BETTER_AUTH_URL",
-	"GITHUB_CLIENT_ID",
-	"GITHUB_CLIENT_SECRET",
-	"EMAIL_FROM",
-	"TRACK_DEMO",
-];
+import { devSecrets } from "./scripts/dev-secrets";
 
 /** Where the end-to-end tests reach the app (see e2e/server.mjs). */
 const E2E_ORIGIN = `http://localhost:${Number(process.env.TRACK_E2E_PORT) || 4711}`;
@@ -42,10 +30,9 @@ export default defineConfig(({ command }) => ({
 					? { vars: { ...config.vars, BETTER_AUTH_URL: E2E_ORIGIN } }
 					: {};
 				if (command !== "serve") return e2e;
-				const set = devVarsKeys();
-				const optional = OPTIONAL_SECRETS.filter((key) => set.has(key));
+				// In dev only: `secrets.required` would drop the optional settings in .dev.vars.
 				return {
-					secrets: { required: [...(config.secrets?.required ?? []), ...optional] },
+					secrets: { required: devSecrets(config.secrets?.required ?? [], devVarsKeys()) },
 					...e2e,
 				};
 			},
