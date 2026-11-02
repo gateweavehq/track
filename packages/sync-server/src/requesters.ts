@@ -4,7 +4,7 @@ import { z } from "zod";
 import * as schema from "./db/schema";
 import { notifyOfReply } from "./inbox";
 import { ChangeSet, type WriteResult } from "./log";
-import { indexIssue } from "./search";
+import { indexComment } from "./search";
 import { type Db, toComment } from "./state";
 import { queueDeliveries } from "./webhooks";
 
@@ -182,7 +182,7 @@ export function fileReply(
 		deletedAt: null,
 	};
 	db.insert(schema.comments).values(row).run();
-	indexIssue(db, issue.id);
+	indexComment(db, row);
 	changes.put("comment", toComment(row));
 	changes.events.push({ type: "comment.created", comment: row });
 	const wake = notifyOfReply(db, changes, issue.id, row.id);

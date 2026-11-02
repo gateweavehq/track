@@ -30,7 +30,14 @@ import {
 	sql,
 } from "drizzle-orm";
 import * as schema from "./db/schema";
-import { issueSearch, issueSearchDocs, matchExpression, matches, RANK } from "./search";
+import {
+	commentMatches,
+	issueSearch,
+	issueSearchDocs,
+	matchExpression,
+	matches,
+	RANK,
+} from "./search";
 import {
 	type Db,
 	toActivity,
@@ -180,7 +187,7 @@ export function findIssues(db: Db, query: IssueQuery): Issue[] {
 	// Text without a single word, such as "?!", has nothing to match.
 	const expression = matchExpression(text);
 	if (!expression) return [];
-	return db
+	const found = db
 		.select({ issue: schema.issues })
 		.from(issueSearch)
 		.innerJoin(issueSearchDocs, eq(issueSearchDocs.id, issueSearch.rowid))
@@ -189,7 +196,23 @@ export function findIssues(db: Db, query: IssueQuery): Issue[] {
 		.orderBy(RANK, desc(schema.issues.updatedAt), schema.issues.id)
 		.limit(limit)
 		.all()
-		.map(({ issue }) => toIssue(issue));
+		.map(({ issue }) => issue);
+	if (found.length === limit) return found.map(toIssue);
+
+	// Then the issues whose comments are indexed apart, past the size an issue's row holds, that
+	// match only with their comments' help: almost always none. Their scores come from another
+	// table, whose word frequencies differ, so they follow the others rather than mix in.
+	const apart = [...commentMatches(db, text)].sort(([, a], [, b]) => a - b);
+	for (const [id] of apart) {
+		if (found.length === limit) break;
+		const issue = db
+			.select()
+			.from(schema.issues)
+			.where(and(eq(schema.issues.id, id), ...filters))
+			.get();
+		if (issue) found.push(issue);
+	}
+	return found.map(toIssue);
 }
 
 export function findIssueById(db: Db, id: string): Issue | undefined {

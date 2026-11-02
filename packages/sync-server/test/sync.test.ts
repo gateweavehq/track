@@ -4002,6 +4002,105 @@ describe("search", () => {
 		expect(await found(workspace, "better")).toEqual([]);
 	});
 
+	/** About 100 KB of comment text, the most one comment holds, with `words` at its start. */
+	const longComment = (words: string) =>
+		`${words} ${"padding ".repeat(12_500)}`.slice(0, 100_000).trim();
+
+	/** Comments `issueId` until its comments come to more than `megabytes` MB. */
+	async function fill(client: TestClient, issueId: string, megabytes: number) {
+		for (let i = 0; i < Math.ceil((megabytes * 1_000_000) / 100_000) + 1; i += 1) {
+			await client.apply({
+				name: "comment.create",
+				args: { id: `${issueId}-fill-${i}`, issueId, body: longComment(`filler${i}`) },
+			});
+		}
+	}
+
+	it("takes comments past 10 MB on one issue and finds words from the first and the last", async () => {
+		const { workspace, admin } = await withTeam();
+		await issue(admin, "busy", "Flaky deploys", "Seen since the upgrade");
+		await issue(admin, "quiet", "Kestrel migration");
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "first", issueId: "busy", body: longComment("Started with a kestrel crash") },
+		});
+		// One row held all of an issue's comments, and SQLite refused it past 10 MB.
+		await fill(admin, "busy", 10.2);
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "last", issueId: "busy", body: "Fixed by the osprey patch" },
+		});
+
+		expect(await found(workspace, "osprey")).toEqual(["busy"]);
+		expect(await found(workspace, "filler3")).toEqual(["busy"]);
+		// A match in an issue's own row ranks ahead of one that needs its comments.
+		expect(await found(workspace, "kestrel")).toEqual(["quiet", "busy"]);
+		expect(await found(workspace, "flaky")).toEqual(["busy"]);
+		// Every word has to match somewhere in the issue: its own fields or any comment.
+		expect(await found(workspace, "flaky upgrade kestrel osprey eng-1")).toEqual(["busy"]);
+		expect(await found(workspace, "osprey kestrel")).toEqual(["busy"]);
+		expect(await found(workspace, "osprey migration")).toEqual([]);
+		expect(await found(workspace, "osprey nowhere")).toEqual([]);
+		// Filters still apply.
+		expect(await workspace.issues({ text: "osprey", statuses: ["done"], limit: 10 })).toEqual([]);
+
+		await admin.apply({ name: "comment.update", args: { id: "last", body: "Fixed by a heron" } });
+		expect(await found(workspace, "osprey")).toEqual([]);
+		expect(await found(workspace, "heron")).toEqual(["busy"]);
+		await admin.apply({ name: "comment.delete", args: { id: "first" } });
+		expect(await found(workspace, "kestrel")).toEqual(["quiet"]);
+
+		await admin.apply({ name: "team.update", args: { id: TEAM_ID, patch: { key: "OPS" } } });
+		expect(await found(workspace, "ops-1 heron")).toEqual(["busy"]);
+		await admin.apply({ name: "issue.delete", args: { id: "busy" } });
+		expect(await found(workspace, "heron")).toEqual([]);
+		expect(await found(workspace, "filler3")).toEqual([]);
+	});
+
+	it("puts an issue's comments back in its row once they shrink", async () => {
+		const { workspace, admin } = await withTeam();
+		await issue(admin, "busy", "Flaky deploys");
+		await fill(admin, "busy", 1.1);
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "c-1", issueId: "busy", body: "The osprey patch" },
+		});
+		expect(await found(workspace, "osprey flaky")).toEqual(["busy"]);
+		for (let i = 0; i < 4; i += 1) {
+			await admin.apply({ name: "comment.delete", args: { id: `busy-fill-${i}` } });
+		}
+		expect(await found(workspace, "osprey flaky")).toEqual(["busy"]);
+		expect(await found(workspace, "filler2")).toEqual([]);
+		expect(await found(workspace, "filler5")).toEqual(["busy"]);
+	});
+
+	it("ranks ordinary issues as before when one has outgrown its row", async () => {
+		const { workspace, admin } = await withTeam();
+		await issue(admin, "in-comment", "Invoices");
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "c-1", issueId: "in-comment", body: "Related to billing" },
+		});
+		await issue(admin, "in-description", "Invoices again", "A billing question");
+		await issue(admin, "in-title", "Billing page");
+		const ordinary = ["in-title", "in-description", "in-comment"];
+		expect(await found(workspace, "billing")).toEqual(ordinary);
+
+		await issue(admin, "busy", "Quarterly report");
+		await fill(admin, "busy", 1.1);
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "c-2", issueId: "busy", body: "Billing is late again" },
+		});
+		expect(await found(workspace, "billing")).toEqual([...ordinary, "busy"]);
+		// A limit cuts from the end.
+		expect(
+			(await workspace.issues({ text: "billing", limit: 3 })).map((issue) => issue.id),
+		).toEqual(ordinary);
+		await issue(admin, "titled", "Billing for the quarterly report");
+		expect(await found(workspace, "billing quarterly")).toEqual(["titled", "busy"]);
+	});
+
 	it("indexes what a workspace held before search existed", async () => {
 		const { workspace, admin } = await withTeam();
 		await issue(admin, "i-1", "Kept issue", "With a description");
@@ -4060,11 +4159,74 @@ describe("search", () => {
 			db.run(sql`alter table teams drop column intake_email_key`);
 			db.run(sql`drop table templates`);
 			db.run(sql`drop table requesters`);
+			db.run(sql`drop table issue_comment_search`);
+			db.run(sql`drop table issue_comment_search_docs`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${search.when}`);
 			await migrate(db, migrations);
 		});
 
 		expect(await found(workspace, "kept description before eng-1")).toEqual(["i-1"]);
 		expect(await found(workspace, "gone")).toEqual([]);
+	});
+
+	it("indexes apart the comments of issues that outgrew their row before the deploy", async () => {
+		const { workspace, admin } = await withTeam();
+		await issue(admin, "busy", "Flaky deploys");
+		await fill(admin, "busy", 1.1);
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "late", issueId: "busy", body: "Fixed by the osprey patch" },
+		});
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "gone", issueId: "busy", body: "A heron, deleted" },
+		});
+		await admin.apply({ name: "comment.delete", args: { id: "gone" } });
+		await issue(admin, "quiet", "Kestrel migration");
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "short", issueId: "quiet", body: "Small and kept inline" },
+		});
+
+		// Undo migration 0029 and put every issue's comments back in its row, as the index held
+		// them before, then run the migrations again, as when the workspace wakes after the deploy.
+		const apart = migrations.journal.entries.find((entry) => entry.tag === "0029_comment_search");
+		if (!apart) throw new Error("No comment search migration");
+		const index = await runInDurableObject(workspace, async (_, state) => {
+			const db = drizzle(state.storage, { schema });
+			db.run(sql`drop table issue_comment_search`);
+			db.run(sql`drop table issue_comment_search_docs`);
+			db.run(sql`
+				update issue_search set comments = coalesce(
+					(select group_concat(c.body, char(10)) from comments c
+						join issue_search_docs d on d.issue_id = c.issue_id
+						where d.id = issue_search.rowid and c.deleted_at is null),
+					''
+				)
+			`);
+			db.run(sql`delete from __drizzle_migrations where created_at >= ${apart.when}`);
+			await migrate(db, migrations);
+			return db.all<{ issueId: string; inline: number; apart: number }>(sql`
+				select d.issue_id as issueId, length(s.comments) as inline,
+					(select count(*) from issue_comment_search_docs cd where cd.issue_id = d.issue_id)
+						as apart
+				from issue_search s join issue_search_docs d on d.id = s.rowid
+				order by d.issue_id
+			`);
+		});
+
+		// The live comments of the issue past the limit have a row each; the other is as it was.
+		expect(index).toEqual([
+			{ issueId: "busy", inline: 0, apart: 13 },
+			{ issueId: "quiet", inline: "Small and kept inline".length, apart: 0 },
+		]);
+		expect(await found(workspace, "osprey flaky")).toEqual(["busy"]);
+		expect(await found(workspace, "filler0")).toEqual(["busy"]);
+		expect(await found(workspace, "heron")).toEqual([]);
+		expect(await found(workspace, "kestrel inline")).toEqual(["quiet"]);
+		// And it keeps up from there.
+		await admin.apply({ name: "comment.update", args: { id: "late", body: "Fixed by a heron" } });
+		expect(await found(workspace, "osprey")).toEqual([]);
+		expect(await found(workspace, "heron flaky")).toEqual(["busy"]);
 	});
 });

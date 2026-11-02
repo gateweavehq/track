@@ -30,7 +30,7 @@ import {
 import { MutationRejected } from "./rejected";
 import { movesReminders } from "./reminders";
 import { forgetRequester, noteDecision } from "./requesters";
-import { indexIssue, indexTeamIssues, unindexIssue } from "./search";
+import { indexComment, indexIssue, indexTeamIssues, unindexIssue } from "./search";
 import {
 	activeMember,
 	type Db,
@@ -1102,7 +1102,7 @@ function createComment(
 		deletedAt: null,
 	};
 	db.insert(schema.comments).values(row).run();
-	indexIssue(db, row.issueId);
+	indexComment(db, row);
 	changes.put("comment", toComment(row));
 	changes.events.push({ type: "comment.created", comment: row });
 }
@@ -1127,7 +1127,7 @@ function updateComment(
 		.where(eq(schema.comments.id, comment.id))
 		.returning()
 		.get();
-	indexIssue(db, comment.issueId);
+	indexComment(db, comment);
 	if (row) {
 		changes.put("comment", toComment(row));
 		changes.events.push({ type: "comment.updated", comment: row, previous: comment });
@@ -1151,7 +1151,7 @@ function deleteComment(
 		.set({ deletedAt: changes.now, updatedAt: changes.now })
 		.where(eq(schema.comments.id, comment.id))
 		.run();
-	indexIssue(db, comment.issueId);
+	indexComment(db, comment);
 	changes.delete("comment", comment.id);
 	changes.events.push({ type: "comment.deleted", comment });
 }
