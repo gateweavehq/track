@@ -1,5 +1,5 @@
 import type { Issue, MutationInput } from "@gateweave/track-protocol";
-import type { SyncClient } from "@gateweave/track-sync-client";
+import type { MutationError, SyncClient } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { useCallback } from "react";
 import { toast } from "sonner";
@@ -14,8 +14,8 @@ export function send(client: SyncClient, mutation: MutationInput): boolean {
 	try {
 		void client.mutate(mutation);
 		return true;
-	} catch {
-		toast.error("That change is not valid");
+	} catch (error) {
+		notSent(error);
 		return false;
 	}
 }
@@ -43,10 +43,16 @@ export interface BatchChange {
 	mutation: MutationInput;
 }
 
+/** A change the server refused: what it changed, such as an issue's key, and why. */
+export interface Failure {
+	key: string;
+	reason: string;
+}
+
 /**
  * Sends many changes at once, as bulk edit does: the replica, storage and the other tabs take them
  * in one go. The server applies or refuses each on its own; refusals are summed up in one toast
- * that names the issues left as they were, instead of a toast for each.
+ * that names the issues left as they were, by reason, instead of a toast for each.
  */
 export function sendBatch(client: SyncClient, changes: readonly BatchChange[]): boolean {
 	if (changes.length === 0) return true;
@@ -56,43 +62,106 @@ export function sendBatch(client: SyncClient, changes: readonly BatchChange[]): 
 			changes.map((change) => change.mutation),
 			{ report: false },
 		);
-	} catch {
-		toast.error("That change is not valid");
+	} catch (error) {
+		notSent(error);
 		return false;
 	}
 	void Promise.allSettled(results).then((settled) => {
-		const failed: string[] = [];
-		let reason: string | undefined;
+		const failures: Failure[] = [];
 		settled.forEach((result, index) => {
-			if (result.status !== "rejected") return;
 			const change = changes[index];
-			if (change) failed.push(change.key);
-			reason ??= result.reason instanceof Error ? result.reason.message : undefined;
+			if (result.status !== "rejected" || !change) return;
+			failures.push({ key: change.key, reason: reasonOf(result.reason) });
 		});
-		if (failed.length === 0) return;
-		const { title, description } = batchFailure(failed, changes.length, reason);
+		if (failures.length === 0) return;
+		const { title, description } = batchFailure(failures, changes.length);
 		toast.error(title, { description });
 	});
 	return true;
 }
 
-/** How a batch that partly failed is reported: how many, which issues, and the first reason. */
+/**
+ * Reports the server's refusals of changes that have no caller waiting, such as those queued
+ * offline before a reload. Refusals that arrive together become one toast, as a batch's do,
+ * rather than one each.
+ */
+export function rejectionReporter(
+	describe: (error: MutationError) => string,
+	{ window = 250 }: { window?: number } = {},
+): (error: MutationError) => void {
+	let pending: Failure[] = [];
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	return (error) => {
+		pending.push({ key: describe(error), reason: reasonOf(error) });
+		if (timer !== undefined) return;
+		timer = setTimeout(() => {
+			const failures = pending;
+			pending = [];
+			timer = undefined;
+			const [only] = failures;
+			if (failures.length === 1 && only) {
+				toast.error("Your change was not saved", { description: sentence(only.reason) });
+				return;
+			}
+			const { title, description } = batchFailure(failures);
+			toast.error(title, { description });
+		}, window);
+	};
+}
+
+/**
+ * How a batch that partly failed is reported: how many, and which issues were left as they were
+ * for each reason. Without `total`, as for refusals collected after the fact, only how many.
+ */
 export function batchFailure(
-	keys: readonly string[],
-	total: number,
-	reason?: string,
+	failures: readonly Failure[],
+	total?: number,
 ): { title: string; description: string } {
+	const count = failures.length;
 	const title =
-		keys.length === total
-			? total === 1
+		total === undefined
+			? count === 1
 				? "Your change was not saved"
-				: `None of the ${total} changes were saved`
-			: `${keys.length} of ${total} changes were not saved`;
-	const unique = [...new Set(keys)];
-	const named =
-		unique.length > 5
-			? `${unique.slice(0, 5).join(", ")} and ${unique.length - 5} more`
-			: unique.join(", ");
-	const description = `Left as they were: ${named}.${reason ? ` ${reason}` : ""}`;
-	return { title, description };
+				: `${count} changes were not saved`
+			: count === total
+				? total === 1
+					? "Your change was not saved"
+					: `None of the ${total} changes were saved`
+				: `${count} of ${total} changes were not saved`;
+	const byReason = new Map<string, string[]>();
+	for (const { key, reason } of failures) {
+		const keys = byReason.get(reason) ?? [];
+		if (!keys.includes(key)) keys.push(key);
+		byReason.set(reason, keys);
+	}
+	const groups = [...byReason];
+	const shown = groups.slice(0, 3).map(([reason, keys]) => `${listed(keys)}: ${sentence(reason)}`);
+	const rest = groups.slice(3).reduce((sum, [, keys]) => sum + keys.length, 0);
+	if (rest > 0) shown.push(`${rest} more for other reasons.`);
+	return { title, description: shown.join(" ") };
+}
+
+/** Says why a change could not even be queued: invalid input, or a tab no longer syncing. */
+function notSent(error: unknown) {
+	if (error instanceof Error && error.name === "ZodError") toast.error("That change is not valid");
+	else toast.error("This tab has stopped syncing", { description: "Reload the page to go on." });
+}
+
+function reasonOf(error: unknown): string {
+	const message = (error as { message?: unknown } | null)?.message;
+	return typeof message === "string" && message ? message : "Not saved";
+}
+
+/** Up to five names, then how many more. */
+function listed(keys: readonly string[]): string {
+	return keys.length > 5
+		? `${keys.slice(0, 5).join(", ")} and ${keys.length - 5} more`
+		: keys.join(", ");
+}
+
+/** A reason as a sentence: capitalized, ending with a full stop. */
+function sentence(text: string): string {
+	const trimmed = text.trim();
+	const capital = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+	return /[.!?]$/.test(capital) ? capital : `${capital}.`;
 }

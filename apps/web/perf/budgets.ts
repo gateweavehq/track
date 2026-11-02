@@ -20,17 +20,19 @@ export const BUDGETS = {
 	 */
 	editPropagationMs: 100,
 	/**
-	 * Every issue in the list (about 680) is picked with Ctrl/Cmd+A and given another priority from
-	 * the bulk-edit bar; this is the time from the click until every picked row shows it. A
-	 * development container measured about 380 ms; before changes were batched (TRK-72) it took
-	 * 2 s, and the server's answers then froze the tab for 18 s or more.
+	 * Every issue in a view of the whole workspace (2,000+) is picked with Ctrl/Cmd+A and given
+	 * another priority from the bulk-edit bar; this is the time from the click until every picked
+	 * row shows it. A development container measured about 1,200 ms. Before changes were batched
+	 * (TRK-72), a third as many took 2 s, and the server's answers then froze the tab for 18 s or
+	 * more.
 	 */
-	bulkEditMs: 1000,
+	bulkEditMs: 3500,
 	/**
-	 * The page's longest task from that click until the server has answered every change. It is
-	 * the frame that renders every changed row, about 370 ms in the same container.
+	 * The page's longest task from that click until the server has answered every change, about
+	 * 1,200 ms there. It is the frame that renders every changed row: the list draws all its rows,
+	 * not only those on screen, and rebuilding the replica takes a few milliseconds of it.
 	 */
-	bulkEditLongestTaskMs: 1000,
+	bulkEditLongestTaskMs: 3500,
 } as const;
 
 /** How many times each measurement runs. The median of these is compared with the budget. */
