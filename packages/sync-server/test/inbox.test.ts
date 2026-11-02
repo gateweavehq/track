@@ -577,6 +577,8 @@ describe("workspaces from before the inbox", () => {
 			db.run(sql`drop table templates`);
 			db.run(sql`drop table requesters`);
 			db.run(sql`drop table project_updates`);
+			db.run(sql`drop table issue_comment_search`);
+			db.run(sql`drop table issue_comment_search_docs`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${inbox.when}`);
 			await migrate(db, migrations);
 		});

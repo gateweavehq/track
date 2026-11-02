@@ -1196,13 +1196,35 @@ Email is for news left unread (`packages/sync-server/src/notifications.ts`):
 ### Search
 
 Each workspace's database has a full-text index of its live issues: an FTS5 table
-(`packages/sync-server/src/search.ts`, migration `0003`) with one row per issue, holding its key,
+(`packages/sync-server/src/search.ts`, migrations `0003` and `0029`) with one row per issue, holding its key,
 title, description and the bodies of its comments. A write that changes any of them rebuilds that
 issue's row from the source tables in the same transaction, so the index cannot drift from the
 data; renaming a team's key rebuilds its issues' rows. Rows are addressed through
 `issue_search_docs`, whose `INTEGER PRIMARY KEY` stays stable where a text-keyed table's implicit
 rowid would not. The migration indexes what a workspace already holds when it first wakes after
 the deploy.
+
+An issue's row holds its comments only while they come to 1 MiB or less (`INLINE_COMMENT_BYTES`,
+counted in UTF-8 with a separator for each). A row is one value per column, and SQLite refuses a
+value past its length limit (`SQLITE_TOOBIG`, about 10 MB), so a long-lived issue with that much
+discussion could otherwise take no more comments. Past the limit, the issue's row keeps its key,
+title and description, and each live comment gets a row of its own in a second FTS5 table,
+`issue_comment_search`, addressed through `issue_comment_search_docs` (comment, issue) as above
+(migration `0029`). A comment's create, edit or delete rebuilds that comment's row and its issue's,
+so a comment on a busy issue costs about the same as one on a quiet issue; the issue moves between
+the two layouts, all its comments at once, as it crosses the limit either way, and a write that
+leaves the count of comment rows behind the live comments rebuilds them all. Migration `0029`
+moves the issues already past the limit and leaves every other row as it is.
+
+- **Matching is unchanged.** Every word must start a word in the issue's row or in any of its
+  comments, as if they were one row, so a query can take one word from the title and another from
+  a comment written years later.
+- **Ranking is unchanged for issues under the limit**, nearly all of them: their rows, and the
+  statistics bm25 draws on, are what they were. An issue past the limit that its own row matches
+  ranks among them as usual. One that matches only with its comments' help (`commentMatches`)
+  comes after the others, ranked among its kind by adding each word's best score, since bm25 adds
+  up each word's contribution. Its comments' scores come from their own table, whose word
+  frequencies differ, so they are not mixed in with the others'.
 
 Matching follows one set of rules, so that server-side clients and the browser find the same
 issues. Text is folded to lowercase without diacritics (NFKD, combining marks removed) and split
