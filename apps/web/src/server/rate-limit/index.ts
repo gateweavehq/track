@@ -89,6 +89,21 @@ export async function limitEmailedRequests(sender: string, key: string): Promise
 	return (await consumeDurably(`intake-email-team:${key}`, EMAILED_REQUESTS_PER_TEAM)).allowed;
 }
 
+/**
+ * Replies one request takes by email: 10 at once, refilling over an hour, within 30 a day. Only
+ * the address its decision went to may reply, so this caps one requester, or someone who forges
+ * their address and knows the request's own address.
+ */
+export const EMAILED_REPLIES_PER_REQUEST: Rule[] = REQUESTS_PER_ADDRESS;
+
+/**
+ * Counts one emailed reply against its request. The gateway calls it only once the reply's key
+ * and sender check out, so made-up addresses cost no one's allowance.
+ */
+export async function limitEmailedReplies(replyKey: string): Promise<boolean> {
+	return (await consumeDurably(`intake-reply:${replyKey}`, EMAILED_REPLIES_PER_REQUEST)).allowed;
+}
+
 const local = new LocalLimiter();
 
 /**

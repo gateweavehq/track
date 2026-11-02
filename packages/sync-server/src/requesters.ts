@@ -110,7 +110,7 @@ export function takeRequesterNotices(db: Db): RequesterNotice[] {
 	return notices;
 }
 
-/** A reply to a decision, as the email gateway passes it on, once the sender is rate limited. */
+/** A reply to a decision, as the email gateway passes it on, once its address checks out. */
 export const requesterReply = z.object({
 	key: z.string().max(64),
 	/** Who sent it, which must be whom the decision went to. */
@@ -119,6 +119,31 @@ export const requesterReply = z.object({
 	body: z.string().trim().min(1).max(100_000),
 });
 export type RequesterReply = z.infer<typeof requesterReply>;
+
+/** Who may reply where: a reply key and the address the reply came from. */
+export const replyAddress = z.object({ key: z.string().max(64), from: z.string().max(254) });
+export type ReplyAddress = z.infer<typeof replyAddress>;
+
+/**
+ * The request a reply to `key` from `from` would be filed on, or null for a key no request has,
+ * another sender, or a deleted request. Reads only.
+ */
+export function findReplyTarget(db: Db, { key, from }: ReplyAddress): { id: string } | null {
+	if (!REPLY_KEY.test(key)) return null;
+	const requester = db
+		.select()
+		.from(schema.requesters)
+		.where(eq(schema.requesters.replyKey, key))
+		.get();
+	if (!requester || requester.email !== from.trim().toLowerCase()) return null;
+	return (
+		db
+			.select({ id: schema.issues.id })
+			.from(schema.issues)
+			.where(and(eq(schema.issues.id, requester.issueId), isNull(schema.issues.deletedAt)))
+			.get() ?? null
+	);
+}
 
 /**
  * Files a requester's reply to a decision as a comment on their request, by Email, as the
@@ -132,18 +157,7 @@ export function fileReply(
 	reply: RequesterReply,
 	now: number,
 ): (WriteResult & { commentId: string }) | null {
-	if (!REPLY_KEY.test(reply.key)) return null;
-	const requester = db
-		.select()
-		.from(schema.requesters)
-		.where(eq(schema.requesters.replyKey, reply.key))
-		.get();
-	if (!requester || requester.email !== reply.from.trim().toLowerCase()) return null;
-	const issue = db
-		.select({ id: schema.issues.id })
-		.from(schema.issues)
-		.where(and(eq(schema.issues.id, requester.issueId), isNull(schema.issues.deletedAt)))
-		.get();
+	const issue = findReplyTarget(db, reply);
 	if (!issue) return null;
 
 	const changes = new ChangeSet(db, EMAIL_ACTOR.id, now);

@@ -9,17 +9,19 @@ const origin = "https://track.test";
 
 let track: Awaited<ReturnType<typeof startTrack>>;
 let workspaceId: string;
+let cookie: string;
 let owner: { id: string; name: string; email: string; image: null; role: string };
 
 beforeAll(async () => {
-	track = await startTrack(origin);
+	// A quota, so that tests can tell whether anything was counted against one.
+	track = await startTrack(origin, { vars: { ATTACHMENT_QUOTA_MB: "100" } });
 	const signUp = await track.fetch(`${origin}/api/auth/sign-up/email`, {
 		method: "POST",
 		headers: { origin, "cf-connecting-ip": "203.0.113.91", "content-type": "application/json" },
 		body: JSON.stringify({ name: "Ines", email: "ines@track.test", password: "a-long-password" }),
 	});
 	const { user } = (await signUp.json()) as { user: { id: string } };
-	const cookie = signUp.headers
+	cookie = signUp.headers
 		.getSetCookie()
 		.map((each) => each.split(";")[0])
 		.join("; ");
@@ -72,6 +74,47 @@ function message(from: string, to: string, subject: string, extra: string[] = []
 
 async function titles() {
 	return (await snapshot()).issues.map((issue) => issue.title);
+}
+
+/** Files a request from `from`, accepts it and returns the address its decision says to reply to. */
+async function decidedRequest(from: string, title: string) {
+	const to = await turnOn();
+	expect((await track.email(from, to, message(from, to, title))).outcome).toBe("ok");
+	const request = (await snapshot()).issues.find((issue) => issue.title === title);
+	if (!request) throw new Error("Not filed");
+	await track.mutate(workspaceId, owner, { name: "issue.accept", args: { id: request.id } });
+	const decision = await vi.waitFor(async () => {
+		const sent = (await track.emails()).find(
+			(email) => email.to === from && email.subject.endsWith(title),
+		);
+		if (!sent) throw new Error("Not sent yet");
+		return sent;
+	});
+	return { id: request.id, replyTo: decision.replyTo ?? "" };
+}
+
+/** A reply to a decision, with a small attachment. */
+function replyWithFile(from: string, to: string, text: string) {
+	return [
+		`From: ${from}`,
+		`To: ${to}`,
+		"Subject: Re: Your request was accepted",
+		`Message-ID: <${crypto.randomUUID()}@customer.test>`,
+		"Date: Sun, 01 Nov 2026 13:00:00 +0000",
+		"Content-Type: multipart/mixed; boundary=b",
+		"",
+		"--b",
+		"Content-Type: text/plain; charset=utf-8",
+		"",
+		text,
+		"--b",
+		"Content-Type: text/plain",
+		'Content-Disposition: attachment; filename="steps.txt"',
+		"",
+		"1. Open the export",
+		"--b--",
+		"",
+	].join("\r\n");
 }
 
 describe("intake email", () => {
@@ -280,5 +323,60 @@ describe("intake email", () => {
 		}
 		expect(outcomes.slice(0, 10)).toEqual(Array(10).fill("ok"));
 		expect(outcomes[10]).toBe("rejected");
+	});
+
+	it("refuses replies to made-up addresses before counting or storing anything", async () => {
+		// A workspace whose files nothing has counted yet, so any reservation would show.
+		const created = await track.fetch(`${origin}/api/auth/organization/create`, {
+			method: "POST",
+			headers: { origin, cookie, "content-type": "application/json" },
+			body: JSON.stringify({ name: "Quiet", slug: "quiet" }),
+		});
+		const quiet = ((await created.json()) as { id: string }).id;
+		for (let i = 0; i < 12; i++) {
+			const madeUp = `${quiet}.abcdefghijklmnopqrstuvwxy${"abcdefghijkl"[i]}@${INTAKE_EMAIL_DOMAIN}`;
+			const refused = await track.email(
+				"victim@customer.test",
+				madeUp,
+				replyWithFile("victim@customer.test", madeUp, `Guess ${i}`),
+			);
+			// The same answer as mail to an address that does not exist at all.
+			expect(refused).toMatchObject({ outcome: "rejected", rejectReason: "No such address" });
+		}
+		expect(await track.fileKeys(`${quiet}/`)).toEqual([]);
+		expect(await track.rpc(quiet, "reserveFileStorage", { bytes: 0, limit: 1 })).toEqual({
+			needsSeed: true,
+		});
+		// The sender's allowance is whole: the real address still takes their mail.
+		const to = await turnOn();
+		const real = await track.email(
+			"victim@customer.test",
+			to,
+			message("victim@customer.test", to, "After the guesses"),
+		);
+		expect(real.outcome).toBe("ok");
+	});
+
+	it("keeps the attachments of a requester's replies, and limits replies per request", async () => {
+		const { id, replyTo } = await decidedRequest("lee@customer.test", "Slow search");
+		const before = await track.fileKeys(`${workspaceId}/`);
+		const outcomes: string[] = [];
+		for (let i = 0; i < 11; i++) {
+			const result = await track.email(
+				"lee@customer.test",
+				replyTo,
+				replyWithFile("Lee <lee@customer.test>", replyTo, `More detail ${i}`),
+			);
+			outcomes.push(result.outcome);
+		}
+		expect(outcomes.slice(0, 10)).toEqual(Array(10).fill("ok"));
+		expect(outcomes[10]).toBe("rejected");
+
+		const comments = (await snapshot()).comments.filter((each) => each.issueId === id);
+		expect(comments).toHaveLength(10);
+		expect(comments[0]?.body).toMatch(
+			new RegExp(`^More detail \\d+\\n\\n\\[steps\\.txt\\]\\(/api/files/${workspaceId}/`),
+		);
+		expect((await track.fileKeys(`${workspaceId}/`)).length - before.length).toBe(10);
 	});
 });
