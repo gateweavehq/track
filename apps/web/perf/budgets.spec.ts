@@ -149,6 +149,24 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 		// Both are on the same team: the first one the workspace opens.
 		await expect(reader.page).toHaveURL(writer.page.url());
 
+		// The list renders only the rows near the screen, so the edit is to an issue the reader can
+		// see: a new issue may land in a group far down the list, outside the reader's view and so
+		// not in the page at all. The row nearest the top of the reader's view, below the sticky
+		// headers, is renamed; renaming keeps its place in the list.
+		const key = await reader.page.evaluate(() => {
+			for (const row of document.querySelectorAll("[data-checked]")) {
+				const box = row.getBoundingClientRect();
+				if (box.top < 120 || box.bottom > window.innerHeight) continue;
+				const label = row.querySelector('[role="checkbox"]')?.getAttribute("aria-label");
+				if (label?.startsWith("Select ")) return label.slice("Select ".length);
+			}
+			return null;
+		});
+		expect(key, "an issue in the reader's view").not.toBeNull();
+		await writer.page.goto(`/${SLUG}/issue/${key}`);
+		const titleField = writer.page.getByRole("textbox", { name: "Title" });
+		await expect(titleField).toBeVisible();
+
 		const times: number[] = [];
 		for (let run = 0; run < RUNS; run++) {
 			const title = `Perf edit ${run} ${Math.random().toString(36).slice(2, 8)}`;
@@ -174,33 +192,33 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 				title,
 			);
 
-			await writer.page.getByRole("button", { name: "New issue" }).first().click();
-			const dialog = writer.page.getByRole("dialog", { name: "New issue" });
-			await dialog.getByLabel("Title").fill(title);
-			// Stamp the click from inside the page, so Playwright's own round trip is not counted.
+			await titleField.fill(title);
+			// Stamp the Enter that saves the title from inside the page, so Playwright's own round
+			// trip is not counted.
 			await writer.page.evaluate(() => {
 				document.addEventListener(
-					"click",
+					"keydown",
 					() => {
-						(window as unknown as { __clickedAt: number }).__clickedAt = Date.now();
+						(window as unknown as { __savedAt: number }).__savedAt = Date.now();
 					},
 					{ capture: true, once: true },
 				);
 			});
-			await dialog.getByRole("button", { name: "Create issue" }).click();
+			await titleField.press("Enter");
 
 			const arrivedAt = await arrived;
-			const clickedAt = await writer.page.evaluate(
-				() => (window as unknown as { __clickedAt: number }).__clickedAt,
+			const savedAt = await writer.page.evaluate(
+				() => (window as unknown as { __savedAt: number }).__savedAt,
 			);
-			times.push(arrivedAt - clickedAt);
-			await expect(dialog).toBeHidden();
+			times.push(arrivedAt - savedAt);
+			// The row is still where the reader is looking.
+			await expect(reader.page.getByRole("link", { name: title })).toBeInViewport();
 		}
 		const result = record({
 			name: "Edit reaches another person",
 			budgetMs: BUDGETS.editPropagationMs,
 			runsMs: times,
-			note: "new issue, click to row visible in the other browser",
+			note: "issue in the reader's view renamed, Enter to the new title in the other browser",
 		});
 		expect(result.medianMs, "median propagation time").toBeLessThan(BUDGETS.editPropagationMs);
 	} finally {
@@ -233,7 +251,8 @@ test("a bulk change to every issue in a list stays within budget", async ({ brow
 		await page.locator("[data-checked] a").first().focus();
 		await page.keyboard.press("ControlOrMeta+a");
 		await expect(bar).toContainText("issues selected");
-		const picked = await page.locator("[data-checked=true]").count();
+		// The bar counts the picks: the list renders only the rows near the screen.
+		const picked = Number(/(\d+) issues selected/.exec((await bar.textContent()) ?? "")?.[1]);
 
 		const times: number[] = [];
 		const longest: number[] = [];
@@ -252,6 +271,7 @@ test("a bulk change to every issue in a list stays within budget", async ({ brow
 			await bar.getByRole("button", { name: "Priority" }).click();
 			// The click on the option is the one stamped: the menu's button was clicked first.
 			await page.evaluate(() => {
+				delete (window as unknown as { __clickedAt?: number }).__clickedAt;
 				document.addEventListener(
 					"click",
 					() => {
@@ -260,19 +280,23 @@ test("a bulk change to every issue in a list stays within budget", async ({ brow
 					{ capture: true, once: true },
 				);
 			});
+			// Done, after the click, when every picked row in the page shows it. Those are the ones
+			// near the screen; the rest are not rendered, and show it when scrolled to.
 			const done = page.evaluate(
-				({ label, count }) =>
+				(label) =>
 					new Promise<number>((resolve) => {
 						const check = () => {
+							const rows = document.querySelectorAll('[data-checked="true"]');
 							const shown = document.querySelectorAll(
 								`[data-checked="true"] button[aria-label="${label}"]`,
 							).length;
-							if (shown === count) resolve(performance.now());
+							const clicked = "__clickedAt" in window;
+							if (clicked && rows.length > 0 && shown === rows.length) resolve(performance.now());
 							else requestAnimationFrame(check);
 						};
 						requestAnimationFrame(check);
 					}),
-				{ label: `Priority: ${priority}`, count: picked },
+				`Priority: ${priority}`,
 			);
 			await page.getByRole("option", { name: priority }).click();
 			const doneAt = await done;
@@ -299,7 +323,8 @@ test("a bulk change to every issue in a list stays within budget", async ({ brow
 			runsMs: longest,
 			note: "from the click until the server has answered every change",
 		});
-		expect(picked).toBeGreaterThan(100);
+		// Every issue the seed made, and the sample ones besides.
+		expect(picked).toBeGreaterThanOrEqual(ISSUES);
 		expect(result.medianMs, "median bulk change time").toBeLessThan(BUDGETS.bulkEditMs);
 		expect(blocked.medianMs, "median longest task").toBeLessThan(BUDGETS.bulkEditLongestTaskMs);
 	} finally {
