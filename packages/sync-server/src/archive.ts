@@ -4,7 +4,18 @@ import {
 	type ArchivedIssuesPage,
 	type IssueDetails,
 } from "@gateweave/track-protocol";
-import { and, asc, eq, getTableColumns, gt, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	type Column,
+	eq,
+	getTableColumns,
+	gt,
+	isNotNull,
+	isNull,
+	type SQL,
+	sql,
+} from "drizzle-orm";
 import * as schema from "./db/schema";
 import { type ChangeSet, onlyArchived } from "./log";
 import { type Db, toActivity, toComment, toIssue, toProposal, toPullRequest } from "./state";
@@ -110,37 +121,70 @@ export function findArchivedIssues(db: Db, teamId: string | null): ArchivedIssue
 }
 
 /**
- * The most characters of text `findArchivedIssues` answers at once. Up to three bytes each in
- * UTF-8, it keeps the answer under the Durable Object's 32 MiB RPC limit, with room to spare.
+ * The most bytes `findArchivedIssues` answers at once, as `archiveSize` counts them: under the
+ * Durable Object's 32 MiB RPC limit, with room for what the count leaves out.
  */
-const ARCHIVE_WHOLE_BUDGET = 8 * 1024 * 1024;
+const ARCHIVE_WHOLE_BUDGET = 24 * 1024 * 1024;
 
 /**
- * About how many characters of JSON the archived issues `where` selects come to, with their
- * comments and history, from the long text columns and a generous allowance for the rest of each
- * row. Counted in SQL, so a large archive is never read to find out it is too large.
+ * What each row of an answer comes to besides its text and JSON columns: its keys, punctuation,
+ * numbers and flags, with every number at 16 digits and every flag `false`. Measured on real rows
+ * in the sync tests, which fail when a column is added or dropped until these follow.
+ */
+export const ARCHIVE_ROW_ALLOWANCE = { issue: 375, comment: 96, activity: 121 } as const;
+
+// The columns each kind of row sends, as `toIssue`, `toComment` and `toActivity` shape them.
+const { fieldStamps: _, deletedAt: __, ...issueColumns } = getTableColumns(schema.issues);
+const { deletedAt: ___, ...commentColumns } = getTableColumns(schema.comments);
+const activityColumns = getTableColumns(schema.activities);
+
+/**
+ * About how many bytes the archived issues `where` selects come to, with their comments and
+ * history: every text and JSON value measured, and each row's allowance for the rest. Counted in
+ * SQL, so a large archive is never read to find out it is too large.
  */
 function archiveSize(db: Db, where: SQL | undefined): number {
 	const issues = db
-		.select({
-			size: sql<number>`coalesce(sum(length(${schema.issues.title}) + coalesce(length(${schema.issues.description}), 0) + 1024), 0)`,
-		})
+		.select({ size: rowsSize(issueColumns, ARCHIVE_ROW_ALLOWANCE.issue) })
 		.from(schema.issues)
 		.where(where)
 		.get();
 	const comments = db
-		.select({ size: sql<number>`coalesce(sum(length(${schema.comments.body}) + 512), 0)` })
+		.select({ size: rowsSize(commentColumns, ARCHIVE_ROW_ALLOWANCE.comment) })
 		.from(schema.comments)
 		.innerJoin(schema.issues, eq(schema.issues.id, schema.comments.issueId))
 		.where(and(isNull(schema.comments.deletedAt), where))
 		.get();
 	const activities = db
-		.select({ size: sql<number>`coalesce(sum(length(${schema.activities.change}) + 512), 0)` })
+		.select({ size: rowsSize(activityColumns, ARCHIVE_ROW_ALLOWANCE.activity) })
 		.from(schema.activities)
 		.innerJoin(schema.issues, eq(schema.issues.id, schema.activities.issueId))
 		.where(where)
 		.get();
 	return (issues?.size ?? 0) + (comments?.size ?? 0) + (activities?.size ?? 0);
+}
+
+/** The bytes of the rows a query selects, from their text and JSON `columns` and an allowance. */
+function rowsSize(columns: Record<string, Column>, allowance: number): SQL<number> {
+	const values = Object.values(columns).flatMap((column) => {
+		if (column.dataType === "string") return [valueSize(sql`json_quote(${column})`, column)];
+		// Stored as the JSON it is sent as, or null.
+		if (column.dataType === "json") return [sql`coalesce(${valueSize(column, column)}, 4)`];
+		return [];
+	});
+	return sql<number>`coalesce(sum(${sql.join(values, sql` + `)} + ${sql.raw(String(allowance))}), 0)`;
+}
+
+/** A pattern for text with a character past U+00FF, written out so it binds no parameter. */
+const WIDE = sql.raw(`'*[^' || char(1) || '-' || char(255) || ']*'`);
+
+/**
+ * The bytes of `value`, the JSON form of `text`: its length in UTF-8, or, when `text` has a
+ * character past U+00FF, two bytes a character, as the structured clone that carries an RPC
+ * answer stores such a string, whichever is more.
+ */
+function valueSize(value: SQL | Column, text: Column): SQL {
+	return sql`max(length(cast(${value} as blob)), case when ${text} glob ${WIDE} then 2 * length(${text}) else 0 end)`;
 }
 
 /**
