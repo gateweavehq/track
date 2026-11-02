@@ -8,6 +8,26 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.21.1] - 2026-11-02
+
+Open tabs lose their connection when their session ends, and exports handle large archives.
+Updating a self-hosted copy needs no migration and no new setting; the protocol stays at version
+25. ([#163], [#164])
+
+### Security
+
+- A tab's live connection now closes when its session ends: signing out, revoking sessions,
+  resetting the password or deleting the account. A connection whose session has expired closes
+  too. Before, an open tab kept syncing until the workspace restarted. The tab then reconnects
+  if the person is still signed in, or asks them to sign in again. ([#164])
+
+### Fixed
+
+- Exports page through large archives instead of fetching them in one answer, and when an export
+  fails it says why: offline, signed out, no access, or a server error. Issues restored while an
+  export runs are no longer left out. Tabs still on v0.21.0 keep getting the answer they expect,
+  or an error rather than a short file. ([#163])
+
 ## [0.21.0] - 2026-11-02
 
 Archived issues are whole again whenever there is a connection: their page, exports and imports.
@@ -754,6 +774,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.21.1]: https://github.com/gateweavehq/track/releases/tag/v0.21.1
 [0.21.0]: https://github.com/gateweavehq/track/releases/tag/v0.21.0
 [0.20.1]: https://github.com/gateweavehq/track/releases/tag/v0.20.1
 [0.20.0]: https://github.com/gateweavehq/track/releases/tag/v0.20.0
@@ -889,3 +910,5 @@ The first pre-release.
 [#156]: https://github.com/gateweavehq/track/pull/156
 [#157]: https://github.com/gateweavehq/track/pull/157
 [#159]: https://github.com/gateweavehq/track/pull/159
+[#163]: https://github.com/gateweavehq/track/pull/163
+[#164]: https://github.com/gateweavehq/track/pull/164
