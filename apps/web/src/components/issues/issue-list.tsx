@@ -1,6 +1,15 @@
 import type { Issue, IssueDisplay } from "@gateweave/track-protocol";
 import { ChevronRight, Plus } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type ReactNode,
+	type RefObject,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { Button } from "#/components/ui/button";
 import { type IssueDefaults, useWorkspaceActions } from "#/components/workspace/context";
 import { groupByOf, orderByOf, shownProperties } from "#/lib/display";
@@ -24,9 +33,17 @@ import { type IssueField, IssueRow } from "./issue-row";
 import { scrollParent, useItemsOnScreen } from "./rows-on-screen";
 import { useIssueSelection } from "./selection";
 
-/** Heights of the list's two kinds of entry, in pixels: `h-9` and `h-10`, borders included. */
-const HEADER_HEIGHT = 36;
-const ROW_HEIGHT = 40;
+/**
+ * Heights of the list's two kinds of entry, `h-9` and `h-10` with borders included, in pixels at
+ * the default font size. They are rem, so the list measures the real ones (`useEntryHeights`);
+ * these stand in until a row and a header have rendered.
+ */
+const DEFAULT_HEIGHTS: EntryHeights = { header: 36, row: 40 };
+
+interface EntryHeights {
+	header: number;
+	row: number;
+}
 
 /**
  * One line of the list: a group's header or one of its issues. The list is one flat run of these,
@@ -83,9 +100,11 @@ export function IssueList({
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [menu, setMenu] = useState<{ issueId: string; field: IssueField } | null>(null);
 	const rows = useRef(new Map<string, HTMLAnchorElement>());
-	const root = useRef<HTMLDivElement>(null);
-	// An issue to focus once it has been scrolled to and rendered; see focusIssue.
-	const pendingFocus = useRef<string | null>(null);
+	const root = useRef<HTMLUListElement>(null);
+	// An issue to focus once it has been scrolled to and rendered, and the rendered range when it
+	// was asked for; see focusIssue.
+	const pendingFocus = useRef<{ issueId: string; range: readonly [number, number] } | null>(null);
+	const heights = useEntryHeights(root);
 
 	const shown = groups.length > 0;
 	useEffect(() => {
@@ -112,11 +131,15 @@ export function IssueList({
 		const starts = [0];
 		for (const entry of entries) {
 			starts.push(
-				(starts[starts.length - 1] ?? 0) + (entry.kind === "header" ? HEADER_HEIGHT : ROW_HEIGHT),
+				(starts[starts.length - 1] ?? 0) + (entry.kind === "header" ? heights.header : heights.row),
 			);
 		}
 		return starts;
-	}, [entries]);
+	}, [entries, heights]);
+	const entryIndex = useMemo(
+		() => new Map(entries.map((entry, index) => [entry, index])),
+		[entries],
+	);
 	const entryOf = useMemo(() => {
 		const indexes = new Map<string, number>();
 		entries.forEach((entry, index) => {
@@ -124,7 +147,8 @@ export function IssueList({
 		});
 		return indexes;
 	}, [entries]);
-	const [first, last] = useItemsOnScreen(offsets, root);
+	const range = useItemsOnScreen(offsets, root);
+	const [first, last] = range;
 	// The header of the group the first rendered row belongs to is rendered too, so it can stick.
 	// The rows between it and the first rendered row are not: a spacer stands in for them.
 	let stuck = first;
@@ -143,29 +167,35 @@ export function IssueList({
 	}, []);
 
 	/**
-	 * Focuses an issue's row, which selects it (onFocus). A row that is not rendered yet is scrolled
-	 * to first, and focused once it renders.
+	 * Focuses an issue's row, which selects it (onFocus), scrolled clear of the sticky headers. A
+	 * row that is not rendered yet is scrolled to first, and focused once it renders.
 	 */
 	function focusIssue(issueId: string) {
-		const link = rows.current.get(issueId);
-		if (link) {
-			link.focus();
-			return;
-		}
 		const index = entryOf.get(issueId);
 		const element = root.current;
-		if (index === undefined || !element) return;
-		pendingFocus.current = issueId;
-		revealEntry(element, offsets[index] ?? 0);
+		const scrolled =
+			index !== undefined && element !== null && revealEntry(element, offsets[index] ?? 0, heights);
+		const link = rows.current.get(issueId);
+		if (link) {
+			link.focus({ preventScroll: true });
+			return;
+		}
+		// Not scrolled means it is on screen, so it would be rendered: nothing to wait for.
+		pendingFocus.current = scrolled ? { issueId, range } : null;
 	}
 
-	// Runs after every render, which is when a scrolled-to row first appears.
+	// Runs after every render, which is when a scrolled-to row first appears. The wait ends there:
+	// once the range has moved without rendering the row, or the row can no longer render, such as
+	// in a group just collapsed or filtered out, so a stale one cannot take focus later.
 	useEffect(() => {
-		const issueId = pendingFocus.current;
-		const link = issueId ? rows.current.get(issueId) : undefined;
+		const pending = pendingFocus.current;
+		if (!pending) return;
+		const link = rows.current.get(pending.issueId);
 		if (link) {
 			pendingFocus.current = null;
-			link.focus();
+			link.focus({ preventScroll: true });
+		} else if (!entryOf.has(pending.issueId) || pending.range !== range) {
+			pendingFocus.current = null;
 		}
 	});
 
@@ -237,13 +267,20 @@ export function IssueList({
 
 	const renderEntry = (entry: ListEntry) =>
 		entry.kind === "header" ? (
-			<GroupHeader
+			// `contents`, so the header sticks within the list rather than within this item.
+			<li
 				key={`group-${entry.group.key}`}
-				group={entry.group}
-				collapsed={entry.collapsed}
-				onToggle={toggle}
-				defaults={defaults}
-			/>
+				aria-posinset={(entryIndex.get(entry) ?? 0) + 1}
+				aria-setsize={entries.length}
+				className="contents"
+			>
+				<GroupHeader
+					group={entry.group}
+					collapsed={entry.collapsed}
+					onToggle={toggle}
+					defaults={defaults}
+				/>
+			</li>
 		) : (
 			<IssueRow
 				key={entry.issue.id}
@@ -261,6 +298,8 @@ export function IssueList({
 				onMenuChange={onMenuChange}
 				onSelect={setSelectedId}
 				registerRow={registerRow}
+				position={(entryIndex.get(entry) ?? 0) + 1}
+				setSize={entries.length}
 			/>
 		);
 	// One keyed run, so the stuck header stays mounted as it joins the rendered entries.
@@ -276,39 +315,108 @@ export function IssueList({
 
 	// Entries are siblings in one flat list, so a row that changes group moves to its new one
 	// without remounting and keeps focus and any open menu. Only the ones near the screen render;
-	// spacers keep the list's height and scroll position.
+	// spacers keep the list's height and scroll position, and each item says where it is in the
+	// whole list, for screen readers. Find in page only finds what is rendered, as in the table.
 	return (
-		<div ref={root}>
-			<Spacer height={offsets[header ?? first] ?? 0} />
-			{rendered}
-			<Spacer height={(offsets[offsets.length - 1] ?? 0) - (offsets[last] ?? 0)} />
+		<>
+			{/* While issues are picked, room below the last row to scroll it clear of the bar. */}
+			<ul ref={root} aria-label="Issues" className={cn(checking && "pb-20")}>
+				<Spacer height={offsets[header ?? first] ?? 0} />
+				{rendered}
+				<Spacer height={(offsets[offsets.length - 1] ?? 0) - (offsets[last] ?? 0)} />
+			</ul>
 			<BulkBar selection={selection} total={visible.length} />
-		</div>
+		</>
 	);
 }
 
 /** Stands in for the entries that are not rendered, so the list keeps its height. */
 function Spacer({ height }: { height: number }) {
 	if (height <= 0) return null;
-	return <div aria-hidden style={{ height }} />;
+	return <li aria-hidden style={{ height }} />;
+}
+
+/**
+ * The real heights of a row and a group header: they are set in rem, so they follow the browser's
+ * font size. Measured from the first rendered one of each, and again whenever either resizes.
+ */
+function useEntryHeights(list: RefObject<HTMLElement | null>): EntryHeights {
+	const [heights, setHeights] = useState(DEFAULT_HEIGHTS);
+	const watched = useRef<{ row: Element | null; header: Element | null }>({
+		row: null,
+		header: null,
+	});
+	const observer = useRef<ResizeObserver | null>(null);
+	useEffect(() => () => observer.current?.disconnect(), []);
+	// After every render, since the rows measured may have scrolled away and been unmounted.
+	useLayoutEffect(() => {
+		const element = list.current;
+		if (!element) return;
+		const row = element.querySelector("[data-checked]");
+		const header = element.querySelector("[data-group-header]");
+		if (row === watched.current.row && header === watched.current.header) return;
+		watched.current = { row, header };
+		const measure = () => {
+			setHeights((current) => {
+				const next = {
+					row: row?.getBoundingClientRect().height || current.row,
+					header: header?.getBoundingClientRect().height || current.header,
+				};
+				return next.row === current.row && next.header === current.header ? current : next;
+			});
+		};
+		measure();
+		observer.current?.disconnect();
+		observer.current = new ResizeObserver(measure);
+		if (row) observer.current.observe(row);
+		if (header) observer.current.observe(header);
+	});
+	return heights;
+}
+
+/**
+ * How far down from the top of `view` sticky content covers the list once it has scrolled: the
+ * scroller's own sticky children, such as the page's header and its filters, and a group header,
+ * which sticks at its own `top`.
+ */
+function coveredHeight(
+	scroller: HTMLElement | null,
+	list: HTMLElement,
+	viewTop: number,
+	header: number,
+) {
+	let covered = 0;
+	for (const child of scroller?.children ?? []) {
+		if (getComputedStyle(child).position !== "sticky") continue;
+		covered = Math.max(covered, child.getBoundingClientRect().bottom - viewTop);
+	}
+	const groupHeader = list.querySelector("[data-group-header]");
+	if (groupHeader) {
+		const top = Number.parseFloat(getComputedStyle(groupHeader).top) || 0;
+		covered = Math.max(covered, top + header);
+	}
+	return covered;
 }
 
 /**
  * Scrolls the scrolling ancestor, or the page, so the entry starting `top` pixels into the list is
- * in view below the sticky header, which stays over the top of the scroller.
+ * in view, clear of the sticky headers over the top of the scroller and of the bulk-edit bar.
+ * Says whether it scrolled.
  */
-function revealEntry(list: HTMLElement, top: number) {
+function revealEntry(list: HTMLElement, top: number, heights: EntryHeights): boolean {
 	const scroller = scrollParent(list);
 	const view = scroller?.getBoundingClientRect() ?? { top: 0, bottom: window.innerHeight };
+	const covered = coveredHeight(scroller, list, view.top, heights.header);
+	// The bulk-edit bar floats over the bottom while issues are picked.
+	const bar = document.querySelector("[data-bulk-bar]")?.getBoundingClientRect().top;
+	const bottom = Math.min(view.bottom, bar ?? view.bottom);
 	const start = list.getBoundingClientRect().top + top;
-	const end = start + ROW_HEIGHT;
+	const end = start + heights.row;
 	const delta =
-		start < view.top + HEADER_HEIGHT
-			? start - view.top - HEADER_HEIGHT
-			: end > view.bottom
-				? end - view.bottom
-				: 0;
-	if (delta !== 0) (scroller ?? window).scrollBy({ top: delta });
+		start < view.top + covered ? start - view.top - covered : end > bottom ? end - bottom : 0;
+	if (delta === 0) return false;
+	(scroller ?? window).scrollBy({ top: delta });
+	return true;
 }
 
 /** A group's header. Dropping an issue on it moves the issue to the top of the group. */
@@ -330,6 +438,7 @@ function GroupHeader({
 	return (
 		<h2
 			ref={ref}
+			data-group-header
 			className={cn(
 				"sticky top-12 z-20 flex h-9 items-center gap-2 border-b bg-muted/80 px-3 backdrop-blur sm:px-4",
 				over && "bg-accent",
