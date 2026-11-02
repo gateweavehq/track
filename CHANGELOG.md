@@ -8,6 +8,29 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.21.0] - 2026-11-02
+
+Archived issues are whole again whenever there is a connection: their page, exports and imports.
+Updating a self-hosted copy needs no migration and no new setting; the protocol stays at version
+25. ([#159])
+
+### Added
+
+- An archived issue's page loads the whole issue from the server while online: its description,
+  labels, people, dates, comments, history, proposals and pull requests, read-only, with Restore
+  as before. Offline it keeps the short view and says the rest needs a connection. ([#159])
+- Two read-only routes beside the sync snapshot, behind the same membership checks: one issue
+  with everything that belongs to it, and a workspace's or a team's archived issues. ([#159])
+
+### Changed
+
+- Exports fetch archived issues from the server, so the CSV fills in their cells and the JSON
+  lists them whole, with their comments and history. Offline, an export that includes archived
+  issues stops and offers to leave them out, and a JSON made that way says how many it left out.
+  ([#159])
+- The JSON import brings archived issues along, with their comments and relations, and archives
+  each one once it is in. Slim rows from v0.20 exports still stay behind, with a note. ([#159])
+
 ## [0.20.1] - 2026-11-02
 
 Bulk edit stays quick on large selections, and two follow-ups to v0.20.0's security fixes.
@@ -731,6 +754,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.21.0]: https://github.com/gateweavehq/track/releases/tag/v0.21.0
 [0.20.1]: https://github.com/gateweavehq/track/releases/tag/v0.20.1
 [0.20.0]: https://github.com/gateweavehq/track/releases/tag/v0.20.0
 [0.19.0]: https://github.com/gateweavehq/track/releases/tag/v0.19.0
@@ -864,3 +888,4 @@ The first pre-release.
 [#154]: https://github.com/gateweavehq/track/pull/154
 [#156]: https://github.com/gateweavehq/track/pull/156
 [#157]: https://github.com/gateweavehq/track/pull/157
+[#159]: https://github.com/gateweavehq/track/pull/159

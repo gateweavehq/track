@@ -210,9 +210,25 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 });
 
 test("a bulk change to every issue in a list stays within budget", async ({ browser }) => {
-	test.setTimeout(180_000);
+	test.setTimeout(240_000);
 	const { context, page } = await openAs(browser, "maya");
 	try {
+		// A view of the whole workspace, so the list holds every issue, not one team's third. A view
+		// is saved from a filtered list; then its filters, team included, come off.
+		await page.getByRole("button", { name: "Filter", exact: true }).click();
+		await page.getByRole("option", { name: "Priority" }).click();
+		await page.getByRole("option", { name: "Urgent" }).click();
+		await page.keyboard.press("Escape");
+		await page.getByRole("button", { name: "Save view" }).click();
+		const save = page.getByRole("dialog", { name: /^Save/ });
+		await save.getByLabel("Name").fill("Everything");
+		await save.getByRole("button", { name: "Save view" }).click();
+		await expect(page.getByRole("heading", { name: "Everything", level: 1 })).toBeVisible();
+		await page.getByRole("button", { name: "Remove the priority filter" }).click();
+		await page.getByRole("button", { name: "Remove the team filter" }).click();
+		await page.getByRole("button", { name: "Save", exact: true }).click();
+		await expect(page.getByText("Unsaved changes")).toBeHidden();
+
 		const bar = page.getByRole("region", { name: "Selected issues" });
 		await page.locator("[data-checked] a").first().focus();
 		await page.keyboard.press("ControlOrMeta+a");
