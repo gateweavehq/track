@@ -1,5 +1,6 @@
 import {
 	type ActivitySource,
+	cleanText,
 	GITHUB_ACTOR_ID,
 	type GitHubConnection,
 	isClosedCategory,
@@ -356,11 +357,12 @@ class GitHubEvents {
 			id,
 			repository: repository.full_name,
 			number: pr.number,
-			title: pr.title,
+			// GitHub's text is stored as it is shown, so it is cleaned as typed text is (TRK-79).
+			title: cleanText(pr.title),
 			url: pr.html_url,
 			state,
-			branch: pr.head.ref,
-			author: pr.user?.login ?? null,
+			branch: cleanText(pr.head.ref),
+			author: pr.user ? cleanText(pr.user.login) : null,
 			issueIds: [...references.keys()],
 			closingIssueIds: [...references].filter(([, ref]) => ref.closing).map(([key]) => key),
 			createdAt: existing?.createdAt ?? (Date.parse(pr.created_at) || this.changes.now),

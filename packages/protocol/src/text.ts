@@ -23,5 +23,15 @@ export function cleanText(text: string): string {
 	return text.replaceAll("\0", "").toWellFormed();
 }
 
+/**
+ * The first `max` UTF-16 units of `text`, one fewer where the cut would split a surrogate pair:
+ * `slice` alone would leave half an emoji, a lone surrogate the protocol refuses.
+ */
+export function cutText(text: string, max: number): string {
+	const last = text.charCodeAt(max - 1);
+	const splits = last >= 0xd800 && last <= 0xdbff && text.length > max;
+	return text.slice(0, splits ? max - 1 : max);
+}
+
 /** A string of user text. Every free-text field of the protocol starts from it. */
 export const userText = z.string().refine(isWellFormedText, MALFORMED_TEXT);

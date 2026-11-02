@@ -50,6 +50,16 @@ describe("guideSteps", () => {
 		expect(mutationSchema.safeParse(long).success).toBe(true);
 	});
 
+	// TRK-79: the server refuses NUL characters and lone surrogates, which a plain slice could leave.
+	it("cuts a long name without splitting an emoji, and cleans the name", () => {
+		const cut = steps(`${"x".repeat(63)}🧪`).mutations[0];
+		expect(mutationSchema.safeParse(cut).success).toBe(true);
+		expect(cut).toMatchObject({ args: { name: "x".repeat(63) } });
+		const nul = steps("Acme\0 🧪 \ud800").mutations[0];
+		expect(mutationSchema.safeParse(nul).success).toBe(true);
+		expect(nul).toMatchObject({ args: { name: "Acme 🧪 \ufffd" } });
+	});
+
 	it("tells how to connect an agent only where the server has an MCP endpoint", () => {
 		const text = (mcpUrl: string | null) =>
 			steps("Acme", mcpUrl)

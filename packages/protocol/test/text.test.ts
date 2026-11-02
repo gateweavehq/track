@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanText, MALFORMED_TEXT, type MutationInput, mutationSchema } from "../src";
+import { cleanText, cutText, MALFORMED_TEXT, type MutationInput, mutationSchema } from "../src";
 
 const NUL = "a\0b";
 const LONE = "broken \ud83d emoji";
@@ -71,5 +71,14 @@ describe("user text", () => {
 		expect(cleanText(LONE)).toBe("broken � emoji");
 		expect(cleanText("\0\ud800\0")).toBe("�");
 		for (const text of valid) expect(cleanText(text)).toBe(text);
+	});
+
+	it("cuts text short without splitting a surrogate pair", () => {
+		expect(cutText("abc🧪", 4)).toBe("abc");
+		expect(cutText("abc🧪", 5)).toBe("abc🧪");
+		expect(cutText("ab🧪d", 4)).toBe("ab🧪");
+		expect(cutText("abcdef", 3)).toBe("abc");
+		expect(cutText("ab", 64)).toBe("ab");
+		expect(cutText(`${"x".repeat(63)}🧪`, 64).isWellFormed()).toBe(true);
 	});
 });

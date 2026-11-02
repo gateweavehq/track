@@ -1,7 +1,9 @@
 import {
 	type Comment,
 	calendarDate,
+	cleanText,
 	compareStatuses,
+	cutText,
 	defaultStatuses,
 	type IssuePriority,
 	type IssueRelation,
@@ -259,7 +261,8 @@ export async function planImport(
 			return known;
 		}
 		const id = crypto.randomUUID();
-		const name = issue.team.name.trim().slice(0, 64) || key;
+		// Cleaned before the check below, which would otherwise refuse a NUL or half an emoji.
+		const name = cutText(cleanText(issue.team.name).trim(), 64).trim() || key;
 		const create: MutationInput = { name: "team.create", args: { id, key, name } };
 		// A key the server would refuse sends the issue to the one team instead.
 		if (!mutationSchema.safeParse(create).success) return teamId;
@@ -302,7 +305,7 @@ export async function planImport(
 			const after = previous?.category === status.category ? previous.sortOrder : null;
 			const before =
 				sameCategory.find((here) => after === null || here.sortOrder > after)?.sortOrder ?? null;
-			const name = status.name.trim();
+			const name = cleanText(status.name).trim();
 			const statusKey = taken.has(status.key) ? statusKeyFor(name, taken) : status.key;
 			const create: MutationInput = {
 				name: "status.create",
@@ -354,7 +357,7 @@ export async function planImport(
 			return known;
 		}
 		const id = crypto.randomUUID();
-		const trimmed = name.trim().slice(0, 64);
+		const trimmed = cutText(name.trim(), 64);
 		const sourceColor = colors.get(folded)?.toLowerCase();
 		const color =
 			sourceColor && /^#[0-9a-f]{6}$/.test(sourceColor) ? sourceColor : defaultLabelColor(trimmed);
@@ -375,7 +378,7 @@ export async function planImport(
 			return known;
 		}
 		const id = crypto.randomUUID();
-		const trimmed = name.trim().slice(0, 64);
+		const trimmed = cutText(name.trim(), 64);
 		const about = source.projects?.find((project) => project.name.trim().toLowerCase() === folded);
 		const lead = about?.lead ? findMember(members, about.lead) : null;
 		mutations.push({
@@ -383,7 +386,7 @@ export async function planImport(
 			args: {
 				id,
 				name: trimmed,
-				description: about?.description?.trim().slice(0, 100_000) || null,
+				description: cutText(about?.description?.trim() ?? "", 100_000) || null,
 				status: about?.status ?? "planned",
 				leadId: lead?.id ?? null,
 				targetDate: validDate(about?.targetDate ?? null),
@@ -588,7 +591,7 @@ function describe(issue: ImportedIssue, sourceName: string, unmatched: string | 
 	const text = issue.description?.trim() ?? "";
 	const footer = notes.length > 0 ? `_${notes.join(" ")}_` : "";
 	const description = [text, footer].filter(Boolean).join("\n\n");
-	return description ? description.slice(0, 100_000) : null;
+	return description ? cutText(description, 100_000) : null;
 }
 
 function commentText(
@@ -598,11 +601,11 @@ function commentText(
 	const body = comment.body.trim();
 	if (!body) return "";
 	const byline = comment.author ? `_${comment.author} wrote in ${sourceName}:_\n\n` : "";
-	return `${byline}${body}`.slice(0, 100_000);
+	return cutText(`${byline}${body}`, 100_000);
 }
 
 function oneLine(text: string): string {
-	return text.replace(/\s+/g, " ").trim().slice(0, 512);
+	return cutText(text.replace(/\s+/g, " ").trim(), 512);
 }
 
 function escapeLinkText(text: string): string {

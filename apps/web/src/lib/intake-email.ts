@@ -1,4 +1,4 @@
-import { cleanText } from "@gateweave/track-protocol";
+import { cleanText, cutText } from "@gateweave/track-protocol";
 import type { Email } from "postal-mime";
 
 /** The longest description an emailed request keeps; the rest of the text is cut. */
@@ -66,9 +66,9 @@ export function requestFromEmail(
 	const subject = cleanText(email.subject ?? "")
 		.replace(/\s+/g, " ")
 		.trim();
-	const title = cut(subject || `Email from ${cleanText(sender)}`, 512);
+	const title = cutText(subject || `Email from ${cleanText(sender)}`, 512);
 	let text = textOf(email).trim();
-	if (text.length > MAX_EMAILED_TEXT) text = `${cut(text, MAX_EMAILED_TEXT)}…\n\n(Cut short.)`;
+	if (text.length > MAX_EMAILED_TEXT) text = `${cutText(text, MAX_EMAILED_TEXT)}…\n\n(Cut short.)`;
 	const notes = [`Sent by email from <${cleanText(sender)}>.`];
 	const left = email.attachments.length - kept.length;
 	if (left > 0) {
@@ -102,7 +102,8 @@ export function replyFromEmail(email: Pick<Email, "text" | "html">): string {
 		kept.push(line);
 	}
 	let reply = kept.join("\n").trim();
-	if (reply.length > MAX_EMAILED_TEXT) reply = `${cut(reply, MAX_EMAILED_TEXT)}…\n\n(Cut short.)`;
+	if (reply.length > MAX_EMAILED_TEXT)
+		reply = `${cutText(reply, MAX_EMAILED_TEXT)}…\n\n(Cut short.)`;
 	return reply;
 }
 
@@ -113,12 +114,6 @@ export function replyFromEmail(email: Pick<Email, "text" | "html">): string {
 function textOf(email: Pick<Email, "text" | "html">): string {
 	const text = email.text ?? (email.html ? textOfHtml(email.html) : "");
 	return cleanText(text).replace(/\r\n?/g, "\n");
-}
-
-/** The first `max` UTF-16 units of `text`, one fewer where the cut would split an emoji in two. */
-function cut(text: string, max: number): string {
-	const last = text.charCodeAt(max - 1);
-	return text.slice(0, last >= 0xd800 && last <= 0xdbff ? max - 1 : max);
 }
 
 /** The text of an HTML-only email, roughly: tags out, paragraphs kept, entities read. */
