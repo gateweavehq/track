@@ -1,5 +1,5 @@
 import { mcp } from "@better-auth/mcp";
-import type { BetterAuthRateLimitOptions } from "better-auth";
+import type { BetterAuthOptions, BetterAuthRateLimitOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { betterAuth } from "better-auth/minimal";
@@ -57,11 +57,34 @@ export function createAuth(config: AuthConfig) {
 	// Between a user deletion's before and after hooks: the workspaces they belonged to.
 	const workspacesOfDeletedUsers = new Map<string, string[]>();
 	const { mailer } = config;
+	const adapter = drizzleAdapter(config.db, { provider: "sqlite", schema });
 
 	return betterAuth({
 		secret: config.secret,
 		baseURL: config.baseURL,
-		database: drizzleAdapter(config.db, { provider: "sqlite", schema }),
+		// A deletion that fails after its before hook never reaches the after hook, which would
+		// otherwise be what forgets the user's workspaces. Better Auth has no hook for the failure.
+		database: (options: BetterAuthOptions) => {
+			const db = adapter(options);
+			const forgetting: typeof db = {
+				...db,
+				delete: async (data) => {
+					try {
+						return await db.delete(data);
+					} catch (cause) {
+						if (data.model === "user") {
+							for (const { field, value } of data.where) {
+								if (field === "id" && typeof value === "string") {
+									workspacesOfDeletedUsers.delete(value);
+								}
+							}
+						}
+						throw cause;
+					}
+				},
+			};
+			return forgetting;
+		},
 		telemetry: { enabled: false },
 		// Better Auth only turns its limiter on by itself when NODE_ENV is "production", which a
 		// Worker never sets. Its built-in rules allow 3 sign-ins per 10 seconds per client. It

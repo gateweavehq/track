@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDb, type Database, schema } from "../db";
 import { createAuth } from "./config";
 
@@ -75,5 +75,56 @@ describe("Better Auth's hooks", () => {
 			{ workspaceId: "w-acme", userId: "u-dana", stillMember: false },
 			{ workspaceId: "w-initech", userId: "u-dana", stillMember: false },
 		]);
+	});
+
+	it("forgets a user's workspaces when deleting them fails, and tells none", async () => {
+		const now = new Date();
+		await db.insert(schema.user).values({ id: "u-erin", name: "Erin", email: "erin@example.com" });
+		await db.insert(schema.organization).values({
+			id: "w-hooli",
+			name: "Hooli",
+			slug: "hooli",
+			createdAt: now,
+		});
+		await db.insert(schema.member).values({
+			id: "m-erin",
+			organizationId: "w-hooli",
+			userId: "u-erin",
+			role: "member",
+			createdAt: now,
+		});
+		const d1 = await mf.getD1Database("DB");
+		await d1
+			.prepare(
+				`CREATE TRIGGER keep_erin BEFORE DELETE ON "user" WHEN OLD.id = 'u-erin'
+				BEGIN SELECT RAISE(ABORT, 'Erin stays'); END`,
+			)
+			.run();
+		const told: string[] = [];
+		const auth = createAuth({
+			db,
+			secret: "a-test-secret-that-is-long-enough-for-better-auth",
+			baseURL: "http://localhost:4710",
+			onMembershipChange: async (workspaceId) => {
+				told.push(workspaceId);
+			},
+		});
+		// What the before hook noted lives in a Map no caller reaches; this watches it let go.
+		const forgotten = vi.spyOn(Map.prototype, "delete");
+		try {
+			await expect((await auth.$context).internalAdapter.deleteUser("u-erin")).rejects.toThrow();
+			expect(forgotten.mock.calls).toContainEqual(["u-erin"]);
+		} finally {
+			forgotten.mockRestore();
+			await d1.prepare("DROP TRIGGER keep_erin").run();
+		}
+		expect(told).toEqual([]);
+		expect(await db.select().from(schema.member).where(eq(schema.member.userId, "u-erin"))).toEqual(
+			[expect.objectContaining({ organizationId: "w-hooli" })],
+		);
+
+		// Once it goes through, the workspace hears of it as usual.
+		await (await auth.$context).internalAdapter.deleteUser("u-erin");
+		expect(told).toEqual(["w-hooli"]);
 	});
 });
