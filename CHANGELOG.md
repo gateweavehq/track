@@ -8,6 +8,27 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.22.0] - 2026-11-02
+
+Issues with very long comment threads keep working, and text with invisible broken characters is
+cleaned or refused. Updating a self-hosted copy applies a migration in each workspace's
+database, which runs on its own; there is no D1 migration and no new setting. The protocol stays
+at version 25. ([#168], [#169])
+
+### Fixed
+
+- An issue whose comments added up past about 10 MB could take no more comments, and its newest
+  ones were not found by search. Such an issue's comments are now indexed apart, so it takes new
+  comments and all of them stay searchable. The migration moves only issues past 1 MiB of
+  comments. ([#169])
+
+### Changed
+
+- Text with NUL characters or lone halves of an emoji's character pair is refused by the server,
+  since it confused search or came back silently changed. The app, request forms, intake email,
+  the guided start, the importer and GitHub titles clean such text instead, so people do not run
+  into errors. Text already stored stays as it is. ([#168])
+
 ## [0.21.1] - 2026-11-02
 
 Open tabs lose their connection when their session ends, exports handle large archives, and bulk
@@ -779,6 +800,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.22.0]: https://github.com/gateweavehq/track/releases/tag/v0.22.0
 [0.21.1]: https://github.com/gateweavehq/track/releases/tag/v0.21.1
 [0.21.0]: https://github.com/gateweavehq/track/releases/tag/v0.21.0
 [0.20.1]: https://github.com/gateweavehq/track/releases/tag/v0.20.1
@@ -919,3 +941,5 @@ The first pre-release.
 [#164]: https://github.com/gateweavehq/track/pull/164
 [#161]: https://github.com/gateweavehq/track/pull/161
 [#166]: https://github.com/gateweavehq/track/pull/166
+[#168]: https://github.com/gateweavehq/track/pull/168
+[#169]: https://github.com/gateweavehq/track/pull/169
