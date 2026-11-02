@@ -86,12 +86,10 @@ export function findIssueDetails(db: Db, issueId: string): IssueDetails | undefi
  * read `findArchivedIssuesPage`. Reads only.
  */
 export function findArchivedIssues(db: Db, teamId: string | null): ArchivedIssues | "too_large" {
-	const filters: SQL[] = [isNull(schema.issues.deletedAt), isNotNull(schema.issues.archivedAt)];
-	if (teamId !== null) filters.push(eq(schema.issues.teamId, teamId));
-	const archived = and(...filters);
+	const archived = archivedIssues(teamId);
 	// Measured before anything is read: an answer cut short would be a short export file that
 	// says nothing of what it lacks, so too large is refused whole.
-	if (archiveSize(db, archived) > ARCHIVE_WHOLE_BUDGET) return "too_large";
+	if (archiveSize(db, teamId) > ARCHIVE_WHOLE_BUDGET) return "too_large";
 	return {
 		issues: db
 			.select()
@@ -138,12 +136,20 @@ const { fieldStamps: _, deletedAt: __, ...issueColumns } = getTableColumns(schem
 const { deletedAt: ___, ...commentColumns } = getTableColumns(schema.comments);
 const activityColumns = getTableColumns(schema.activities);
 
+/** The live archived issues, or one team's. */
+function archivedIssues(teamId: string | null): SQL | undefined {
+	const filters: SQL[] = [isNull(schema.issues.deletedAt), isNotNull(schema.issues.archivedAt)];
+	if (teamId !== null) filters.push(eq(schema.issues.teamId, teamId));
+	return and(...filters);
+}
+
 /**
- * About how many bytes the archived issues `where` selects come to, with their comments and
- * history: every text and JSON value measured, and each row's allowance for the rest. Counted in
- * SQL, so a large archive is never read to find out it is too large.
+ * At least how many bytes `findArchivedIssues` answers for `teamId`, as JSON or as the structured
+ * clone that carries it over RPC: every text and JSON value measured, and each row's allowance
+ * for the rest. Counted in SQL, so a large archive is never read to find out it is too large.
  */
-function archiveSize(db: Db, where: SQL | undefined): number {
+export function archiveSize(db: Db, teamId: string | null): number {
+	const where = archivedIssues(teamId);
 	const issues = db
 		.select({ size: rowsSize(issueColumns, ARCHIVE_ROW_ALLOWANCE.issue) })
 		.from(schema.issues)
@@ -179,12 +185,18 @@ function rowsSize(columns: Record<string, Column>, allowance: number): SQL<numbe
 const WIDE = sql.raw(`'*[^' || char(1) || '-' || char(255) || ']*'`);
 
 /**
- * The bytes of `value`, the JSON form of `text`: its length in UTF-8, or, when `text` has a
- * character past U+00FF, two bytes a character, as the structured clone that carries an RPC
- * answer stores such a string, whichever is more.
+ * At least the bytes of `value`, the JSON form of `text`, in UTF-8 and in structured clone. That
+ * stores a string with a character past U+00FF in UTF-16, two bytes a unit: never more than its
+ * UTF-8 bytes and code points together. SQLite's `length`, and `glob`, stop at a NUL, which would
+ * hide such characters after it, so text with one counts two bytes for each of its bytes.
  */
 function valueSize(value: SQL | Column, text: Column): SQL {
-	return sql`max(length(cast(${value} as blob)), case when ${text} glob ${WIDE} then 2 * length(${text}) else 0 end)`;
+	const bytes = sql`length(cast(${text} as blob))`;
+	return sql`max(length(cast(${value} as blob)), case
+		when instr(cast(${text} as blob), x'00') > 0 then 2 * ${bytes}
+		when ${text} glob ${WIDE} then ${bytes} + length(${text})
+		else 0
+	end)`;
 }
 
 /**

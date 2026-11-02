@@ -21,7 +21,7 @@ import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { describe, expect, it } from "vitest";
 import migrations from "../drizzle/migrations";
 import type { MemberProfile, MutateResult } from "../src";
-import { ARCHIVE_ROW_ALLOWANCE } from "../src/archive";
+import { ARCHIVE_ROW_ALLOWANCE, archiveSize } from "../src/archive";
 import * as schema from "../src/db/schema";
 import { compact } from "../src/log";
 import {
@@ -81,6 +81,34 @@ function overhead(row: object, columns: Record<string, Column>): number {
 		return [key, value];
 	});
 	return bytes(Object.fromEntries(widest)) - text;
+}
+
+/**
+ * At least the bytes V8's serializer, which structured clone uses, writes for `value`: a string
+ * in one byte a character when every one fits, else two bytes a UTF-16 unit, after a tag and its
+ * length; every number as a double.
+ */
+function cloneBytes(value: unknown): number {
+	const varint = (n: number) => Math.max(1, Math.ceil(Math.log2(n + 1) / 7));
+	if (value === null || value === undefined || typeof value === "boolean") return 1;
+	if (typeof value === "number") return 9;
+	if (typeof value === "string") {
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: NUL is a one-byte character too.
+		const wide = /[^\u0000-\u00ff]/.test(value);
+		const size = wide ? 2 * value.length : value.length;
+		// A two-byte string may be padded by a byte, to align it.
+		return 1 + varint(size) + size + (wide ? 1 : 0);
+	}
+	if (Array.isArray(value)) {
+		return 11 + value.reduce((total: number, each) => total + cloneBytes(each), 0);
+	}
+	if (typeof value === "object") {
+		const entries = Object.entries(value);
+		return (
+			7 + entries.reduce((total, [key, each]) => total + cloneBytes(key) + cloneBytes(each), 0)
+		);
+	}
+	throw new Error(`Not cloned: ${typeof value}`);
 }
 
 /** Latest state of an issue that is not archived, as seen by `client`. */
@@ -1141,6 +1169,105 @@ describe("archive", () => {
 			ok: true,
 			value: "too_large",
 		});
+	});
+
+	/** Archives one issue with `count` comments of `body`, written straight to storage. */
+	async function archivedWithComments(body: string, count: number) {
+		const { workspace, admin } = await withTeam();
+		await admin.apply({
+			name: "issue.create",
+			args: { id: "issue-1", teamId: TEAM_ID, title: "Big", status: "done", sortOrder: "a0" },
+		});
+		await archive(admin, "issue-1", true);
+		const stored = await runInDurableObject(workspace, (_, state) => {
+			const db = drizzle(state.storage, { schema });
+			db.run(sql`
+				with recursive n(i) as (select 1 union all select i + 1 from n where i < ${count})
+				insert into comments (id, issue_id, author_id, body, created_at, updated_at)
+				select 'comment-' || i, 'issue-1', ${owner.id}, ${body}, i, i from n`);
+			return db.get<{ bytes: number }>(
+				sql`select length(cast(body as blob)) as bytes from comments limit 1`,
+			);
+		});
+		// Stored whole, NULs and all.
+		expect(stored?.bytes).toBe(new TextEncoder().encode(body).length);
+		return workspace;
+	}
+
+	it("counts wide text after a NUL, which SQLite's length and glob stop at", {
+		timeout: 30_000,
+	}, async () => {
+		// 18 MB in UTF-8, but 36 MB in structured clone, past the RPC limit.
+		const workspace = await archivedWithComments(`\0${"x".repeat(99_998)}🧪`, 180);
+		expect(await workspace.archivedIssues(owner, { teamId: null })).toEqual({
+			ok: true,
+			value: "too_large",
+		});
+	});
+
+	it("counts an emoji at the four bytes structured clone gives it", {
+		timeout: 30_000,
+	}, async () => {
+		// 25 MB in UTF-8, and 25,000 × "ab🧪" is 100,000 UTF-16 units, so 33.4 MB in structured
+		// clone, past the RPC limit. Two bytes a code point would count it at 25 MB.
+		const workspace = await archivedWithComments("ab🧪".repeat(25_000), 167);
+		expect(await workspace.archivedIssues(owner, { teamId: null })).toEqual({
+			ok: true,
+			value: "too_large",
+		});
+	});
+
+	it("estimates the whole archive at no less than it comes to, as JSON or structured clone", async () => {
+		const { workspace } = await withTeam();
+		const texts = [
+			"Plain ASCII",
+			"Café crème, naïve",
+			"ab🧪".repeat(40),
+			"\0 hidden wide text: 漢字 🧪",
+			"漢字かな交じり文",
+			"🧪🧪🧪",
+			'Quotes " and \\ and \n escapes',
+		];
+		await runInDurableObject(workspace, (instance) => {
+			for (const [n, text] of texts.entries()) {
+				const id = `issue-${n}`;
+				const mutations: MutationInput[] = [
+					{
+						name: "issue.create",
+						args: {
+							id,
+							teamId: TEAM_ID,
+							title: text,
+							description: text,
+							status: "done",
+							sortOrder: "a0",
+						},
+					},
+					...texts.map(
+						(body, c): MutationInput => ({
+							name: "comment.create",
+							args: { id: `${id}-comment-${c}`, issueId: id, body },
+						}),
+					),
+					{ name: "issue.archive", args: { id, archived: true } },
+				];
+				for (const [m, mutation] of mutations.entries()) {
+					const result = instance.mutate(owner, "client-estimate", `m-${n}-${m}`, mutation);
+					if (!result.ok) throw new Error(result.message);
+				}
+			}
+		});
+		const whole = await workspace.archivedIssues(owner, { teamId: null });
+		if (!whole.ok || whole.value === "too_large") throw new Error("Not the whole archive");
+		expect(whole.value.issues).toHaveLength(texts.length);
+		expect(whole.value.comments).toHaveLength(texts.length ** 2);
+		const estimate = await runInDurableObject(workspace, (_, state) =>
+			archiveSize(drizzle(state.storage, { schema }), null),
+		);
+		expect(estimate).toBeGreaterThanOrEqual(cloneBytes(whole.value));
+		expect(estimate).toBeGreaterThanOrEqual(
+			new TextEncoder().encode(JSON.stringify(whole.value)).length,
+		);
 	});
 
 	it("answers every archived issue at once in v0.21.0's shape when not asked for pages", {
