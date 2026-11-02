@@ -137,6 +137,26 @@ function guideIssues(mcpUrl: string | null): GuideIssue[] {
 			priority: 4,
 		},
 		{
+			title: "Bring your issues from another tracker",
+			description: lines(
+				"Admins bring issues in from Settings, then Import: from Jira (its CSV export), a Linear team, a GitHub repository, a CSV file, or another Track workspace's JSON export.",
+				"",
+				"Labels, projects, comments, parents and relations come along where the source has them, and people are matched by email. Running an import again skips what it brought in before.",
+			),
+			status: "backlog",
+			priority: 4,
+		},
+		{
+			title: "Link pull requests from GitHub",
+			description: lines(
+				"Admins connect a repository, or a whole organization, from Settings, then GitHub.",
+				"",
+				"A pull request that names an issue's key, such as in a branch called eng-12-fix-login, shows on the issue and moves it along: In Progress for a draft, In Review when opened, Done when merged.",
+			),
+			status: "backlog",
+			priority: 4,
+		},
+		{
 			title: "Group work with labels and projects",
 			description: lines(
 				"Labels are shared by every team: manage them in Settings, then Labels, and press L on an issue to add some.",
