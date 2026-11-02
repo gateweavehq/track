@@ -22,7 +22,9 @@ export function ExportSettings() {
 				<p className="text-sm text-muted-foreground">
 					Download your issues from the copy this browser holds, so it also works offline. CSV has
 					one row per issue and opens in a spreadsheet. JSON also holds teams, members, labels,
-					cycles, projects, comments, activity and relations. Any member can export.
+					cycles, projects, comments, activity and relations. Any member can export. Archived issues
+					come with only their key, title, status, project, cycle, parent and estimate: this browser
+					does not keep their description, labels, comments or history.
 				</p>
 			</div>
 			<div className="space-y-2">

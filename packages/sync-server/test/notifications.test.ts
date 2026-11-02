@@ -19,7 +19,7 @@ import {
 } from "../src";
 import * as schema from "../src/db/schema";
 import { remindDue } from "../src/reminders";
-import { freshWorkspace, type Workspace } from "./client";
+import { freshWorkspace, type Workspace, whole } from "./client";
 
 const owner: MemberProfile = {
 	id: "user-owner",
@@ -69,8 +69,9 @@ async function setup({ link = true } = {}) {
 	});
 
 	const update = async (member: MemberProfile, patch: Record<string, unknown>) => {
-		const issue = (await workspace.snapshot(owner)).issues.find((row) => row.id === ISSUE_ID);
-		if (!issue) throw new Error("No issue");
+		const issue = whole(
+			(await workspace.snapshot(owner)).issues.find((row) => row.id === ISSUE_ID),
+		);
 		await as(member, {
 			name: "issue.update",
 			args: { id: ISSUE_ID, baseVersion: issue.version, patch },

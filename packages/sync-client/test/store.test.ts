@@ -1,4 +1,5 @@
 import {
+	type Comment,
 	type Cycle,
 	defaultStatuses,
 	type InboxItem,
@@ -13,6 +14,7 @@ import {
 	type Snapshot,
 	type Team,
 	type TemplateRepeat,
+	toSyncedIssue,
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import { type PendingMutation, Replica } from "../src/store";
@@ -92,12 +94,22 @@ function applyOps(r: Replica, ops: Op[]): boolean {
 	return r.applyDelta({ from: first.version, to: last.version, ops });
 }
 
+/** An issue's op, as the server sends it: an archived issue slim. */
 const put = (version: number, data: Issue): Op => ({
 	version,
 	entity: "issue",
 	id: data.id,
 	op: "put",
-	data,
+	data: toSyncedIssue(data),
+});
+
+const comment = (id: string, issueId: string): Comment => ({
+	id,
+	issueId,
+	body: "Seen it",
+	authorId: "alice",
+	createdAt: 3,
+	updatedAt: 3,
 });
 
 describe("Replica", () => {
@@ -218,7 +230,7 @@ describe("Replica", () => {
 		});
 		expect(r.getState().issues.get("i2")).toMatchObject({ createdAt: opened, updatedAt: now });
 		expect(r.getState().comments.get("c1")).toMatchObject({ createdAt: opened });
-		expect(r.getState().issues.get("i3")?.createdAt).toBe(now);
+		expect(r.getState().activeIssues.get("i3")?.createdAt).toBe(now);
 	});
 
 	it("predicts dates and estimates, and clearing them", () => {
@@ -637,7 +649,7 @@ describe("Replica", () => {
 			pending("m3", { name: "issue.addLabel", args: { id: "i1", labelId: "l1" } }),
 		);
 		expect(r.getState().labels.get("l1")).toMatchObject({ name: "Bug" });
-		expect(r.getState().issues.get("i1")?.labelIds).toEqual(["l1"]);
+		expect(r.getState().activeIssues.get("i1")?.labelIds).toEqual(["l1"]);
 
 		// The server has applied all three; the acks have not arrived yet.
 		const label = { id: "l1", name: "Bug", color: "#e5484d", createdAt: 3, updatedAt: 3 };
@@ -645,10 +657,10 @@ describe("Replica", () => {
 			{ version: 3, entity: "label", id: "l1", op: "put", data: label },
 			put(4, { ...issue, labelIds: ["l1"], version: 4 }),
 		]);
-		expect(r.getState().issues.get("i1")?.labelIds).toEqual(["l1"]);
+		expect(r.getState().activeIssues.get("i1")?.labelIds).toEqual(["l1"]);
 
 		r.addPending(pending("m4", { name: "issue.removeLabel", args: { id: "i1", labelId: "l1" } }));
-		expect(r.getState().issues.get("i1")?.labelIds).toEqual([]);
+		expect(r.getState().activeIssues.get("i1")?.labelIds).toEqual([]);
 	});
 
 	it("predicts a label's deletion on every issue that has it", () => {
@@ -662,7 +674,7 @@ describe("Replica", () => {
 		r.addPending(pending("m1", { name: "label.delete", args: { id: "l1" } }));
 
 		expect(r.getState().labels.has("l1")).toBe(false);
-		expect(r.getState().issues.get("i1")?.labelIds).toEqual([]);
+		expect(r.getState().activeIssues.get("i1")?.labelIds).toEqual([]);
 	});
 
 	it("leaves issues with unknown labels to the server", () => {
@@ -691,7 +703,7 @@ describe("Replica", () => {
 			pending("m2", { name: "issue.addLabel", args: { id: "i1", labelId: "unknown" } }),
 		);
 		expect(r.getState().issues.has("i2")).toBe(false);
-		expect(r.getState().issues.get("i1")?.labelIds).toEqual([]);
+		expect(r.getState().activeIssues.get("i1")?.labelIds).toEqual([]);
 	});
 
 	it("predicts comments, and replays them safely over the server's result", () => {
@@ -842,16 +854,93 @@ describe("Replica", () => {
 		const archive = (id: string, archived: boolean) =>
 			pending(id, { name: "issue.archive", args: { id: "i1", archived } });
 
-		it("predicts archiving a closed issue and restoring it, and leaves an open one alone", () => {
+		it("predicts archiving a closed issue, and leaves an open one alone", () => {
 			const r = replica();
 			r.addPending(archive("m1", true));
 			expect(r.getState().issues.get("i1")?.archivedAt).toBeNull();
 
 			applyOps(r, [put(3, { ...issue, status: "done", version: 3 })]);
 			expect(r.getState().issues.get("i1")?.archivedAt).toBe(100);
+		});
 
-			r.addPending(archive("m2", false));
-			expect(r.getState().issues.get("i1")?.archivedAt).toBeNull();
+		it("predicts the archived issue as the server sends it: slim, without what belongs to it", () => {
+			const r = replica();
+			const other = { ...issue, id: "i2", number: 2, version: 3 };
+			const linked = (id: string, issueIds: string[]): Op => ({
+				version: id === "pr1" ? 7 : 8,
+				entity: "pullRequest",
+				id,
+				op: "put",
+				data: {
+					id,
+					repository: "acme/app",
+					number: id === "pr1" ? 1 : 2,
+					title: "Fix",
+					url: `https://github.com/acme/app/pull/${id}`,
+					state: "open",
+					branch: "eng-1",
+					author: null,
+					issueIds,
+					closingIssueIds: [],
+					createdAt: 3,
+					updatedAt: 3,
+				},
+			});
+			applyOps(r, [
+				put(3, { ...issue, description: "Details", status: "done", version: 3 }),
+				put(4, other),
+				{ version: 5, entity: "comment", id: "c1", op: "put", data: comment("c1", "i1") },
+				{ version: 6, entity: "comment", id: "c2", op: "put", data: comment("c2", "i2") },
+				linked("pr1", ["i1"]),
+				linked("pr2", ["i1", "i2"]),
+			]);
+			r.addPending(archive("m1", true));
+			const state = r.getState();
+			expect(state.issues.get("i1")).toEqual({
+				id: "i1",
+				teamId: "t1",
+				number: 1,
+				title: "First",
+				status: "done",
+				projectId: null,
+				cycleId: null,
+				parentId: null,
+				estimate: null,
+				archivedAt: 100,
+			});
+			expect([...state.activeIssues.keys()]).toEqual(["i2"]);
+			expect([...state.comments.keys()]).toEqual(["c2"]);
+			// A pull request that links an issue the replica still holds whole stays.
+			expect([...state.pullRequests.keys()]).toEqual(["pr2"]);
+
+			// The server's ops leave the replica the same, and the prediction replays over them.
+			applyOps(r, [
+				put(9, { ...issue, description: "Details", status: "done", archivedAt: 90, version: 9 }),
+				{ version: 10, entity: "comment", id: "c1", op: "delete" },
+				{ version: 11, entity: "pullRequest", id: "pr1", op: "delete" },
+			]);
+			expect(r.getState().issues.get("i1")).toEqual({ ...state.issues.get("i1"), archivedAt: 90 });
+			expect([...r.getState().comments.keys()]).toEqual(["c2"]);
+			expect([...r.getState().pullRequests.keys()]).toEqual(["pr2"]);
+		});
+
+		it("leaves restoring to the server, which sends the issue back whole", () => {
+			const r = replica();
+			applyOps(r, [put(3, { ...issue, status: "done", archivedAt: 50, version: 3 })]);
+			r.addPending(archive("m1", false));
+			// The slim row cannot become a whole issue until the server sends one.
+			expect(r.getState().issues.get("i1")).toMatchObject({ archivedAt: 50 });
+			expect(r.getState().activeIssues.has("i1")).toBe(false);
+
+			applyOps(r, [
+				put(4, { ...issue, description: "Details", status: "done", version: 4 }),
+				{ version: 5, entity: "comment", id: "c1", op: "put", data: comment("c1", "i1") },
+			]);
+			expect(r.getState().activeIssues.get("i1")).toMatchObject({
+				description: "Details",
+				archivedAt: null,
+			});
+			expect([...r.getState().comments.keys()]).toEqual(["c1"]);
 		});
 
 		it("replays over the server's archived issue without changing it", () => {
@@ -862,22 +951,54 @@ describe("Replica", () => {
 			expect(r.getState().issues.get("i1")?.archivedAt).toBe(50);
 		});
 
-		it("predicts that reopening an archived issue restores it, and a closed status keeps it", () => {
+		it("leaves edits to an archived issue to the server, which holds it whole", () => {
 			const r = replica();
 			applyOps(r, [put(3, { ...issue, status: "done", archivedAt: 50, version: 3 })]);
-			const move = (id: string, status: string) =>
-				pending(id, {
+			const before = r.getState().issues.get("i1");
+			r.addPending(
+				pending("m1", {
 					name: "issue.update",
-					args: { id: "i1", baseVersion: 3, patch: { status } },
-				});
+					args: { id: "i1", baseVersion: 3, patch: { status: "in_progress" } },
+				}),
+				pending("m2", { name: "issue.addLabel", args: { id: "i1", labelId: "l1" } }),
+				pending("m3", {
+					name: "comment.create",
+					args: { id: "c1", issueId: "i1", body: "Never shown" },
+				}),
+			);
+			expect(r.getState().issues.get("i1")).toBe(before);
+			expect(r.getState().comments.size).toBe(0);
+		});
 
-			r.addPending(move("m1", "canceled"));
-			expect(r.getState().issues.get("i1")?.archivedAt).toBe(50);
-			r.addPending(move("m2", "in_progress"));
-			expect(r.getState().issues.get("i1")).toMatchObject({
-				status: "in_progress",
-				archivedAt: null,
-			});
+		it("moves an archived issue's slim row along with what it links to", () => {
+			const r = replica();
+			const project = {
+				id: "p1",
+				name: "Launch",
+				description: null,
+				status: "started",
+				leadId: null,
+				targetDate: null,
+				createdAt: 3,
+				updatedAt: 3,
+			} as const;
+			const owner = {
+				id: "alice",
+				name: "Alice",
+				email: "alice@example.com",
+				image: null,
+				role: "owner" as const,
+				proposes: [],
+				removedAt: null,
+			};
+			applyOps(r, [
+				{ version: 3, entity: "member", id: "alice", op: "put", data: owner },
+				{ version: 4, entity: "project", id: "p1", op: "put", data: project },
+				put(5, { ...issue, status: "done", projectId: "p1", archivedAt: 50, version: 5 }),
+			]);
+			r.addPending(pending("m1", { name: "project.delete", args: { id: "p1" } }));
+			expect(r.getState().issues.get("i1")).toMatchObject({ projectId: null, archivedAt: 50 });
+			expect(r.getState().issues.get("i1")).not.toHaveProperty("updatedAt");
 		});
 	});
 
@@ -899,14 +1020,14 @@ describe("Replica", () => {
 					args: { ...issue, id: "i2", description: null, sortOrder: "a2", intake: true },
 				}),
 			);
-			expect(r.getState().issues.get("i2")?.intake).toBe(true);
+			expect(r.getState().activeIssues.get("i2")?.intake).toBe(true);
 		});
 
 		it("predicts accepting a request, into an open status only", () => {
 			const r = replica();
 			applyOps(r, [put(3, request)]);
 			r.addPending(accept("m1", "done"));
-			expect(r.getState().issues.get("i1")?.intake).toBe(true);
+			expect(r.getState().activeIssues.get("i1")?.intake).toBe(true);
 			r.addPending(accept("m2", "in_progress"));
 			expect(r.getState().issues.get("i1")).toMatchObject({
 				intake: false,
@@ -950,7 +1071,7 @@ describe("Replica", () => {
 				},
 			]);
 			r.addPending(accept("m1"), decline("m2"));
-			expect(r.getState().issues.get("i1")?.intake).toBe(true);
+			expect(r.getState().activeIssues.get("i1")?.intake).toBe(true);
 			expect(r.getState().comments.has("c1")).toBe(false);
 		});
 
@@ -1022,7 +1143,7 @@ describe("Replica", () => {
 					args: { teamId: "t1", key: "todo", moveTo: "done" },
 				}),
 			);
-			expect(r.getState().issues.get("i1")?.intake).toBe(false);
+			expect(r.getState().activeIssues.get("i1")?.intake).toBe(false);
 			expect(r.getState().issues.get("i2")).toMatchObject({ status: "done", intake: false });
 		});
 

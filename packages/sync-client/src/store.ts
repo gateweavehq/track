@@ -1,4 +1,12 @@
-import type { Entities, EntityName, Mutation, Op, Snapshot } from "@gateweave/track-protocol";
+import {
+	type ActiveIssue,
+	type Entities,
+	type EntityName,
+	isActiveIssue,
+	type Mutation,
+	type Op,
+	type Snapshot,
+} from "@gateweave/track-protocol";
 import { applyOptimistic } from "./optimistic";
 
 /** What the UI reads: the server's state with this device's unconfirmed mutations applied. */
@@ -8,14 +16,18 @@ export interface SyncState {
 	readonly teams: ReadonlyMap<string, Entities["team"]>;
 	/** Every team's statuses, removed ones included, so history still names them. */
 	readonly statuses: ReadonlyMap<string, Entities["status"]>;
-	/** Every issue, archived ones included, so links, history and progress still find them. */
+	/**
+	 * Every issue, archived ones included, so links, search and progress still find them. An
+	 * archived issue is a slim row (`ArchivedIssue`): its details, comments, history, proposals
+	 * and pull requests stay on the server.
+	 */
 	readonly issues: ReadonlyMap<string, Entities["issue"]>;
 	/**
-	 * The issues that are not archived: what lists, boards and calendars go through. A team that
-	 * archives a lot keeps its archive out of their way, and a change to an archived issue leaves
-	 * this map, and the selectors over it, as they were.
+	 * The issues that are not archived, whole: what lists, boards and calendars go through. A team
+	 * that archives a lot keeps its archive out of their way, and a change to an archived issue
+	 * leaves this map, and the selectors over it, as they were.
 	 */
-	readonly activeIssues: ReadonlyMap<string, Entities["issue"]>;
+	readonly activeIssues: ReadonlyMap<string, ActiveIssue>;
 	readonly labels: ReadonlyMap<string, Entities["label"]>;
 	readonly projects: ReadonlyMap<string, Entities["project"]>;
 	readonly projectUpdates: ReadonlyMap<string, Entities["projectUpdate"]>;
@@ -128,7 +140,7 @@ export class Replica {
 	#version = 0;
 	#hasData = false;
 	#pending: PendingMutation[] = [];
-	#state: SyncState = toState(EMPTY, 0, EMPTY.issue);
+	#state: SyncState = toState(EMPTY, 0, new Map());
 	readonly #listeners = new Set<() => void>();
 
 	constructor(private readonly userId: string) {}
@@ -152,13 +164,13 @@ export class Replica {
 	 * The issues that are not archived, kept as the same map while they are the same rows: an
 	 * edit to an archived issue changes the issues table, and nothing the lists read.
 	 */
-	#activeIssues(issues: Tables["issue"]): Tables["issue"] {
+	#activeIssues(issues: Tables["issue"]): SyncState["activeIssues"] {
 		const last = this.#state;
 		if (issues === last.issues) return last.activeIssues;
-		const active = new Map<string, Entities["issue"]>();
+		const active = new Map<string, ActiveIssue>();
 		let same = true;
 		for (const issue of issues.values()) {
-			if (issue.archivedAt !== null) continue;
+			if (!isActiveIssue(issue)) continue;
 			active.set(issue.id, issue);
 			if (same && last.activeIssues.get(issue.id) !== issue) same = false;
 		}
@@ -276,7 +288,11 @@ export class Replica {
 	}
 }
 
-function toState(tables: Tables, version: number, activeIssues: Tables["issue"]): SyncState {
+function toState(
+	tables: Tables,
+	version: number,
+	activeIssues: SyncState["activeIssues"],
+): SyncState {
 	return {
 		version,
 		teams: tables.team,

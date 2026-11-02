@@ -1,4 +1,4 @@
-import type { Issue } from "@gateweave/track-protocol";
+import type { ActiveIssue, SyncedIssue } from "@gateweave/track-protocol";
 import type { SyncState } from "@gateweave/track-sync-client";
 import { shallowEqual, useQuery } from "@gateweave/track-sync-client/react";
 import { useNavigate, useParams } from "@tanstack/react-router";
@@ -34,7 +34,7 @@ import {
 } from "#/components/ui/command";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "#/components/ui/dialog";
 import { MOD_LABEL } from "#/lib/hotkeys";
-import { issueKey, matchesQuery, parseIssueKey } from "#/lib/issues";
+import { issueKey, lastTouched, matchesQuery, parseIssueKey } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
 import { useProjectList, useTeams, useTeamsById, useTemplates } from "#/lib/queries";
 import { search } from "#/lib/search";
@@ -51,16 +51,17 @@ interface PaletteCommand {
 }
 
 const selectRecentIssues = (state: SyncState) =>
-	[...state.issues.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+	[...state.issues.values()].sort((a, b) => lastTouched(b) - lastTouched(a));
 
 const MAX_RECENT = 5;
 
 const selectState = (state: SyncState) => state;
 
-function findIssue(state: SyncState, teamKey: string, number: number): Issue | undefined {
+/** The issue on screen, to act on. An archived one is the server's to change. */
+function findIssue(state: SyncState, teamKey: string, number: number): ActiveIssue | undefined {
 	for (const team of state.teams.values()) {
 		if (team.key !== teamKey) continue;
-		for (const issue of state.issues.values()) {
+		for (const issue of state.activeIssues.values()) {
 			if (issue.teamId === team.id && issue.number === number) return issue;
 		}
 	}
@@ -280,10 +281,10 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 	const matchingCommands = commands.filter((command) =>
 		matchesQuery(query, command.label, ...(command.keywords ?? [])),
 	);
-	const keyOf = (issue: Issue) => issueKey(teamsById.get(issue.teamId), issue);
+	const keyOf = (issue: SyncedIssue) => issueKey(teamsById.get(issue.teamId), issue);
 	const searching = query.trim() !== "";
 	const found = useMemo(() => (searching ? search(state, query) : []), [state, query, searching]);
-	const matchingIssues: { issue: Issue; snippet?: string }[] = searching
+	const matchingIssues: { issue: SyncedIssue; snippet?: string }[] = searching
 		? found
 		: issues.slice(0, MAX_RECENT).map((issue) => ({ issue }));
 

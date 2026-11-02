@@ -10,7 +10,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MemberProfile, WebhookResult, WorkspaceLink } from "../src";
 import { mentions } from "../src/github";
-import { freshWorkspace, type Workspace } from "./client";
+import { freshWorkspace, TestClient, type Workspace, whole } from "./client";
 import { GITHUB_APP_SECRET } from "./worker";
 
 const owner: MemberProfile = {
@@ -142,8 +142,7 @@ async function setStatus(
 	id: string,
 	status: IssueStatus,
 ) {
-	const issue = (await workspace.snapshot(owner)).issues.find((row) => row.id === id);
-	if (!issue) throw new Error(`No issue ${id}`);
+	const issue = whole((await workspace.snapshot(owner)).issues.find((row) => row.id === id));
 	await as(owner, {
 		name: "issue.update",
 		args: { id, baseVersion: issue.version, patch: { status } },
@@ -448,6 +447,43 @@ describe("pull requests", () => {
 		await as(owner, { name: "issue.delete", args: { id: "issue-1" } });
 		expect(await pullRequests(workspace)).toEqual([]);
 	});
+
+	it("leave replicas while every issue they link is archived, and come back on a restore", async () => {
+		const { workspace, as, deliver } = await setup();
+		await deliver("pull_request", pullRequest("opened", { body: "See ENG-2." }));
+		for (const id of ["issue-1", "issue-2"]) await setStatus(workspace, as, id, "done");
+		const archive = (id: string, archived: boolean) =>
+			as(owner, { name: "issue.archive", args: { id, archived } });
+		const client = await TestClient.connect(workspace, alice);
+		await client.hello((await workspace.snapshot(owner)).version);
+		const prOps = () => client.ops().filter((op) => op.entity === "pullRequest");
+
+		// It still links an issue that replicas hold whole.
+		await archive("issue-1", true);
+		expect(await pullRequests(workspace)).toHaveLength(1);
+		await archive("issue-2", true);
+		expect(await pullRequests(workspace)).toEqual([]);
+		await client.op((op) => op.entity === "pullRequest");
+		expect(prOps()).toEqual([expect.objectContaining({ id: "github:9001", op: "delete" })]);
+
+		// GitHub's news of it does not bring it back while they stay archived.
+		await deliver(
+			"pull_request",
+			pullRequest("edited", { title: "Fix login for good", body: "See ENG-2." }),
+		);
+		await client.op((op) => op.entity === "pullRequest" && op.version > (prOps()[0]?.version ?? 0));
+		expect(prOps().map((op) => op.op)).toEqual(["delete", "delete"]);
+
+		await archive("issue-1", false);
+		await client.op((op) => op.entity === "pullRequest" && op.op === "put");
+		expect(prOps().at(-1)).toMatchObject({
+			op: "put",
+			data: { title: "Fix login for good", issueIds: ["issue-1", "issue-2"] },
+		});
+		expect(await pullRequests(workspace)).toEqual([
+			expect.objectContaining({ id: "github:9001", title: "Fix login for good" }),
+		]);
+	});
 });
 
 describe("pushes", () => {
@@ -528,8 +564,9 @@ describe("GitHub's changes", () => {
 
 	it("make a stale offline edit to the status conflict", async () => {
 		const { workspace, deliver } = await setup();
-		const stale = (await workspace.snapshot(owner)).issues.find((row) => row.id === "issue-1");
-		if (!stale) throw new Error("No issue");
+		const stale = whole(
+			(await workspace.snapshot(owner)).issues.find((row) => row.id === "issue-1"),
+		);
 		await deliver("pull_request", pullRequest("opened"));
 		const result = await workspace.mutate(owner, "offline-laptop", "late-edit", {
 			name: "issue.update",

@@ -103,6 +103,8 @@ const exportFile = z.object({
 		)
 		.catch([]),
 	activities: z.array(z.unknown()).catch([]),
+	// Archived issues exported without their details, from a browser that does not keep them.
+	archivedIssues: z.array(z.unknown()).catch([]),
 	// Exports made before relations existed have none.
 	relations: z
 		.array(
@@ -213,6 +215,12 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 	});
 
 	const notes: string[] = [];
+	const archived = file.archivedIssues.length;
+	if (archived > 0) {
+		notes.push(
+			`${archived} archived ${archived === 1 ? "issue stays" : "issues stay"} behind: the export has only ${archived === 1 ? "its" : "their"} title and status, not ${archived === 1 ? "its" : "their"} details.`,
+		);
+	}
 	if (file.activities.length > 0) {
 		notes.push(
 			"The issues' history stays behind: an import brings issues, comments and relations.",

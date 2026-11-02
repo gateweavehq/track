@@ -1,4 +1,4 @@
-import type { Issue, MutationInput } from "@gateweave/track-protocol";
+import { type ActiveIssue, isActiveIssue, type MutationInput } from "@gateweave/track-protocol";
 import { inject } from "vitest";
 import {
 	httpTransport,
@@ -168,8 +168,8 @@ export const make = {
 		return { name: "issue.create", args: { id: uuidv7(), teamId, title, sortOrder } };
 	},
 	update(
-		issue: Issue,
-		patch: Partial<Pick<Issue, "title" | "status" | "priority" | "assigneeId">>,
+		issue: ActiveIssue,
+		patch: Partial<Pick<ActiveIssue, "title" | "status" | "priority" | "assigneeId">>,
 	) {
 		return {
 			name: "issue.update",
@@ -178,8 +178,10 @@ export const make = {
 	},
 };
 
-export function issueBy(client: SyncClient, title: string): Issue {
+/** The issue with this title, whole: an archived issue's slim row fails the test. */
+export function issueBy(client: SyncClient, title: string): ActiveIssue {
 	const issue = [...client.getState().issues.values()].find((i) => i.title === title);
 	if (!issue) throw new Error(`No issue titled "${title}"`);
+	if (!isActiveIssue(issue)) throw new Error(`Issue "${title}" is archived`);
 	return issue;
 }

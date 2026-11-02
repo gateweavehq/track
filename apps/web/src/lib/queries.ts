@@ -1,11 +1,13 @@
 import {
+	type ActiveIssue,
 	type Activity,
+	type ArchivedIssue,
 	type Comment,
 	type Cycle,
 	type InboxItem,
-	type Issue,
 	type IssueRelation,
 	type IssueTemplate,
+	isActiveIssue,
 	type Label,
 	type Member,
 	type Project,
@@ -15,6 +17,7 @@ import {
 	privateId,
 	type SavedView,
 	type Subscription,
+	type SyncedIssue,
 	type Team,
 	type WorkflowStatus,
 } from "@gateweave/track-protocol";
@@ -71,7 +74,7 @@ export function useTeamStatuses(teamId: string | undefined): WorkflowStatus[] {
 }
 
 /** The status an issue is in, as its team names it. */
-export function useIssueStatus(issue: Pick<Issue, "teamId" | "status">): WorkflowStatus {
+export function useIssueStatus(issue: Pick<SyncedIssue, "teamId" | "status">): WorkflowStatus {
 	return statusOf(useStatuses(), issue);
 }
 
@@ -143,12 +146,17 @@ export function useTeamCycles(teamId: string | undefined): Cycle[] {
 	);
 }
 
-/** A cycle's issues; `listed` leaves out archived ones, for a list rather than progress. */
-export function useCycleIssues(cycleId: string, { listed = false } = {}): Issue[] {
+/** A cycle's issues for its list: archived ones leave it. */
+export function useCycleIssues(cycleId: string): ActiveIssue[] {
 	return useIssues(
-		useCallback((issue: Issue) => issue.cycleId === cycleId, [cycleId]),
-		{ listed },
+		useCallback((issue: ActiveIssue) => issue.cycleId === cycleId, [cycleId]),
+		{ listed: true },
 	);
+}
+
+/** Every issue of a cycle, archived ones as slim rows, for its progress. */
+export function useAllCycleIssues(cycleId: string): SyncedIssue[] {
+	return useIssues(useCallback((issue: SyncedIssue) => issue.cycleId === cycleId, [cycleId]));
 }
 
 const selectProjectsById = (state: SyncState) => state.projects;
@@ -171,7 +179,7 @@ export interface ProjectSummary {
 }
 
 const selectProjectSummaries = (state: SyncState): ProjectSummary[] => {
-	const grouped = new Map<string, Issue[]>();
+	const grouped = new Map<string, SyncedIssue[]>();
 	for (const issue of state.issues.values()) {
 		if (issue.projectId === null) continue;
 		const group = grouped.get(issue.projectId);
@@ -254,9 +262,10 @@ export function useLabelsById(): ReadonlyMap<string, Label> {
 	return useQuery(selectLabelsById);
 }
 
+// An archived issue's labels stay on the server, so they count only the issues that are not.
 const selectLabelCounts = (state: SyncState) => {
 	const counts = new Map<string, number>();
-	for (const issue of state.issues.values()) {
+	for (const issue of state.activeIssues.values()) {
 		for (const labelId of issue.labelIds) counts.set(labelId, (counts.get(labelId) ?? 0) + 1);
 	}
 	return counts;
@@ -392,8 +401,16 @@ export function useProposalCount(): number {
 
 const selectIssuesById = (state: SyncState) => state.issues;
 
-export function useIssuesById(): ReadonlyMap<string, Issue> {
+/** Every issue by id, an archived one as its slim row. */
+export function useIssuesById(): ReadonlyMap<string, SyncedIssue> {
 	return useQuery(selectIssuesById);
+}
+
+const selectActiveIssuesById = (state: SyncState) => state.activeIssues;
+
+/** The issues that are not archived, whole, by id. */
+export function useActiveIssuesById(): ReadonlyMap<string, ActiveIssue> {
+	return useQuery(selectActiveIssuesById);
 }
 
 export function useIssueActivity(issueId: string): Activity[] {
@@ -419,25 +436,34 @@ export function useTeamsById(): ReadonlyMap<string, Team> {
 	return useQuery(selectTeamsById);
 }
 
+function kept<T extends SyncedIssue>(issues: ReadonlyMap<string, T>, keep: (issue: T) => boolean) {
+	const rows: T[] = [];
+	for (const issue of issues.values()) if (keep(issue)) rows.push(issue);
+	return rows.sort(compareIssues);
+}
+
 /**
  * The issues `filter` keeps, in list order. With `listed`, only the issues lists show
  * (`isListed`), read from the issues that are not archived, so a large archive costs a list
- * nothing, and a change to an archived issue does not run its filter again.
+ * nothing, and a change to an archived issue does not run its filter again. Without it, archived
+ * issues come too, as their slim rows.
  */
 export function useIssues(
-	filter: (issue: Issue) => boolean,
+	filter: (issue: ActiveIssue) => boolean,
+	options: { listed: true },
+): ActiveIssue[];
+export function useIssues(filter: (issue: SyncedIssue) => boolean): SyncedIssue[];
+export function useIssues(
+	filter: (issue: ActiveIssue) => boolean,
 	{ listed = false }: { listed?: boolean } = {},
-): Issue[] {
+): SyncedIssue[] {
 	return useQuery(
 		useCallback(
-			(state: SyncState) => {
-				const issues = listed ? state.activeIssues : state.issues;
-				const kept: Issue[] = [];
-				for (const issue of issues.values()) {
-					if ((!listed || isListed(issue)) && filter(issue)) kept.push(issue);
-				}
-				return kept.sort(compareIssues);
-			},
+			(state: SyncState) =>
+				listed
+					? kept(state.activeIssues, (issue) => isListed(issue) && filter(issue))
+					: // Without `listed`, the overload takes a filter of any issue.
+						kept(state.issues, filter as (issue: SyncedIssue) => boolean),
 			[filter, listed],
 		),
 		shallowEqual,
@@ -445,46 +471,53 @@ export function useIssues(
 }
 
 /**
- * Whether lists and boards show the issue. Archived issues leave them, and stay everywhere else:
- * in search, in history, and in the progress of their project, cycle and parent. Requests in
- * intake wait on the team's intake page until someone accepts them.
+ * Whether lists and boards show the issue. Archived issues leave them, and stay everywhere else
+ * as slim rows: in search, in links, and in the progress of their project, cycle and parent.
+ * Requests in intake wait on the team's intake page until someone accepts them.
  */
-export function isListed(issue: Issue): boolean {
-	return issue.archivedAt === null && !issue.intake;
+export function isListed(issue: SyncedIssue): issue is ActiveIssue {
+	return isActiveIssue(issue) && !issue.intake;
 }
 
 /** A team's issues for its list: archived ones leave it. */
-export function useTeamIssues(teamId: string | undefined): Issue[] {
+export function useTeamIssues(teamId: string | undefined): ActiveIssue[] {
 	return useIssues(
-		useCallback((issue: Issue) => issue.teamId === teamId, [teamId]),
+		useCallback((issue: ActiveIssue) => issue.teamId === teamId, [teamId]),
 		{ listed: true },
 	);
 }
 
-/** A project's issues; `listed` leaves out archived ones, for a list rather than progress. */
-export function useProjectIssues(projectId: string, { listed = false } = {}): Issue[] {
+/** A project's issues for its list: archived ones leave it. */
+export function useProjectIssues(projectId: string): ActiveIssue[] {
 	return useIssues(
-		useCallback((issue: Issue) => issue.projectId === projectId, [projectId]),
-		{ listed },
+		useCallback((issue: ActiveIssue) => issue.projectId === projectId, [projectId]),
+		{ listed: true },
 	);
 }
 
+/** Every issue of a project, archived ones as slim rows, for its progress. */
+export function useAllProjectIssues(projectId: string): SyncedIssue[] {
+	return useIssues(useCallback((issue: SyncedIssue) => issue.projectId === projectId, [projectId]));
+}
+
 /** The issues assigned to someone, for their list: archived ones leave it. */
-export function useAssignedIssues(userId: string): Issue[] {
+export function useAssignedIssues(userId: string): ActiveIssue[] {
 	return useIssues(
-		useCallback((issue: Issue) => issue.assigneeId === userId, [userId]),
+		useCallback((issue: ActiveIssue) => issue.assigneeId === userId, [userId]),
 		{ listed: true },
 	);
 }
 
 /** A team's archived issues, the latest archived first. */
-export function useArchivedIssues(teamId: string): Issue[] {
+export function useArchivedIssues(teamId: string): ArchivedIssue[] {
 	return useQuery(
 		useCallback(
 			(state: SyncState) =>
 				[...state.issues.values()]
-					.filter((issue) => issue.teamId === teamId && issue.archivedAt !== null)
-					.sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0)),
+					.filter(
+						(issue): issue is ArchivedIssue => issue.teamId === teamId && !isActiveIssue(issue),
+					)
+					.sort((a, b) => b.archivedAt - a.archivedAt),
 			[teamId],
 		),
 		shallowEqual,
@@ -492,11 +525,11 @@ export function useArchivedIssues(teamId: string): Issue[] {
 }
 
 /** A team's requests in intake, the oldest first, as they were filed. */
-export function useIntakeIssues(teamId: string): Issue[] {
+export function useIntakeIssues(teamId: string): ActiveIssue[] {
 	return useQuery(
 		useCallback(
 			(state: SyncState) =>
-				[...state.issues.values()]
+				[...state.activeIssues.values()]
 					.filter((issue) => issue.teamId === teamId && issue.intake)
 					.sort((a, b) => a.createdAt - b.createdAt || a.number - b.number),
 			[teamId],
@@ -505,19 +538,23 @@ export function useIntakeIssues(teamId: string): Issue[] {
 	);
 }
 
-/** An issue by id, such as an issue's parent. Undefined for null and for issues not in the copy. */
-export function useIssueById(id: string | null): Issue | undefined {
+/**
+ * An issue by id, such as an issue's parent, an archived one as its slim row. Undefined for null
+ * and for issues not in the copy.
+ */
+export function useIssueById(id: string | null): SyncedIssue | undefined {
 	return useQuery(
 		useCallback((state: SyncState) => (id === null ? undefined : state.issues.get(id)), [id]),
 	);
 }
 
-export function useSubIssues(parentId: string): Issue[] {
-	return useIssues(useCallback((issue: Issue) => issue.parentId === parentId, [parentId]));
+/** An issue's sub-issues, archived ones last, as their slim rows. */
+export function useSubIssues(parentId: string): SyncedIssue[] {
+	return useIssues(useCallback((issue: SyncedIssue) => issue.parentId === parentId, [parentId]));
 }
 
 const selectSubIssueProgress = (state: SyncState): ReadonlyMap<string, ProjectProgress> => {
-	const grouped = new Map<string, Issue[]>();
+	const grouped = new Map<string, SyncedIssue[]>();
 	for (const issue of state.issues.values()) {
 		if (issue.parentId === null) continue;
 		const group = grouped.get(issue.parentId);
@@ -632,7 +669,8 @@ export function useBlockedIssueIds(): ReadonlySet<string> {
 	return useQuery(selectBlocked, setEqual);
 }
 
-export function useIssue(teamId: string | undefined, number: number): Issue | undefined {
+/** An issue by its key's parts, an archived one as its slim row. */
+export function useIssue(teamId: string | undefined, number: number): SyncedIssue | undefined {
 	return useQuery(
 		useCallback(
 			(state: SyncState) => {

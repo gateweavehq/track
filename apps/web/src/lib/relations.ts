@@ -1,8 +1,8 @@
 import {
-	type Issue,
 	type IssueRelation,
 	type RelationKind,
 	relationFrom,
+	type SyncedIssue,
 } from "@gateweave/track-protocol";
 import { Ban, Copy, Link2, type LucideIcon, OctagonAlert } from "lucide-react";
 import { isIssueClosed, type StatusMap } from "./statuses";
@@ -65,7 +65,8 @@ export const ADDABLE_RELATIONS: readonly RelationKind[] = [
 
 export interface RelatedIssue {
 	relation: IssueRelation;
-	issue: Issue;
+	/** An archived issue as its slim row, which has its key, title and status. */
+	issue: SyncedIssue;
 }
 
 /**
@@ -75,7 +76,7 @@ export interface RelatedIssue {
 export function groupRelations(
 	relations: readonly IssueRelation[],
 	issueId: string,
-	issues: ReadonlyMap<string, Issue>,
+	issues: ReadonlyMap<string, SyncedIssue>,
 ): { kind: RelationKind; items: RelatedIssue[] }[] {
 	const groups = new Map<RelationKind, RelatedIssue[]>();
 	for (const relation of relations) {
@@ -95,10 +96,10 @@ export function groupRelations(
 /** Open issues that an open issue blocks. A closed blocker no longer holds anything up. */
 export function blockedIssueIds(
 	relations: Iterable<IssueRelation>,
-	issues: ReadonlyMap<string, Issue>,
+	issues: ReadonlyMap<string, SyncedIssue>,
 	statuses: StatusMap,
 ): Set<string> {
-	const isOpen = (issue: Issue | undefined) =>
+	const isOpen = (issue: SyncedIssue | undefined) =>
 		issue !== undefined && !isIssueClosed(statuses, issue);
 	const blocked = new Set<string>();
 	for (const relation of relations) {

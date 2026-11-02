@@ -117,6 +117,9 @@ export function InsightsPage({
 						}}
 					/>
 				</div>
+				<p className="text-xs text-muted-foreground">
+					Archived issues are not counted: this browser does not keep their history.
+				</p>
 			</div>
 		</div>
 	);

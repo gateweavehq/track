@@ -17,8 +17,12 @@ test("a closed issue is archived out of lists, found in the team's archive, and 
 	await properties.getByRole("button", { name: /^Backlog/ }).click();
 	await page.getByRole("option", { name: "Done" }).click();
 	await page.getByRole("button", { name: "Archive issue" }).click();
+
+	// Archived, its page has what the browser keeps of it, and says the rest is on the server.
 	await expect(page.getByRole("status").filter({ hasText: /^Archived/ })).toBeVisible();
-	await expect(page.getByText("archived the issue")).toBeVisible();
+	await expect(page.getByRole("heading", { name: shipped })).toBeVisible();
+	await expect(page.getByText("comes in a later version of Track")).toBeVisible();
+	await expect(page.getByText("changed the status")).toBeHidden();
 	await expect(syncBadge(page)).toHaveText("Live");
 
 	// The team's list leaves it out, and links to the archive, which has it.
@@ -36,13 +40,14 @@ test("a closed issue is archived out of lists, found in the team's archive, and 
 	await page.goto(`/${slug}/team/ENG`);
 	await expect(issueRow(page, shipped)).toBeVisible();
 
-	// Archived again, then reopened from its page: reopening restores it.
+	// Archived again, then restored from its own page: the whole issue comes back, history too.
 	await page.goto(`/${slug}/issue/ENG-1`);
 	await page.getByRole("button", { name: "Archive issue" }).click();
-	await properties.getByRole("button", { name: /^Done/ }).click();
-	await page.getByRole("option", { name: "In Progress" }).click();
+	await expect(page.getByRole("status").filter({ hasText: /^Archived/ })).toBeVisible();
+	await page.getByRole("button", { name: "Restore" }).click();
 	await expect(page.getByRole("status").filter({ hasText: /^Archived/ })).toBeHidden();
-	await expect(page.getByRole("button", { name: "Archive issue" })).toBeHidden();
+	await expect(page.getByText("changed the status")).toBeVisible();
+	await expect(page.getByRole("button", { name: "Archive issue" })).toBeVisible();
 	await expect(syncBadge(page)).toHaveText("Live");
 	await page.goto(`/${slug}/team/ENG`);
 	await expect(issueRow(page, shipped)).toBeVisible();

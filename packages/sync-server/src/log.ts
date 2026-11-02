@@ -1,12 +1,14 @@
 import {
 	type Entities,
 	type EntityName,
+	type Issue,
 	isPrivateEntity,
 	type Op,
 	type PrivateEntityName,
 	type Proposal,
+	toSyncedIssue,
 } from "@gateweave/track-protocol";
-import { and, asc, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
 import type { Db } from "./state";
 import type { ChangeEvent } from "./webhooks";
@@ -53,12 +55,25 @@ export class ChangeSet {
 		return this.#next;
 	}
 
-	/** Records a row. A private entity's row goes to its member alone. */
+	/**
+	 * Records a row. A private entity's row goes to its member alone. An archived issue goes out
+	 * slim, and a row that belongs only to archived issues goes out as a delete: replicas keep
+	 * neither their details nor their comments, history, proposals and pull requests.
+	 */
 	put<E extends EntityName>(entity: E, data: Entities[E]): void {
+		if (onlyArchived(this.db, entity, data)) {
+			this.delete(entity as Exclude<EntityName, PrivateEntityName>, data.id);
+			return;
+		}
 		const audience = isPrivateEntity(entity)
 			? (data as Entities[PrivateEntityName]).memberId
 			: null;
-		this.#append({ version: this.#next, entity, id: data.id, op: "put", data } as Op, audience);
+		// Every caller passes the whole row; whether replicas see it whole is decided here.
+		const row = entity === "issue" ? toSyncedIssue(data as Issue) : data;
+		this.#append(
+			{ version: this.#next, entity, id: data.id, op: "put", data: row } as Op,
+			audience,
+		);
 	}
 
 	delete(entity: Exclude<EntityName, PrivateEntityName>, id: string): void {
@@ -96,6 +111,34 @@ export class ChangeSet {
 		if (audience !== null) this.#audience.set(op.version, audience);
 		this.#next += 1;
 	}
+}
+
+/**
+ * Whether the row is a comment, history entry, proposal or pull request of archived issues only,
+ * which replicas do not hold.
+ */
+export function onlyArchived(db: Db, entity: EntityName, data: Entities[EntityName]): boolean {
+	let issueIds: string[];
+	if (entity === "comment" || entity === "activity" || entity === "proposal") {
+		issueIds = [(data as Entities["comment" | "activity" | "proposal"]).issueId];
+	} else if (entity === "pullRequest") {
+		issueIds = (data as Entities["pullRequest"]).issueIds;
+		if (issueIds.length === 0) return false;
+	} else {
+		return false;
+	}
+	let found = false;
+	// A Durable Object binds at most 100 values in a statement, and a pull request can name more.
+	for (let at = 0; at < issueIds.length; at += 50) {
+		const issues = db
+			.select({ archivedAt: schema.issues.archivedAt })
+			.from(schema.issues)
+			.where(inArray(schema.issues.id, issueIds.slice(at, at + 50)))
+			.all();
+		if (issues.some((issue) => issue.archivedAt === null)) return false;
+		found ||= issues.length > 0;
+	}
+	return found;
 }
 
 export function currentVersion(db: Db): number {
