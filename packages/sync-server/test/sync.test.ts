@@ -821,6 +821,7 @@ describe("archive", () => {
 		const archived = await workspace.archivedIssues(alice, { teamId: null });
 		if (!archived.ok) throw new Error(archived.message);
 		expect(archived.value.issues.map((row) => row.id)).toEqual([issue.id]);
+		expect(archived.value.next).toBeNull();
 		expect(archived.value.issues[0]).toMatchObject({ description: "Steps to reproduce" });
 		expect(archived.value.comments.map((comment) => comment.id)).toEqual(["comment-1"]);
 		expect(archived.value.activities).toEqual(details.value.activities);
@@ -830,7 +831,7 @@ describe("archive", () => {
 		});
 		expect(await workspace.archivedIssues(alice, { teamId: "team-other" })).toEqual({
 			ok: true,
-			value: { issues: [], comments: [], activities: [] },
+			value: { issues: [], comments: [], activities: [], next: null },
 		});
 
 		// Reading is not writing: no version, and nothing for replicas. The next write's op is the
@@ -841,6 +842,124 @@ describe("archive", () => {
 		expect(viewer.ops()).toEqual([
 			expect.objectContaining({ version: before + 1, entity: "issue", id: "issue-2" }),
 		]);
+	});
+
+	it("pages archived issues by id, each once, for a team or all", async () => {
+		const { workspace, admin } = await withTeam();
+		await admin.apply({ name: "team.create", args: { id: "team-ops", key: "OPS", name: "Ops" } });
+		// Ids out of their order of creation, two teams, one deleted and one never archived.
+		const ids = ["issue-e", "issue-b", "issue-g", "issue-a", "issue-f", "issue-c", "issue-d"];
+		for (const [index, id] of ids.entries()) {
+			const teamId = index % 2 === 0 ? TEAM_ID : "team-ops";
+			await admin.apply({
+				name: "issue.create",
+				args: { id, teamId, title: id, status: "done", sortOrder: "a0" },
+			});
+			await admin.apply({
+				name: "comment.create",
+				args: { id: `comment-${id}`, issueId: id, body: `On ${id}` },
+			});
+			if (id !== "issue-d") await archive(admin, id, true);
+		}
+		await admin.apply({ name: "issue.delete", args: { id: "issue-f" } });
+		await admin.apply({
+			name: "issue.create",
+			args: { id: "issue-0", teamId: TEAM_ID, title: "Open", sortOrder: "a0" },
+		});
+
+		async function pages(teamId: string | null, limit: number) {
+			const read: { ids: string[]; comments: string[]; next: string | null }[] = [];
+			let after: string | null = null;
+			do {
+				const page = await workspace.archivedIssues(owner, { teamId, after, limit });
+				if (!page.ok) throw new Error(page.message);
+				read.push({
+					ids: page.value.issues.map((issue) => issue.id),
+					comments: page.value.comments.map((comment) => comment.issueId),
+					next: page.value.next,
+				});
+				after = page.value.next;
+			} while (after !== null && read.length < 10);
+			return read;
+		}
+
+		// By id, two at a time; each page's comments are its issues'.
+		const all = await pages(null, 2);
+		expect(all.map((page) => page.ids)).toEqual([
+			["issue-a", "issue-b"],
+			["issue-c", "issue-e"],
+			["issue-g"],
+		]);
+		expect(all.map((page) => page.next)).toEqual(["issue-b", "issue-e", null]);
+		for (const page of all) expect(page.comments).toEqual(page.ids);
+		// The same pages when asked again, and one page when they fit.
+		expect(await pages(null, 2)).toEqual(all);
+		expect((await pages(null, 5)).map((page) => page.ids)).toEqual([
+			["issue-a", "issue-b", "issue-c", "issue-e", "issue-g"],
+		]);
+		expect((await pages(null, 200)).map((page) => page.next)).toEqual([null]);
+
+		// One team's, paged the same way.
+		expect((await pages(TEAM_ID, 1)).map((page) => page.ids)).toEqual([["issue-e"], ["issue-g"]]);
+		expect((await pages("team-ops", 1)).map((page) => page.ids)).toEqual([
+			["issue-a"],
+			["issue-b"],
+			["issue-c"],
+		]);
+
+		// An issue restored between pages is on none after; the others are each still on one.
+		const first = await workspace.archivedIssues(owner, { teamId: null, after: null, limit: 2 });
+		if (!first.ok) throw new Error(first.message);
+		await archive(admin, "issue-c", false);
+		const rest = await workspace.archivedIssues(owner, {
+			teamId: null,
+			after: first.value.next,
+			limit: 200,
+		});
+		expect(rest).toMatchObject({ ok: true, value: { next: null } });
+		if (!rest.ok) throw new Error(rest.message);
+		expect([...first.value.issues, ...rest.value.issues].map((issue) => issue.id)).toEqual([
+			"issue-a",
+			"issue-b",
+			"issue-e",
+			"issue-g",
+		]);
+
+		// A page of more than the most, or a cursor that is not an id, is refused.
+		for (const input of [
+			{ teamId: null, limit: 201 },
+			{ teamId: null, limit: 0 },
+			{ teamId: null, after: "" },
+			{ teamId: null, after: "x".repeat(65) },
+		]) {
+			expect(await workspace.archivedIssues(owner, input)).toMatchObject({ reason: "invalid" });
+		}
+	});
+
+	it("ends a page of archived issues early once it is large", async () => {
+		const { workspace, admin } = await withTeam();
+		// About 1.5 MB of comments each, so the budget is passed on the third.
+		const ids = ["issue-1", "issue-2", "issue-3", "issue-4"];
+		for (const id of ids) {
+			await admin.apply({
+				name: "issue.create",
+				args: { id, teamId: TEAM_ID, title: id, status: "done", sortOrder: "a0" },
+			});
+			for (let n = 0; n < 15; n++) {
+				await admin.apply({
+					name: "comment.create",
+					args: { id: `${id}-comment-${n}`, issueId: id, body: "x".repeat(100_000) },
+				});
+			}
+			await archive(admin, id, true);
+		}
+		const first = await workspace.archivedIssues(owner, { teamId: null });
+		if (!first.ok) throw new Error(first.message);
+		expect(first.value.issues.map((issue) => issue.id)).toEqual(["issue-1", "issue-2", "issue-3"]);
+		expect(first.value.comments).toHaveLength(45);
+		expect(first.value.next).toBe("issue-3");
+		const second = await workspace.archivedIssues(owner, { teamId: null, after: "issue-3" });
+		expect(second).toMatchObject({ ok: true, value: { issues: [{ id: "issue-4" }], next: null } });
 	});
 
 	it("refuses whoever is not a member, and ids of issues it does not have", async () => {

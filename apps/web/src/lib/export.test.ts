@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import {
 	archivedInExport,
 	archivedLeftOutNote,
+	archivedNotListed,
 	CSV_COLUMNS,
 	type ExportSource,
 	exportFileName,
@@ -490,6 +491,38 @@ describe("workspaceToJson", () => {
 		);
 		expect(doc.issues.map((item: Issue) => item.id)).toEqual(["b", "a"]);
 		expect(doc.archivedIssues.map((item: Issue) => item.id)).toEqual(["z"]);
+	});
+
+	it("exports an issue the server restored while the replica held it archived", () => {
+		// The replica still holds it slim; the server's archive no longer lists it.
+		const local = source([...issues, slim]);
+		const listed = { issues: [], comments: [], activities: [] };
+		expect(archivedNotListed(local, listed)).toEqual(["z"]);
+		expect(archivedNotListed(local, listed, "t2")).toEqual([]);
+		expect(archivedNotListed(local, { ...listed, issues: [old] })).toEqual([]);
+
+		const restored = { ...old, archivedAt: null };
+		const exported = source([...issues, slim], {
+			archived: listed,
+			restored: { issues: [restored], comments: [comment("c9", "z")], activities: [] },
+		});
+		const doc = JSON.parse(workspaceToJson(exported));
+		expect(doc.issues.map((item: Issue) => item.id)).toEqual(["b", "z", "a"]);
+		expect(doc.issues[1]).toMatchObject({ description: "Kept on the server", key: "ENG-7" });
+		expect(doc.archivedIssues).toEqual([]);
+		expect(doc.comments.map((item: Comment) => item.id)).toContain("c9");
+		expect(doc.notes).toEqual([]);
+		expect(issuesToCsv(exported)).toContain("ENG-7,Old,Kept on the server");
+
+		// Once the replica has heard, its own row is the one exported, once.
+		const heard = source([...issues, { ...restored, title: "Newer" }], {
+			archived: listed,
+			restored: { issues: [restored], comments: [], activities: [] },
+		});
+		const again = JSON.parse(workspaceToJson(heard));
+		expect(again.issues.filter((item: Issue) => item.id === "z")).toMatchObject([
+			{ title: "Newer" },
+		]);
 	});
 
 	it("says how many archived issues it left out without the server", () => {

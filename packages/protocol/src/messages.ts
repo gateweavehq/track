@@ -160,13 +160,26 @@ export const SNAPSHOT_KEYS = {
 export const issueDetailsRequest = z.object({ issueId: z.string().min(1).max(64) });
 
 /**
- * What `GET /api/sync/:slug/archive` takes: every team's archived issues, or one team's
- * (`?team=`).
+ * The most archived issues one page of `GET /api/sync/:slug/archive` holds. A page also ends once
+ * its issues, comments and history come to about `ARCHIVE_PAGE_BUDGET` characters of JSON, so an
+ * archive of any size stays well under the Durable Object's RPC limit and the Worker's memory.
  */
-export const archivedIssuesRequest = z.object({ teamId: z.string().min(1).max(64).nullable() });
+export const ARCHIVE_PAGE_SIZE = 200;
+export const ARCHIVE_PAGE_BUDGET = 4 * 1024 * 1024;
+
+/**
+ * What `GET /api/sync/:slug/archive` takes: every team's archived issues, or one team's
+ * (`?team=`), a page at a time. `after` (`?after=`) is the `next` of the page before; leave it
+ * out for the first. `limit` makes pages smaller than `ARCHIVE_PAGE_SIZE`, for tests.
+ */
+export const archivedIssuesRequest = z.object({
+	teamId: z.string().min(1).max(64).nullable(),
+	after: z.string().min(1).max(64).nullable().default(null),
+	limit: z.number().int().min(1).max(ARCHIVE_PAGE_SIZE).default(ARCHIVE_PAGE_SIZE),
+});
 
 export type IssueDetailsRequest = z.infer<typeof issueDetailsRequest>;
-export type ArchivedIssuesRequest = z.infer<typeof archivedIssuesRequest>;
+export type ArchivedIssuesRequest = z.input<typeof archivedIssuesRequest>;
 
 /**
  * A live issue whole, as the server holds it, with its comments and history (oldest first), its
@@ -180,9 +193,18 @@ export interface IssueDetails {
 	pullRequests: PullRequest[];
 }
 
-/** Archived issues whole, by team and number, with their comments and history. For exports. */
+/** Archived issues whole, with their comments and history. For exports. */
 export interface ArchivedIssues {
 	issues: Issue[];
 	comments: Comment[];
 	activities: Activity[];
+}
+
+/**
+ * One page of archived issues, by id. `next` is the cursor for the page after, and null on the
+ * last. An issue archived while the pages are read may be on none of them, and one restored and
+ * archived again may be on two: a reader dedupes by id and asks for any it still misses.
+ */
+export interface ArchivedIssuesPage extends ArchivedIssues {
+	next: string | null;
 }

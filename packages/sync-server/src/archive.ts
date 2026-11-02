@@ -1,5 +1,9 @@
-import type { ArchivedIssues, IssueDetails } from "@gateweave/track-protocol";
-import { and, asc, eq, getTableColumns, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
+import {
+	ARCHIVE_PAGE_BUDGET,
+	type ArchivedIssuesPage,
+	type IssueDetails,
+} from "@gateweave/track-protocol";
+import { and, asc, eq, gt, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
 import { type ChangeSet, onlyArchived } from "./log";
 import { type Db, toActivity, toComment, toIssue, toProposal, toPullRequest } from "./state";
@@ -63,39 +67,59 @@ export function findIssueDetails(db: Db, issueId: string): IssueDetails | undefi
 }
 
 /**
- * Every live archived issue whole, or one team's, with their comments and history: what a
- * replica leaves out of them, for an export. Reads only.
+ * One page of the live archived issues whole, or of one team's, with their comments and history:
+ * what a replica leaves out of them, for an export. By id, after `after`, so each issue is on one
+ * page however many are archived or restored between pages. A page ends at `limit` issues, or
+ * once it comes to `ARCHIVE_PAGE_BUDGET` characters of JSON, whichever is first, but always holds
+ * one issue, so a reader always gets further. Reads only.
  */
-export function findArchivedIssues(db: Db, teamId: string | null): ArchivedIssues {
+export function findArchivedIssues(
+	db: Db,
+	request: { teamId: string | null; after: string | null; limit: number },
+): ArchivedIssuesPage {
 	const filters: SQL[] = [isNull(schema.issues.deletedAt), isNotNull(schema.issues.archivedAt)];
-	if (teamId !== null) filters.push(eq(schema.issues.teamId, teamId));
-	const archived = and(...filters);
-	return {
-		issues: db
+	if (request.teamId !== null) filters.push(eq(schema.issues.teamId, request.teamId));
+	if (request.after !== null) filters.push(gt(schema.issues.id, request.after));
+	// One more than a page, to know whether another follows.
+	const rows = db
+		.select()
+		.from(schema.issues)
+		.where(and(...filters))
+		.orderBy(asc(schema.issues.id))
+		.limit(request.limit + 1)
+		.all();
+
+	const page: ArchivedIssuesPage = { issues: [], comments: [], activities: [], next: null };
+	let size = 0;
+	for (const [index, row] of rows.entries()) {
+		if (index === request.limit || (index > 0 && size >= ARCHIVE_PAGE_BUDGET)) {
+			page.next = page.issues.at(-1)?.id ?? null;
+			break;
+		}
+		// One issue at a time, rather than its page's ids in one query: the object binds at most
+		// 100 parameters a query, and this measures each issue as it goes.
+		const issue = toIssue(row);
+		const comments = db
 			.select()
-			.from(schema.issues)
-			.where(archived)
-			.orderBy(asc(schema.issues.teamId), asc(schema.issues.number))
-			.all()
-			.map(toIssue),
-		comments: db
-			.select(getTableColumns(schema.comments))
 			.from(schema.comments)
-			.innerJoin(schema.issues, eq(schema.issues.id, schema.comments.issueId))
-			.where(and(isNull(schema.comments.deletedAt), archived))
+			.where(and(eq(schema.comments.issueId, row.id), isNull(schema.comments.deletedAt)))
 			.orderBy(asc(schema.comments.createdAt), asc(schema.comments.id))
 			.all()
-			.map(toComment),
-		activities: db
-			.select(getTableColumns(schema.activities))
+			.map(toComment);
+		const activities = db
+			.select()
 			.from(schema.activities)
-			.innerJoin(schema.issues, eq(schema.issues.id, schema.activities.issueId))
-			.where(archived)
+			.where(eq(schema.activities.issueId, row.id))
 			// Insertion order, as in a snapshot.
 			.orderBy(sql`${schema.activities}.rowid`)
 			.all()
-			.map(toActivity),
-	};
+			.map(toActivity);
+		size += JSON.stringify([issue, comments, activities]).length;
+		page.issues.push(issue);
+		page.comments.push(...comments);
+		page.activities.push(...activities);
+	}
+	return page;
 }
 
 /** The rows that belong to an issue and that replicas leave out while it is archived. */

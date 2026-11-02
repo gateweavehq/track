@@ -21,7 +21,8 @@ export function isSyncRequest(url: URL): boolean {
  *   HEAD /api/sync/:slug/snapshot     access check only; clients use it to learn why a socket failed
  *   GET  /api/sync/:slug/socket       WebSocket for live sync
  *   GET  /api/sync/:slug/issues/:id   one issue whole, for an archived issue's page (JSON)
- *   GET  /api/sync/:slug/archive      archived issues whole, `?team=` for one team's, for exports
+ *   GET  /api/sync/:slug/archive      a page of archived issues whole, for exports: `?team=` for
+ *                                     one team's, `?after=` the `next` of the page before
  */
 export async function handleSyncRequest(request: Request): Promise<Response> {
 	const url = new URL(request.url);
@@ -64,6 +65,7 @@ export async function handleSyncRequest(request: Request): Promise<Response> {
 	if (endpoint === "archive") {
 		const result = await stub.archivedIssues(membership.profile, {
 			teamId: url.searchParams.get("team"),
+			after: url.searchParams.get("after"),
 		});
 		return answer(result, "Not found");
 	}
@@ -97,6 +99,7 @@ function json(body: unknown): Response {
 	return Response.json(body, { headers: { "Cache-Control": "no-store" } });
 }
 
+// Never cached either: a refusal or a failure is of the moment, and the next try must reach here.
 function error(status: number, message: string): Response {
-	return Response.json({ error: message }, { status });
+	return Response.json({ error: message }, { status, headers: { "Cache-Control": "no-store" } });
 }

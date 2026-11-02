@@ -2,10 +2,16 @@ import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { useWorkspace } from "#/components/workspace/context";
-import { fetchArchivedIssues } from "./archived";
+import {
+	ArchivedUnavailable,
+	archivedFailure,
+	fetchArchivedIssues,
+	fetchMissingArchived,
+} from "./archived";
 import { today } from "./dates";
 import {
 	archivedInExport,
+	archivedNotListed,
 	downloadText,
 	type ExportFormat,
 	type ExportSource,
@@ -18,8 +24,8 @@ import {
 /**
  * Returns a function that downloads an export of the workspace: all teams, or the one with this
  * id. Active issues come from this browser's replica, read when called. Archived issues, which
- * the replica holds slim, come whole from the server. Without a connection the export stops and
- * says so, offering to export without them; it never drops them unannounced.
+ * the replica holds slim, come whole from the server, page by page. Without them the export stops
+ * and says why, offering to export without them; it never drops them unannounced.
  */
 export function useExportIssues(): (format: ExportFormat, teamId?: string | null) => void {
 	const client = useSyncClient();
@@ -41,18 +47,40 @@ export function useExportIssues(): (format: ExportFormat, teamId?: string | null
 			}
 			const issues = archived === 1 ? "1 archived issue" : `${archived} archived issues`;
 			const id = toast.loading(`Fetching ${issues} from the server…`);
-			fetchArchivedIssues(slug, teamId).then(
+			const fetchWhole = async () => {
+				const listed = await fetchArchivedIssues(slug, teamId);
+				// The replica may still hold an issue archived that the server has restored since,
+				// which the archive no longer lists: it is asked for alone, so that it is exported.
+				const notListed = archivedNotListed(
+					exportSourceFrom(client.getState(), workspace),
+					listed,
+					teamId,
+				);
+				if (notListed.length === 0) return { archived: listed, restored: null };
+				const missing = await fetchMissingArchived(slug, notListed);
+				return {
+					archived: {
+						issues: [...listed.issues, ...missing.archived.issues],
+						comments: [...listed.comments, ...missing.archived.comments],
+						activities: [...listed.activities, ...missing.archived.activities],
+					},
+					restored: missing.restored,
+				};
+			};
+			fetchWhole().then(
 				(whole) => {
 					toast.dismiss(id);
 					// The replica as it is now, which the server's answer is at least as new as.
-					save({ ...exportSourceFrom(client.getState(), workspace), archived: whole });
+					save({ ...exportSourceFrom(client.getState(), workspace), ...whole });
 				},
-				() => {
-					toast.error(`Not exported: ${issues} ${archived === 1 ? "needs" : "need"} a connection`, {
+				(error: unknown) => {
+					// Anything but a status of the server's is a failure of its answer.
+					const status = error instanceof ArchivedUnavailable ? error.status : 500;
+					const { title, description } = archivedFailure(status, issues, archived);
+					toast.error(title, {
 						id,
 						duration: Number.POSITIVE_INFINITY,
-						description:
-							"This browser keeps only a short record of archived issues; the rest is on the server, which could not be reached. Export again when online, or export without them.",
+						description,
 						action: {
 							label: "Export without them",
 							onClick: () => {

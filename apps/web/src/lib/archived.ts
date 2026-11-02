@@ -1,4 +1,11 @@
-import type { ArchivedIssues, IssueDetails } from "@gateweave/track-protocol";
+import type {
+	Activity,
+	ArchivedIssues,
+	ArchivedIssuesPage,
+	Comment,
+	Issue,
+	IssueDetails,
+} from "@gateweave/track-protocol";
 import { useSyncStatus } from "@gateweave/track-sync-client/react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -43,14 +50,118 @@ export function fetchIssueDetails(
 	return read(`${base(slug)}/issues/${encodeURIComponent(issueId)}`, signal);
 }
 
-/** Every archived issue whole, or one team's, with their comments and history. */
-export function fetchArchivedIssues(
+/**
+ * Every archived issue whole, or one team's, with their comments and history. The server answers
+ * a page at a time, so that a large archive never has to fit in one answer; this asks for pages
+ * until the last. Each issue is in the result once, as the latest page that had it says.
+ */
+export async function fetchArchivedIssues(
 	slug: string,
 	teamId: string | null,
 	signal?: AbortSignal,
 ): Promise<ArchivedIssues> {
-	const query = teamId === null ? "" : `?${new URLSearchParams({ team: teamId })}`;
-	return read(`${base(slug)}/archive${query}`, signal);
+	const issues = new Map<string, Issue>();
+	const comments = new Map<string, Comment>();
+	const activities = new Map<string, Activity>();
+	let after: string | null = null;
+	do {
+		const query = new URLSearchParams();
+		if (teamId !== null) query.set("team", teamId);
+		if (after !== null) query.set("after", after);
+		const search = query.size === 0 ? "" : `?${query}`;
+		const page: ArchivedIssuesPage = await read(`${base(slug)}/archive${search}`, signal);
+		for (const issue of page.issues) issues.set(issue.id, issue);
+		for (const comment of page.comments) comments.set(comment.id, comment);
+		for (const activity of page.activities) activities.set(activity.id, activity);
+		// Pages go forward by id. One that did not would have this ask forever.
+		if (page.next !== null && after !== null && page.next <= after) {
+			throw new Error("The archive's pages did not move on");
+		}
+		after = page.next;
+	} while (after !== null);
+	return {
+		issues: [...issues.values()],
+		comments: [...comments.values()],
+		activities: [...activities.values()],
+	};
+}
+
+/** How many issues' details an export asks for at once, after the archive's pages. */
+const DETAILS_AT_ONCE = 6;
+
+/**
+ * The issues of `ids` whole, which the replica holds archived but the server's archive did not
+ * list: restored, or archived again, while the export was made. Those archived on the server go
+ * with `archived`; those it restored come back apart, to be exported with the issues that are not
+ * archived. A deleted one is in neither, as it is not in the workspace.
+ */
+export async function fetchMissingArchived(
+	slug: string,
+	ids: readonly string[],
+	signal?: AbortSignal,
+): Promise<{ archived: ArchivedIssues; restored: ArchivedIssues }> {
+	const archived: ArchivedIssues = { issues: [], comments: [], activities: [] };
+	const restored: ArchivedIssues = { issues: [], comments: [], activities: [] };
+	const queue = [...ids];
+	const worker = async () => {
+		for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+			let details: IssueDetails;
+			try {
+				details = await fetchIssueDetails(slug, id, signal);
+			} catch (error) {
+				if (error instanceof ArchivedUnavailable && error.status === 404) continue;
+				throw error;
+			}
+			const into = details.issue.archivedAt === null ? restored : archived;
+			into.issues.push(details.issue);
+			into.comments.push(...details.comments);
+			into.activities.push(...details.activities);
+		}
+	};
+	await Promise.all(Array.from({ length: Math.min(DETAILS_AT_ONCE, ids.length) }, worker));
+	return { archived, restored };
+}
+
+/**
+ * What an export that could not fetch the archived issues says, by how the server answered: not
+ * at all (offline), signed out, not found (or no longer a member, which looks the same), or with
+ * an error of its own. `status` is null without an answer; `issues` names them ("3 archived
+ * issues") and `count` is how many.
+ */
+export function archivedFailure(
+	status: number | null,
+	issues: string,
+	count: number,
+): { title: string; description: string } {
+	if (status === null) {
+		return {
+			title: `Not exported: ${issues} ${count === 1 ? "needs" : "need"} a connection`,
+			description:
+				"This browser keeps only a short record of archived issues; the rest is on the server, which could not be reached. Export again when online, or export without them.",
+		};
+	}
+	if (status === 401) {
+		return {
+			title: "Not exported: signed out",
+			description: `The server sends archived issues only to members who are signed in. Sign in again to include ${issues}, or export without them.`,
+		};
+	}
+	if (status === 403 || status === 404) {
+		return {
+			title: "Not exported: workspace not found",
+			description: `The server did not find this workspace for you, so it sent no archived issues: it may have been deleted, or you may no longer be a member. You can still export without the ${issues}.`,
+		};
+	}
+	if (status >= 500) {
+		return {
+			title: "Not exported: the server had an error",
+			description: `The server could not send ${issues} this time. Try again in a moment, or export without them.`,
+		};
+	}
+	return {
+		title: `Not exported: the server refused ${issues}`,
+		description: `It answered ${status}. Export again, or export without them.`,
+	};
 }
 
 export type IssueDetailsState =

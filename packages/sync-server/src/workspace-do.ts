@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
 	type Activity,
-	type ArchivedIssues,
+	type ArchivedIssuesPage,
 	archivedIssuesRequest,
 	CloseCode,
 	type Comment,
@@ -257,13 +257,16 @@ export class WorkspaceDO extends DurableObject {
 		});
 	}
 
-	/** Archived issues whole, every team's or one's, with their comments and history, for exports. */
-	archivedIssues(member: MemberProfile, input: unknown): WebhookResult<ArchivedIssues> {
+	/**
+	 * A page of archived issues whole, every team's or one's, with their comments and history, for
+	 * exports. Paged so that no answer outgrows the RPC limit, however large the archive.
+	 */
+	archivedIssues(member: MemberProfile, input: unknown): WebhookResult<ArchivedIssuesPage> {
 		const request = archivedIssuesRequest.safeParse(input);
-		if (!request.success) return { ok: false, reason: "invalid", message: "Invalid team id" };
+		if (!request.success) return { ok: false, reason: "invalid", message: "Invalid archive page" };
 		return this.#read(member, () => ({
 			ok: true,
-			value: findArchivedIssues(this.#db, request.data.teamId),
+			value: findArchivedIssues(this.#db, request.data),
 		}));
 	}
 
