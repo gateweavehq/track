@@ -143,7 +143,7 @@ export function CreateIssueDialog({
 						: null,
 				// A label picked here may have been deleted elsewhere since.
 				labelIds: labelIds.filter((id) => client.getState().labels.has(id)),
-				sortOrder: sortOrderAfter(client.getState().issues.values()),
+				sortOrder: sortOrderAfter(client.getState().activeIssues.values()),
 				...(intake && { intake: true }),
 			},
 		});

@@ -1,4 +1,6 @@
+import { isActiveIssue } from "@gateweave/track-protocol";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { ArchivedIssueDetail } from "#/components/issues/archive";
 import { IssueDetail } from "#/components/issues/issue-detail";
 import { Button } from "#/components/ui/button";
 import { Notice } from "#/components/workspace/notice";
@@ -34,5 +36,9 @@ function IssuePage() {
 		);
 	}
 	// Keyed by id so moving between issues starts with fresh drafts and menus.
-	return <IssueDetail key={issue.id} issue={issue} team={team} />;
+	return isActiveIssue(issue) ? (
+		<IssueDetail key={issue.id} issue={issue} team={team} />
+	) : (
+		<ArchivedIssueDetail key={issue.id} issue={issue} team={team} />
+	);
 }

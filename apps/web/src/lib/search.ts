@@ -1,4 +1,10 @@
-import type { Comment, Issue, Team } from "@gateweave/track-protocol";
+import {
+	type Comment,
+	isActiveIssue,
+	type SyncedIssue,
+	type Team,
+} from "@gateweave/track-protocol";
+import { lastTouched } from "./issues";
 
 /*
  * Full-text search over the browser's replica. The Durable Object indexes the same text for the
@@ -12,7 +18,7 @@ export const FIELD_WEIGHTS = { key: 10, title: 10, description: 3, comments: 1 }
 type Field = keyof typeof FIELD_WEIGHTS;
 
 export interface SearchResult {
-	issue: Issue;
+	issue: SyncedIssue;
 	score: number;
 	/** A short excerpt, set when a word matched in the description or a comment, not the title. */
 	snippet?: string;
@@ -20,7 +26,8 @@ export interface SearchResult {
 
 export interface SearchTables {
 	teams: ReadonlyMap<string, Team>;
-	issues: ReadonlyMap<string, Issue>;
+	/** Archived issues are found by key and title: their description and comments stay on the server. */
+	issues: ReadonlyMap<string, SyncedIssue>;
 	comments: ReadonlyMap<string, Comment>;
 }
 
@@ -35,14 +42,15 @@ export function tokenize(text: string): string[] {
 }
 
 // Rows are replaced, never mutated, so a row's tokens stay valid for as long as the row lives.
-const issueTokens = new WeakMap<Issue, { title: string[]; description: string[] }>();
+const issueTokens = new WeakMap<SyncedIssue, { title: string[]; description: string[] }>();
 const commentTokens = new WeakMap<Comment, string[]>();
 const commentGroups = new WeakMap<ReadonlyMap<string, Comment>, Map<string, Comment[]>>();
 
-function tokensOfIssue(issue: Issue) {
+function tokensOfIssue(issue: SyncedIssue) {
 	let tokens = issueTokens.get(issue);
 	if (!tokens) {
-		tokens = { title: tokenize(issue.title), description: tokenize(issue.description ?? "") };
+		const description = isActiveIssue(issue) ? (issue.description ?? "") : "";
+		tokens = { title: tokenize(issue.title), description: tokenize(description) };
 		issueTokens.set(issue, tokens);
 	}
 	return tokens;
@@ -83,7 +91,7 @@ const NO_COMMENTS: readonly Comment[] = [];
 function bestField(
 	token: string,
 	keyTokens: readonly string[],
-	issue: Issue,
+	issue: SyncedIssue,
 	comments: readonly Comment[],
 ): Field | null {
 	if (hasPrefix(keyTokens, token)) return "key";
@@ -99,7 +107,7 @@ export function search(tables: SearchTables, query: string, limit = 20): SearchR
 	const queryTokens = tokenize(query);
 	if (queryTokens.length === 0) return [];
 	const grouped = commentsByIssue(tables.comments);
-	const matches: { issue: Issue; score: number; fields: Field[]; exact: boolean }[] = [];
+	const matches: { issue: SyncedIssue; score: number; fields: Field[]; exact: boolean }[] = [];
 
 	for (const issue of tables.issues.values()) {
 		const keyTokens = [normalize(tables.teams.get(issue.teamId)?.key ?? "?"), String(issue.number)];
@@ -125,7 +133,7 @@ export function search(tables: SearchTables, query: string, limit = 20): SearchR
 		(a, b) =>
 			Number(b.exact) - Number(a.exact) ||
 			b.score - a.score ||
-			b.issue.updatedAt - a.issue.updatedAt,
+			lastTouched(b.issue) - lastTouched(a.issue),
 	);
 	return matches.slice(0, limit).map(({ issue, score, fields }) => {
 		const result: SearchResult = { issue, score };
@@ -140,12 +148,14 @@ export function search(tables: SearchTables, query: string, limit = 20): SearchR
 }
 
 function findSnippet(
-	issue: Issue,
+	issue: SyncedIssue,
 	comments: readonly Comment[],
 	token: string,
 	field: Field | undefined,
 ): string | undefined {
-	if (field === "description") return excerpt(issue.description ?? "", token);
+	if (field === "description" && isActiveIssue(issue)) {
+		return excerpt(issue.description ?? "", token);
+	}
 	for (const comment of comments) {
 		const found = excerpt(comment.body, token);
 		if (found) return found;

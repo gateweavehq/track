@@ -433,4 +433,20 @@ describe("readJsonImport", () => {
 		);
 		expect(notes).toEqual([expect.stringContaining("history stays behind")]);
 	});
+
+	it("says which archived issues it leaves behind, since the export has only part of them", () => {
+		const archived = issue({
+			id: "i9",
+			teamId: "t1",
+			number: 9,
+			title: "Old",
+			status: "done",
+			archivedAt: 50,
+		});
+		const { source, notes } = readJsonImport(
+			workspaceToJson({ ...exported, issues: [...exported.issues, archived] }),
+		);
+		expect(source.issues.map((each) => each.title)).not.toContain("Old");
+		expect(notes).toContainEqual(expect.stringContaining("1 archived issue stays behind"));
+	});
 });

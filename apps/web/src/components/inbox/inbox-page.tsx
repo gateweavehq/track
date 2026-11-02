@@ -2,9 +2,10 @@ import {
 	GITHUB_ACTOR_ID,
 	type InboxEvent,
 	type InboxItem,
-	type Issue,
+	isActiveIssue,
 	mentionsAsText,
 	SYSTEM_ACTOR_ID,
+	type SyncedIssue,
 } from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link } from "@tanstack/react-router";
@@ -355,7 +356,7 @@ function SnoozeMenu({
 }
 
 /** What the actor did, after their name: "commented: …", "assigned you". */
-function EventText({ event, issue }: { event: InboxEvent; issue: Issue }) {
+function EventText({ event, issue }: { event: InboxEvent; issue: SyncedIssue }) {
 	const members = useMembersById();
 	const labels = useLabelsById();
 	const projects = useProjectsById();
@@ -373,7 +374,8 @@ function EventText({ event, issue }: { event: InboxEvent; issue: Issue }) {
 		case "assigned":
 			return <>assigned you</>;
 		case "unassigned":
-			return issue.assigneeId === null ? (
+			// An archived issue's assignee stays on the server.
+			return !isActiveIssue(issue) || issue.assigneeId === null ? (
 				<>unassigned you</>
 			) : (
 				<>assigned it to {name(issue.assigneeId)}</>

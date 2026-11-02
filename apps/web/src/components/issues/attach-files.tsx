@@ -3,6 +3,7 @@ import { type ClipboardEvent, type DragEvent, type RefObject, useRef } from "rea
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { useWorkspace } from "#/components/workspace/context";
+import { takenFile } from "#/components/workspace/upload-outbox";
 import {
 	attachmentMarkdown,
 	attachmentName,
@@ -110,8 +111,11 @@ function startUploads(workspaceId: string, userId: string, files: readonly File[
 	}
 	toast.promise(
 		Promise.all(results).then((outcomes) => {
-			const failed = outcomes.find((outcome) => outcome.status === "failed");
-			if (failed?.status === "failed") throw new Error(failed.message);
+			const index = outcomes.findIndex((outcome) => outcome.status === "failed");
+			const failed = outcomes[index];
+			if (failed?.status === "failed") {
+				throw new AttachError(failed.message, failed.taken ? links[index]?.file : undefined);
+			}
 			return outcomes.some((outcome) => outcome.status === "waiting");
 		}),
 		{
@@ -121,10 +125,22 @@ function startUploads(workspaceId: string, userId: string, files: readonly File[
 			error: (error: unknown) => ({
 				message: "Could not attach the file",
 				description: `${error instanceof Error ? error.message : String(error)} Remove its link or try again.`,
+				...(error instanceof AttachError &&
+					error.taken &&
+					takenFile(error.taken.name, error.taken)),
 			}),
 		},
 	);
 	return links.map(({ markdown }) => markdown).join("\n");
+}
+
+/** An upload refused for good; `taken` is the file when its link holds someone else's. */
+class AttachError extends Error {
+	readonly taken: File | undefined;
+	constructor(message: string, taken: File | undefined) {
+		super(message);
+		this.taken = taken;
+	}
 }
 
 /** Opens the file picker. The caret stays in the text box, where the links go. */

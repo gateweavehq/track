@@ -67,9 +67,9 @@ async function upload(
 	if (length > MAX_FILE_BYTES) {
 		return error(413, `Files can be up to ${MAX_FILE_BYTES / 1024 / 1024} MB`);
 	}
-	// Ids are random, so one in use means a retry of an upload that went through, or a member
-	// trying to replace someone else's file. Either way the file stays as it is.
-	if (await bucket.head(key)) return error(409, "That file already exists");
+	// A retry sends the whole file again; when it is there already, say so before reading it.
+	const existing = await bucket.head(key);
+	if (existing) return taken(existing, userId);
 
 	if (!(await reserveFileStorage(bucket, workspaceId, length))) {
 		return error(
@@ -77,8 +77,12 @@ async function upload(
 			"This workspace's files are full. Whoever runs this Track can raise its limit",
 		);
 	}
+	let stored: R2Object | null;
 	try {
-		await bucket.put(key, request.body, {
+		// The browser puts a file's link in the text before the upload ends, so other members can
+		// see the id first. Only the first write stores anything, and R2 decides which was first.
+		stored = await bucket.put(key, request.body, {
+			onlyIf: new Headers({ "If-None-Match": "*" }),
 			httpMetadata: { contentType: mediaType(request.headers.get("Content-Type")) },
 			customMetadata: { uploadedBy: userId },
 		});
@@ -86,7 +90,22 @@ async function upload(
 		await releaseFileStorage(workspaceId, length);
 		throw cause;
 	}
+	if (!stored) {
+		await releaseFileStorage(workspaceId, length);
+		const winner = await bucket.head(key);
+		return winner ? taken(winner, userId) : error(503, "Try the upload again");
+	}
 	return Response.json({ size: length }, { status: 201 });
+}
+
+/**
+ * An upload to an id in use. The file never changes under its link. When the uploader is the one
+ * who stored it, this is a retry, or another tab, and 409 tells their browser it is there; when
+ * someone else stored it, their browser must not take it for its own.
+ */
+function taken(object: R2Object, userId: string): Response {
+	if (object.customMetadata?.uploadedBy === userId) return error(409, "That file already exists");
+	return error(412, "Someone else's file is already at that link");
 }
 
 async function serve(

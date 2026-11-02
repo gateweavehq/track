@@ -2,6 +2,7 @@ import type { Issue, IssueProperty, Member, Team } from "@gateweave/track-protoc
 import { Link } from "@tanstack/react-router";
 import { forwardRef, memo, type ReactNode } from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";
+import { Checkbox } from "#/components/ui/checkbox";
 import { useWorkspace } from "#/components/workspace/context";
 import { formatDateTime, formatShortDate } from "#/lib/dates";
 import { issueKey } from "#/lib/issues";
@@ -39,6 +40,12 @@ interface IssueRowProps {
 	/** The properties to show; the title is always shown. */
 	properties: ReadonlySet<IssueProperty>;
 	selected: boolean;
+	/** Whether it is among the issues picked to change together. */
+	checked: boolean;
+	/** Whether any issue in the list is picked, so every row shows its checkbox. */
+	checking: boolean;
+	/** Picks or unpicks it; with Shift, everything between it and the last one picked too. */
+	onCheck: (issueId: string, range: boolean) => void;
 	/** The property menu open on this row, if any. */
 	menu: IssueField | null;
 	onMenuChange: (issueId: string, menu: IssueField | null) => void;
@@ -59,6 +66,9 @@ export const IssueRow = memo(function IssueRow({
 	blocked,
 	properties,
 	selected,
+	checked,
+	checking,
+	onCheck,
 	menu,
 	onMenuChange,
 	onSelect,
@@ -78,12 +88,26 @@ export const IssueRow = memo(function IssueRow({
 		<div
 			ref={rowRef}
 			data-selected={selected}
+			data-checked={checked}
 			className={cn(
-				"relative flex h-10 items-center gap-2 border-b px-3 text-sm last:border-b-0 hover:bg-accent/40 data-[selected=true]:bg-accent sm:px-4",
+				"group relative flex h-10 items-center gap-2 border-b px-3 text-sm last:border-b-0 hover:bg-accent/40 data-[checked=true]:bg-accent/60 data-[selected=true]:bg-accent sm:px-4",
 				drag.dragging && "opacity-40",
 			)}
 		>
 			{drag.edge && <DropIndicator edge={drag.edge} />}
+			<Checkbox
+				checked={checked}
+				aria-label={`Select ${key}`}
+				onClick={(event) => {
+					// Toggled here, with the Shift key in hand, rather than by Radix.
+					event.preventDefault();
+					onCheck(issue.id, event.shiftKey);
+				}}
+				className={cn(
+					"relative z-10 border-muted-foreground/60",
+					!checking && !checked && "opacity-0 focus-visible:opacity-100 group-hover:opacity-100",
+				)}
+			/>
 			{properties.has("priority") && (
 				<PriorityPicker
 					value={issue.priority}

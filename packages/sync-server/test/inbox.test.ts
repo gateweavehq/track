@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import migrations from "../drizzle/migrations";
 import type { MemberProfile } from "../src";
 import * as schema from "../src/db/schema";
-import { freshWorkspace, TestClient, type Workspace } from "./client";
+import { freshWorkspace, TestClient, type Workspace, whole } from "./client";
 
 const owner: MemberProfile = {
 	id: "user-owner",
@@ -72,8 +72,7 @@ async function update(
 	member: MemberProfile,
 	patch: { status?: "todo" | "in_progress" | "done"; assigneeId?: string | null },
 ) {
-	const issue = (await workspace.snapshot(owner)).issues.find((row) => row.id === ISSUE_ID);
-	if (!issue) throw new Error("No issue");
+	const issue = whole((await workspace.snapshot(owner)).issues.find((row) => row.id === ISSUE_ID));
 	await as(member, {
 		name: "issue.update",
 		args: { id: ISSUE_ID, baseVersion: issue.version, patch },
@@ -330,12 +329,14 @@ describe("mentions", () => {
 		expect(await itemOf(workspace, bob)).toMatchObject({ event: { type: "assigned" }, unread: 1 });
 
 		// Agents, people who are not members, and the writer are mentioned in text alone.
-		const issue = (await workspace.snapshot(owner)).issues.find((row) => row.id === ISSUE_ID);
+		const issue = whole(
+			(await workspace.snapshot(owner)).issues.find((row) => row.id === ISSUE_ID),
+		);
 		await as(alice, {
 			name: "issue.update",
 			args: {
 				id: ISSUE_ID,
-				baseVersion: issue?.version ?? 0,
+				baseVersion: issue.version,
 				patch: {
 					description: `For ${mention(alice)} and ${mention(bob)}, with ${mention(triage)}, [@Nobody](mention:user-nobody) and ${mention(owner)}`,
 				},

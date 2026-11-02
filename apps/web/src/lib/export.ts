@@ -1,17 +1,21 @@
-import type {
-	Activity,
-	Comment,
-	Cycle,
-	Issue,
-	IssueRelation,
-	Label,
-	Member,
-	Project,
-	ProjectUpdate,
-	Team,
-	WorkflowStatus,
+import {
+	type ActiveIssue,
+	type Activity,
+	ARCHIVED_ISSUE_FIELDS,
+	type ArchivedIssue,
+	type Comment,
+	type Cycle,
+	compareStatuses,
+	type IssueRelation,
+	isActiveIssue,
+	type Label,
+	type Member,
+	type Project,
+	type ProjectUpdate,
+	type SyncedIssue,
+	type Team,
+	type WorkflowStatus,
 } from "@gateweave/track-protocol";
-import { compareStatuses } from "@gateweave/track-protocol";
 import type { SyncState } from "@gateweave/track-sync-client";
 import { PRIORITY_META } from "#/components/issues/meta";
 import { issueKey } from "./issues";
@@ -19,6 +23,8 @@ import { statusOf } from "./statuses";
 
 // Exports are built in the browser from the local replica: no server route, so nothing new
 // can leak data, and it works offline. These functions only turn data into the file's text.
+// The replica holds an archived issue as a slim row, so an export has only that of it, and says
+// so: the CSV leaves the cells it does not know empty, and the JSON lists those issues apart.
 
 export const EXPORT_FORMAT = "gateweave-track-export";
 export const EXPORT_VERSION = 1;
@@ -54,7 +60,8 @@ export interface ExportSource {
 	/** Exported whole, with their projects. Sources from before project updates have none. */
 	projectUpdates?: Iterable<ProjectUpdate>;
 	cycles: Iterable<Cycle>;
-	issues: Iterable<Issue>;
+	/** Archived ones as their slim rows, as the replica holds them. */
+	issues: Iterable<SyncedIssue>;
 	comments: Iterable<Comment>;
 	activities: Iterable<Activity>;
 	relations: Iterable<IssueRelation>;
@@ -93,7 +100,9 @@ interface Slice {
 	projectUpdates: ProjectUpdate[];
 	/** The cycles of the slice's teams, so every issue's cycle is in the file. */
 	cycles: Cycle[];
-	issues: Issue[];
+	issues: ActiveIssue[];
+	/** The slice's archived issues, of which the replica holds only `ARCHIVED_ISSUE_FIELDS`. */
+	archived: ArchivedIssue[];
 	comments: Comment[];
 	activities: Activity[];
 	/** Relations between two issues of the slice, so both ends are in the file. */
@@ -103,7 +112,7 @@ interface Slice {
 	labelsById: Map<string, Label>;
 	projectsById: Map<string, Project>;
 	/** Every issue, whatever the slice, so a parent in another team still has its key. */
-	issuesById: Map<string, Issue>;
+	issuesById: Map<string, SyncedIssue>;
 }
 
 function sliceOf(source: ExportSource, teamId: string | null): Slice {
@@ -111,14 +120,16 @@ function sliceOf(source: ExportSource, teamId: string | null): Slice {
 	const teamsById = new Map(teams.map((team) => [team.id, team]));
 	const rank = new Map(teams.map((team, index) => [team.id, index]));
 	const all = [...source.issues];
-	const issues = all
+	const sliced = all
 		.filter((issue) => teamId === null || issue.teamId === teamId)
 		.sort(
 			(a, b) =>
 				(rank.get(a.teamId) ?? Number.MAX_SAFE_INTEGER) -
 					(rank.get(b.teamId) ?? Number.MAX_SAFE_INTEGER) || a.number - b.number,
 		);
-	const issueIds = new Set(issues.map((issue) => issue.id));
+	const issues = sliced.filter(isActiveIssue);
+	const archived = sliced.flatMap((issue) => (isActiveIssue(issue) ? [] : [slim(issue)]));
+	const issueIds = new Set(sliced.map((issue) => issue.id));
 	const members = [...source.members];
 	const labels = [...source.labels];
 	const projects = [...source.projects];
@@ -145,6 +156,7 @@ function sliceOf(source: ExportSource, teamId: string | null): Slice {
 						(rank.get(b.teamId) ?? Number.MAX_SAFE_INTEGER) || a.number - b.number,
 			),
 		issues,
+		archived,
 		comments: [...source.comments]
 			.filter((comment) => issueIds.has(comment.issueId))
 			.sort((a, b) => a.createdAt - b.createdAt),
@@ -161,6 +173,25 @@ function sliceOf(source: ExportSource, teamId: string | null): Slice {
 		issuesById: new Map(all.map((issue) => [issue.id, issue])),
 	};
 }
+
+/** Only what the replica holds of an archived issue, whatever row it was given. */
+function slim(issue: ArchivedIssue): ArchivedIssue {
+	return Object.fromEntries(
+		ARCHIVED_ISSUE_FIELDS.map((field) => [field, issue[field]]),
+	) as unknown as ArchivedIssue;
+}
+
+/** How many of a slice's issues are archived, and so exported without their details. */
+export function archivedInExport(source: ExportSource, teamId: string | null = null): number {
+	return sliceOf(source, teamId).archived.length;
+}
+
+/** What a JSON export says about its archived issues, when it has any. */
+export const ARCHIVED_EXPORT_NOTE =
+	"Archived issues are listed in archivedIssues with only their key, title, status, project, " +
+	"cycle, parent, estimate and when they were archived. Their description, labels, comments " +
+	"and history are not included yet: the browser that made this export does not keep them. " +
+	"Restore an issue before exporting to include all of it.";
 
 // CSV
 
@@ -181,7 +212,8 @@ const BYTE_ORDER_MARK = "﻿";
 /**
  * One row per issue, by team and number, as RFC 4180 CSV with a byte order mark. People are their
  * email, labels their names joined with ", ", dates `YYYY-MM-DD` and timestamps ISO 8601 in UTC.
- * Pass `teamId` for one team's issues.
+ * Pass `teamId` for one team's issues. Archived issues follow, with only what the replica holds of
+ * them; the cells it does not know are empty.
  */
 export function issuesToCsv(source: ExportSource, teamId: string | null = null): string {
 	const slice = sliceOf(source, teamId);
@@ -208,6 +240,27 @@ export function issuesToCsv(source: ExportSource, teamId: string | null = null):
 			issue.estimate === null ? "" : String(issue.estimate),
 			new Date(issue.createdAt).toISOString(),
 			new Date(issue.updatedAt).toISOString(),
+		]);
+	}
+	for (const issue of slice.archived) {
+		const team = slice.teamsById.get(issue.teamId);
+		rows.push([
+			issueKey(team, issue),
+			issue.title,
+			"",
+			team?.name ?? "",
+			statusOf(slice.statusesById, issue).name,
+			"",
+			"",
+			"",
+			(issue.projectId && slice.projectsById.get(issue.projectId)?.name) || "",
+			parentKey(slice, issue.parentId),
+			"",
+			"",
+			"",
+			issue.estimate === null ? "" : String(issue.estimate),
+			"",
+			"",
 		]);
 	}
 	return BYTE_ORDER_MARK + rows.map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
@@ -254,6 +307,12 @@ export function workspaceToJson(
 				...issue,
 				key: issueKey(slice.teamsById.get(issue.teamId), issue),
 			})),
+			// Never left out without a word: they are here with what the replica holds of them.
+			archivedIssues: slice.archived.map((issue) => ({
+				...issue,
+				key: issueKey(slice.teamsById.get(issue.teamId), issue),
+			})),
+			notes: slice.archived.length > 0 ? [ARCHIVED_EXPORT_NOTE] : [],
 			comments: slice.comments,
 			activities: slice.activities,
 			relations: slice.relations,

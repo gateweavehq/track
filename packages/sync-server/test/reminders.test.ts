@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { MemberProfile } from "../src";
 import * as schema from "../src/db/schema";
 import { nextReminderAt, REMINDER_HOUR, remindDue } from "../src/reminders";
-import { freshWorkspace, type Workspace } from "./client";
+import { freshWorkspace, type Workspace, whole } from "./client";
 
 const owner: MemberProfile = {
 	id: "user-owner",
@@ -52,10 +52,10 @@ async function setup() {
 			},
 		} as MutationInput);
 	const update = async (id: string, patch: Record<string, unknown>) => {
-		const row = (await workspace.snapshot(owner)).issues.find((each) => each.id === id);
+		const row = whole((await workspace.snapshot(owner)).issues.find((each) => each.id === id));
 		await as(owner, {
 			name: "issue.update",
-			args: { id, baseVersion: row?.version ?? 0, patch },
+			args: { id, baseVersion: row.version, patch },
 		} as MutationInput);
 	};
 	return { workspace, as, issue, update };

@@ -1,18 +1,50 @@
+import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import {
+	type ActiveIssue,
+	type Activity,
 	type ClientMessage,
+	isActiveIssue,
 	type MutationInput,
 	type Op,
 	PROTOCOL_VERSION,
 	type ServerMessage,
+	type SyncedIssue,
 } from "@gateweave/track-protocol";
+import { eq, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/durable-sqlite";
 import { MEMBER_HEADER, type MemberProfile } from "../src";
+import * as schema from "../src/db/schema";
+import { toActivity } from "../src/state";
 
 export function freshWorkspace() {
 	return env.WORKSPACE.getByName(crypto.randomUUID());
 }
 
 export type Workspace = ReturnType<typeof freshWorkspace>;
+
+/** A replica's issue, whole: an archived issue's slim row, or none, fails the test. */
+export function whole(issue: SyncedIssue | undefined): ActiveIssue {
+	if (!issue) throw new Error("No such issue");
+	if (!isActiveIssue(issue)) throw new Error(`Issue ${issue.id} is archived`);
+	return issue;
+}
+
+/**
+ * An issue's history as the workspace stores it, in the order it was written. Unlike a snapshot's,
+ * it includes an archived issue's history, which replicas do not hold.
+ */
+export function storedHistory(workspace: Workspace, issueId: string): Promise<Activity[]> {
+	return runInDurableObject(workspace, (_, state) =>
+		drizzle(state.storage, { schema })
+			.select()
+			.from(schema.activities)
+			.where(eq(schema.activities.issueId, issueId))
+			.orderBy(sql`${schema.activities}.rowid`)
+			.all()
+			.map(toActivity),
+	);
+}
 
 type Of<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T }>;
 

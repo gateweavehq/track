@@ -6,7 +6,6 @@ import type {
 	Entities,
 	EntityName,
 	InboxItem,
-	Issue,
 	IssueRelation,
 	IssueTemplate,
 	Label,
@@ -17,13 +16,14 @@ import type {
 	PullRequest,
 	SavedView,
 	Subscription,
+	SyncedIssue,
 	Team,
 } from "./domain";
 import type { MutationInput } from "./mutations";
 import type { WorkflowStatus } from "./statuses";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 24;
+export const PROTOCOL_VERSION = 25;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";
@@ -105,13 +105,14 @@ export interface Snapshot {
 	teams: Team[];
 	/** Every team's statuses, removed ones included, so history still names them. */
 	statuses: WorkflowStatus[];
-	issues: Issue[];
+	/** Live issues, archived ones slimmed to `ARCHIVED_ISSUE_FIELDS`. */
+	issues: SyncedIssue[];
 	labels: Label[];
 	projects: Project[];
 	/** The updates of live projects. */
 	projectUpdates: ProjectUpdate[];
 	cycles: Cycle[];
-	/** Comments, activity and open proposals of live issues only. */
+	/** Comments, activity and open proposals of live issues that are not archived. */
 	comments: Comment[];
 	activities: Activity[];
 	proposals: Proposal[];
@@ -125,7 +126,7 @@ export interface Snapshot {
 	/** The member's own subscriptions and inbox, of live issues; nobody else's. */
 	subscriptions: Subscription[];
 	inbox: InboxItem[];
-	/** Pull requests linked to live issues. */
+	/** Pull requests linked to live issues that are not archived. */
 	pullRequests: PullRequest[];
 }
 

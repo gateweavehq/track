@@ -1,4 +1,4 @@
-import type { Snapshot } from "@gateweave/track-protocol";
+import { isActiveIssue, type Snapshot } from "@gateweave/track-protocol";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { INTAKE_EMAIL_DOMAIN, startTrack } from "./track-worker";
 
@@ -232,7 +232,9 @@ describe("intake email", () => {
 		].join("\r\n");
 		expect((await track.email("sam@customer.test", to, raw)).outcome).toBe("ok");
 
-		const request = (await snapshot()).issues.find((issue) => issue.title === "Crash on export");
+		const request = (await snapshot()).issues
+			.filter(isActiveIssue)
+			.find((issue) => issue.title === "Crash on export");
 		const keys = await track.fileKeys(`${workspaceId}/`);
 		expect(keys).toHaveLength(2);
 		expect(keys.map((key) => key.split("/").at(-1)).sort()).toEqual([

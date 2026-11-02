@@ -10,6 +10,7 @@ import {
 } from "@gateweave/track-protocol";
 import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { recordActivity } from "./activity";
+import { syncArchive } from "./archive";
 import * as schema from "./db/schema";
 import type { ChangeSet } from "./log";
 import { MutationRejected } from "./rejected";
@@ -209,6 +210,7 @@ function restoreArchived(db: Db, changes: ChangeSet, teamId: string, key: string
 			.get();
 		if (!row) continue;
 		changes.put("issue", toIssue(row));
+		syncArchive(db, changes, issue, row);
 		changes.events.push({ type: "issue.updated", issue: row, previous: issue, quiet: true });
 	}
 }
@@ -279,6 +281,7 @@ export function deleteStatus(
 			.get();
 		if (!moved) continue;
 		changes.put("issue", toIssue(moved));
+		syncArchive(db, changes, issue, moved);
 		changes.events.push({ type: "issue.updated", issue: moved, previous: issue, quiet: true });
 		recordActivity(db, changes, issue, actorId, {
 			type: "status",

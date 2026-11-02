@@ -80,6 +80,35 @@ describe("UploadOutbox", () => {
 		expect(outbox.size).toBe(0);
 	});
 
+	it("fails a file whose link holds someone else's file, and hands back the person's copy", async () => {
+		const store = memoryOutboxStore();
+		let online = false;
+		const { fetch, sent } = gateway(() => (online ? 412 : "offline"));
+		const outbox = new UploadOutbox({ store, fetch });
+		const file = upload("waited.png");
+		expect(await outbox.add(file)).toEqual({ status: "waiting" });
+
+		online = true;
+		const settled: { blob: Blob; result: unknown }[] = [];
+		outbox.onSettled((done, result) => settled.push({ blob: done.blob, result }));
+		await outbox.drain();
+		// Not counted as uploaded, as a 409 for the person's own file is.
+		expect(settled).toEqual([
+			{
+				blob: file.blob,
+				result: { status: "failed", message: `Refused ${file.path}.`, taken: true },
+			},
+		]);
+		expect(outbox.pending(file.path).waiting).toBe(false);
+		// Sending it again would not change what the link holds.
+		sent.length = 0;
+		await outbox.drain();
+		expect(sent).toEqual([]);
+
+		const fresh = new UploadOutbox({ store: memoryOutboxStore(), fetch: gateway(() => 412).fetch });
+		expect(await fresh.add(upload("pasted.png"))).toMatchObject({ status: "failed", taken: true });
+	});
+
 	it("keeps a file the server cannot take now, and drops one it refuses for good", async () => {
 		const store = memoryOutboxStore();
 		const outbox = new UploadOutbox({

@@ -17,15 +17,21 @@ import {
 import { groupingTeams } from "#/lib/statuses";
 import { markIssueListShown } from "#/lib/timing";
 import { cn } from "#/lib/utils";
+import { BulkBar, type BulkField } from "./bulk-bar";
 import { useIssueDropZone, useIssueMoves } from "./dnd";
 import { GroupIcon, useGroupName } from "./group-label";
 import { type IssueField, IssueRow } from "./issue-row";
+import { useIssueSelection } from "./selection";
 
 /**
  * Issues in groups (by status unless the display options say otherwise), driven from the keyboard:
  * J/K or the arrow keys move the selection, Enter opens the issue, S, P and A change the selected
  * issue's status, priority and assignee, and Alt with the arrow keys moves it up or down. Rows can
  * also be dragged.
+ *
+ * X picks the selected issue, as its checkbox does, and Shift extends from the last one picked.
+ * While any are picked, a bar changes them all at once, S, P and A open its menus instead, and
+ * Esc unpicks them.
  */
 export function IssueList({
 	issues,
@@ -71,6 +77,8 @@ export function IssueList({
 	}, [shown, issues.length]);
 
 	const visible = groups.flatMap((group) => (collapsed.has(group.key) ? [] : group.issues));
+	const selection = useIssueSelection(visible);
+	const { checkedIds, checking, onCheck } = selection;
 
 	const registerRow = useCallback((issueId: string, link: HTMLAnchorElement | null) => {
 		if (link) rows.current.set(issueId, link);
@@ -88,7 +96,11 @@ export function IssueList({
 		if (next) rows.current.get(next.id)?.focus();
 	}
 
-	function openMenu(field: IssueField) {
+	function openMenu(field: BulkField) {
+		if (checking) {
+			selection.setMenu(field);
+			return;
+		}
 		if (selectedId && visible.some((issue) => issue.id === selectedId)) {
 			setMenu({ issueId: selectedId, field });
 		}
@@ -108,6 +120,14 @@ export function IssueList({
 		}
 	}
 
+	function checkSelected(range: boolean) {
+		if (selectedId && visible.some((issue) => issue.id === selectedId)) onCheck(selectedId, range);
+	}
+	const extendToSelected = () => checkSelected(true);
+	const uncheckAll = () => {
+		if (checking) selection.clear();
+	};
+
 	const next = () => select(1);
 	const previous = () => select(-1);
 	useHotkeys({
@@ -120,6 +140,9 @@ export function IssueList({
 		s: () => openMenu("status"),
 		p: () => openMenu("priority"),
 		a: () => openMenu("assignee"),
+		x: () => checkSelected(false),
+		X: extendToSelected,
+		Escape: uncheckAll,
 	});
 
 	function toggle(key: string) {
@@ -162,6 +185,9 @@ export function IssueList({
 							blocked={blocked.has(issue.id)}
 							properties={properties}
 							selected={issue.id === selectedId}
+							checked={checkedIds.has(issue.id)}
+							checking={checking}
+							onCheck={onCheck}
 							menu={menu?.issueId === issue.id ? menu.field : null}
 							onMenuChange={onMenuChange}
 							onSelect={setSelectedId}
@@ -170,6 +196,7 @@ export function IssueList({
 					)),
 				];
 			})}
+			<BulkBar selection={selection} total={visible.length} />
 		</div>
 	);
 }
