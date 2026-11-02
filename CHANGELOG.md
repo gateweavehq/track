@@ -8,6 +8,45 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.22.0] - 2026-11-02
+
+Long lists and tables are much faster, issues with very long comment threads keep working, text
+with invisible broken characters is cleaned or refused, and intake email is safe from a slow
+header. Updating a self-hosted copy applies a migration in each workspace's database, which runs
+on its own; there is no D1 migration and no new setting. The protocol stays at version 25.
+([#168], [#169], [#171], [#172], [#173])
+
+### Security
+
+- A crafted header in a message to a team's intake email address could make the Worker spend
+  CPU time that grew with the square of its length. postal-mime, which reads those messages, is
+  updated to 4.0.8 (GHSA-f2hq-32vh-53cc). ([#173])
+
+### Fixed
+
+- An issue whose comments added up past about 10 MB could take no more comments, and its newest
+  ones were not found by search. Such an issue's comments are now indexed apart, so it takes new
+  comments and all of them stay searchable. The migration moves only issues past 1 MiB of
+  comments. ([#169])
+- A picker that had just closed could take the next click or Escape meant for what lay under it,
+  such as the next row's priority picker in a table. Menus and pickers now leave the page as soon
+  as they close. ([#172])
+
+### Changed
+
+- Issue lists draw only the rows near the screen. Changing 2,000 issues at once now shows in about
+  135 ms instead of 1,160, and opening a workspace from the device's copy in about 340 ms instead
+  of 1,100. Rows are measured, so the list holds at any font size, and screen readers hear each
+  row's place in the list. When a change is refused because its issue is gone, the message says
+  so apart from other refusals. ([#171])
+- The issue table also draws only the rows near the screen, measured so they hold at any font
+  size. J/K and the arrow keys move between its rows as in a list, and its header row stays at the
+  top as it scrolls. ([#172])
+- Text with NUL characters or lone halves of an emoji's character pair is refused by the server,
+  since it confused search or came back silently changed. The app, request forms, intake email,
+  the guided start, the importer and GitHub titles clean such text instead, so people do not run
+  into errors. Text already stored stays as it is. ([#168])
+
 ## [0.21.1] - 2026-11-02
 
 Open tabs lose their connection when their session ends, exports handle large archives, and bulk
@@ -779,6 +818,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.22.0]: https://github.com/gateweavehq/track/releases/tag/v0.22.0
 [0.21.1]: https://github.com/gateweavehq/track/releases/tag/v0.21.1
 [0.21.0]: https://github.com/gateweavehq/track/releases/tag/v0.21.0
 [0.20.1]: https://github.com/gateweavehq/track/releases/tag/v0.20.1
@@ -919,3 +959,8 @@ The first pre-release.
 [#164]: https://github.com/gateweavehq/track/pull/164
 [#161]: https://github.com/gateweavehq/track/pull/161
 [#166]: https://github.com/gateweavehq/track/pull/166
+[#168]: https://github.com/gateweavehq/track/pull/168
+[#169]: https://github.com/gateweavehq/track/pull/169
+[#171]: https://github.com/gateweavehq/track/pull/171
+[#172]: https://github.com/gateweavehq/track/pull/172
+[#173]: https://github.com/gateweavehq/track/pull/173
