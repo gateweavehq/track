@@ -9,6 +9,8 @@ import { AppShell } from "#/components/workspace/app-shell";
 import { WorkspaceProvider } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
 import { SyncGate } from "#/components/workspace/sync-status";
+import { issueKey } from "#/lib/issues";
+import { rejectionReporter } from "#/lib/mutations";
 import {
 	forgetKnownWorkspace,
 	knownWorkspace,
@@ -97,11 +99,19 @@ function WorkspaceNotFound() {
 function useWorkspaceClient(slug: string, workspaceId: string, userId: string) {
 	const [client, setClient] = useState<SyncClient | null>(null);
 	useEffect(() => {
+		// Refusals no one waits for, such as changes queued offline before a reload, arrive together
+		// when the tab reconnects: they are summed up, naming the issues they would have changed.
+		const report = rejectionReporter((error) => {
+			const state = next.getState();
+			const args = error.mutation.args as { id?: string; issueId?: string };
+			const issue = state.issues.get(args.issueId ?? args.id ?? "");
+			return issue ? issueKey(state.teams.get(issue.teamId), issue) : "A change";
+		});
 		const next = createBrowserSyncClient({
 			workspace: slug,
 			storageKey: replicaKey(userId, workspaceId),
 			userId,
-			onReject: (error) => toast.error("Your change was not saved", { description: error.message }),
+			onReject: (error) => report(error),
 		});
 		// Access is gone: the user was removed, or the workspace deleted.
 		const unsubscribe = next.subscribeStatus(() => {

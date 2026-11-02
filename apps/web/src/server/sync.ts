@@ -23,7 +23,9 @@ export function isSyncRequest(url: URL): boolean {
  *   HEAD /api/sync/:slug/snapshot     access check only; clients use it to learn why a socket failed
  *   GET  /api/sync/:slug/socket       WebSocket for live sync
  *   GET  /api/sync/:slug/issues/:id   one issue whole, for an archived issue's page (JSON)
- *   GET  /api/sync/:slug/archive      archived issues whole, `?team=` for one team's, for exports
+ *   GET  /api/sync/:slug/archive      archived issues whole, for exports, `?team=` for one team's:
+ *                                     a page with `?page=1`, then `?after=` the `next` of the page
+ *                                     before; without either, all in one answer, for v0.21.0
  */
 export async function handleSyncRequest(request: Request): Promise<Response> {
 	const url = new URL(request.url);
@@ -64,8 +66,24 @@ export async function handleSyncRequest(request: Request): Promise<Response> {
 		return answer(result, "Issue not found");
 	}
 	if (endpoint === "archive") {
-		const result = await stub.archivedIssues(membership.profile, {
-			teamId: url.searchParams.get("team"),
+		const teamId = url.searchParams.get("team");
+		const paged = url.searchParams.has("page") || url.searchParams.has("after");
+		if (!paged) {
+			// v0.21.0 asks without paging and reads the whole list from one answer. Kept as it was
+			// for tabs still on that build, until a later protocol bump. Too large to send whole is
+			// an error, which that build shows, rather than a list cut short, which it would save.
+			const whole = await stub.archivedIssues(membership.profile, { teamId });
+			if (whole.ok && whole.value === "too_large") {
+				return error(413, "Too many archived issues for one answer; reload to export them");
+			}
+			return answer(whole, "Not found");
+		}
+		if (url.searchParams.has("page") && url.searchParams.get("page") !== "1") {
+			return error(400, "Invalid archive page");
+		}
+		const result = await stub.archivedIssuesPage(membership.profile, {
+			teamId,
+			after: url.searchParams.get("after"),
 		});
 		return answer(result, "Not found");
 	}
@@ -107,6 +125,7 @@ function json(body: unknown): Response {
 	return Response.json(body, { headers: { "Cache-Control": "no-store" } });
 }
 
+// Never cached either: a refusal or a failure is of the moment, and the next try must reach here.
 function error(status: number, message: string): Response {
-	return Response.json({ error: message }, { status });
+	return Response.json({ error: message }, { status, headers: { "Cache-Control": "no-store" } });
 }

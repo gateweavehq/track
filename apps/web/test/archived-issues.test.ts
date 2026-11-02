@@ -1,4 +1,4 @@
-import type { ArchivedIssues, IssueDetails } from "@gateweave/track-protocol";
+import type { ArchivedIssues, ArchivedIssuesPage, IssueDetails } from "@gateweave/track-protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startTrack } from "./track-worker";
 
@@ -96,11 +96,52 @@ describe("archived issues through the sync gateway", () => {
 		});
 		expect(details.comments.map((comment) => comment.body)).toEqual(["Done and dusted"]);
 
-		const exported = await get("/api/sync/archivists/archive?team=team-eng", owner.cookie);
-		expect(exported.status).toBe(200);
-		const archived = (await exported.json()) as ArchivedIssues;
-		expect(archived.issues.map((issue) => issue.id)).toEqual(["issue-old"]);
-		expect(archived.comments.map((comment) => comment.id)).toEqual(["comment-old"]);
+		// A second archived issue, numbered after the first, and one that is not archived.
+		for (const [id, archived] of [
+			["issue-older", true],
+			["issue-open", false],
+		] as const) {
+			await workspace.mutate("issue.create", {
+				id,
+				teamId: "team-eng",
+				title: id,
+				status: "done",
+				sortOrder: "a0",
+			});
+			if (archived) await workspace.mutate("issue.archive", { id, archived: true });
+		}
+
+		// Without asking for pages, as v0.21.0 asks: every archived issue in one answer, in the
+		// shape that build reads, with nothing beside the three lists.
+		for (const path of [
+			"/api/sync/archivists/archive",
+			"/api/sync/archivists/archive?team=team-eng",
+		]) {
+			const exported = await get(path, owner.cookie);
+			expect(exported.status).toBe(200);
+			expect(exported.headers.get("cache-control")).toBe("no-store");
+			const whole = (await exported.json()) as ArchivedIssues;
+			expect(Object.keys(whole)).toEqual(["issues", "comments", "activities"]);
+			expect(whole.issues.map((issue) => issue.id)).toEqual(["issue-old", "issue-older"]);
+			expect(whole.comments.map((comment) => comment.id)).toEqual(["comment-old"]);
+		}
+
+		// Asking for pages: the same issues, by id, with a cursor, for the same team.
+		const first = await get("/api/sync/archivists/archive?team=team-eng&page=1", owner.cookie);
+		expect(first.status).toBe(200);
+		const paged = (await first.json()) as ArchivedIssuesPage;
+		expect(paged.issues.map((issue) => issue.id)).toEqual(["issue-old", "issue-older"]);
+		expect(paged.next).toBeNull();
+		const after = await get(
+			"/api/sync/archivists/archive?team=team-eng&after=issue-old",
+			owner.cookie,
+		);
+		expect(await after.json()).toMatchObject({ issues: [{ id: "issue-older" }], next: null });
+		for (const bad of ["?after=", "?page=2", "?page="]) {
+			const refused = await get(`/api/sync/archivists/archive${bad}`, owner.cookie);
+			expect(refused.status).toBe(400);
+			expect(refused.headers.get("cache-control")).toBe("no-store");
+		}
 
 		// Someone else's workspace: the same 404 as one that does not exist.
 		const stranger = await signUp(client, "Sam Stranger", "sam@archive.test");
@@ -108,7 +149,11 @@ describe("archived issues through the sync gateway", () => {
 			const refused = await get(path, stranger.cookie);
 			expect(refused.status).toBe(404);
 			expect(await refused.json()).toEqual({ error: "Workspace not found" });
-			expect((await get(path, "")).status).toBe(401);
+			// A refusal is never cached, so access granted later is not hidden behind it.
+			expect(refused.headers.get("cache-control")).toBe("no-store");
+			const signedOut = await get(path, "");
+			expect(signedOut.status).toBe(401);
+			expect(signedOut.headers.get("cache-control")).toBe("no-store");
 			// Cookies ride along on requests from other sites, so those are refused first.
 			expect((await get(path, owner.cookie, { origin: "https://evil.test" })).status).toBe(403);
 		}
@@ -126,9 +171,13 @@ describe("archived issues through the sync gateway", () => {
 		const elsewhere = await get("/api/sync/strangers/issues/issue-old", stranger.cookie);
 		expect(elsewhere.status).toBe(404);
 		expect(await elsewhere.json()).toEqual({ error: "Issue not found" });
+		expect(elsewhere.headers.get("cache-control")).toBe("no-store");
 		expect(
-			((await (await get("/api/sync/strangers/archive", stranger.cookie)).json()) as ArchivedIssues)
-				.issues,
+			(
+				(await (
+					await get("/api/sync/strangers/archive", stranger.cookie)
+				).json()) as ArchivedIssuesPage
+			).issues,
 		).toEqual([]);
 		expect((await get("/api/sync/archivists/issues/%E0", owner.cookie)).status).toBe(400);
 	});

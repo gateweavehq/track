@@ -2,6 +2,8 @@ import { DurableObject } from "cloudflare:workers";
 import {
 	type Activity,
 	type ArchivedIssues,
+	type ArchivedIssuesPage,
+	archivedIssuesPageRequest,
 	archivedIssuesRequest,
 	CloseCode,
 	type Comment,
@@ -36,7 +38,7 @@ import { drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { z } from "zod";
 import migrations from "../drizzle/migrations";
-import { findArchivedIssues, findIssueDetails } from "./archive";
+import { findArchivedIssues, findArchivedIssuesPage, findIssueDetails } from "./archive";
 import { nextAutomationsAt, runAutomations } from "./automations";
 import { advanceCycles, nextCycleChange } from "./cycles";
 import * as schema from "./db/schema";
@@ -276,13 +278,34 @@ export class WorkspaceDO extends DurableObject {
 		});
 	}
 
-	/** Archived issues whole, every team's or one's, with their comments and history, for exports. */
-	archivedIssues(member: MemberProfile, input: unknown): WebhookResult<ArchivedIssues> {
+	/**
+	 * Every archived issue whole, every team's or one's, with their comments and history, in one
+	 * answer: what v0.21.0's exports ask for. Kept as it was for that build until a later protocol
+	 * bump; newer clients ask for `archivedIssuesPage`. An archive too large for one answer is
+	 * `"too_large"`, never cut short: that build would save a short file without a word.
+	 */
+	archivedIssues(
+		member: MemberProfile,
+		input: unknown,
+	): WebhookResult<ArchivedIssues | "too_large"> {
 		const request = archivedIssuesRequest.safeParse(input);
 		if (!request.success) return { ok: false, reason: "invalid", message: "Invalid team id" };
 		return this.#read(member, () => ({
 			ok: true,
 			value: findArchivedIssues(this.#db, request.data.teamId),
+		}));
+	}
+
+	/**
+	 * A page of archived issues whole, every team's or one's, with their comments and history, for
+	 * exports. Paged so that no answer outgrows the RPC limit, however large the archive.
+	 */
+	archivedIssuesPage(member: MemberProfile, input: unknown): WebhookResult<ArchivedIssuesPage> {
+		const request = archivedIssuesPageRequest.safeParse(input);
+		if (!request.success) return { ok: false, reason: "invalid", message: "Invalid archive page" };
+		return this.#read(member, () => ({
+			ok: true,
+			value: findArchivedIssuesPage(this.#db, request.data),
 		}));
 	}
 

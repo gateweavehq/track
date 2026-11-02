@@ -163,6 +163,14 @@ test("picks follow what is shown, and issues of two teams get no status menu", a
 	await expect(issueRow(page, beta)).toBeVisible();
 	await expect(bar).toContainText("1 issue selected");
 
+	// Collapsing a group only hides its picks: open again, they are still picked.
+	const backlog = page.getByRole("button", { name: /^Backlog/ });
+	await backlog.click();
+	await expect(issueRow(page, alpha)).toBeHidden();
+	await expect(bar).toContainText("1 issue selected");
+	await backlog.click();
+	await expect(page.getByRole("checkbox", { name: "Select ENG-1" })).toBeChecked();
+
 	// Ctrl/Cmd+A belongs to an open menu, not to the list behind it.
 	await bar.getByRole("button", { name: "Priority" }).click();
 	await expect(page.getByRole("listbox")).toBeVisible();
