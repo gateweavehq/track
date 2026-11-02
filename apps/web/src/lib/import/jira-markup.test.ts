@@ -97,6 +97,10 @@ describe("jiraToMarkdown", () => {
 			"| Browser | Works |\n| --- | --- |\n| Safari | **no** |\n| Firefox | yes |",
 		);
 		expect(jiraToMarkdown("|a|b|")).toBe("|   |   |\n| --- | --- |\n| a | b |");
+		// A backslash ending a cell would escape the pipe after it, and join two cells.
+		expect(jiraToMarkdown("||Path||Size||\n|C:\\temp\\|2|")).toBe(
+			"| Path | Size |\n| --- | --- |\n| C:\\\\temp\\\\ | 2 |",
+		);
 	});
 
 	it("quotes what {quote} holds, and drops colors and panels around text", () => {

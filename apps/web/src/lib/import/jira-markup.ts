@@ -51,7 +51,10 @@ export function jiraToMarkdown(text: string): string {
 		let converted: string;
 		if (table) {
 			const header = /^\s*\|\|/.test(line);
-			const cells = splitRow(line, header).map((cell) => inline(cell.trim()).replace(/\|/g, "\\|"));
+			// Backslashes too, so one at the end of a cell cannot escape the pipe that closes it.
+			const cells = splitRow(line, header).map((cell) =>
+				inline(cell.trim()).replace(/[\\|]/g, "\\$&"),
+			);
 			converted = `| ${cells.join(" | ")} |`;
 			if (header) {
 				out.push(converted);
