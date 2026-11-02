@@ -10,7 +10,7 @@ import { WorkspaceProvider } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
 import { SyncGate } from "#/components/workspace/sync-status";
 import { issueKey } from "#/lib/issues";
-import { rejectionReporter } from "#/lib/mutations";
+import { changeName, rejectionReporter } from "#/lib/mutations";
 import {
 	forgetKnownWorkspace,
 	knownWorkspace,
@@ -103,9 +103,10 @@ function useWorkspaceClient(slug: string, workspaceId: string, userId: string) {
 		// when the tab reconnects: they are summed up, naming the issues they would have changed.
 		const report = rejectionReporter((error) => {
 			const state = next.getState();
-			const args = error.mutation.args as { id?: string; issueId?: string };
-			const issue = state.issues.get(args.issueId ?? args.id ?? "");
-			return issue ? issueKey(state.teams.get(issue.teamId), issue) : "A change";
+			return changeName(error.mutation, (id) => {
+				const issue = state.issues.get(id);
+				return issue && issueKey(state.teams.get(issue.teamId), issue);
+			});
 		});
 		const next = createBrowserSyncClient({
 			workspace: slug,
