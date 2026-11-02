@@ -160,13 +160,35 @@ export const SNAPSHOT_KEYS = {
 export const issueDetailsRequest = z.object({ issueId: z.string().min(1).max(64) });
 
 /**
- * What `GET /api/sync/:slug/archive` takes: every team's archived issues, or one team's
- * (`?team=`).
+ * The most archived issues one page of `GET /api/sync/:slug/archive` holds. A page also ends once
+ * its issues, comments and history come to about `ARCHIVE_PAGE_BUDGET` characters of JSON, so an
+ * archive of any size stays well under the Durable Object's RPC limit and the Worker's memory.
+ */
+export const ARCHIVE_PAGE_SIZE = 200;
+export const ARCHIVE_PAGE_BUDGET = 4 * 1024 * 1024;
+
+/**
+ * What `GET /api/sync/:slug/archive` takes without asking for pages: every team's archived issues,
+ * or one team's (`?team=`), all in one answer (`ArchivedIssues`). This is how v0.21.0 asks, and
+ * browsers can stay on that build after a deploy, since the protocol version did not change. It
+ * stays for them until a later `PROTOCOL_VERSION` bump; newer clients ask for pages.
  */
 export const archivedIssuesRequest = z.object({ teamId: z.string().min(1).max(64).nullable() });
 
+/**
+ * What `GET /api/sync/:slug/archive?page=1` takes: the same, a page at a time
+ * (`ArchivedIssuesPage`). `after` (`?after=`, which also asks for pages) is the `next` of the page
+ * before; leave it out for the first. `limit` makes pages smaller than `ARCHIVE_PAGE_SIZE`, for
+ * tests.
+ */
+export const archivedIssuesPageRequest = archivedIssuesRequest.extend({
+	after: z.string().min(1).max(64).nullable().default(null),
+	limit: z.number().int().min(1).max(ARCHIVE_PAGE_SIZE).default(ARCHIVE_PAGE_SIZE),
+});
+
 export type IssueDetailsRequest = z.infer<typeof issueDetailsRequest>;
 export type ArchivedIssuesRequest = z.infer<typeof archivedIssuesRequest>;
+export type ArchivedIssuesPageRequest = z.input<typeof archivedIssuesPageRequest>;
 
 /**
  * A live issue whole, as the server holds it, with its comments and history (oldest first), its
@@ -180,9 +202,41 @@ export interface IssueDetails {
 	pullRequests: PullRequest[];
 }
 
-/** Archived issues whole, by team and number, with their comments and history. For exports. */
+/**
+ * Archived issues whole, by team and number, with their comments and history, all in one answer:
+ * what v0.21.0 reads for an export. Kept as it was for that build; newer clients read pages.
+ */
 export interface ArchivedIssues {
 	issues: Issue[];
 	comments: Comment[];
 	activities: Activity[];
 }
+
+/**
+ * One page of archived issues, by id. `next` is the cursor for the page after, and null on the
+ * last. An issue archived while the pages are read may be on none of them, and one restored and
+ * archived again may be on two: a reader dedupes by id and asks for any it still misses.
+ */
+export interface ArchivedIssuesPage extends ArchivedIssues {
+	/** Present on every page: absent, the answer is not a page (an older server's, say). */
+	next: string | null;
+}
+
+/**
+ * What a client checks an `ArchivedIssuesPage` against before it reads it, or asks for the page
+ * after: the lists, the fields that place each row, and a `next` that is there, an id or null.
+ * The server built the rows from its own entities, so their other fields are taken as sent.
+ */
+export const archivedIssuesPage = z.object({
+	issues: z.array(
+		z.looseObject({
+			id: z.string().min(1),
+			teamId: z.string().min(1),
+			number: z.number(),
+			archivedAt: z.number().nullable(),
+		}),
+	),
+	comments: z.array(z.looseObject({ id: z.string().min(1), issueId: z.string().min(1) })),
+	activities: z.array(z.looseObject({ id: z.string().min(1), issueId: z.string().min(1) })),
+	next: z.string().min(1).max(64).nullable(),
+});

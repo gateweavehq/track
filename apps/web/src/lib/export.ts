@@ -24,7 +24,8 @@ import { statusOf } from "./statuses";
 // Exports are built in the browser from the local replica, and these functions only turn data
 // into the file's text. The replica holds an archived issue as a slim row, so the rest of the
 // archived issues comes from the server (`fetchArchivedIssues`) and is passed in as `archived`,
-// read the way the page of one is: through the sync gateway, for members only. Without it, as
+// read the way the page of one is: through the sync gateway, for members only, a page at a time.
+// One the server restored before the replica heard comes whole as `restored`. Without it, as
 // offline, an export leaves archived issues out and says so; it never passes a slim row off as a
 // whole issue.
 
@@ -72,6 +73,12 @@ export interface ExportSource {
 	 * out, the export has no archived issues, and the JSON's `notes` say how many it left out.
 	 */
 	archived?: ArchivedIssues | null;
+	/**
+	 * Issues the replica still holds archived that the server has restored, whole, with their
+	 * comments and history (`fetchMissingArchived`). They are exported with the issues that are not
+	 * archived, unless the replica has heard of the restore by then and holds them whole itself.
+	 */
+	restored?: ArchivedIssues | null;
 }
 
 /** The tables of a replica as an export source. Proposals are not exported. */
@@ -138,12 +145,21 @@ function sliceOf(source: ExportSource, teamId: string | null): Slice {
 	// heard was archived yet: each issue is in the file once.
 	const archived = (source.archived?.issues ?? []).filter(inSlice).sort(byTeamAndNumber);
 	const archivedIds = new Set(archived.map((issue) => issue.id));
-	const issues = all
-		.filter(
-			(issue): issue is ActiveIssue =>
-				inSlice(issue) && isActiveIssue(issue) && !archivedIds.has(issue.id),
-		)
-		.sort(byTeamAndNumber);
+	const active = all.filter(
+		(issue): issue is ActiveIssue =>
+			inSlice(issue) && isActiveIssue(issue) && !archivedIds.has(issue.id),
+	);
+	// Restored on the server while the replica still held them archived: whole from the server,
+	// unless the replica has them whole by now.
+	const activeIds = new Set(active.map((issue) => issue.id));
+	const restored = (source.restored?.issues ?? []).filter(
+		(issue): issue is ActiveIssue =>
+			inSlice(issue) &&
+			issue.archivedAt === null &&
+			!archivedIds.has(issue.id) &&
+			!activeIds.has(issue.id),
+	);
+	const issues = [...active, ...restored].sort(byTeamAndNumber);
 	const archivedLeftOut = source.archived ? 0 : archivedInExport(source, teamId);
 	const issueIds = new Set([...issues, ...archived].map((issue) => issue.id));
 	const members = [...source.members];
@@ -174,10 +190,18 @@ function sliceOf(source: ExportSource, teamId: string | null): Slice {
 		issues,
 		archived,
 		archivedLeftOut,
-		comments: unique([...source.comments, ...(source.archived?.comments ?? [])])
+		comments: unique([
+			...source.comments,
+			...(source.archived?.comments ?? []),
+			...(source.restored?.comments ?? []),
+		])
 			.filter((comment) => issueIds.has(comment.issueId))
 			.sort((a, b) => a.createdAt - b.createdAt),
-		activities: unique([...source.activities, ...(source.archived?.activities ?? [])])
+		activities: unique([
+			...source.activities,
+			...(source.archived?.activities ?? []),
+			...(source.restored?.activities ?? []),
+		])
 			.filter((activity) => issueIds.has(activity.issueId))
 			.sort((a, b) => a.createdAt - b.createdAt),
 		relations: [...source.relations]
@@ -187,7 +211,7 @@ function sliceOf(source: ExportSource, teamId: string | null): Slice {
 		membersById: new Map(members.map((member) => [member.id, member])),
 		labelsById: new Map(labels.map((label) => [label.id, label])),
 		projectsById: new Map(projects.map((project) => [project.id, project])),
-		issuesById: new Map([...all, ...archived].map((issue) => [issue.id, issue])),
+		issuesById: new Map([...all, ...restored, ...archived].map((issue) => [issue.id, issue])),
 	};
 }
 
@@ -207,12 +231,33 @@ export function archivedInExport(source: ExportSource, teamId: string | null = n
 	).length;
 }
 
+/**
+ * The issues of a slice the replica holds archived that the server's archive does not list:
+ * restored on the server, or deleted, before the replica heard. An export asks for each
+ * (`fetchMissingArchived`) rather than leaving it out without a word.
+ */
+export function archivedNotListed(
+	source: ExportSource,
+	archived: ArchivedIssues,
+	teamId: string | null = null,
+): string[] {
+	const listed = new Set(archived.issues.map((issue) => issue.id));
+	return [...source.issues]
+		.filter(
+			(issue) =>
+				!isActiveIssue(issue) &&
+				(teamId === null || issue.teamId === teamId) &&
+				!listed.has(issue.id),
+		)
+		.map((issue) => issue.id);
+}
+
 /** What a JSON export made without the server says about the archived issues it left out. */
 export function archivedLeftOutNote(count: number): string {
 	return (
 		`${count} archived ${count === 1 ? "issue is" : "issues are"} not in this export. ` +
 		"This browser keeps only a short record of archived issues, and the rest is on the server, " +
-		"which could not be reached. Export again while online to include them."
+		"which did not send it for this export. Export again while online to include them."
 	);
 }
 
