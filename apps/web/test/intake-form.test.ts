@@ -124,6 +124,29 @@ describe("request form", () => {
 		]);
 	});
 
+	// TRK-79: Track refuses NUL characters, which pasted text can carry unseen.
+	it("files pasted text with the NUL characters taken out, rather than refusing it", async () => {
+		const key = await turnOn();
+		const sent = await submit(
+			key,
+			{
+				title: "Import\0 from CSV 🧪",
+				description: "Paste\0d from a PDF: 漢字",
+				"cf-turnstile-response": TURNSTILE_PASS,
+			},
+			"198.51.100.79",
+		);
+		expect(sent.status).toBe(201);
+		await sent.text();
+		const filed = (await snapshot()).issues.filter((issue) => issue.title.startsWith("Import"));
+		expect(filed).toEqual([
+			expect.objectContaining({
+				title: "Import from CSV 🧪",
+				description: "Pasted from a PDF: 漢字",
+			}),
+		]);
+	});
+
 	it("refuses a token solved on another host, as a page elsewhere with the same widget would", async () => {
 		const key = await turnOn();
 		solveTurnstileOn("elsewhere.test");

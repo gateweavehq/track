@@ -7,6 +7,7 @@ import {
 	CloseCode,
 	type IssueRelation,
 	isActiveIssue,
+	MALFORMED_TEXT,
 	MAX_LABELS_PER_ISSUE,
 	MAX_VIEWS,
 	type MutationInput,
@@ -355,6 +356,36 @@ describe("issues", () => {
 		});
 		expect(result).toMatchObject({ type: "reject", reason: "invalid" });
 		await createIssue(admin, "issue-2");
+	});
+
+	// TRK-79: SQLite would miscount NUL, and store a lone surrogate as U+FFFD, changing the text.
+	it("rejects text with NUL characters or lone surrogates, and keeps what was stored", async () => {
+		const { workspace, admin } = await withTeam();
+		const issue = await createIssue(admin, "issue-1", "Fix the login 🐛 修复");
+		for (const text of ["Fix\0 it", "Broken \ud83d emoji", "\udc00"]) {
+			const create = await admin.mutate({
+				name: "issue.create",
+				args: { id: "issue-2", teamId: TEAM_ID, title: text, sortOrder: "a1" },
+			});
+			expect(create).toMatchObject({ type: "reject", reason: "invalid" });
+			expect(create).toHaveProperty("message", expect.stringContaining(MALFORMED_TEXT));
+			for (const patch of [{ title: text }, { description: text }]) {
+				const update = await admin.mutate({
+					name: "issue.update",
+					args: { id: issue.id, baseVersion: issue.version, patch },
+				});
+				expect(update).toMatchObject({ type: "reject", reason: "invalid" });
+			}
+			const comment = await admin.mutate({
+				name: "comment.create",
+				args: { id: "comment-1", issueId: issue.id, body: text },
+			});
+			expect(comment).toMatchObject({ type: "reject", reason: "invalid" });
+		}
+		const snapshot = await snapshotOf(workspace);
+		expect(snapshot.issues.map((each) => each.title)).toEqual(["Fix the login 🐛 修复"]);
+		expect(await issueOf(admin, issue.id)).toMatchObject({ description: null });
+		expect(snapshot.comments).toEqual([]);
 	});
 
 	it("only assigns active members", async () => {
@@ -1220,8 +1251,9 @@ describe("archive", () => {
 	it("counts a lone surrogate at what it reads back as", { timeout: 30_000 }, async () => {
 		const { workspace } = await withTeam();
 		// Each body is stored as 300 KB, three bytes a surrogate, but reads back as three U+FFFD
-		// each, 600 KB in structured clone: 37 MB in all, past the RPC limit.
-		await runInDurableObject(workspace, (instance) => {
+		// each, 600 KB in structured clone: 37 MB in all, past the RPC limit. Mutations refuse lone
+		// surrogates now (TRK-79), so the bodies go straight to storage, as text stored before did.
+		await runInDurableObject(workspace, (instance, state) => {
 			for (let n = 0; n < 62; n++) {
 				const id = `issue-${n}`;
 				const mutations: MutationInput[] = [
@@ -1231,7 +1263,7 @@ describe("archive", () => {
 					},
 					{
 						name: "comment.create",
-						args: { id: `${id}-comment`, issueId: id, body: "\ud800".repeat(100_000) },
+						args: { id: `${id}-comment`, issueId: id, body: "Written before TRK-79" },
 					},
 					{ name: "issue.archive", args: { id, archived: true } },
 				];
@@ -1240,6 +1272,9 @@ describe("archive", () => {
 					if (!result.ok) throw new Error(result.message);
 				}
 			}
+			drizzle(state.storage, { schema }).run(
+				sql`update comments set body = ${"\ud800".repeat(100_000)}`,
+			);
 		});
 		expect(await workspace.archivedIssues(owner, { teamId: null })).toEqual({
 			ok: true,
@@ -1258,25 +1293,21 @@ describe("archive", () => {
 			"🧪🧪🧪",
 			'Quotes " and \\ and \n escapes',
 		];
-		await runInDurableObject(workspace, (instance) => {
+		// The texts go straight to storage, since mutations refuse the NUL now (TRK-79) but text
+		// stored before may have one.
+		await runInDurableObject(workspace, (instance, state) => {
+			const db = drizzle(state.storage, { schema });
 			for (const [n, text] of texts.entries()) {
 				const id = `issue-${n}`;
 				const mutations: MutationInput[] = [
 					{
 						name: "issue.create",
-						args: {
-							id,
-							teamId: TEAM_ID,
-							title: text,
-							description: text,
-							status: "done",
-							sortOrder: "a0",
-						},
+						args: { id, teamId: TEAM_ID, title: id, status: "done", sortOrder: "a0" },
 					},
 					...texts.map(
-						(body, c): MutationInput => ({
+						(_, c): MutationInput => ({
 							name: "comment.create",
-							args: { id: `${id}-comment-${c}`, issueId: id, body },
+							args: { id: `${id}-comment-${c}`, issueId: id, body: "Placeholder" },
 						}),
 					),
 					{ name: "issue.archive", args: { id, archived: true } },
@@ -1284,6 +1315,10 @@ describe("archive", () => {
 				for (const [m, mutation] of mutations.entries()) {
 					const result = instance.mutate(owner, "client-estimate", `m-${n}-${m}`, mutation);
 					if (!result.ok) throw new Error(result.message);
+				}
+				db.run(sql`update issues set title = ${text}, description = ${text} where id = ${id}`);
+				for (const [c, body] of texts.entries()) {
+					db.run(sql`update comments set body = ${body} where id = ${`${id}-comment-${c}`}`);
 				}
 			}
 		});
@@ -1630,6 +1665,9 @@ describe("intake", () => {
 			},
 		});
 		expect(await file(key, "  ")).toBe(false);
+		// The gateways clean what strangers send; the object refuses whatever got past (TRK-79).
+		expect(await file(key, "Export\0")).toBe(false);
+		expect(await file(key, "Export \ud83d")).toBe(false);
 
 		// Turned off and on again, the form has a new link, and the old one files nothing.
 		await turn(admin, false);

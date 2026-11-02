@@ -9,4 +9,5 @@ export * from "./mutations";
 export * from "./notifications";
 export * from "./repeat";
 export * from "./statuses";
+export * from "./text";
 export * from "./webhooks";

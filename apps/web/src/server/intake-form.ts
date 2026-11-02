@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { cleanText } from "@gateweave/track-protocol";
 import { eq } from "drizzle-orm";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
@@ -66,10 +67,13 @@ export async function handleIntakeFormRequest(request: Request): Promise<Respons
 	const body = await readText(request, MAX_FORM_BODY);
 	if (body === null) return formPage(413, where, {}, "The request is too long.");
 	const fields = new URLSearchParams(body);
+	// Pasted text may carry NUL characters, which Track refuses. They are invisible, so they are
+	// taken out rather than shown as a problem nobody could find (TRK-79).
+	const field = (name: string) => cleanText(fields.get(name) ?? "");
 	const values = {
-		title: fields.get("title") ?? "",
-		description: fields.get("description") ?? "",
-		email: (fields.get("email") ?? "").trim(),
+		title: field("title"),
+		description: field("description"),
+		email: field("email").trim(),
 	};
 	const parsed = submission.safeParse(values);
 	if (!parsed.success) {

@@ -1,4 +1,4 @@
-import { INTAKE_EMAIL_ACTOR_ID, type WebhookActor } from "@gateweave/track-protocol";
+import { INTAKE_EMAIL_ACTOR_ID, userText, type WebhookActor } from "@gateweave/track-protocol";
 import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import * as schema from "./db/schema";
@@ -116,7 +116,7 @@ export const requesterReply = z.object({
 	/** Who sent it, which must be whom the decision went to. */
 	from: z.email().max(254),
 	/** The reply's own text, quotes taken out, as Markdown. */
-	body: z.string().trim().min(1).max(100_000),
+	body: userText.trim().min(1).max(100_000),
 });
 export type RequesterReply = z.infer<typeof requesterReply>;
 

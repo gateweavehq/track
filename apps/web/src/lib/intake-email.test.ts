@@ -158,3 +158,34 @@ describe("replyFromEmail", () => {
 		expect(long.endsWith("(Cut short.)")).toBe(true);
 	});
 });
+
+// TRK-79: Track refuses NUL characters and lone surrogates, but mail is filed without them.
+describe("emailed text", () => {
+	it("is cleaned of NUL characters and lone surrogates, so the request is filed", () => {
+		const request = requestFromEmail(
+			{
+				subject: "Export\0 breaks \ud83d",
+				text: "Steps\0 to repeat \udc00: 漢字 🧪",
+				attachments: [],
+			},
+			"sam@customer.test",
+		);
+		expect(request).toEqual({
+			title: "Export breaks �",
+			description: "Steps to repeat �: 漢字 🧪\n\nSent by email from <sam@customer.test>.",
+		});
+		expect(replyFromEmail({ text: "Thanks\0 \ud800!" })).toBe("Thanks �!");
+	});
+
+	it("is cut short without splitting an emoji in two", () => {
+		const subject = `${"x".repeat(511)}🧪`;
+		expect(requestFromEmail({ subject, attachments: [] }, "sam@customer.test").title).toBe(
+			"x".repeat(511),
+		);
+		const text = `${"x".repeat(MAX_EMAILED_TEXT - 1)}🧪 and more`;
+		const cut = `${"x".repeat(MAX_EMAILED_TEXT - 1)}…\n\n(Cut short.)`;
+		expect(replyFromEmail({ text })).toBe(cut);
+		const { description } = requestFromEmail({ text, attachments: [] }, "sam@customer.test");
+		expect(description.startsWith(cut)).toBe(true);
+	});
+});

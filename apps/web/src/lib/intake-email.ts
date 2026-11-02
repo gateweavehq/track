@@ -1,3 +1,4 @@
+import { cleanText } from "@gateweave/track-protocol";
 import type { Email } from "postal-mime";
 
 /** The longest description an emailed request keeps; the rest of the text is cut. */
@@ -62,12 +63,13 @@ export function requestFromEmail(
 	/** The Markdown links to the attachments kept, in the email's order. */
 	kept: string[] = [],
 ): { title: string; description: string } {
-	const subject = (email.subject ?? "").replace(/\s+/g, " ").trim();
-	const title = (subject || `Email from ${sender}`).slice(0, 512);
-	let text = (email.text ?? (email.html ? textOfHtml(email.html) : "")).replace(/\r\n?/g, "\n");
-	text = text.trim();
-	if (text.length > MAX_EMAILED_TEXT) text = `${text.slice(0, MAX_EMAILED_TEXT)}…\n\n(Cut short.)`;
-	const notes = [`Sent by email from <${sender}>.`];
+	const subject = cleanText(email.subject ?? "")
+		.replace(/\s+/g, " ")
+		.trim();
+	const title = cut(subject || `Email from ${cleanText(sender)}`, 512);
+	let text = textOf(email).trim();
+	if (text.length > MAX_EMAILED_TEXT) text = `${cut(text, MAX_EMAILED_TEXT)}…\n\n(Cut short.)`;
+	const notes = [`Sent by email from <${cleanText(sender)}>.`];
 	const left = email.attachments.length - kept.length;
 	if (left > 0) {
 		notes.push(left === 1 ? "1 attachment was left out." : `${left} attachments were left out.`);
@@ -82,7 +84,7 @@ export function requestFromEmail(
  * Message-----") on. Cut short past MAX_EMAILED_TEXT.
  */
 export function replyFromEmail(email: Pick<Email, "text" | "html">): string {
-	const text = (email.text ?? (email.html ? textOfHtml(email.html) : "")).replace(/\r\n?/g, "\n");
+	const text = textOf(email);
 	const lines = text.split("\n");
 	const kept: string[] = [];
 	for (const [index, line] of lines.entries()) {
@@ -100,9 +102,23 @@ export function replyFromEmail(email: Pick<Email, "text" | "html">): string {
 		kept.push(line);
 	}
 	let reply = kept.join("\n").trim();
-	if (reply.length > MAX_EMAILED_TEXT)
-		reply = `${reply.slice(0, MAX_EMAILED_TEXT)}…\n\n(Cut short.)`;
+	if (reply.length > MAX_EMAILED_TEXT) reply = `${cut(reply, MAX_EMAILED_TEXT)}…\n\n(Cut short.)`;
 	return reply;
+}
+
+/**
+ * An email's text with Unix line ends, cleaned: mail from anyone may carry NUL characters, which
+ * Track refuses, and the mail is filed without them rather than bounced (TRK-79).
+ */
+function textOf(email: Pick<Email, "text" | "html">): string {
+	const text = email.text ?? (email.html ? textOfHtml(email.html) : "");
+	return cleanText(text).replace(/\r\n?/g, "\n");
+}
+
+/** The first `max` UTF-16 units of `text`, one fewer where the cut would split an emoji in two. */
+function cut(text: string, max: number): string {
+	const last = text.charCodeAt(max - 1);
+	return text.slice(0, last >= 0xd800 && last <= 0xdbff ? max - 1 : max);
 }
 
 /** The text of an HTML-only email, roughly: tags out, paragraphs kept, entities read. */

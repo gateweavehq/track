@@ -1,6 +1,7 @@
 import {
 	type ClientMessage,
 	CloseCode,
+	cleanText,
 	type Mutation,
 	type MutationInput,
 	mutationSchema,
@@ -64,6 +65,11 @@ interface Waiter {
 	reject(error: MutationError): void;
 	/** Whether a refusal also goes to `onReject`. */
 	report: boolean;
+}
+
+/** A JSON reviver that cleans every string, as `cleanText` does. */
+function cleanStrings(_key: string, value: unknown): unknown {
+	return typeof value === "string" ? cleanText(value) : value;
 }
 
 const FATAL: ReadonlySet<ConnectionStatus> = new Set(["outdated", "unauthorized", "forbidden"]);
@@ -144,6 +150,7 @@ export class SyncClient {
 
 	/**
 	 * Applies a mutation locally and queues it for the server. Throws if the mutation is invalid.
+	 * Its text is cleaned first: NUL characters are dropped and lone surrogates become U+FFFD.
 	 * The returned promise resolves with the server version once the server has applied it, and
 	 * rejects with a `MutationError` if the server refuses it. The UI does not need to wait for it.
 	 */
@@ -169,10 +176,13 @@ export class SyncClient {
 	): Promise<number>[] {
 		if (this.#role === "closed") throw new Error("This SyncClient is closed");
 		const now = Date.now();
-		// Validate exactly what the server will receive: JSON drops undefined fields.
+		// Validate exactly what the server will receive: JSON drops undefined fields. Text pasted
+		// into the app may carry NUL characters or lone surrogates, which the server refuses; they
+		// are invisible, so they are cleaned here, where all typed text becomes a mutation, rather
+		// than failing a change that looks fine.
 		const pending: PendingMutation[] = inputs.map((input) => ({
 			id: crypto.randomUUID(),
-			mutation: mutationSchema.parse(JSON.parse(JSON.stringify(input))),
+			mutation: mutationSchema.parse(JSON.parse(JSON.stringify(input), cleanStrings)),
 			createdAt: now,
 		}));
 		if (pending.length === 0) return [];

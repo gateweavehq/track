@@ -1,5 +1,5 @@
-import type { MutationInput } from "@gateweave/track-protocol";
-import type { MutationError, SyncClient } from "@gateweave/track-sync-client";
+import { defaultStatuses, type MutationInput, type Snapshot } from "@gateweave/track-protocol";
+import { type MutationError, SyncClient, type Transport } from "@gateweave/track-sync-client";
 import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { batchFailure, rejectionReporter, send, sendBatch } from "./mutations";
@@ -100,5 +100,74 @@ describe("batchFailure", () => {
 		expect(batchFailure([{ key: "A-1", reason: "Gone." }], 1).title).toBe(
 			"Your change was not saved",
 		);
+	});
+});
+
+// TRK-79: the server refuses NUL characters and lone surrogates. Text pasted into an editor can
+// carry them unseen, so it is cleaned on its way to the server rather than refused.
+describe("send", () => {
+	const snapshot: Snapshot = {
+		version: 1,
+		teams: [
+			{
+				id: "t1",
+				key: "ENG",
+				name: "Engineering",
+				cycles: null,
+				archiveAfterMonths: null,
+				closeAfterMonths: null,
+				intakeFormKey: null,
+				intakeEmailKey: null,
+				createdAt: 1,
+				updatedAt: 1,
+			},
+		],
+		statuses: defaultStatuses("t1", 1),
+		issues: [],
+		labels: [],
+		projects: [],
+		cycles: [],
+		comments: [],
+		activities: [],
+		proposals: [],
+		relations: [],
+		projectUpdates: [],
+		views: [],
+		templates: [],
+		members: [],
+		subscriptions: [],
+		inbox: [],
+		pullRequests: [],
+	};
+	/** Serves a snapshot but never connects, so what was sent stays pending, to look at. */
+	const offline: Transport = {
+		snapshot: async () => snapshot,
+		probe: async () => {},
+		connect: () => ({ send() {}, close() {} }),
+	};
+
+	it("cleans pasted text of NUL characters and lone surrogates", async () => {
+		const client = new SyncClient({ userId: "alice", transport: offline });
+		try {
+			await vi.waitFor(() => expect(client.getStatus().loaded).toBe(true));
+			const pasted = {
+				title: "Crash\0 on save \ud83d",
+				description: "Pasted from the log:\0 漢字 🐛 \udc00",
+			};
+			const issue = { id: "i1", teamId: "t1", sortOrder: "a0", ...pasted };
+			expect(send(client, { name: "issue.create", args: issue })).toBe(true);
+			const comment = { id: "c1", issueId: "i1", body: "\0Same\ud800" };
+			expect(send(client, { name: "comment.create", args: comment })).toBe(true);
+
+			expect(toast.error).not.toHaveBeenCalled();
+			expect(client.getState().issues.get("i1")).toMatchObject({
+				title: "Crash on save \ufffd",
+				description: "Pasted from the log: 漢字 🐛 \ufffd",
+			});
+			expect(client.getState().comments.get("c1")?.body).toBe("Same\ufffd");
+			expect(client.getStatus().pending).toBe(2);
+		} finally {
+			await client.close();
+		}
 	});
 });
