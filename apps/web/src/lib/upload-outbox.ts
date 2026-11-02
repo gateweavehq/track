@@ -39,6 +39,27 @@ export type UploadResult =
 	| { status: "waiting" }
 	| { status: "failed"; message: string; taken?: true };
 
+/** A file refused for good, of several attached together, with why. */
+export interface Refusal<T> {
+	item: T;
+	message: string;
+	/** Its link holds someone else's file, so the person's copy is all that is left of it. */
+	taken: boolean;
+}
+
+/**
+ * The files attached together that were refused for good, in order, each with its outcome. Every
+ * one is reported, not only the first: each refused because its link is taken needs its copy
+ * offered, or the file is gone.
+ */
+export function refusals<T>(items: readonly T[], outcomes: readonly UploadResult[]): Refusal<T>[] {
+	return outcomes.flatMap((outcome, index) => {
+		const item = items[index];
+		if (outcome.status !== "failed" || item === undefined) return [];
+		return [{ item, message: outcome.message, taken: outcome.taken === true }];
+	});
+}
+
 /**
  * Hears what became of an upload. `first` is true for the first try of a file just added, whose
  * outcome its `add` already reports; false for one that waited, from this visit or an earlier one.

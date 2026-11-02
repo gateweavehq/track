@@ -4,7 +4,7 @@ import { startTrack } from "./track-worker";
 // A deployment's quota on attached files (ATTACHMENT_QUOTA_MB): each workspace may keep up to
 // that much, and an upload past it is refused before anything is stored. The first copy of the
 // Worker has the quota, the second none, and the third a blank value, as a deployment would
-// between versions that turn the quota off and on again.
+// between versions that turn the quota off and on again. The fourth has room to race uploads.
 
 const origin = "https://track.test";
 // About 1 KB, so a test can fill it.
@@ -15,8 +15,13 @@ let track: Awaited<ReturnType<typeof startTrack>>;
 
 beforeAll(async () => {
 	track = await startTrack(origin, {
-		isolates: 3,
-		isolateVars: [{ ATTACHMENT_QUOTA_MB: QUOTA_MB }, {}, { ATTACHMENT_QUOTA_MB: "  " }],
+		isolates: 4,
+		isolateVars: [
+			{ ATTACHMENT_QUOTA_MB: QUOTA_MB },
+			{},
+			{ ATTACHMENT_QUOTA_MB: "  " },
+			{ ATTACHMENT_QUOTA_MB: "10" },
+		],
 	});
 });
 
@@ -24,10 +29,11 @@ afterAll(async () => {
 	await track?.dispose();
 });
 
-async function signUp(name: string, email: string): Promise<string> {
+// Sign-ups from one address are limited, so a test past the third comes from another.
+async function signUp(name: string, email: string, ip = "203.0.113.90"): Promise<string> {
 	const response = await track.fetch(`${origin}/api/auth/sign-up/email`, {
 		method: "POST",
-		headers: { origin, "cf-connecting-ip": "203.0.113.90", "content-type": "application/json" },
+		headers: { origin, "cf-connecting-ip": ip, "content-type": "application/json" },
 		body: JSON.stringify({ name, email, password: "a-long-test-password" }),
 	});
 	if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
@@ -55,6 +61,8 @@ async function createWorkspace(cookie: string, slug: string): Promise<string> {
 const WITH_QUOTA = 0;
 const WITHOUT_QUOTA = 1;
 const BLANK_QUOTA = 2;
+/** Room for many uploads at once, so that none is refused for space. */
+const ROOMY_QUOTA = 3;
 
 function upload(cookie: string, path: string, bytes: number, isolate = WITH_QUOTA) {
 	// Each copy answers on its own host, which uploads must come from.
@@ -113,5 +121,23 @@ describe("attachment quota", () => {
 		const workspace = await createWorkspace(cookie, "quota-blank");
 		expect((await upload(cookie, path(workspace), 600, BLANK_QUOTA)).status).toBe(201);
 		expect((await upload(cookie, path(workspace), 600, BLANK_QUOTA)).status).toBe(201);
+	});
+
+	it("counts only the upload that was stored when several race to one link", async () => {
+		const cookie = await signUp("Rory", "rory@quota.test", "203.0.113.94");
+		const workspace = await createWorkspace(cookie, "quota-race");
+		const link = path(workspace);
+		// Enough at once that some reserve space and reach the bucket after the first is stored,
+		// whose write then stores nothing and must give the space back.
+		const bytes = 240_000;
+		const answers = await Promise.all(
+			Array.from({ length: 8 }, () => upload(cookie, link, bytes, ROOMY_QUOTA)),
+		);
+		const statuses = answers.map((answer) => answer.status);
+		expect(statuses.filter((status) => status === 201)).toHaveLength(1);
+		expect(statuses.filter((status) => status === 409)).toHaveLength(7);
+		expect(
+			await track.rpc(workspace, "reserveFileStorage", { bytes: 0, limit: 10 * 1024 * 1024 }),
+		).toEqual({ ok: true, used: bytes });
 	});
 });

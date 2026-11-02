@@ -86,10 +86,9 @@ import { MutationRejected } from "./rejected";
 import { nextReminderAt, remindDue } from "./reminders";
 import {
 	fileReply,
-	findReplyTarget,
+	findReplyRequest,
 	hasRequesterNotices,
 	type RequesterNotice,
-	replyAddress,
 	requesterReply,
 	takeRequesterNotices,
 } from "./requesters";
@@ -548,13 +547,15 @@ export class WorkspaceDO extends DurableObject {
 	}
 
 	/**
-	 * Whether a reply to `key` from `from` would be filed: the key is a request's and the sender
-	 * the one its decision went to. The email gateway asks before it counts or stores anything,
-	 * so mail to a made-up address costs nothing. Writes nothing.
+	 * Where a reply to `key` would be filed: the address the decision on its request went to, the
+	 * only sender whose replies it takes, or null for a key no request has or a deleted request. The
+	 * email gateway asks with the key alone before it reads the message, so mail to a made-up
+	 * address costs no parsing, and compares the sender once it has. Writes nothing.
 	 */
-	replyTarget(key: string, from: string): boolean {
-		const address = replyAddress.safeParse({ key, from });
-		return address.success && findReplyTarget(this.#db, address.data) !== null;
+	replyTarget(key: string): { email: string } | null {
+		const parsed = z.string().max(64).safeParse(key);
+		const request = parsed.success ? findReplyRequest(this.#db, parsed.data) : null;
+		return request && { email: request.email };
 	}
 
 	/**

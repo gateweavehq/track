@@ -248,20 +248,21 @@ describe("replying to a decision", () => {
 		expect(await workspace.fileReply(reply)).toBe(false);
 	});
 
-	it("says whether a reply would be filed, without filing it", async () => {
+	it("says where a reply to a key would be filed, without filing it", async () => {
 		const { workspace, as, request, key } = await decided();
 		const before = (await workspace.snapshot(owner)).version;
-		expect(await workspace.replyTarget(key, "Sam@Customer.test")).toBe(true);
-		expect(await workspace.replyTarget(key, "mallory@elsewhere.test")).toBe(false);
-		expect(await workspace.replyTarget("a".repeat(26), "sam@customer.test")).toBe(false);
-		expect(await workspace.replyTarget(key.slice(0, 16), "sam@customer.test")).toBe(false);
-		expect(await workspace.replyTarget("x".repeat(65), "sam@customer.test")).toBe(false);
+		// The key alone: the gateway asks before it reads the message, and compares the sender after.
+		expect(await workspace.replyTarget(key)).toEqual({ email: "sam@customer.test" });
+		expect(await workspace.replyTarget("a".repeat(26))).toBeNull();
+		expect(await workspace.replyTarget(key.slice(0, 16))).toBeNull();
+		expect(await workspace.replyTarget(key.toUpperCase())).toBeNull();
+		expect(await workspace.replyTarget("x".repeat(65))).toBeNull();
 		const after = await workspace.snapshot(owner);
 		expect(after.version).toBe(before);
 		expect(after.comments).toEqual([]);
 
 		await as(owner, { name: "issue.delete", args: { id: request.id } });
-		expect(await workspace.replyTarget(key, "sam@customer.test")).toBe(false);
+		expect(await workspace.replyTarget(key)).toBeNull();
 	});
 
 	it("keeps the same address for every reply", async () => {
