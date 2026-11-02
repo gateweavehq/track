@@ -81,6 +81,22 @@ export function sendBatch(client: SyncClient, changes: readonly BatchChange[]): 
 }
 
 /**
+ * Names a refused change in a summary: the key of the issue it changed while that issue is still
+ * here, or else the change's name and the id it targeted. Refusals are listed by name and a name
+ * is listed once, so a bare "A change" would fold every refusal of a deleted issue into one.
+ */
+export function changeName(
+	mutation: Pick<MutationInput, "name" | "args">,
+	keyOf: (issueId: string) => string | undefined,
+): string {
+	const args = mutation.args as { id?: unknown; issueId?: unknown };
+	const target =
+		typeof args.issueId === "string" ? args.issueId : typeof args.id === "string" ? args.id : null;
+	if (target === null) return mutation.name;
+	return keyOf(target) ?? `${mutation.name} ${target}`;
+}
+
+/**
  * Reports the server's refusals of changes that have no caller waiting, such as those queued
  * offline before a reload. Refusals that arrive together become one toast, as a batch's do,
  * rather than one each.
