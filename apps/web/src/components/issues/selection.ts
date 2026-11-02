@@ -4,9 +4,10 @@ import { comboOf, isEditableTarget } from "#/lib/hotkeys";
 import type { BulkField } from "./bulk-bar";
 
 /**
- * The issues picked in a list or table to change together. Picked issues that leave what is
- * shown, filtered out or deleted elsewhere, are no longer picked. Ctrl/Cmd+A picks everything
- * shown, unless the keyboard is in a text field or an open menu, where it selects text as usual.
+ * The issues picked in a list, table or board to change together. Picks follow what is shown:
+ * an issue that leaves it, filtered out, archived or deleted elsewhere, is unpicked, and does not
+ * come back when it shows again. Ctrl/Cmd+A picks everything shown, unless the keyboard is in a
+ * text field, or a dialog, menu or list of options is open, where it does what it does there.
  */
 export function useIssueSelection(shown: Issue[]) {
 	const [checkedIds, setCheckedIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -16,6 +17,20 @@ export function useIssueSelection(shown: Issue[]) {
 	order.current = shown;
 
 	const checked = shown.filter((issue) => checkedIds.has(issue.id));
+	// Statuses belong to a team, so the bar has no status menu for issues of several teams.
+	const first = checked[0];
+	const oneTeam = checked.every((issue) => issue.teamId === first?.teamId);
+
+	// Forget picks that are no longer shown.
+	useEffect(() => {
+		if (checked.length === checkedIds.size) return;
+		setCheckedIds(new Set(checked.map((issue) => issue.id)));
+	}, [checked, checkedIds]);
+
+	// A menu the bar cannot show is closed, so it does not open on its own later.
+	useEffect(() => {
+		if ((menu === "status" && !oneTeam) || (menu !== null && checked.length === 0)) setMenu(null);
+	}, [menu, oneTeam, checked.length]);
 
 	/** Picks or unpicks an issue; with `range`, everything between it and the last one picked. */
 	const onCheck = useCallback((issueId: string, range: boolean) => {
@@ -44,10 +59,17 @@ export function useIssueSelection(shown: Issue[]) {
 		anchor.current = null;
 	}, []);
 
+	/** Opens one of the bar's menus from the keyboard, if the bar shows it for these issues. */
+	const openMenu = (field: BulkField) => {
+		if (checked.length === 0 || (field === "status" && !oneTeam)) return;
+		setMenu(field);
+	};
+
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
 			if (comboOf(event) !== "mod+a" || event.defaultPrevented) return;
-			if (isEditableTarget(event.target) || document.querySelector('[role="dialog"]')) return;
+			if (isEditableTarget(event.target)) return;
+			if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
 			if (order.current.length === 0) return;
 			event.preventDefault();
 			selectAll();
@@ -65,5 +87,6 @@ export function useIssueSelection(shown: Issue[]) {
 		clear,
 		menu,
 		setMenu,
+		openMenu,
 	};
 }

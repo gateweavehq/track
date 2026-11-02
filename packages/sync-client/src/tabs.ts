@@ -19,6 +19,8 @@ export type ConnectionStatus =
 export type TabMessage =
 	/** A tab made a mutation. Every tab applies it optimistically; the leader sends it. */
 	| { type: "mutation"; pending: PendingMutation }
+	/** A tab made several mutations at once, in this order. */
+	| { type: "mutations"; pending: PendingMutation[] }
 	/** The leader stored a delta from the server. */
 	| ({ type: "delta" } & Delta)
 	| { type: "ack"; id: string; version: number }

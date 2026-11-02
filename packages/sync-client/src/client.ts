@@ -62,6 +62,8 @@ export interface SyncClientOptions {
 interface Waiter {
 	resolve(version: number): void;
 	reject(error: MutationError): void;
+	/** Whether a refusal also goes to `onReject`. */
+	report: boolean;
 }
 
 const FATAL: ReadonlySet<ConnectionStatus> = new Set(["outdated", "unauthorized", "forbidden"]);
@@ -84,6 +86,8 @@ export class SyncClient {
 	#role: "starting" | "follower" | "leader" | "closed" = "starting";
 	#status: SyncStatus = { connection: "connecting", loaded: false, pending: 0 };
 	readonly #statusListeners = new Set<() => void>();
+	readonly #listeners = new Set<() => void>();
+	#notifying = false;
 	/** Settles the promises returned by `mutate()` in this tab. */
 	readonly #waiters = new Map<string, Waiter>();
 	/** Mutations this tab loaded from storage at startup. */
@@ -112,14 +116,24 @@ export class SyncClient {
 	constructor(options: SyncClientOptions) {
 		this.#options = options;
 		this.#replica = new Replica(options.userId);
-		this.#replica.subscribe(() => this.#setStatus({ pending: this.#replica.pending.length }));
+		this.#replica.subscribe(() => {
+			this.#setStatus({ pending: this.#replica.pending.length });
+			this.#notifySoon();
+		});
 		this.#started = this.#start();
 		this.#writes = this.#started.catch(() => {});
 	}
 
 	getState = (): SyncState => this.#replica.getState();
 
-	subscribe = (listener: () => void): (() => void) => this.#replica.subscribe(listener);
+	/**
+	 * Calls `listener` after the state changes: once per animation frame however many changes
+	 * arrived in it, as nothing is painted in between. A burst of server answers re-renders once.
+	 */
+	subscribe = (listener: () => void): (() => void) => {
+		this.#listeners.add(listener);
+		return () => this.#listeners.delete(listener);
+	};
 
 	getStatus = (): SyncStatus => this.#status;
 
@@ -134,20 +148,53 @@ export class SyncClient {
 	 * rejects with a `MutationError` if the server refuses it. The UI does not need to wait for it.
 	 */
 	mutate(input: MutationInput): Promise<number> {
+		const [confirmed] = this.mutateAll([input]);
+		if (!confirmed) throw new Error("No mutation");
+		return confirmed;
+	}
+
+	/**
+	 * Applies several mutations locally, in order, and queues them for the server, as `mutate`
+	 * does for one: the replica, storage and the other tabs take them in one go. Throws, applying
+	 * none, if any is invalid. Each promise settles as its mutation's would; the server applies
+	 * or refuses each on its own.
+	 */
+	mutateAll(
+		inputs: readonly MutationInput[],
+		/**
+		 * With `report: false`, refusals reject only the promises, without `onReject`, for a caller
+		 * that sums them up itself.
+		 */
+		{ report = true }: { report?: boolean } = {},
+	): Promise<number>[] {
 		if (this.#role === "closed") throw new Error("This SyncClient is closed");
+		const now = Date.now();
 		// Validate exactly what the server will receive: JSON drops undefined fields.
-		const mutation = mutationSchema.parse(JSON.parse(JSON.stringify(input)));
-		const pending: PendingMutation = { id: crypto.randomUUID(), mutation, createdAt: Date.now() };
+		const pending: PendingMutation[] = inputs.map((input) => ({
+			id: crypto.randomUUID(),
+			mutation: mutationSchema.parse(JSON.parse(JSON.stringify(input))),
+			createdAt: now,
+		}));
+		if (pending.length === 0) return [];
 
-		const confirmed = new Promise<number>((resolve, reject) => {
-			this.#waiters.set(pending.id, { resolve, reject });
+		const confirmed = pending.map((each) => {
+			const promise = new Promise<number>((resolve, reject) => {
+				this.#waiters.set(each.id, { resolve, reject, report });
+			});
+			// Callers may ignore the promise; rejections are also reported through `onReject`.
+			promise.catch(() => {});
+			return promise;
 		});
-		// Callers may ignore the promise; rejections are also reported through `onReject`.
-		confirmed.catch(() => {});
 
-		this.#replica.addPending(pending);
-		this.#write((p) => p.addPending(pending), { type: "mutation", pending });
-		this.#send(pending);
+		this.#replica.addPending(...pending);
+		const [one] = pending;
+		this.#write(
+			(p) => p.addPending(...pending),
+			pending.length === 1 && one
+				? { type: "mutation", pending: one }
+				: { type: "mutations", pending },
+		);
+		for (const each of pending) this.#send(each);
 		return confirmed;
 	}
 
@@ -248,6 +295,10 @@ export class SyncClient {
 			case "mutation":
 				this.#replica.addPending(message.pending);
 				this.#send(message.pending);
+				return;
+			case "mutations":
+				this.#replica.addPending(...message.pending);
+				for (const pending of message.pending) this.#send(pending);
 				return;
 			case "status?":
 				if (this.#role === "leader") {
@@ -527,7 +578,9 @@ export class SyncClient {
 
 		const error = new MutationError(reason, message ?? reason, pending.mutation);
 		waiter?.reject(error);
-		if (waiter || (restored && this.#role === "leader")) this.#options.onReject?.(error);
+		if (waiter ? waiter.report : restored && this.#role === "leader") {
+			this.#options.onReject?.(error);
+		}
 	}
 
 	// Storage and status
@@ -561,6 +614,20 @@ export class SyncClient {
 				}
 			}
 		});
+	}
+
+	/** Tells the subscribers of a change at the next frame, once for every change before it. */
+	#notifySoon(): void {
+		if (this.#notifying) return;
+		this.#notifying = true;
+		const notify = () => {
+			this.#notifying = false;
+			for (const listener of [...this.#listeners]) listener();
+		};
+		// A hidden page paints no frames, so it is told after a short delay instead.
+		const visible = typeof document === "undefined" || document.visibilityState === "visible";
+		if (visible && typeof requestAnimationFrame === "function") requestAnimationFrame(notify);
+		else setTimeout(notify, 16);
 	}
 
 	#setConnection(connection: ConnectionStatus): void {

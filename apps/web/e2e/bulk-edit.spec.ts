@@ -116,3 +116,61 @@ test("a board picks cards too, and moves them to another column at once", async 
 	await expect(bar).toBeHidden();
 	await expect(syncBadge(page)).toHaveText("Live");
 });
+
+test("picks follow what is shown, and issues of two teams get no status menu", async ({ page }) => {
+	const { slug } = await startWorkspace(page);
+	const alpha = unique("Alpha");
+	const beta = unique("Beta");
+	await createIssue(page, alpha);
+	await page.getByRole("button", { name: "Create team" }).click();
+	const newTeam = page.getByRole("dialog", { name: "New team" });
+	await newTeam.getByRole("textbox", { name: "Name" }).fill("Operations");
+	await newTeam.getByRole("textbox", { name: "Key" }).fill("OPS");
+	await newTeam.getByRole("button", { name: "Create team" }).click();
+	await page.goto(`/${slug}/team/OPS`);
+	await createIssue(page, beta);
+	// Both are assigned to me, so My issues shows issues of two teams.
+	for (const [team, title] of [
+		["ENG", alpha],
+		["OPS", beta],
+	] as const) {
+		await page.goto(`/${slug}/team/${team}`);
+		await issueRow(page, title).focus();
+		await page.keyboard.press("a");
+		await page.getByRole("option", { name: /\(you\)/ }).click();
+		await expect(page.getByRole("listbox")).toBeHidden();
+	}
+	await page.goto(`/${slug}/my-issues`);
+	const bar = page.getByRole("region", { name: "Selected issues" });
+	await page.getByRole("checkbox", { name: "Select ENG-1" }).click();
+	await page.getByRole("checkbox", { name: "Select OPS-1" }).click();
+	await expect(bar).toContainText("2 issues selected");
+
+	// Statuses belong to a team: S opens nothing, and nothing opens once one team is left.
+	await expect(bar.getByRole("button", { name: "Status" })).toBeHidden();
+	await page.keyboard.press("s");
+	await page.getByRole("checkbox", { name: "Select OPS-1" }).click();
+	await expect(bar).toContainText("1 issue selected");
+	await expect(bar.getByRole("button", { name: "Status" })).toBeVisible();
+	await expect(page.getByRole("listbox")).toBeHidden();
+
+	// An issue the filter hides is unpicked, and stays so when the filter is cleared.
+	await page.getByRole("checkbox", { name: "Select OPS-1" }).click();
+	await expect(bar).toContainText("2 issues selected");
+	await page.getByPlaceholder("Filter issues").fill(alpha);
+	await expect(bar).toContainText("1 issue selected");
+	await page.getByPlaceholder("Filter issues").fill("");
+	await expect(issueRow(page, beta)).toBeVisible();
+	await expect(bar).toContainText("1 issue selected");
+
+	// Ctrl/Cmd+A belongs to an open menu, not to the list behind it.
+	await bar.getByRole("button", { name: "Priority" }).click();
+	await expect(page.getByRole("listbox")).toBeVisible();
+	await page.getByRole("listbox").press("ControlOrMeta+a");
+	await expect(bar).toContainText("1 issue selected");
+	await page.keyboard.press("Escape");
+	await expect(page.getByRole("listbox")).toBeHidden();
+	await issueRow(page, alpha).focus();
+	await page.keyboard.press("ControlOrMeta+a");
+	await expect(bar).toContainText("2 issues selected");
+});

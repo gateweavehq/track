@@ -155,7 +155,7 @@ export function IssueBoard({
 	}
 
 	function openMenu(field: BulkField) {
-		if (checking) selection.setMenu(field);
+		if (checking) selection.openMenu(field);
 		else if (selectedId && position()) setMenu({ issueId: selectedId, field });
 	}
 

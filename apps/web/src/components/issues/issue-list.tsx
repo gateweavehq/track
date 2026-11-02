@@ -98,7 +98,7 @@ export function IssueList({
 
 	function openMenu(field: BulkField) {
 		if (checking) {
-			selection.setMenu(field);
+			selection.openMenu(field);
 			return;
 		}
 		if (selectedId && visible.some((issue) => issue.id === selectedId)) {

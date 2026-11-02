@@ -143,6 +143,59 @@ describe("mutations", () => {
 		}
 	});
 
+	it("applies a batch at once, and settles each of its mutations on its own", async () => {
+		const ws = setup();
+		const onReject = vi.fn();
+		const alice = await ws.live("alice", { onReject });
+		const team = make.team();
+		await alice.mutate(team);
+		const issues = [1, 2, 3].map((n) => make.issue(team.args.id, `Batch ${n}`));
+		await Promise.all(alice.mutateAll(issues));
+		const [first, second, third] = [1, 2, 3].map((n) => issueBy(alice, `Batch ${n}`));
+		if (!(first && second && third)) throw new Error("Not created");
+
+		let notified = 0;
+		const unsubscribe = alice.subscribe(() => notified++);
+		const patch = (issue: typeof first, id = issue.id) =>
+			({
+				name: "issue.update",
+				args: { id, baseVersion: issue.version, patch: { priority: 2 } },
+			}) as const;
+		// The middle one names an issue that does not exist, so the server refuses it alone.
+		const results = alice.mutateAll([patch(first), patch(second, uuidv7()), patch(third)]);
+		expect(alice.getStatus().pending).toBe(3);
+		expect(issueBy(alice, "Batch 1").priority).toBe(2);
+		expect(issueBy(alice, "Batch 3").priority).toBe(2);
+
+		const settled = await Promise.allSettled(results);
+		expect(settled.map((result) => result.status)).toEqual(["fulfilled", "rejected", "fulfilled"]);
+		expect(onReject).toHaveBeenCalledOnce();
+		await waitFor(() => alice.getStatus().pending === 0);
+		expect(issueBy(alice, "Batch 2").priority).toBe(0);
+
+		// A caller that sums refusals up itself keeps them from onReject.
+		const quiet = alice.mutateAll([patch(second, uuidv7())], { report: false });
+		await expect(Promise.all(quiet)).rejects.toMatchObject({ reason: "not_found" });
+		expect(onReject).toHaveBeenCalledOnce();
+		// Subscribers heard of the batch and its answers in a few frames, not once per change.
+		await waitFor(() => notified > 0);
+		expect(notified).toBeLessThan(6);
+		unsubscribe();
+	});
+
+	it("applies none of a batch when one of its mutations is invalid", async () => {
+		const ws = setup();
+		const alice = ws.client("alice");
+		expect(() =>
+			alice.mutateAll([
+				make.team("OPS", "Operations"),
+				{ name: "team.create", args: { id: "x", key: "lowercase", name: "Bad" } },
+			]),
+		).toThrow();
+		expect(alice.getStatus().pending).toBe(0);
+		expect(alice.getState().teams.size).toBe(0);
+	});
+
 	it("validates input before queueing it", async () => {
 		const ws = setup();
 		const alice = ws.client("alice");
@@ -297,6 +350,10 @@ describe("offline", () => {
 		network.offline();
 		await waitFor(() => bob.getStatus().connection === "offline");
 		void bob.mutate(make.issue(team.args.id, "Survives the reload"));
+		void bob.mutateAll([
+			make.issue(team.args.id, "In a batch"),
+			make.issue(team.args.id, "In the same batch"),
+		]);
 		await bob.close();
 
 		// The reopened tab shows the edit straight from storage, before reaching the server.
@@ -305,7 +362,8 @@ describe("offline", () => {
 		const reopened = ws.client("bob", { network: offline, persistence: openIdbPersistence(key) });
 		await waitFor(() => reopened.getStatus().loaded);
 		expect(issueBy(reopened, "Survives the reload").number).toBe(1);
-		expect(reopened.getStatus().pending).toBe(1);
+		expect(issueBy(reopened, "In the same batch").number).toBe(3);
+		expect(reopened.getStatus().pending).toBe(3);
 		await reopened.close();
 
 		const online = ws.network("bob");
