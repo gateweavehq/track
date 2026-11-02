@@ -15,8 +15,7 @@ import {
 	forwardRef,
 	memo,
 	type ReactNode,
-	type RefObject,
-	useLayoutEffect,
+	useEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -69,7 +68,7 @@ import {
 	ProjectPicker,
 	StatusPicker,
 } from "./pickers";
-import { scrollParent } from "./rows-on-screen";
+import { revealEntry, stickyCover, useItemsOnScreen, useMeasuredHeights } from "./rows-on-screen";
 import { Estimate } from "./schedule";
 import { useIssueSelection } from "./selection";
 
@@ -95,17 +94,22 @@ const COLUMN_WIDTH: Record<TableColumn, string> = {
 };
 const TITLE_OFFSET = "sm:left-(--id-width)";
 
-/** Every row is this tall (`h-10`), which is what lets the table render only the rows on screen. */
-const ROW_HEIGHT = 40;
-/** Rows rendered beyond each edge of the screen, so fast scrolling does not show blank space. */
-const OVERSCAN = 15;
+/**
+ * Every row is the same height, which is what lets the table render only the rows on screen. It is
+ * `h-10`, in rem, so the table measures a rendered row (`useMeasuredHeights`); this is that height
+ * at the default font size, standing in until one has rendered.
+ */
+const DEFAULT_HEIGHTS = { row: 40 };
+const ROW_SELECTOR = { row: "tr[data-issue-id]" };
 
 /**
  * Issues as a table: a column per property, each editable in place, sorted by clicking a header.
- * It scrolls sideways inside its own container, with the ID and Title columns staying put. The
- * columns and the sort are display options, so they go with the page's link or saved view. Only
- * the rows near the screen are in the page, so a table of thousands opens and sorts as quickly as
- * one of a few dozen. Rows are picked by their checkboxes, as in a list, to change them together.
+ * It scrolls inside its own container, the ID and Title columns staying put as it scrolls sideways
+ * and the header row as it scrolls down. The columns and the sort are display options, so they go
+ * with the page's link or saved view. Only the rows near the screen are in the page, so a table of
+ * thousands opens and sorts as quickly as one of a few dozen. Rows are picked by their checkboxes,
+ * as in a list, to change them together. J/K or the arrow keys move from row to row, as in a list,
+ * scrolling to rows not rendered yet.
  */
 export function IssueTable({
 	issues,
@@ -132,13 +136,82 @@ export function IssueTable({
 		[issues, sort, teams, members, projects, cycles, statuses],
 	);
 	const body = useRef<HTMLTableSectionElement>(null);
-	const [first, last] = useRowsOnScreen(rows.length, body);
+	const head = useRef<HTMLTableSectionElement>(null);
+	const { row: rowHeight } = useMeasuredHeights(body, ROW_SELECTOR, DEFAULT_HEIGHTS);
+	const offsets = useMemo(
+		() => Array.from({ length: rows.length + 1 }, (_, index) => index * rowHeight),
+		[rows.length, rowHeight],
+	);
+	const range = useItemsOnScreen(offsets, body);
+	const [first, last] = range;
 	const selection = useIssueSelection(rows);
 	const { checkedIds, checking, onCheck } = selection;
+	// The issue whose row last had focus, which J and K move from.
+	const focusedId = useRef<string | null>(null);
+	// A row to focus once it has been scrolled to and rendered, and the rendered range when it was
+	// asked for, as in the list.
+	const pendingFocus = useRef<{ issueId: string; range: readonly [number, number] } | null>(null);
+
+	/** The link to a rendered row's issue, which takes focus for the row. */
+	const rowLink = (issueId: string) =>
+		body.current?.querySelector<HTMLAnchorElement>(
+			`tr[data-issue-id="${CSS.escape(issueId)}"] [data-row-link]`,
+		) ?? null;
+
+	/**
+	 * Focuses a row, scrolled clear of the sticky header and the bulk bar. A row that is not
+	 * rendered yet is scrolled to first, and focused once it renders.
+	 */
+	function focusRow(index: number) {
+		const issue = rows[index];
+		const element = body.current;
+		if (!issue || !element) return;
+		const scrolled = revealEntry(
+			element,
+			index * rowHeight,
+			(index + 1) * rowHeight,
+			(scroller, viewTop) => Math.max(stickyCover(scroller, viewTop), headerCover(head.current)),
+		);
+		focusedId.current = issue.id;
+		const link = rowLink(issue.id);
+		if (link) {
+			link.focus({ preventScroll: true });
+			return;
+		}
+		// Not scrolled means it is on screen, so it would be rendered: nothing to wait for.
+		pendingFocus.current = scrolled ? { issueId: issue.id, range } : null;
+	}
+
+	// After every render, which is when a scrolled-to row first appears. The wait ends once the
+	// range has moved without rendering the row, or the row has gone, as in the list.
+	useEffect(() => {
+		const pending = pendingFocus.current;
+		if (!pending) return;
+		const link = rowLink(pending.issueId);
+		if (link) {
+			pendingFocus.current = null;
+			link.focus({ preventScroll: true });
+		} else if (pending.range !== range || !rows.some((issue) => issue.id === pending.issueId)) {
+			pendingFocus.current = null;
+		}
+	});
+
+	function step(by: 1 | -1) {
+		const index = rows.findIndex((issue) => issue.id === focusedId.current);
+		focusRow(index === -1 ? (by === 1 ? 0 : rows.length - 1) : index + by);
+	}
+	const next = () => step(1);
+	const previous = () => step(-1);
 	const uncheckAll = () => {
 		if (checking) selection.clear();
 	};
-	useHotkeys({ Escape: uncheckAll });
+	useHotkeys({
+		j: next,
+		ArrowDown: next,
+		k: previous,
+		ArrowUp: previous,
+		Escape: uncheckAll,
+	});
 	// Keys are monospaced, at most about half a rem a character, plus the cell's padding.
 	const idWidth = useMemo(() => {
 		const longest = Math.max(
@@ -164,13 +237,14 @@ export function IssueTable({
 					onToggle={(column) => onDisplayChange((current) => toggleColumn(current, column))}
 				/>
 			</div>
-			<div className="min-w-0 flex-1 overflow-x-auto border-t">
+			{/* While issues are picked, room below the last row to scroll it clear of the bar. */}
+			<div className={cn("min-w-0 flex-1 overflow-x-auto border-t", checking && "pb-20")}>
 				<table
 					aria-rowcount={rows.length + 1}
 					style={{ "--id-width": idWidth } as CSSProperties}
 					className="w-max min-w-full border-separate border-spacing-0 text-sm"
 				>
-					<thead>
+					<thead ref={head}>
 						<tr aria-rowindex={1}>
 							{shown.map((column) => (
 								<HeaderCell
@@ -182,8 +256,14 @@ export function IssueTable({
 							))}
 						</tr>
 					</thead>
-					<tbody ref={body}>
-						<Spacer rows={first} columns={shown.length} />
+					<tbody
+						ref={body}
+						onFocus={(event) => {
+							const row = event.target.closest<HTMLElement>("tr[data-issue-id]");
+							if (row?.dataset.issueId) focusedId.current = row.dataset.issueId;
+						}}
+					>
+						<Spacer height={offsets[first] ?? 0} columns={shown.length} />
 						{rows.slice(first, last).map((issue, index) => (
 							<TableRow
 								key={issue.id}
@@ -199,7 +279,10 @@ export function IssueTable({
 								onCheck={onCheck}
 							/>
 						))}
-						<Spacer rows={rows.length - last} columns={shown.length} />
+						<Spacer
+							height={(offsets[rows.length] ?? 0) - (offsets[last] ?? 0)}
+							columns={shown.length}
+						/>
 					</tbody>
 				</table>
 			</div>
@@ -209,52 +292,28 @@ export function IssueTable({
 }
 
 /** Stands in for rows that are off screen, so the table keeps its height and scroll position. */
-function Spacer({ rows, columns }: { rows: number; columns: number }) {
-	if (rows <= 0) return null;
+function Spacer({ height, columns }: { height: number; columns: number }) {
+	if (height <= 0) return null;
 	return (
 		<tr aria-hidden>
-			<td colSpan={columns} className="p-0" style={{ height: rows * ROW_HEIGHT }} />
+			<td colSpan={columns} className="p-0" style={{ height }} />
 		</tr>
 	);
 }
 
 /**
- * The range of rows `[first, last)` near the visible part of the table body, following the
- * scrolling ancestor (the page) as it scrolls or resizes.
+ * How far the header row covers the top of the scroller when it sticks there, at its own `top`,
+ * once the table has scrolled; nothing when it does not stick.
  */
-function useRowsOnScreen(count: number, body: RefObject<HTMLTableSectionElement | null>) {
-	const [range, setRange] = useState<readonly [number, number]>(() => [0, Math.min(count, 50)]);
-	useLayoutEffect(() => {
-		const element = body.current;
-		if (!element) {
-			setRange([0, Math.min(count, 50)]);
-			return;
-		}
-		const scroller = scrollParent(element);
-		const update = () => {
-			const top = element.getBoundingClientRect().top;
-			const view = scroller?.getBoundingClientRect() ?? { top: 0, bottom: window.innerHeight };
-			const first = clamp(Math.floor((view.top - top) / ROW_HEIGHT) - OVERSCAN, count);
-			const last = clamp(Math.ceil((view.bottom - top) / ROW_HEIGHT) + OVERSCAN, count);
-			setRange((current) =>
-				current[0] === first && current[1] === last ? current : [first, Math.max(first, last)],
-			);
-		};
-		update();
-		const target = scroller ?? window;
-		target.addEventListener("scroll", update, { passive: true });
-		const resize = new ResizeObserver(update);
-		resize.observe(scroller ?? document.documentElement);
-		return () => {
-			target.removeEventListener("scroll", update);
-			resize.disconnect();
-		};
-	}, [count, body]);
-	return range;
-}
-
-function clamp(row: number, count: number) {
-	return Math.min(Math.max(row, 0), count);
+function headerCover(head: HTMLTableSectionElement | null): number {
+	let covered = 0;
+	for (const cell of head?.querySelectorAll("th") ?? []) {
+		const style = getComputedStyle(cell);
+		const top = Number.parseFloat(style.top);
+		if (style.position !== "sticky" || Number.isNaN(top)) continue;
+		covered = Math.max(covered, top + cell.getBoundingClientRect().height);
+	}
+	return covered;
 }
 
 function ColumnsMenu({
@@ -291,11 +350,21 @@ function ColumnsMenu({
 	);
 }
 
-/** Header and body cells share this; the first two stick to the left edge while the table scrolls. */
+/** Body cells: the first two stick to the left edge while the table scrolls sideways. */
 function cellEdge(column: TableColumn): string {
 	if (column === "id") return "sticky left-0 z-10";
 	if (column === "title") return cn("sm:sticky sm:z-10", TITLE_OFFSET);
 	return "";
+}
+
+/**
+ * Header cells stick to the top as the rows scroll beneath them, above the rows' sticky cells,
+ * and the first two to the left edge as well, above the other headers that scroll under them.
+ */
+function headerEdge(column: TableColumn): string {
+	if (column === "id") return "left-0 z-30";
+	if (column === "title") return cn("z-20 sm:z-30", TITLE_OFFSET);
+	return "z-20";
 }
 
 function HeaderCell({
@@ -314,9 +383,9 @@ function HeaderCell({
 			scope="col"
 			aria-sort={sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined}
 			className={cn(
-				"h-9 whitespace-nowrap border-b bg-background px-2 text-left text-xs font-medium text-muted-foreground first:pl-3 sm:first:pl-4",
+				"sticky top-0 h-9 whitespace-nowrap border-b bg-background px-2 text-left text-xs font-medium text-muted-foreground first:pl-3 sm:first:pl-4",
 				COLUMN_WIDTH[column],
-				cellEdge(column),
+				headerEdge(column),
 			)}
 		>
 			{column === "labels" ? (
@@ -402,6 +471,7 @@ const TableRow = memo(function TableRow({
 							to="/$workspace/issue/$issueKey"
 							params={{ workspace: slug, issueKey: key }}
 							title={issue.title}
+							data-row-link
 							className="block w-48 truncate hover:underline sm:w-72"
 						>
 							{issue.title}
@@ -540,12 +610,17 @@ const TableRow = memo(function TableRow({
 	};
 
 	return (
-		<tr aria-rowindex={index + 2} data-checked={checked} className="group hover:bg-muted/60">
+		<tr
+			aria-rowindex={index + 2}
+			data-issue-id={issue.id}
+			data-checked={checked}
+			className="group hover:bg-muted/60"
+		>
 			{columns.map((column) => (
 				<td
 					key={column}
 					className={cn(
-						"h-10 whitespace-nowrap border-b bg-background px-2 first:pl-3 group-hover:bg-muted group-data-[checked=true]:bg-accent sm:first:pl-4",
+						"h-10 whitespace-nowrap border-b bg-background px-2 first:pl-3 group-focus-within:bg-muted group-hover:bg-muted group-data-[checked=true]:bg-accent sm:first:pl-4",
 						cellEdge(column),
 					)}
 				>

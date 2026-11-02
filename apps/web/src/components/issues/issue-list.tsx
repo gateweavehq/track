@@ -1,15 +1,6 @@
 import type { Issue, IssueDisplay } from "@gateweave/track-protocol";
 import { ChevronRight, Plus } from "lucide-react";
-import {
-	type ReactNode,
-	type RefObject,
-	useCallback,
-	useEffect,
-	useLayoutEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { type IssueDefaults, useWorkspaceActions } from "#/components/workspace/context";
 import { groupByOf, orderByOf, shownProperties } from "#/lib/display";
@@ -30,20 +21,16 @@ import { BulkBar, type BulkField } from "./bulk-bar";
 import { useIssueDropZone, useIssueMoves } from "./dnd";
 import { GroupIcon, useGroupName } from "./group-label";
 import { type IssueField, IssueRow } from "./issue-row";
-import { scrollParent, useItemsOnScreen } from "./rows-on-screen";
+import { revealEntry, stickyCover, useItemsOnScreen, useMeasuredHeights } from "./rows-on-screen";
 import { useIssueSelection } from "./selection";
 
 /**
  * Heights of the list's two kinds of entry, `h-9` and `h-10` with borders included, in pixels at
- * the default font size. They are rem, so the list measures the real ones (`useEntryHeights`);
+ * the default font size. They are rem, so the list measures the real ones (`useMeasuredHeights`);
  * these stand in until a row and a header have rendered.
  */
-const DEFAULT_HEIGHTS: EntryHeights = { header: 36, row: 40 };
-
-interface EntryHeights {
-	header: number;
-	row: number;
-}
+const DEFAULT_HEIGHTS = { header: 36, row: 40 };
+const ENTRY_SELECTORS = { header: "[data-group-header]", row: "[data-checked]" };
 
 /**
  * One line of the list: a group's header or one of its issues. The list is one flat run of these,
@@ -104,7 +91,7 @@ export function IssueList({
 	// An issue to focus once it has been scrolled to and rendered, and the rendered range when it
 	// was asked for; see focusIssue.
 	const pendingFocus = useRef<{ issueId: string; range: readonly [number, number] } | null>(null);
-	const heights = useEntryHeights(root);
+	const heights = useMeasuredHeights(root, ENTRY_SELECTORS, DEFAULT_HEIGHTS);
 
 	const shown = groups.length > 0;
 	useEffect(() => {
@@ -174,7 +161,14 @@ export function IssueList({
 		const index = entryOf.get(issueId);
 		const element = root.current;
 		const scrolled =
-			index !== undefined && element !== null && revealEntry(element, offsets[index] ?? 0, heights);
+			index !== undefined &&
+			element !== null &&
+			revealEntry(
+				element,
+				offsets[index] ?? 0,
+				(offsets[index] ?? 0) + heights.row,
+				(scroller, viewTop) => coveredHeight(scroller, element, viewTop, heights.header),
+			);
 		const link = rows.current.get(issueId);
 		if (link) {
 			link.focus({ preventScroll: true });
@@ -345,47 +339,8 @@ function Spacer({ height }: { height: number }) {
 }
 
 /**
- * The real heights of a row and a group header: they are set in rem, so they follow the browser's
- * font size. Measured from the first rendered one of each, and again whenever either resizes.
- */
-function useEntryHeights(list: RefObject<HTMLElement | null>): EntryHeights {
-	const [heights, setHeights] = useState(DEFAULT_HEIGHTS);
-	const watched = useRef<{ row: Element | null; header: Element | null }>({
-		row: null,
-		header: null,
-	});
-	const observer = useRef<ResizeObserver | null>(null);
-	useEffect(() => () => observer.current?.disconnect(), []);
-	// After every render, since the rows measured may have scrolled away and been unmounted.
-	useLayoutEffect(() => {
-		const element = list.current;
-		if (!element) return;
-		const row = element.querySelector("[data-checked]");
-		const header = element.querySelector("[data-group-header]");
-		if (row === watched.current.row && header === watched.current.header) return;
-		watched.current = { row, header };
-		const measure = () => {
-			setHeights((current) => {
-				const next = {
-					row: row?.getBoundingClientRect().height || current.row,
-					header: header?.getBoundingClientRect().height || current.header,
-				};
-				return next.row === current.row && next.header === current.header ? current : next;
-			});
-		};
-		measure();
-		observer.current?.disconnect();
-		observer.current = new ResizeObserver(measure);
-		if (row) observer.current.observe(row);
-		if (header) observer.current.observe(header);
-	});
-	return heights;
-}
-
-/**
  * How far down from the top of `view` sticky content covers the list once it has scrolled: the
- * scroller's own sticky children, such as the page's header and its filters, and a group header,
- * which sticks at its own `top`.
+ * scroller's own sticky children, and a group header, which sticks at its own `top`.
  */
 function coveredHeight(
 	scroller: HTMLElement | null,
@@ -393,38 +348,13 @@ function coveredHeight(
 	viewTop: number,
 	header: number,
 ) {
-	let covered = 0;
-	for (const child of scroller?.children ?? []) {
-		if (getComputedStyle(child).position !== "sticky") continue;
-		covered = Math.max(covered, child.getBoundingClientRect().bottom - viewTop);
-	}
+	let covered = stickyCover(scroller, viewTop);
 	const groupHeader = list.querySelector("[data-group-header]");
 	if (groupHeader) {
 		const top = Number.parseFloat(getComputedStyle(groupHeader).top) || 0;
 		covered = Math.max(covered, top + header);
 	}
 	return covered;
-}
-
-/**
- * Scrolls the scrolling ancestor, or the page, so the entry starting `top` pixels into the list is
- * in view, clear of the sticky headers over the top of the scroller and of the bulk-edit bar.
- * Says whether it scrolled.
- */
-function revealEntry(list: HTMLElement, top: number, heights: EntryHeights): boolean {
-	const scroller = scrollParent(list);
-	const view = scroller?.getBoundingClientRect() ?? { top: 0, bottom: window.innerHeight };
-	const covered = coveredHeight(scroller, list, view.top, heights.header);
-	// The bulk-edit bar floats over the bottom while issues are picked.
-	const bar = document.querySelector("[data-bulk-bar]")?.getBoundingClientRect().top;
-	const bottom = Math.min(view.bottom, bar ?? view.bottom);
-	const start = list.getBoundingClientRect().top + top;
-	const end = start + heights.row;
-	const delta =
-		start < view.top + covered ? start - view.top - covered : end > bottom ? end - bottom : 0;
-	if (delta === 0) return false;
-	(scroller ?? window).scrollBy({ top: delta });
-	return true;
 }
 
 /** A group's header. Dropping an issue on it moves the issue to the top of the group. */
