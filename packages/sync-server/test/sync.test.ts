@@ -1217,6 +1217,36 @@ describe("archive", () => {
 		});
 	});
 
+	it("counts a lone surrogate at what it reads back as", { timeout: 30_000 }, async () => {
+		const { workspace } = await withTeam();
+		// Each body is stored as 300 KB, three bytes a surrogate, but reads back as three U+FFFD
+		// each, 600 KB in structured clone: 37 MB in all, past the RPC limit.
+		await runInDurableObject(workspace, (instance) => {
+			for (let n = 0; n < 62; n++) {
+				const id = `issue-${n}`;
+				const mutations: MutationInput[] = [
+					{
+						name: "issue.create",
+						args: { id, teamId: TEAM_ID, title: id, status: "done", sortOrder: "a0" },
+					},
+					{
+						name: "comment.create",
+						args: { id: `${id}-comment`, issueId: id, body: "\ud800".repeat(100_000) },
+					},
+					{ name: "issue.archive", args: { id, archived: true } },
+				];
+				for (const [m, mutation] of mutations.entries()) {
+					const result = instance.mutate(owner, "client-surrogates", `m-${n}-${m}`, mutation);
+					if (!result.ok) throw new Error(result.message);
+				}
+			}
+		});
+		expect(await workspace.archivedIssues(owner, { teamId: null })).toEqual({
+			ok: true,
+			value: "too_large",
+		});
+	});
+
 	it("estimates the whole archive at no less than it comes to, as JSON or structured clone", async () => {
 		const { workspace } = await withTeam();
 		const texts = [

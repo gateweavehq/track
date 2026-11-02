@@ -181,20 +181,20 @@ function rowsSize(columns: Record<string, Column>, allowance: number): SQL<numbe
 	return sql<number>`coalesce(sum(${sql.join(values, sql` + `)} + ${sql.raw(String(allowance))}), 0)`;
 }
 
-/** A pattern for text with a character past U+00FF, written out so it binds no parameter. */
-const WIDE = sql.raw(`'*[^' || char(1) || '-' || char(255) || ']*'`);
+/** A pattern for bytes past ASCII, written out so it binds no parameter. */
+const NOT_ASCII = sql.raw(`'*[^' || char(1) || '-' || char(127) || ']*'`);
 
 /**
- * At least the bytes of `value`, the JSON form of `text`, in UTF-8 and in structured clone. That
- * stores a string with a character past U+00FF in UTF-16, two bytes a unit: never more than its
- * UTF-8 bytes and code points together. SQLite's `length`, and `glob`, stop at a NUL, which would
- * hide such characters after it, so text with one counts two bytes for each of its bytes.
+ * At least the bytes of `value`, the JSON form of `text`, in UTF-8 and in structured clone, which
+ * stores a string with any character past U+00FF in UTF-16. Text read back never has more UTF-16
+ * units than it has bytes stored, whatever they are, so anything but plain ASCII counts two bytes
+ * for each byte: wide, Latin-1 or invalid alike, since a lone surrogate is stored as three bytes
+ * and read back as three U+FFFD. Checked on the bytes, and for a NUL first, which `glob` stops at.
  */
 function valueSize(value: SQL | Column, text: Column): SQL {
-	const bytes = sql`length(cast(${text} as blob))`;
+	const bytes = sql`cast(${text} as blob)`;
 	return sql`max(length(cast(${value} as blob)), case
-		when instr(cast(${text} as blob), x'00') > 0 then 2 * ${bytes}
-		when ${text} glob ${WIDE} then ${bytes} + length(${text})
+		when instr(${bytes}, x'00') > 0 or ${bytes} glob ${NOT_ASCII} then 2 * length(${bytes})
 		else 0
 	end)`;
 }
