@@ -10,9 +10,9 @@ notes. Publishing a release deploys it to Gateweave Cloud.
 
 ## [0.21.1] - 2026-11-02
 
-Open tabs lose their connection when their session ends, and exports handle large archives.
-Updating a self-hosted copy needs no migration and no new setting; the protocol stays at version
-25. ([#163], [#164])
+Open tabs lose their connection when their session ends, exports handle large archives, and bulk
+edit follow-ups. Updating a self-hosted copy needs no migration and no new setting; the protocol
+stays at version 25. ([#161], [#163], [#164])
 
 ### Security
 
@@ -27,6 +27,10 @@ Updating a self-hosted copy needs no migration and no new setting; the protocol 
   fails it says why: offline, signed out, no access, or a server error. Issues restored while an
   export runs are no longer left out. Tabs still on v0.21.0 keep getting the answer they expect,
   or an error rather than a short file. ([#163])
+- Bulk edit: changes made offline and refused after a reload are summed up in one message instead
+  of one per issue, collapsing a group no longer unpicks its issues, refusals are grouped by
+  reason, and a tab that has stopped syncing says so instead of calling the change not valid.
+  ([#161])
 
 ## [0.21.0] - 2026-11-02
 
@@ -912,3 +916,4 @@ The first pre-release.
 [#159]: https://github.com/gateweavehq/track/pull/159
 [#163]: https://github.com/gateweavehq/track/pull/163
 [#164]: https://github.com/gateweavehq/track/pull/164
+[#161]: https://github.com/gateweavehq/track/pull/161
