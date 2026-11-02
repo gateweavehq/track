@@ -8,6 +8,41 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.20.0] - 2026-11-02
+
+Pick several issues and change them at once, in lists, tables and on the board; archived issues
+weigh much less on each device; and two security fixes. Updating a self-hosted copy needs no
+migration and no new setting. The protocol goes to version 25, so open tabs reload and every
+browser starts again from a fresh copy of its workspaces. ([#148], [#149], [#150], [#151],
+[#153], [#154])
+
+### Security
+
+- An attached file's upload belongs to whoever attached it. The browser links a file before its
+  upload finishes, so another member could see its id; the first upload to an id now wins
+  atomically, and anyone else's upload to it is refused instead of being taken as done. ([#150])
+- Leaving a workspace, and deleting a user, now tell the workspace at once, so the person's open
+  tabs lose access as they do when an admin removes them. Mail to a request's reply address is
+  checked against the request and its sender before it counts against any limit or stores any
+  attachment. ([#153])
+
+### Added
+
+- Bulk edit: pick issues by a checkbox, X, Shift or Ctrl/Cmd+A in lists, tables and on the board,
+  then set their status, priority, assignee, labels, project or cycle, archive the closed ones,
+  or delete them, from a bar at the bottom. Each change is the same one a single issue's menu
+  makes, so history, the inbox and webhooks see it as usual. ([#148], [#151], [#154])
+- Track has its own icon: an issue in progress, on the dark tile of the new Gateweave mark.
+  ([#152])
+
+### Changed
+
+- Archived issues stay in each browser's copy only as a slim row: key, title, status, team,
+  project, cycle, parent and estimate. Lists, boards, the archive page, links, progress and search
+  by key or title work from it, offline too; an archived issue's description, comments and
+  history need a connection. JSON exports list archived issues apart, with what is known of them.
+  ([#149])
+
 ## [0.19.0] - 2026-11-01
 
 Admins can connect GitHub by installing a GitHub App, files can be attached while offline, and a
@@ -678,6 +713,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.20.0]: https://github.com/gateweavehq/track/releases/tag/v0.20.0
 [0.19.0]: https://github.com/gateweavehq/track/releases/tag/v0.19.0
 [0.18.0]: https://github.com/gateweavehq/track/releases/tag/v0.18.0
 [0.17.0]: https://github.com/gateweavehq/track/releases/tag/v0.17.0
@@ -800,3 +836,10 @@ The first pre-release.
 [#138]: https://github.com/gateweavehq/track/pull/138
 [#141]: https://github.com/gateweavehq/track/pull/141
 [#145]: https://github.com/gateweavehq/track/pull/145
+[#148]: https://github.com/gateweavehq/track/pull/148
+[#149]: https://github.com/gateweavehq/track/pull/149
+[#150]: https://github.com/gateweavehq/track/pull/150
+[#151]: https://github.com/gateweavehq/track/pull/151
+[#152]: https://github.com/gateweavehq/track/pull/152
+[#153]: https://github.com/gateweavehq/track/pull/153
+[#154]: https://github.com/gateweavehq/track/pull/154
