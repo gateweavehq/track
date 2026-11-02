@@ -204,9 +204,19 @@ describe("team automations", () => {
 	});
 
 	it("work through a large backlog a batch at a time, then wait a day", async () => {
-		const { workspace, issue, automate, run, age, issues, now } = await setup();
+		const { workspace, automate, run, age, issues, now } = await setup();
 		const ids = Array.from({ length: AUTOMATION_BATCH + 5 }, (_, i) => `issue-${i}`);
-		for (const id of ids) await issue(id, "backlog");
+		// Filed inside the object, through the same `mutate` as `issue`: one round trip each was
+		// most of this test's time, and enough on a loaded machine to pass five seconds.
+		await runInDurableObject(workspace, (instance) => {
+			for (const id of ids) {
+				const result = instance.mutate(alice, `client-${alice.id}`, `m-${id}`, {
+					name: "issue.create",
+					args: { id, teamId: TEAM_ID, title: `Issue ${id}`, status: "backlog", sortOrder: "a0" },
+				});
+				if (!result.ok) throw new Error(`issue.create was refused: ${result.message}`);
+			}
+		});
 		await automate({ closeAfterMonths: 3 });
 		await age(4, ...ids);
 		const closed = async () => {
