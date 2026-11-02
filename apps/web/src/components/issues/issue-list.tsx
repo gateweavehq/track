@@ -77,7 +77,8 @@ export function IssueList({
 	}, [shown, issues.length]);
 
 	const visible = groups.flatMap((group) => (collapsed.has(group.key) ? [] : group.issues));
-	const selection = useIssueSelection(visible);
+	// Collapsing a group hides its issues without unpicking them.
+	const selection = useIssueSelection(visible, issues);
 	const { checkedIds, checking, onCheck } = selection;
 
 	const registerRow = useCallback((issueId: string, link: HTMLAnchorElement | null) => {

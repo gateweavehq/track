@@ -4,19 +4,20 @@ import { comboOf, isEditableTarget } from "#/lib/hotkeys";
 import type { BulkField } from "./bulk-bar";
 
 /**
- * The issues picked in a list, table or board to change together. Picks follow what is shown:
- * an issue that leaves it, filtered out, archived or deleted elsewhere, is unpicked, and does not
- * come back when it shows again. Ctrl/Cmd+A picks everything shown, unless the keyboard is in a
- * text field, or a dialog, menu or list of options is open, where it does what it does there.
+ * The issues picked in a list, table or board to change together. Picks follow the issues the
+ * page has, `pickable`: one that leaves them, filtered out, archived or deleted elsewhere, is
+ * unpicked, and does not come back when it is there again. An issue only out of sight, in a
+ * collapsed group, stays picked. Ranges and Ctrl/Cmd+A go by what is `shown`; Ctrl/Cmd+A does
+ * nothing in a text field, or while a dialog, menu or list of options is open.
  */
-export function useIssueSelection(shown: Issue[]) {
+export function useIssueSelection(shown: Issue[], pickable: Issue[] = shown) {
 	const [checkedIds, setCheckedIds] = useState<ReadonlySet<string>>(() => new Set());
 	const [menu, setMenu] = useState<BulkField | null>(null);
 	const anchor = useRef<string | null>(null);
 	const order = useRef(shown);
 	order.current = shown;
 
-	const checked = shown.filter((issue) => checkedIds.has(issue.id));
+	const checked = pickable.filter((issue) => checkedIds.has(issue.id));
 	// Statuses belong to a team, so the bar has no status menu for issues of several teams.
 	const first = checked[0];
 	const oneTeam = checked.every((issue) => issue.teamId === first?.teamId);
@@ -50,7 +51,8 @@ export function useIssueSelection(shown: Issue[]) {
 	}, []);
 
 	const selectAll = useCallback(() => {
-		setCheckedIds(new Set(order.current.map((issue) => issue.id)));
+		// Added to the picks, so those in collapsed groups stay.
+		setCheckedIds((current) => new Set([...current, ...order.current.map((issue) => issue.id)]));
 	}, []);
 
 	const clear = useCallback(() => {
