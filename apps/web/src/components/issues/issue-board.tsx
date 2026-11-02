@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { memo, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { Button } from "#/components/ui/button";
+import { Checkbox } from "#/components/ui/checkbox";
 import {
 	type IssueDefaults,
 	useWorkspace,
@@ -27,6 +28,7 @@ import {
 import { groupingTeams } from "#/lib/statuses";
 import { cn } from "#/lib/utils";
 import { BlockedMark } from "./blocked-mark";
+import { BulkBar, type BulkField } from "./bulk-bar";
 import { useDragAutoScroll, useDraggableIssue, useIssueDropZone, useIssueMoves } from "./dnd";
 import { DropIndicator } from "./drop-indicator";
 import { GroupIcon, useGroupName } from "./group-label";
@@ -35,6 +37,7 @@ import { LabelChips } from "./labels";
 import { PRIORITY_META, PriorityIcon, StatusIcon } from "./meta";
 import { AssigneePicker, PriorityPicker, StatusPicker } from "./pickers";
 import { DueDate, Estimate } from "./schedule";
+import { useIssueSelection } from "./selection";
 import { SubIssueCount } from "./sub-issue-count";
 
 /** The space between cards, in pixels. Drop indicators sit in the middle of it. */
@@ -83,6 +86,11 @@ export function IssueBoard({
 	const cards = useRef(new Map<string, HTMLAnchorElement>());
 	const scrollerRef = useRef<HTMLDivElement>(null);
 	useDragAutoScroll(scrollerRef, issues.length > 0);
+
+	// Cards are picked in reading order: down each column, then the next one.
+	const shown = useMemo(() => columns.flatMap((group) => group.issues), [columns]);
+	const selection = useIssueSelection(shown);
+	const { checkedIds, checking, onCheck } = selection;
 
 	const registerCard = useCallback((issueId: string, link: HTMLAnchorElement | null) => {
 		if (link) cards.current.set(issueId, link);
@@ -146,9 +154,18 @@ export function IssueBoard({
 		}
 	}
 
-	function openMenu(field: IssueField) {
-		if (selectedId && position()) setMenu({ issueId: selectedId, field });
+	function openMenu(field: BulkField) {
+		if (checking) selection.setMenu(field);
+		else if (selectedId && position()) setMenu({ issueId: selectedId, field });
 	}
+
+	function checkSelected(range: boolean) {
+		if (selectedId && position()) onCheck(selectedId, range);
+	}
+	const extendToSelected = () => checkSelected(true);
+	const uncheckAll = () => {
+		if (checking) selection.clear();
+	};
 
 	const down = () => selectVertical(1);
 	const up = () => selectVertical(-1);
@@ -170,6 +187,9 @@ export function IssueBoard({
 		s: () => openMenu("status"),
 		p: () => openMenu("priority"),
 		a: () => openMenu("assignee"),
+		x: () => checkSelected(false),
+		X: extendToSelected,
+		Escape: uncheckAll,
 	});
 
 	if (issues.length === 0) return empty;
@@ -188,6 +208,9 @@ export function IssueBoard({
 							blocked={blocked.has(issue.id)}
 							properties={properties}
 							selected={issue.id === selectedId}
+							checked={checkedIds.has(issue.id)}
+							checking={checking}
+							onCheck={onCheck}
 							menu={menu?.issueId === issue.id ? menu.field : null}
 							onMenuChange={onMenuChange}
 							onSelect={setSelectedId}
@@ -196,6 +219,7 @@ export function IssueBoard({
 					))}
 				</BoardColumn>
 			))}
+			<BulkBar selection={selection} total={shown.length} />
 		</div>
 	);
 }
@@ -260,6 +284,11 @@ interface IssueCardProps {
 	blocked: boolean;
 	properties: ReadonlySet<IssueProperty>;
 	selected: boolean;
+	/** Whether it is among the issues picked to change together. */
+	checked: boolean;
+	/** Whether any card is picked, so every card shows its checkbox. */
+	checking: boolean;
+	onCheck: (issueId: string, range: boolean) => void;
 	menu: IssueField | null;
 	onMenuChange: (issueId: string, menu: IssueField | null) => void;
 	onSelect: (issueId: string) => void;
@@ -275,6 +304,9 @@ const IssueCard = memo(function IssueCard({
 	blocked,
 	properties,
 	selected,
+	checked,
+	checking,
+	onCheck,
 	menu,
 	onMenuChange,
 	onSelect,
@@ -294,13 +326,27 @@ const IssueCard = memo(function IssueCard({
 		<div
 			ref={cardRef}
 			data-selected={selected}
+			data-checked={checked}
 			className={cn(
-				"relative shrink-0 rounded-md border bg-card p-2 text-sm shadow-xs hover:border-foreground/20 data-[selected=true]:border-ring data-[selected=true]:ring-1 data-[selected=true]:ring-ring",
+				"group relative shrink-0 rounded-md border bg-card p-2 text-sm shadow-xs hover:border-foreground/20 data-[checked=true]:bg-accent data-[selected=true]:border-ring data-[selected=true]:ring-1 data-[selected=true]:ring-ring",
 				drag.dragging && "opacity-40",
 			)}
 		>
 			{drag.edge && <DropIndicator edge={drag.edge} gap={CARD_GAP} />}
 			<div className="flex items-center gap-1">
+				<Checkbox
+					checked={checked}
+					aria-label={`Select ${key}`}
+					onClick={(event) => {
+						// Toggled here, with the Shift key in hand, rather than by Radix.
+						event.preventDefault();
+						onCheck(issue.id, event.shiftKey);
+					}}
+					className={cn(
+						"relative z-10 mx-0.5 border-muted-foreground/60",
+						!checking && !checked && "opacity-0 focus-visible:opacity-100 group-hover:opacity-100",
+					)}
+				/>
 				{properties.has("status") && (
 					<StatusPicker
 						teamId={issue.teamId}
