@@ -323,6 +323,21 @@ test("a bulk change to every issue in a list stays within budget", async ({ brow
 			runsMs: longest,
 			note: "from the click until the server has answered every change",
 		});
+		// Untimed: every picked issue has the last run's priority in the data, not only the rows on
+		// screen. After a reload, from the replica the server's answers left, a filter by it counts
+		// them all.
+		const last = (RUNS - 1) % 2 === 0 ? "High" : "Low";
+		await page.reload();
+		await listShown(page);
+		await expect(syncBadge(page)).toHaveText("Live");
+		await page.getByRole("button", { name: "Filter", exact: true }).click();
+		await page.getByRole("option", { name: "Priority" }).click();
+		await page.getByRole("option", { name: last }).click();
+		await page.keyboard.press("Escape");
+		const counted = page.getByTitle(/^\d+ of \d+ issues$/);
+		await expect(counted).toBeVisible();
+		const withPriority = Number(/^(\d+) of/.exec((await counted.getAttribute("title")) ?? "")?.[1]);
+		expect(withPriority, `issues with priority ${last}`).toBe(picked);
 		// Every issue the seed made, and the sample ones besides.
 		expect(picked).toBeGreaterThanOrEqual(ISSUES);
 		expect(result.medianMs, "median bulk change time").toBeLessThan(BUDGETS.bulkEditMs);
