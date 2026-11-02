@@ -98,6 +98,18 @@ export async function syncUserEverywhere(db: Database, userId: string) {
 	await Promise.all(rows.map((row) => workspaceStub(row.workspaceId).syncMember(toProfile(row))));
 }
 
+/** Closes the user's sync sockets that were opened with this session, in every workspace. */
+export async function endSessionEverywhere(db: Database, userId: string, sessionId: string) {
+	const rows = await db
+		.select({ workspaceId: schema.member.organizationId })
+		.from(schema.member)
+		.where(eq(schema.member.userId, userId))
+		.all();
+	await Promise.all(
+		rows.map((row) => workspaceStub(row.workspaceId).endSession(userId, sessionId)),
+	);
+}
+
 export interface InvitationPreview {
 	workspaceName: string;
 	workspaceSlug: string;

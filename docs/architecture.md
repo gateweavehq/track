@@ -84,6 +84,14 @@ a user, whose memberships go by cascade (a database hook notes their workspaces 
 delete and tells each one after). A removal closes the person's sockets. The replica also heals
 itself, because each time a member connects their current profile is upserted.
 
+Sessions end the same way. The gateway checks the session only when a socket opens, so it hands
+the object the session's id and expiry with the member, and the socket keeps them. When a session
+ends early (signing out, revoking sessions, a password reset, deleting the user), Better Auth's
+session delete hook, which every one of those paths runs for each session, tells each of the
+user's workspaces to close the sockets opened with it (`endSession`). A socket whose session has
+run out is closed the next time it sends or would be sent anything, which also covers a hook that
+failed. Both close with `4401`.
+
 ### Roles and invitations
 
 Roles are Better Auth's defaults: `owner`, `admin` and `member`. Admins invite people, change
@@ -206,8 +214,9 @@ The Durable Object has **no public route**. Only the Worker can reach it, throug
 3. It loads the Better Auth session and resolves the slug to a membership in D1. Non-members get
    the same `404` as a missing workspace, so slugs cannot be probed.
 4. It forwards the request to `WORKSPACE.getByName(workspaceId)`. A snapshot request becomes an
-   RPC call. A socket request is forwarded with the verified member in an internal header that
-   the client cannot set.
+   RPC call. A socket request is forwarded with the verified member and the session's id and
+   expiry in internal headers that the client cannot set, so the socket closes when the session
+   ends.
 
 The DO is keyed by workspace id, not slug, so renaming a workspace does not move its data.
 
@@ -335,6 +344,8 @@ and a delta whose `from` is beyond its version plus one means it missed somethin
 If `since` is older than the compaction floor, or newer than the server (for example, after a
 local database wipe), the server replies `reset` and the client fetches a new snapshot. A
 protocol version mismatch closes the socket with code `4001` so the client can prompt a reload.
+An ended session closes it with `4401`: the client asks the gateway whether the browser's cookie
+still works (the `HEAD` probe), reconnects if it does, and asks for a sign-in if not.
 
 Beside the snapshot, a connected browser may ask over HTTP for what its replica leaves out of
 archived issues: `IssueDetails` (one issue, with its comments, history, open proposals and pull

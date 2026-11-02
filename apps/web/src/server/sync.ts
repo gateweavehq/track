@@ -1,6 +1,8 @@
 import {
 	LINK_HEADER,
 	MEMBER_HEADER,
+	SESSION_HEADER,
+	type SocketSession,
 	type WebhookResult,
 	type WorkspaceLink,
 } from "@gateweave/track-sync-server";
@@ -67,6 +69,13 @@ export async function handleSyncRequest(request: Request): Promise<Response> {
 		});
 		return answer(result, "Not found");
 	}
+	// The session is checked here only once, so the object holds on to which one it was and when it
+	// runs out: signing out or revoking it closes the socket (`onSessionEnded` in auth), and so
+	// does its expiry.
+	const socketSession: SocketSession = {
+		id: session.session.id,
+		expiresAt: new Date(session.session.expiresAt).getTime(),
+	};
 	// The workspace records where it lives, for the links in its emails.
 	const link: WorkspaceLink = {
 		id: membership.workspaceId,
@@ -78,6 +87,7 @@ export async function handleSyncRequest(request: Request): Promise<Response> {
 			Upgrade: "websocket",
 			[MEMBER_HEADER]: JSON.stringify(membership.profile),
 			[LINK_HEADER]: JSON.stringify(link),
+			[SESSION_HEADER]: JSON.stringify(socketSession),
 		},
 	});
 }

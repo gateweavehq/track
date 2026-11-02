@@ -141,6 +141,13 @@ export const MEMBER_HEADER = "x-track-member";
  */
 export const LINK_HEADER = "x-track-link";
 
+/**
+ * Header carrying the session a socket was opened with, its id and when it expires (ms), on socket
+ * requests. The gateway checks the session only at the handshake; the object closes the socket
+ * when the session ends ({@link WorkspaceDO.endSession}) or runs out.
+ */
+export const SESSION_HEADER = "x-track-session";
+
 export const RETENTION: RetentionPolicy = { minOps: 10_000, minAgeMs: 30 * 24 * 60 * 60 * 1000 };
 const COMPACTION_INTERVAL_MS = 6 * 60 * 60 * 1000;
 /** When compaction is next due. The alarm also sends webhooks, so it runs more often than that. */
@@ -156,6 +163,14 @@ const memberProfile = z.object({
 });
 
 const shortId = z.string().min(1).max(64);
+
+const socketSession = z.object({
+	id: z.string().min(1),
+	expiresAt: z.number().int(),
+});
+
+/** The session a socket was opened with, as the gateway saw it. */
+export type SocketSession = z.infer<typeof socketSession>;
 
 const issueQuery = z.object({
 	teamId: shortId.optional(),
@@ -207,6 +222,10 @@ export type GitHubDeliveryResult = { status: 202 | 400 | 401 | 404 };
 /** Per-socket state. Stored as an attachment so it survives hibernation. */
 interface SocketState {
 	userId: string;
+	/** The session the socket was opened with, which the gateway checked at the handshake. */
+	sessionId: string;
+	/** When that session runs out. A socket's messages are refused from then on. */
+	expiresAt: number;
 	clientId: string | null;
 	/** True once the socket has said hello and been caught up; only live sockets get broadcasts. */
 	live: boolean;
@@ -276,6 +295,20 @@ export class WorkspaceDO extends DurableObject {
 		for (const ws of this.ctx.getWebSockets()) {
 			if (socketState(ws).userId === userId) {
 				ws.close(CloseCode.Forbidden, "Removed from workspace");
+			}
+		}
+	}
+
+	/**
+	 * Closes the user's sockets that were opened with this session, which has just ended: signed
+	 * out, revoked, or ended by a password reset. Their clients sign in again, or reconnect with
+	 * the session they have now.
+	 */
+	endSession(userId: string, sessionId: string): void {
+		for (const ws of this.ctx.getWebSockets()) {
+			const state = socketState(ws);
+			if (state.userId === userId && state.sessionId === sessionId) {
+				ws.close(CloseCode.SessionEnded, "Session ended");
 			}
 		}
 	}
@@ -629,6 +662,8 @@ export class WorkspaceDO extends DurableObject {
 		}
 		const member = memberProfile.safeParse(parseJson(request.headers.get(MEMBER_HEADER)));
 		if (!member.success) return new Response("Missing member", { status: 400 });
+		const session = socketSession.safeParse(parseJson(request.headers.get(SESSION_HEADER)));
+		if (!session.success) return new Response("Missing session", { status: 400 });
 
 		this.#write(() => upsertMember(this.#db, member.data, Date.now()));
 		const link = workspaceLink.safeParse(parseJson(request.headers.get(LINK_HEADER)));
@@ -638,6 +673,8 @@ export class WorkspaceDO extends DurableObject {
 		this.ctx.acceptWebSocket(server);
 		server.serializeAttachment({
 			userId: member.data.id,
+			sessionId: session.data.id,
+			expiresAt: session.data.expiresAt,
 			clientId: null,
 			live: false,
 			through: 0,
@@ -646,6 +683,7 @@ export class WorkspaceDO extends DurableObject {
 	}
 
 	override webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): void {
+		if (closeIfExpired(ws, socketState(ws))) return;
 		const message = typeof raw === "string" ? clientMessage.safeParse(parseJson(raw)) : null;
 		if (!message?.success) {
 			ws.close(CloseCode.InvalidMessage, "Invalid message");
@@ -874,7 +912,7 @@ export class WorkspaceDO extends DurableObject {
 		const payloads = new Map<string, string>();
 		for (const ws of this.ctx.getWebSockets()) {
 			const state = socketState(ws);
-			if (!state.live) continue;
+			if (!state.live || closeIfExpired(ws, state)) continue;
 			const own = members.has(state.userId);
 			const ops = own
 				? result.ops.filter((op) => (audience?.get(op.version) ?? state.userId) === state.userId)
@@ -900,6 +938,21 @@ export class WorkspaceDO extends DurableObject {
 
 function socketState(ws: WebSocket): SocketState {
 	return ws.deserializeAttachment() as SocketState;
+}
+
+/**
+ * Closes a socket whose session has run out, so it neither sends nor hears anything more. The
+ * client then asks the gateway whether its cookie still works: a session Better Auth has extended
+ * since reconnects, and one that has ended signs in again.
+ */
+function closeIfExpired(ws: WebSocket, state: SocketState): boolean {
+	if (state.expiresAt > Date.now()) return false;
+	try {
+		ws.close(CloseCode.SessionEnded, "Session expired");
+	} catch {
+		// Already closing.
+	}
+	return true;
 }
 
 function send(ws: WebSocket, message: ServerMessage): void {

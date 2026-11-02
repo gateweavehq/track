@@ -1,7 +1,8 @@
-import { PROTOCOL_VERSION, privateId } from "@gateweave/track-protocol";
+import { CloseCode, PROTOCOL_VERSION, privateId } from "@gateweave/track-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	deleteIdbReplica,
+	HttpError,
 	MemoryPersistence,
 	MutationError,
 	openIdbPersistence,
@@ -607,6 +608,51 @@ describe("protocol", () => {
 			retry: { minDelay: 5, maxDelay: 5 },
 		});
 		await waitFor(() => connects >= 3);
+		await client.close();
+	});
+});
+
+describe("ended sessions", () => {
+	/** A server that closes the first socket because its session ended, and keeps later ones. */
+	function endingSession(signedIn: () => boolean) {
+		let connects = 0;
+		const transport: Transport = {
+			...scriptedTransport(
+				(socket, message) => {
+					if (!message.includes('"hello"')) return;
+					if (connects === 1) socket.close(CloseCode.SessionEnded, "Session ended");
+					else socket.reply({ type: "ready", version: 1 });
+				},
+				() => connects++,
+			),
+			probe: async () => {
+				if (!signedIn()) throw new HttpError(401);
+			},
+		};
+		return { transport, connects: () => connects };
+	}
+
+	it("reconnects with the browser's current session when it has one", async () => {
+		const server = endingSession(() => true);
+		const client = new SyncClient({
+			userId: "alice",
+			transport: server.transport,
+			retry: { minDelay: 5 },
+		});
+		await waitFor(() => server.connects() === 2 && client.getStatus().connection === "live");
+		await client.close();
+	});
+
+	it("asks for a sign-in when the browser has no session left", async () => {
+		const server = endingSession(() => false);
+		const client = new SyncClient({
+			userId: "alice",
+			transport: server.transport,
+			retry: { minDelay: 5 },
+		});
+		await waitFor(() => client.getStatus().connection === "unauthorized");
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(server.connects()).toBe(1);
 		await client.close();
 	});
 });

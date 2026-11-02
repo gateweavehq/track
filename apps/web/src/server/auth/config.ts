@@ -33,6 +33,11 @@ export interface AuthConfig {
 	/** Called after a user's profile changes. */
 	onUserUpdated?: (userId: string) => Promise<void>;
 	/**
+	 * Called after a session ends before its time: signed out, revoked, or ended by a password
+	 * reset or by deleting the user. Sync sockets opened with it must close.
+	 */
+	onSessionEnded?: (userId: string, sessionId: string) => Promise<void>;
+	/**
 	 * The public demo: accounts are created only by the server, so these paths refuse requests
 	 * that arrive over HTTP (see DEMO_BLOCKED_PATHS). Server-side `auth.api` calls are unaffected.
 	 */
@@ -157,6 +162,16 @@ export function createAuth(config: AuthConfig) {
 			}),
 		},
 		databaseHooks: {
+			// Every Better Auth path that ends a session deletes its row through here, one by one
+			// even when it ends many (`deleteManyWithHooks`, 1.7). Sync sockets outlive the request
+			// that checked their session, so they are told.
+			session: {
+				delete: {
+					after: async (session) => {
+						await config.onSessionEnded?.(session.userId, session.id);
+					},
+				},
+			},
 			user: {
 				update: {
 					after: async (user) => {

@@ -13,9 +13,12 @@ import {
 } from "@gateweave/track-protocol";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/durable-sqlite";
-import { MEMBER_HEADER, type MemberProfile } from "../src";
+import { MEMBER_HEADER, type MemberProfile, SESSION_HEADER, type SocketSession } from "../src";
 import * as schema from "../src/db/schema";
 import { toActivity } from "../src/state";
+
+/** The session the gateway vouches for on a socket, unless a test is about sessions. */
+export const SESSION: SocketSession = { id: "session-1", expiresAt: Number.MAX_SAFE_INTEGER };
 
 export function freshWorkspace() {
 	return env.WORKSPACE.getByName(crypto.randomUUID());
@@ -83,9 +86,14 @@ export class TestClient {
 		workspace: Workspace,
 		member: MemberProfile,
 		clientId = crypto.randomUUID(),
+		session: SocketSession = SESSION,
 	) {
 		const response = await workspace.fetch("https://workspace/socket", {
-			headers: { Upgrade: "websocket", [MEMBER_HEADER]: JSON.stringify(member) },
+			headers: {
+				Upgrade: "websocket",
+				[MEMBER_HEADER]: JSON.stringify(member),
+				[SESSION_HEADER]: JSON.stringify(session),
+			},
 		});
 		const ws = response.webSocket;
 		if (!ws) throw new Error(`Upgrade failed with ${response.status}`);
