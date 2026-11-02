@@ -919,9 +919,11 @@ workspace's files are one prefix in the bucket.
   sent, and leaves it once the gateway has it. Attached offline, or when the upload cannot get
   through (no network, a 5xx, a 429, a session that ran out), the link goes in all the same and the file uploads later:
   when the workspace opens, when the connection returns, and every 30 seconds while something
-  waits. Tabs take turns through a Web Lock, and a file the gateway already has (409, from a retry
-  or another tab) counts as uploaded. A refusal for good (too large, not a member) drops the file
-  and says so. Until then the text shows it as waiting to upload, an image from the device's
+  waits. Tabs take turns through a Web Lock, and a file the gateway already has from the same
+  person (409, from a retry or another tab) counts as uploaded. A refusal for good (too large, not
+  a member, or a link that holds someone else's file) drops the file and says so; for someone
+  else's file, the message stays until dismissed and offers to save the person's copy, since the
+  outbox's may be the only one. Until then the text shows it as waiting to upload, an image from the device's
   copy. Leaving a workspace drops its waiting files, and signing out deletes the outbox. Each file
   remembers who attached it and uploads only under their session, so someone else signing in on
   the same browser after a session ran out never sends it.
@@ -931,6 +933,11 @@ workspace's files are one prefix in the bucket.
   Uploads must come from the app's origin, name a length up to 25 MB, and use a name the browser
   cleaned (`attachmentName` in `apps/web/src/lib/attachments.ts`), so the key has no path
   tricks. An id in use is refused, so a file never changes under its link.
+- **An upload belongs to whoever stored it.** Members see a link before its file is up, so the
+  gateway stores a file with R2's conditional put (`If-None-Match: *`): of uploads to one id, only
+  the first is kept, however close together they come. The object records `uploadedBy`, and an
+  upload to an id in use gets 409 only from the person who stored it, and 412 from anyone else,
+  whose browser then reports the attachment as failed rather than attached.
 - **A file never runs as a page of the app.** Images (not SVG), audio, video and plain text are
   served inline; everything else as `application/octet-stream` to download. Every response is
   `nosniff`, sandboxed by its Content-Security-Policy and same-origin only. Files cache in the
