@@ -1,4 +1,4 @@
-import type { Issue, Team } from "@gateweave/track-protocol";
+import type { ActiveIssue, Team } from "@gateweave/track-protocol";
 import { isClosedCategory } from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link, useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
@@ -37,7 +37,7 @@ import {
 	useTeamsById,
 } from "#/lib/queries";
 import { cn } from "#/lib/utils";
-import { ArchivedNotice, ArchiveIssueButton } from "./archive";
+import { ArchiveIssueButton } from "./archive";
 import { AttachButton, useAttachFiles } from "./attach-files";
 import { DateField } from "./date-field";
 import { IntakeNotice } from "./intake";
@@ -59,7 +59,7 @@ import { CopyBranchButton, PullRequests } from "./pull-requests";
 import { Relations } from "./relations";
 import { SubIssues } from "./sub-issues";
 
-export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
+export function IssueDetail({ issue, team }: { issue: ActiveIssue; team: Team }) {
 	const { slug } = useWorkspace();
 	const navigate = useNavigate();
 	const router = useRouter();
@@ -135,7 +135,6 @@ export function IssueDetail({ issue, team }: { issue: Issue; team: Team }) {
 			<div className="flex flex-1 flex-col lg:flex-row">
 				<article className="min-w-0 space-y-4 px-6 py-8 lg:flex-1 lg:px-12">
 					<IntakeNotice issue={issue} team={team} />
-					<ArchivedNotice issue={issue} />
 					{parent && parentKey && (
 						<Link
 							to="/$workspace/issue/$issueKey"
@@ -445,7 +444,7 @@ function useFieldDraft(
 	};
 }
 
-function TitleField({ issue }: { issue: Issue }) {
+function TitleField({ issue }: { issue: ActiveIssue }) {
 	const update = useUpdateIssue();
 	const field = useFieldDraft(issue.title, issue.version, (next, baseVersion) => {
 		if (next.trim()) update(issue, { title: next.trim() }, baseVersion);
@@ -475,7 +474,7 @@ function TitleField({ issue }: { issue: Issue }) {
 	);
 }
 
-function DescriptionField({ issue }: { issue: Issue }) {
+function DescriptionField({ issue }: { issue: ActiveIssue }) {
 	const update = useUpdateIssue();
 	const field = useFieldDraft(
 		issue.description ?? "",
@@ -584,7 +583,7 @@ function DeleteIssueDialog({
 	onClose,
 	onDeleted,
 }: {
-	issue: Issue;
+	issue: ActiveIssue;
 	issueKey: string;
 	onClose: () => void;
 	onDeleted: () => void;

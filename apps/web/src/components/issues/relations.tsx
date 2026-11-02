@@ -3,6 +3,7 @@ import {
 	type IssueRelation,
 	type RelationKind,
 	relationOf,
+	type SyncedIssue,
 } from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
@@ -119,7 +120,7 @@ export function Relations({ issue }: { issue: Issue }) {
 	);
 }
 
-function RelationRow({ issue, onRemove }: { issue: Issue; onRemove: () => void }) {
+function RelationRow({ issue, onRemove }: { issue: SyncedIssue; onRemove: () => void }) {
 	const { slug } = useWorkspace();
 	const team = useTeamsById().get(issue.teamId);
 	const key = issueKey(team, issue);

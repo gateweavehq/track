@@ -1,8 +1,13 @@
-import type { Issue } from "@gateweave/track-protocol";
+import {
+	type ActiveIssue,
+	type ArchivedIssue,
+	type Issue,
+	isActiveIssue,
+} from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
+import { Archive, Plus } from "lucide-react";
 import { useState } from "react";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { Button } from "#/components/ui/button";
@@ -18,7 +23,7 @@ import {
 	useTeamsById,
 } from "#/lib/queries";
 import { RowButton } from "./issue-row";
-import { StatusIcon } from "./meta";
+import { IssueStatusIcon, StatusIcon } from "./meta";
 import { StatusPicker } from "./pickers";
 import { DueDate } from "./schedule";
 
@@ -43,7 +48,7 @@ export function SubIssues({ issue }: { issue: Issue }) {
 				teamId: issue.teamId,
 				title: text,
 				parentId: issue.id,
-				sortOrder: sortOrderAfter(client.getState().issues.values()),
+				sortOrder: sortOrderAfter(client.getState().activeIssues.values()),
 			},
 		});
 		// The field stays open for the next one.
@@ -95,9 +100,13 @@ export function SubIssues({ issue }: { issue: Issue }) {
 			</div>
 			{subIssues.length > 0 && (
 				<ul className="rounded-lg border">
-					{subIssues.map((subIssue) => (
-						<SubIssueRow key={subIssue.id} issue={subIssue} />
-					))}
+					{subIssues.map((subIssue) =>
+						isActiveIssue(subIssue) ? (
+							<SubIssueRow key={subIssue.id} issue={subIssue} />
+						) : (
+							<ArchivedSubIssueRow key={subIssue.id} issue={subIssue} />
+						),
+					)}
 				</ul>
 			)}
 			{adding && (
@@ -128,7 +137,37 @@ export function SubIssues({ issue }: { issue: Issue }) {
 	);
 }
 
-function SubIssueRow({ issue }: { issue: Issue }) {
+/** An archived sub-issue: its slim row has its status, key and title, and nothing to edit. */
+function ArchivedSubIssueRow({ issue }: { issue: ArchivedIssue }) {
+	const { slug } = useWorkspace();
+	const team = useTeamsById().get(issue.teamId);
+	const key = issueKey(team, issue);
+
+	return (
+		<li className="relative flex h-9 items-center gap-2 border-b px-2 text-sm text-muted-foreground last:border-b-0 hover:bg-accent/40">
+			<span className="flex size-7 shrink-0 items-center justify-center">
+				<IssueStatusIcon issue={issue} />
+			</span>
+			<span aria-hidden className="w-16 shrink-0 font-mono text-xs">
+				{key}
+			</span>
+			<Link
+				to="/$workspace/issue/$issueKey"
+				params={{ workspace: slug, issueKey: key }}
+				className="min-w-0 flex-1 truncate outline-none after:absolute after:inset-0 focus-visible:underline"
+			>
+				<span className="sr-only">{key} </span>
+				{issue.title}
+			</Link>
+			<span className="flex shrink-0 items-center gap-1 text-xs">
+				<Archive aria-hidden className="size-3.5" />
+				Archived
+			</span>
+		</li>
+	);
+}
+
+function SubIssueRow({ issue }: { issue: ActiveIssue }) {
 	const { slug } = useWorkspace();
 	const update = useUpdateIssue();
 	const issueStatus = useIssueStatus(issue);

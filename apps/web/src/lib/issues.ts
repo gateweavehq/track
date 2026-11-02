@@ -1,9 +1,11 @@
-import type {
-	DueFilter,
-	Issue,
-	IssueStatus,
-	Team,
-	WorkflowStatus,
+import {
+	type DueFilter,
+	type Issue,
+	type IssueStatus,
+	isActiveIssue,
+	type SyncedIssue,
+	type Team,
+	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import { generateKeyBetween } from "fractional-indexing";
 import { addDays, today } from "./dates";
@@ -21,9 +23,23 @@ export function parseIssueKey(value: string): { teamKey: string; number: number 
 	return { teamKey: match[1].toUpperCase(), number: Number(match[2]) };
 }
 
-/** Manual order, with the id as a tiebreaker so concurrent inserts still sort the same everywhere. */
-export function compareIssues(a: Issue, b: Issue): number {
-	if (a.sortOrder !== b.sortOrder) return a.sortOrder < b.sortOrder ? -1 : 1;
+/** When the issue last changed, as far as the replica knows: an archived one, when it was archived. */
+export function lastTouched(issue: SyncedIssue): number {
+	return isActiveIssue(issue) ? issue.updatedAt : issue.archivedAt;
+}
+
+/**
+ * Manual order, with the id as a tiebreaker so concurrent inserts still sort the same everywhere.
+ * An archived issue's slim row has no manual order: archived issues come last, by number.
+ */
+export function compareIssues(a: SyncedIssue, b: SyncedIssue): number {
+	if (isActiveIssue(a) && isActiveIssue(b)) {
+		if (a.sortOrder !== b.sortOrder) return a.sortOrder < b.sortOrder ? -1 : 1;
+	} else if (isActiveIssue(a) !== isActiveIssue(b)) {
+		return isActiveIssue(a) ? -1 : 1;
+	} else if (a.number !== b.number) {
+		return a.number - b.number;
+	}
 	return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 

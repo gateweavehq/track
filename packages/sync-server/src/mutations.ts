@@ -12,6 +12,7 @@ import {
 } from "@gateweave/track-protocol";
 import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { recordActivity } from "./activity";
+import { syncArchive } from "./archive";
 import { automationsDueNow } from "./automations";
 import { scheduleCycles } from "./cycles";
 import * as schema from "./db/schema";
@@ -467,6 +468,7 @@ function updateIssue(
 		.get();
 	if (row) {
 		changes.put("issue", toIssue(row));
+		syncArchive(db, changes, issue, row);
 		changes.events.push({ type: "issue.updated", issue: row, previous: issue });
 	}
 	if (accepted.title !== undefined || accepted.description !== undefined) {
@@ -513,6 +515,7 @@ function archiveIssue(
 		.get();
 	if (row) {
 		changes.put("issue", toIssue(row));
+		syncArchive(db, changes, issue, row);
 		changes.events.push({ type: "issue.updated", issue: row, previous: issue });
 	}
 	const change = { type: "archived", archived: args.archived } as const;

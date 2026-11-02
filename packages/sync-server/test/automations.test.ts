@@ -15,7 +15,7 @@ import {
 	runAutomations,
 } from "../src/automations";
 import * as schema from "../src/db/schema";
-import { freshWorkspace, type Workspace } from "./client";
+import { freshWorkspace, storedHistory, type Workspace } from "./client";
 
 const owner: MemberProfile = {
 	id: "user-owner",
@@ -89,10 +89,8 @@ async function nextAt(workspace: Workspace) {
 	);
 }
 
-async function historyOf(workspace: Workspace, issueId: string) {
-	const snapshot = await workspace.snapshot(owner);
-	return snapshot.activities.filter((activity) => activity.issueId === issueId);
-}
+/** Archived issues' history stays out of snapshots, so this reads what the workspace stores. */
+const historyOf = storedHistory;
 
 describe("team automations", () => {
 	it("close issues nobody started that sat untouched past the team's wait, as Track", async () => {
@@ -159,6 +157,10 @@ describe("team automations", () => {
 				change: { type: "archived", archived: true },
 			}),
 		);
+		// Replicas keep it slim, without its history.
+		const { activities } = await workspace.snapshot(owner);
+		expect(activities.filter((activity) => activity.issueId === "done-old")).toEqual([]);
+		expect(after.get("done-old")).not.toHaveProperty("sortOrder");
 
 		// Closing an issue touches it, so it is archived only once the wait has passed again.
 		// (The alarm this wakes may close it first, on the real clock; it ends the same either way.)

@@ -5,7 +5,7 @@ import { Breakdown, InsightsPage } from "#/components/insights/insights-page";
 import { useWorkspace } from "#/components/workspace/context";
 import { localZone } from "#/lib/cycles";
 import { type InsightSearch, matchesInsightSearch, projectInsights } from "#/lib/insights";
-import { useActivitiesById, useIssuesById, useStatuses, useTeamsById } from "#/lib/queries";
+import { useActiveIssuesById, useActivitiesById, useStatuses, useTeamsById } from "#/lib/queries";
 
 /**
  * A project's insights, across the teams its issues are in. A project has no time zone of its
@@ -21,7 +21,8 @@ export function ProjectInsights({
 	onSearchChange: (patch: Partial<InsightSearch>) => void;
 }) {
 	const { slug } = useWorkspace();
-	const issues = useIssuesById();
+	// Archived issues' history and labels stay on the server, so insights read the others.
+	const issues = useActiveIssuesById();
 	const activities = useActivitiesById();
 	const statuses = useStatuses();
 	const teams = useTeamsById();

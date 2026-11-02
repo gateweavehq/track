@@ -181,6 +181,60 @@ export interface Issue {
 	intake: boolean;
 }
 
+/**
+ * What replicas keep of an archived issue: enough for links and relations by key, the archive
+ * page, search by key and title, and the progress of its project, cycle and parent (in issues and
+ * points). Its description, labels, comments, history, proposals and pull requests stay on the
+ * server, so a large archive costs every browser nothing but these few fields.
+ */
+export const ARCHIVED_ISSUE_FIELDS = [
+	"id",
+	"teamId",
+	"number",
+	"title",
+	"status",
+	"projectId",
+	"cycleId",
+	"parentId",
+	"estimate",
+	"archivedAt",
+] as const satisfies readonly (keyof Issue)[];
+
+/** An archived issue as replicas hold it. */
+export type ArchivedIssue = Pick<
+	Issue,
+	Exclude<(typeof ARCHIVED_ISSUE_FIELDS)[number], "archivedAt">
+> & { archivedAt: number };
+
+/** An issue that is not archived, whole. */
+export type ActiveIssue = Issue & { archivedAt: null };
+
+/** An issue as replicas hold it, in snapshots and ops: whole, or slim once archived. */
+export type SyncedIssue = ActiveIssue | ArchivedIssue;
+
+/** The issue as replicas get it: an archived one slimmed to `ARCHIVED_ISSUE_FIELDS`. */
+export function toSyncedIssue(issue: Issue): SyncedIssue {
+	const { archivedAt } = issue;
+	if (archivedAt === null) return { ...issue, archivedAt };
+	return {
+		id: issue.id,
+		teamId: issue.teamId,
+		number: issue.number,
+		title: issue.title,
+		status: issue.status,
+		projectId: issue.projectId,
+		cycleId: issue.cycleId,
+		parentId: issue.parentId,
+		estimate: issue.estimate,
+		archivedAt,
+	};
+}
+
+/** Whether a replica's issue is whole, rather than an archived issue's slim row. */
+export function isActiveIssue(issue: SyncedIssue): issue is ActiveIssue {
+	return issue.archivedAt === null;
+}
+
 export const PROJECT_STATUSES = ["planned", "started", "paused", "completed", "canceled"] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
@@ -564,7 +618,7 @@ export function privateId(issueId: string, memberId: string): string {
 export interface Entities {
 	team: Team;
 	status: WorkflowStatus;
-	issue: Issue;
+	issue: SyncedIssue;
 	label: Label;
 	project: Project;
 	projectUpdate: ProjectUpdate;

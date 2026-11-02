@@ -11,7 +11,7 @@ import { TextField } from "#/components/text-field";
 import { burnUp, cycleName, cycleProgress, stateIn, teamZone } from "#/lib/cycles";
 import { send } from "#/lib/mutations";
 import { progressPercent } from "#/lib/projects";
-import { useActivitiesById, useCycleIssues, useIssuesById, useStatuses } from "#/lib/queries";
+import { useActivitiesById, useAllCycleIssues, useIssuesById, useStatuses } from "#/lib/queries";
 import { BurnUpChart } from "./burn-up-chart";
 import { CYCLE_STATE_LABEL, CycleIcon, cycleDates } from "./meta";
 
@@ -21,7 +21,7 @@ import { CYCLE_STATE_LABEL, CycleIcon, cycleDates } from "./meta";
  */
 export function CycleDetails({ cycle, team }: { cycle: Cycle; team: Team }) {
 	const client = useSyncClient();
-	const issues = useCycleIssues(cycle.id);
+	const issues = useAllCycleIssues(cycle.id);
 	const allIssues = useIssuesById();
 	const activities = useActivitiesById();
 	const statuses = useStatuses();

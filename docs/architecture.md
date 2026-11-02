@@ -315,7 +315,8 @@ and a delta whose `from` is beyond its version plus one means it missed somethin
    `{ version, teams, issues, labels, projects, comments, activities, proposals, relations, views,
    members, subscriptions, inbox }`,
    leaving out the comments, activity and proposals of deleted issues, deleted projects, and
-   everyone else's subscriptions and inbox. It is served over HTTP so it can be compressed and
+   everyone else's subscriptions and inbox. Archived issues are slim, without their comments,
+   activity, proposals and pull requests (see [Archive](#archive)). It is served over HTTP so it can be compressed and
    fetched in parallel with the socket.
 2. The client opens the socket and sends `hello { protocol, clientId, since: snapshot.version }`.
 3. The server streams any ops after `since` as `delta` messages, then `ready { version }`. From
@@ -431,9 +432,10 @@ start from a fresh snapshot.
 ### Archive
 
 A closed issue can be archived (`issue.archive`, `Issue.archivedAt`): it leaves the lists and
-boards of its team, project, cycle and saved views, and My issues, but nothing else changes. Search
-finds it, its page and history stay, and it still counts in the progress of its project, cycle and
-parent, since it was done or canceled. Each team has an archive page
+boards of its team, project, cycle and saved views, and My issues. Search finds it by key and
+title, links and relations still name it, and it still counts in the progress of its project,
+cycle and parent, since it was done or canceled. The server keeps all of it; browsers keep only a
+slim row (below). Each team has an archive page
 (`/$workspace/team/$teamKey/archive`), linked from the team page once something is in it, with
 a way to restore each issue.
 
@@ -446,13 +448,40 @@ a way to restore each issue.
   every archived issue in it; like the change to the workflow, those reach nobody's inbox.
 - **History says it**, as `{ type: "archived", archived }`. Archiving and restoring within the
   merge window leaves no trace, as for labels.
-- **The replica keeps archived issues.** They are part of the snapshot like any live issue, so the
-  archive works offline and the replica predicts archiving by the same rules. Lists, boards,
-  calendars and saved views read `activeIssues`, the issues that are not archived, kept as the same
-  map while those rows do not change: a large archive costs them nothing to filter, and an edit to
-  an archived issue runs none of their selectors again. Links, history, search and progress read
-  `issues`, archived ones included. Keeping archived issues out of memory altogether, loaded on
-  demand, is a later step.
+- **Replicas keep an archived issue slim.** In snapshots and ops an archived issue is an
+  `ArchivedIssue`: its id, team, number, title, status, project, cycle, parent, estimate and
+  `archivedAt` (`ARCHIVED_ISSUE_FIELDS`, `toSyncedIssue`), and nothing else. Its description,
+  labels, comments, history, open proposals and the pull requests that link no other issue the
+  replica holds whole stay on the server. That keeps a large archive from weighing on every
+  browser's snapshot, IndexedDB and memory.
+  - The server decides it in one place: `ChangeSet.put` sends an archived issue slim, and turns a
+    put of a comment, history entry, proposal or pull request that belongs only to archived issues
+    into a `delete`, so a write to an archived issue never brings its details back by accident.
+    The snapshot leaves them out the same way.
+  - Archiving deletes what replicas hold of the issue, as ordinary ops (`syncArchive` in
+    `packages/sync-server/src/archive.ts`, called wherever `archivedAt` changes: archiving,
+    reopening, the workflow changes that restore, and automations). Restoring sends the whole issue
+    back, then its comments, history, open proposals and pull requests, as puts. A client that
+    catches up from before either ends where a snapshot would.
+  - From the slim rows, offline included: lists and boards (which leave archived issues out anyway),
+    the archive page (key, title, status, when archived), links and relations by key, the progress
+    of projects, cycles and parents (in issues and points, hence the estimate), and search by key
+    and title. Burn-ups draw an archived issue as it is now on every day, since its history is not
+    there; a completed cycle is judged by its last day, which is still right. Insights and label
+    counts leave archived issues out.
+  - An archived issue's page shows the slim row and a way to restore it, and says that the full
+    issue, with its history, needs a connection and comes in a later version. Loading it on demand,
+    and exporting archived issues whole, are later steps. Until then the CSV export gives archived
+    issues' rows with only what the replica knows, and the JSON export lists them apart in
+    `archivedIssues`, slim, with a note in `notes` that their details are not included; the app
+    says so when it exports them, and the JSON import says it leaves them behind.
+  - The replica predicts archiving as the server will send it, slim and without the rows above.
+    It does not predict restoring, or any edit to an archived issue: it has no version or details
+    to work from, and the server sends the whole issue back.
+  - Lists, boards, calendars and saved views read `activeIssues`, the whole issues that are not
+    archived, kept as the same map while those rows do not change: a large archive costs them
+    nothing to filter, and an edit to an archived issue runs none of their selectors again. Links,
+    search and progress read `issues`, archived ones included, as `SyncedIssue`.
 - **Elsewhere.** Webhooks send an archive or restore as `issue.updated`, with `archivedAt` in
   `updatedFrom`. Over MCP, `search_issues` takes `archived` (only archived issues, or none) and
   every issue says whether it is archived; `update_issue` takes `archived` to archive or restore,
@@ -460,7 +489,8 @@ a way to restore each issue.
   `archivedAt`; imports bring issues in unarchived.
 
 Archiving is a breaking change to the protocol (version 17), so clients that predate it start from
-a fresh snapshot.
+a fresh snapshot. Slim archived issues are another (version 25): every client drops its cache and
+starts from a snapshot that holds them slim.
 
 ### Team automations
 
@@ -1096,7 +1126,8 @@ The command palette searches the local replica instead (`apps/web/src/lib/search
 works offline and answers as you type. It applies the same rules over the issues, teams and
 comments in memory, caching each row's words for as long as the row object lives, and ranks by
 fixed field weights in place of bm25. A query that spells out an issue's key, such as `ENG-12`,
-puts that issue first.
+puts that issue first. The replica holds archived issues slim, so it finds them by key and title
+only; the server's index still holds them whole.
 
 ### Filters and layouts
 
