@@ -223,8 +223,8 @@ see the HTTP status of a refused WebSocket handshake, so the client uses this pr
 
 Two more reads go through the same gateway and the same checks, for what replicas leave out of
 archived issues (see [Archive](#archive)): `GET /api/sync/:slug/issues/:id` (one issue whole) and
-`GET /api/sync/:slug/archive` (`?team=` for one team's, a page at a time). Each becomes an RPC
-call with the verified member. The DO checks again that the member is an active one, without writing, and
+`GET /api/sync/:slug/archive` (`?team=` for one team's; `?page=1`, then `?after=`, a page at a
+time). Each becomes an RPC call with the verified member. The DO checks again that the member is an active one, without writing, and
 refuses anyone else; a refusal is the gateway's `404` for a missing workspace. It answers only
 for its own live issues, so an id from another workspace is `404 Issue not found`. Like every
 answer of the sync gateway, refusals and errors carry `Cache-Control: no-store`, so a browser
@@ -340,18 +340,27 @@ protocol version mismatch closes the socket with code `4001` so the client can p
 
 Beside the snapshot, a connected browser may ask over HTTP for what its replica leaves out of
 archived issues: `IssueDetails` (one issue, with its comments, history, open proposals and pull
-requests) and `ArchivedIssues` (archived issues with their comments and history), whose inputs
-are the zod schemas `issueDetailsRequest` and `archivedIssuesRequest` in `packages/protocol`.
+requests) and `ArchivedIssuesPage` (a page of archived issues with their comments and history),
+whose inputs are the zod schemas `issueDetailsRequest` and `archivedIssuesPageRequest` in
+`packages/protocol`; the client checks each page against `archivedIssuesPage` before it reads it.
 These are plain request and response, not sync: nothing in them reaches the replica or IndexedDB,
 and they need a connection. They are HTTP rather than socket messages because only the leader
 tab holds the socket, while any tab may open an archived issue or export, and because an
-export's answer can be large. The archive comes in pages (`ArchivedIssuesPage`), by issue id:
-each holds up to `ARCHIVE_PAGE_SIZE` (200) issues with their comments and history, and ends
-early once it comes to `ARCHIVE_PAGE_BUDGET` (4 MiB) of JSON, but always holds one issue. Its
-`next` is the `?after=` of the page after, and null on the last. That keeps one answer well under
-the Durable Object's RPC limit and the Worker's memory, whatever the archive's size. They are
-additions, so `PROTOCOL_VERSION` stays at 25: older clients never ask for them, and nothing they
-send or receive changed.
+export's answer can be large. The client asks for the archive in pages (`?page=1`, then
+`?after=`), by issue id: each holds up to `ARCHIVE_PAGE_SIZE` (200) issues with their comments
+and history, and ends early once it comes to `ARCHIVE_PAGE_BUDGET` (4 MiB) of JSON, but always
+holds one issue. Its `next` is the `?after=` of the page after, and null on the last; an answer
+without one is not a page, and the export fails rather than reading on. That keeps one answer
+well under the Durable Object's RPC limit and the Worker's memory, whatever the archive's size.
+
+v0.21.0 asks for the archive without paging and reads `ArchivedIssues`, every archived issue in
+one answer, without validating it. Its tabs can stay open on that build after a deploy, because
+`PROTOCOL_VERSION` stays at 25, so a request without `?page` or `?after` still gets exactly that
+answer (`archivedIssuesRequest`, `findArchivedIssues`), all of it and nothing more: a page would
+make that build save a short export without a word. When the archive is too large for one answer
+(about 8 MiB of text, measured in SQL before it is read), that request is a `413` instead, which
+that build shows as its error. This path stays for compatibility until a later protocol bump
+retires it. The issue read and paging are additions older clients never ask for.
 
 Clients keep the socket alive by sending the plain-text frame `ping`. The runtime answers `pong`
 without waking a hibernated Durable Object.
@@ -513,14 +522,18 @@ a way to restore each issue.
     the app asks the server for them (`GET /api/sync/:slug/archive`) and exports them whole: the
     CSV fills in their cells, and the JSON lists them apart in `archivedIssues`, with their
     comments and history among the others. It asks for the archive's pages until the last
-    (`fetchArchivedIssues`), keeping the team, and keeps each issue once. The server's list
+    (`fetchArchivedIssues`), keeping the team, and keeps each issue once. It stops on an answer
+    that is not a page, on a `next` that repeats the cursor it asked with (it does not compare ids,
+    which JavaScript and SQLite order apart), and after 10,000 pages. The server's list
     decides which issues are archived, so each issue is in the file once. An issue the replica
     still holds archived that the list leaves out was restored (or archived again) on the server
     between pages or before the replica heard: the export asks for it alone
     (`fetchMissingArchived`) and exports it whole, with the active issues if it was restored. One
-    deleted since is left out, as it is gone. When the archive cannot be fetched, the export stops
-    and says why: no connection, signed out, workspace not found (or no longer a member), or an
-    error on the server to try again after. It offers to export without them; a JSON export made
+    deleted since (`404 Issue not found`) is left out, as it is gone; `404 Workspace not found`
+    fails the export. More than 50 such issues means the archive is changing fast, and the export
+    stops and says to try again in a moment rather than make that many requests. When the archive
+    cannot be fetched, the export stops and says why: no connection, signed out, workspace not
+    found (or no longer a member), or an error on the server to try again after. It offers to export without them; a JSON export made
     that way says in `notes` how many it left out. It never passes a slim row off as an issue.
   - **The JSON import brings archived issues along**, archived: after their comments and
     relations are in, each is archived (`issue.archive`) if the status it gets here closes it.

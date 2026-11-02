@@ -3,6 +3,7 @@ import {
 	type ActiveIssue,
 	AGENT_CHANGE_KINDS,
 	type AgentChangeKind,
+	ARCHIVE_PAGE_SIZE,
 	CloseCode,
 	type IssueRelation,
 	isActiveIssue,
@@ -819,9 +820,8 @@ describe("archive", () => {
 
 		// Every archived issue of the workspace, or of a team, whole, for an export.
 		const archived = await workspace.archivedIssues(alice, { teamId: null });
-		if (!archived.ok) throw new Error(archived.message);
+		if (!archived.ok || archived.value === "too_large") throw new Error("Not the whole archive");
 		expect(archived.value.issues.map((row) => row.id)).toEqual([issue.id]);
-		expect(archived.value.next).toBeNull();
 		expect(archived.value.issues[0]).toMatchObject({ description: "Steps to reproduce" });
 		expect(archived.value.comments.map((comment) => comment.id)).toEqual(["comment-1"]);
 		expect(archived.value.activities).toEqual(details.value.activities);
@@ -831,7 +831,7 @@ describe("archive", () => {
 		});
 		expect(await workspace.archivedIssues(alice, { teamId: "team-other" })).toEqual({
 			ok: true,
-			value: { issues: [], comments: [], activities: [], next: null },
+			value: { issues: [], comments: [], activities: [] },
 		});
 
 		// Reading is not writing: no version, and nothing for replicas. The next write's op is the
@@ -871,7 +871,7 @@ describe("archive", () => {
 			const read: { ids: string[]; comments: string[]; next: string | null }[] = [];
 			let after: string | null = null;
 			do {
-				const page = await workspace.archivedIssues(owner, { teamId, after, limit });
+				const page = await workspace.archivedIssuesPage(owner, { teamId, after, limit });
 				if (!page.ok) throw new Error(page.message);
 				read.push({
 					ids: page.value.issues.map((issue) => issue.id),
@@ -908,10 +908,14 @@ describe("archive", () => {
 		]);
 
 		// An issue restored between pages is on none after; the others are each still on one.
-		const first = await workspace.archivedIssues(owner, { teamId: null, after: null, limit: 2 });
+		const first = await workspace.archivedIssuesPage(owner, {
+			teamId: null,
+			after: null,
+			limit: 2,
+		});
 		if (!first.ok) throw new Error(first.message);
 		await archive(admin, "issue-c", false);
-		const rest = await workspace.archivedIssues(owner, {
+		const rest = await workspace.archivedIssuesPage(owner, {
 			teamId: null,
 			after: first.value.next,
 			limit: 200,
@@ -932,7 +936,7 @@ describe("archive", () => {
 			{ teamId: null, after: "" },
 			{ teamId: null, after: "x".repeat(65) },
 		]) {
-			expect(await workspace.archivedIssues(owner, input)).toMatchObject({ reason: "invalid" });
+			expect(await workspace.archivedIssuesPage(owner, input)).toMatchObject({ reason: "invalid" });
 		}
 	});
 
@@ -953,13 +957,111 @@ describe("archive", () => {
 			}
 			await archive(admin, id, true);
 		}
-		const first = await workspace.archivedIssues(owner, { teamId: null });
+		const first = await workspace.archivedIssuesPage(owner, { teamId: null });
 		if (!first.ok) throw new Error(first.message);
 		expect(first.value.issues.map((issue) => issue.id)).toEqual(["issue-1", "issue-2", "issue-3"]);
 		expect(first.value.comments).toHaveLength(45);
 		expect(first.value.next).toBe("issue-3");
-		const second = await workspace.archivedIssues(owner, { teamId: null, after: "issue-3" });
+		const second = await workspace.archivedIssuesPage(owner, { teamId: null, after: "issue-3" });
 		expect(second).toMatchObject({ ok: true, value: { issues: [{ id: "issue-4" }], next: null } });
+		// Asked without pages, as v0.21.0 asks, it is all of them in one answer, past a page's
+		// budget, as long as one answer can hold them.
+		const whole = await workspace.archivedIssues(owner, { teamId: null });
+		if (!whole.ok || whole.value === "too_large") throw new Error("Not the whole archive");
+		expect(whole.value.issues.map((issue) => issue.id)).toEqual(ids);
+		expect(whole.value.comments).toHaveLength(60);
+	});
+
+	it("refuses the whole archive at once when one answer cannot hold it, never part of it", {
+		timeout: 60_000,
+	}, async () => {
+		const { workspace, admin } = await withTeam();
+		// About 9 MB of comments, over what one answer may hold.
+		for (const id of ["issue-1", "issue-2"]) {
+			await admin.apply({
+				name: "issue.create",
+				args: { id, teamId: TEAM_ID, title: id, status: "done", sortOrder: "a0" },
+			});
+			for (let n = 0; n < 45; n++) {
+				await admin.apply({
+					name: "comment.create",
+					args: { id: `${id}-comment-${n}`, issueId: id, body: "x".repeat(100_000) },
+				});
+			}
+			await archive(admin, id, true);
+		}
+		expect(await workspace.archivedIssues(owner, { teamId: null })).toEqual({
+			ok: true,
+			value: "too_large",
+		});
+		// Pages still bring it all.
+		const first = await workspace.archivedIssuesPage(owner, { teamId: null });
+		expect(first).toMatchObject({ ok: true, value: { issues: [{ id: "issue-1" }] } });
+		if (!first.ok) throw new Error(first.message);
+		expect(first.value.comments).toHaveLength(45);
+		const second = await workspace.archivedIssuesPage(owner, {
+			teamId: null,
+			after: first.value.next,
+		});
+		expect(second).toMatchObject({ ok: true, value: { issues: [{ id: "issue-2" }], next: null } });
+		// One team's is measured on its own.
+		expect(await workspace.archivedIssues(owner, { teamId: "team-other" })).toEqual({
+			ok: true,
+			value: { issues: [], comments: [], activities: [] },
+		});
+	});
+
+	it("answers every archived issue at once in v0.21.0's shape when not asked for pages", {
+		timeout: 60_000,
+	}, async () => {
+		const { workspace, admin } = await withTeam();
+		await admin.apply({ name: "team.create", args: { id: "team-ops", key: "OPS", name: "Ops" } });
+		// More than a page holds, in two teams, so a page could not pass for the whole list.
+		const count = ARCHIVE_PAGE_SIZE + 5;
+		for (let n = 0; n < count; n++) {
+			const id = `issue-${String(count - n).padStart(4, "0")}`;
+			const teamId = n % 2 === 0 ? TEAM_ID : "team-ops";
+			await admin.apply({
+				name: "issue.create",
+				args: { id, teamId, title: id, status: "done", sortOrder: "a0" },
+			});
+			await archive(admin, id, true);
+		}
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "comment-1", issueId: "issue-0001", body: "Last of all" },
+		});
+
+		const whole = await workspace.archivedIssues(owner, { teamId: null });
+		if (!whole.ok || whole.value === "too_large") throw new Error("Not the whole archive");
+		// The keys v0.21.0 reads, and no others: no `next` to suggest there is more.
+		expect(Object.keys(whole.value).sort()).toEqual(["activities", "comments", "issues"]);
+		expect(whole.value.issues).toHaveLength(count);
+		expect(new Set(whole.value.issues.map((issue) => issue.id)).size).toBe(count);
+		// By team and number, as v0.21.0's server sent them.
+		const order = whole.value.issues.map((issue) => [issue.teamId, issue.number] as const);
+		expect(order).toEqual([...order].sort(([a, x], [b, y]) => (a === b ? x - y : a < b ? -1 : 1)));
+		expect(whole.value.comments.map((comment) => comment.id)).toEqual(["comment-1"]);
+		// Paging, stray fields are ignored, as v0.21.0's schema did with ones it did not know.
+		expect(await workspace.archivedIssues(owner, { teamId: TEAM_ID, after: "x" })).toMatchObject({
+			ok: true,
+			value: { issues: expect.arrayContaining([expect.anything()]) },
+		});
+		const team = await workspace.archivedIssues(owner, { teamId: "team-ops" });
+		if (!team.ok || team.value === "too_large") throw new Error("Not the whole archive");
+		expect(team.value.issues).toHaveLength(Math.floor(count / 2));
+
+		// Paged, the same issues, each once, with a cursor.
+		const paged: string[] = [];
+		let after: string | null = null;
+		do {
+			const page = await workspace.archivedIssuesPage(owner, { teamId: null, after });
+			if (!page.ok) throw new Error(page.message);
+			paged.push(...page.value.issues.map((issue) => issue.id));
+			after = page.value.next;
+		} while (after !== null);
+		expect(paged).toHaveLength(count);
+		expect(new Set(paged)).toEqual(new Set(whole.value.issues.map((issue) => issue.id)));
 	});
 
 	it("refuses whoever is not a member, and ids of issues it does not have", async () => {
@@ -970,11 +1072,13 @@ describe("archive", () => {
 		// Bob was never a member here, then is one and is removed: a read lets in neither.
 		expect(await workspace.issueDetails(bob, { issueId: issue.id })).toEqual(forbidden);
 		expect(await workspace.archivedIssues(bob, { teamId: null })).toEqual(forbidden);
+		expect(await workspace.archivedIssuesPage(bob, { teamId: null })).toEqual(forbidden);
 		await workspace.syncMember(bob);
 		expect(await workspace.issueDetails(bob, { issueId: issue.id })).toMatchObject({ ok: true });
 		await workspace.removeMember(bob.id);
 		expect(await workspace.issueDetails(bob, { issueId: issue.id })).toEqual(forbidden);
 		expect(await workspace.archivedIssues(bob, { teamId: null })).toEqual(forbidden);
+		expect(await workspace.archivedIssuesPage(bob, { teamId: null })).toEqual(forbidden);
 
 		// Another workspace's issue is not found here, though its id is real there.
 		const other = freshWorkspace();

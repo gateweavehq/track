@@ -1,9 +1,10 @@
 import {
 	ARCHIVE_PAGE_BUDGET,
+	type ArchivedIssues,
 	type ArchivedIssuesPage,
 	type IssueDetails,
 } from "@gateweave/track-protocol";
-import { and, asc, eq, gt, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, gt, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import * as schema from "./db/schema";
 import { type ChangeSet, onlyArchived } from "./log";
 import { type Db, toActivity, toComment, toIssue, toProposal, toPullRequest } from "./state";
@@ -67,13 +68,89 @@ export function findIssueDetails(db: Db, issueId: string): IssueDetails | undefi
 }
 
 /**
+ * Every live archived issue whole, or one team's, with their comments and history, in one answer,
+ * for the exports of v0.21.0, which do not ask for pages. Exactly as that build read it, until a
+ * later `PROTOCOL_VERSION` bump retires it. An archive too large for one answer is `"too_large"`,
+ * never part of it, so that build shows its error rather than saving a short file; newer clients
+ * read `findArchivedIssuesPage`. Reads only.
+ */
+export function findArchivedIssues(db: Db, teamId: string | null): ArchivedIssues | "too_large" {
+	const filters: SQL[] = [isNull(schema.issues.deletedAt), isNotNull(schema.issues.archivedAt)];
+	if (teamId !== null) filters.push(eq(schema.issues.teamId, teamId));
+	const archived = and(...filters);
+	// Measured before anything is read: an answer cut short would be a short export file that
+	// says nothing of what it lacks, so too large is refused whole.
+	if (archiveSize(db, archived) > ARCHIVE_WHOLE_BUDGET) return "too_large";
+	return {
+		issues: db
+			.select()
+			.from(schema.issues)
+			.where(archived)
+			.orderBy(asc(schema.issues.teamId), asc(schema.issues.number))
+			.all()
+			.map(toIssue),
+		comments: db
+			.select(getTableColumns(schema.comments))
+			.from(schema.comments)
+			.innerJoin(schema.issues, eq(schema.issues.id, schema.comments.issueId))
+			.where(and(isNull(schema.comments.deletedAt), archived))
+			.orderBy(asc(schema.comments.createdAt), asc(schema.comments.id))
+			.all()
+			.map(toComment),
+		activities: db
+			.select(getTableColumns(schema.activities))
+			.from(schema.activities)
+			.innerJoin(schema.issues, eq(schema.issues.id, schema.activities.issueId))
+			.where(archived)
+			// Insertion order, as in a snapshot.
+			.orderBy(sql`${schema.activities}.rowid`)
+			.all()
+			.map(toActivity),
+	};
+}
+
+/**
+ * The most characters of text `findArchivedIssues` answers at once. Up to three bytes each in
+ * UTF-8, it keeps the answer under the Durable Object's 32 MiB RPC limit, with room to spare.
+ */
+const ARCHIVE_WHOLE_BUDGET = 8 * 1024 * 1024;
+
+/**
+ * About how many characters of JSON the archived issues `where` selects come to, with their
+ * comments and history, from the long text columns and a generous allowance for the rest of each
+ * row. Counted in SQL, so a large archive is never read to find out it is too large.
+ */
+function archiveSize(db: Db, where: SQL | undefined): number {
+	const issues = db
+		.select({
+			size: sql<number>`coalesce(sum(length(${schema.issues.title}) + coalesce(length(${schema.issues.description}), 0) + 1024), 0)`,
+		})
+		.from(schema.issues)
+		.where(where)
+		.get();
+	const comments = db
+		.select({ size: sql<number>`coalesce(sum(length(${schema.comments.body}) + 512), 0)` })
+		.from(schema.comments)
+		.innerJoin(schema.issues, eq(schema.issues.id, schema.comments.issueId))
+		.where(and(isNull(schema.comments.deletedAt), where))
+		.get();
+	const activities = db
+		.select({ size: sql<number>`coalesce(sum(length(${schema.activities.change}) + 512), 0)` })
+		.from(schema.activities)
+		.innerJoin(schema.issues, eq(schema.issues.id, schema.activities.issueId))
+		.where(where)
+		.get();
+	return (issues?.size ?? 0) + (comments?.size ?? 0) + (activities?.size ?? 0);
+}
+
+/**
  * One page of the live archived issues whole, or of one team's, with their comments and history:
  * what a replica leaves out of them, for an export. By id, after `after`, so each issue is on one
  * page however many are archived or restored between pages. A page ends at `limit` issues, or
  * once it comes to `ARCHIVE_PAGE_BUDGET` characters of JSON, whichever is first, but always holds
  * one issue, so a reader always gets further. Reads only.
  */
-export function findArchivedIssues(
+export function findArchivedIssuesPage(
 	db: Db,
 	request: { teamId: string | null; after: string | null; limit: number },
 ): ArchivedIssuesPage {

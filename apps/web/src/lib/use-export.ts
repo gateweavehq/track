@@ -3,6 +3,7 @@ import { useCallback } from "react";
 import { toast } from "sonner";
 import { useWorkspace } from "#/components/workspace/context";
 import {
+	ArchiveChanging,
 	ArchivedUnavailable,
 	archivedFailure,
 	fetchArchivedIssues,
@@ -74,8 +75,14 @@ export function useExportIssues(): (format: ExportFormat, teamId?: string | null
 					save({ ...exportSourceFrom(client.getState(), workspace), ...whole });
 				},
 				(error: unknown) => {
-					// Anything but a status of the server's is a failure of its answer.
-					const status = error instanceof ArchivedUnavailable ? error.status : 500;
+					// Anything but a status of the server's, or a changing archive, is a failure of its
+					// answer, such as one that is not a page.
+					const status =
+						error instanceof ArchivedUnavailable
+							? error.status
+							: error instanceof ArchiveChanging
+								? "changing"
+								: 500;
 					const { title, description } = archivedFailure(status, issues, archived);
 					toast.error(title, {
 						id,
