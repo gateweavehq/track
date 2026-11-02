@@ -10,10 +10,17 @@ notes. Publishing a release deploys it to Gateweave Cloud.
 
 ## [0.22.0] - 2026-11-02
 
-Long lists are much faster, issues with very long comment threads keep working, and text with
-invisible broken characters is cleaned or refused. Updating a self-hosted copy applies a
-migration in each workspace's database, which runs on its own; there is no D1 migration and no
-new setting. The protocol stays at version 25. ([#168], [#169], [#171], [#172])
+Long lists and tables are much faster, issues with very long comment threads keep working, text
+with invisible broken characters is cleaned or refused, and intake email is safe from a slow
+header. Updating a self-hosted copy applies a migration in each workspace's database, which runs
+on its own; there is no D1 migration and no new setting. The protocol stays at version 25.
+([#168], [#169], [#171], [#172], [#173])
+
+### Security
+
+- A crafted header in a message to a team's intake email address could make the Worker spend
+  CPU time that grew with the square of its length. postal-mime, which reads those messages, is
+  updated to 4.0.8 (GHSA-f2hq-32vh-53cc). ([#173])
 
 ### Fixed
 
@@ -956,3 +963,4 @@ The first pre-release.
 [#169]: https://github.com/gateweavehq/track/pull/169
 [#171]: https://github.com/gateweavehq/track/pull/171
 [#172]: https://github.com/gateweavehq/track/pull/172
+[#173]: https://github.com/gateweavehq/track/pull/173
