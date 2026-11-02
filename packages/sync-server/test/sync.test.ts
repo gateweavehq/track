@@ -15,12 +15,13 @@ import {
 	PONG,
 	type SyncedIssue,
 } from "@gateweave/track-protocol";
-import { sql } from "drizzle-orm";
+import { type Column, getTableColumns, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { describe, expect, it } from "vitest";
 import migrations from "../drizzle/migrations";
 import type { MemberProfile, MutateResult } from "../src";
+import { ARCHIVE_ROW_ALLOWANCE, archiveSize } from "../src/archive";
 import * as schema from "../src/db/schema";
 import { compact } from "../src/log";
 import {
@@ -62,6 +63,52 @@ async function createIssue(client: TestClient, id: string, title = "Ship sync") 
 		args: { id, teamId: TEAM_ID, title, sortOrder: "a0" },
 	});
 	return issueOf(client, id);
+}
+
+/**
+ * The bytes `row` comes to in JSON besides its text and JSON columns, with its numbers at their
+ * widest and its flags `false`: what the whole archive's size allows each row of its kind.
+ */
+function overhead(row: object, columns: Record<string, Column>): number {
+	const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+	let text = 0;
+	const widest = Object.entries(row).map(([key, value]) => {
+		const column = columns[key];
+		if (!column) throw new Error(`No column for ${key}`);
+		if (column.dataType === "number") return [key, Number.MAX_SAFE_INTEGER];
+		if (column.dataType === "boolean") return [key, false];
+		text += bytes(value);
+		return [key, value];
+	});
+	return bytes(Object.fromEntries(widest)) - text;
+}
+
+/**
+ * At least the bytes V8's serializer, which structured clone uses, writes for `value`: a string
+ * in one byte a character when every one fits, else two bytes a UTF-16 unit, after a tag and its
+ * length; every number as a double.
+ */
+function cloneBytes(value: unknown): number {
+	const varint = (n: number) => Math.max(1, Math.ceil(Math.log2(n + 1) / 7));
+	if (value === null || value === undefined || typeof value === "boolean") return 1;
+	if (typeof value === "number") return 9;
+	if (typeof value === "string") {
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: NUL is a one-byte character too.
+		const wide = /[^\u0000-\u00ff]/.test(value);
+		const size = wide ? 2 * value.length : value.length;
+		// A two-byte string may be padded by a byte, to align it.
+		return 1 + varint(size) + size + (wide ? 1 : 0);
+	}
+	if (Array.isArray(value)) {
+		return 11 + value.reduce((total: number, each) => total + cloneBytes(each), 0);
+	}
+	if (typeof value === "object") {
+		const entries = Object.entries(value);
+		return (
+			7 + entries.reduce((total, [key, each]) => total + cloneBytes(key) + cloneBytes(each), 0)
+		);
+	}
+	throw new Error(`Not cloned: ${typeof value}`);
 }
 
 /** Latest state of an issue that is not archived, as seen by `client`. */
@@ -984,37 +1031,45 @@ describe("archive", () => {
 	});
 
 	it("refuses the whole archive at once when one answer cannot hold it, never part of it", {
-		timeout: 60_000,
+		timeout: 30_000,
 	}, async () => {
 		const { workspace, admin } = await withTeam();
-		// About 9 MB of comments, over what one answer may hold.
-		for (const id of ["issue-1", "issue-2"]) {
+		// 9 million characters of comments, but 27 MB in UTF-8, over what one answer may hold.
+		const ids = ["issue-1", "issue-2", "issue-3", "issue-4", "issue-5", "issue-6"];
+		for (const id of ids) {
 			await admin.apply({
 				name: "issue.create",
 				args: { id, teamId: TEAM_ID, title: id, status: "done", sortOrder: "a0" },
 			});
-			for (let n = 0; n < 45; n++) {
-				await admin.apply({
-					name: "comment.create",
-					args: { id: `${id}-comment-${n}`, issueId: id, body: "x".repeat(100_000) },
-				});
-			}
+			// Through `mutate` inside the object, rather than 27 MB over the socket.
+			await runInDurableObject(workspace, (instance) => {
+				for (let n = 0; n < 15; n++) {
+					const result = instance.mutate(owner, "client-comments", `m-${id}-${n}`, {
+						name: "comment.create",
+						args: { id: `${id}-comment-${n}`, issueId: id, body: "€".repeat(100_000) },
+					});
+					if (!result.ok) throw new Error(result.message);
+				}
+			});
 			await archive(admin, id, true);
 		}
 		expect(await workspace.archivedIssues(owner, { teamId: null })).toEqual({
 			ok: true,
 			value: "too_large",
 		});
-		// Pages still bring it all.
+		// Pages still bring it all, three issues to a page.
 		const first = await workspace.archivedIssuesPage(owner, { teamId: null });
-		expect(first).toMatchObject({ ok: true, value: { issues: [{ id: "issue-1" }] } });
 		if (!first.ok) throw new Error(first.message);
+		expect(first.value.issues.map((issue) => issue.id)).toEqual(ids.slice(0, 3));
 		expect(first.value.comments).toHaveLength(45);
 		const second = await workspace.archivedIssuesPage(owner, {
 			teamId: null,
 			after: first.value.next,
 		});
-		expect(second).toMatchObject({ ok: true, value: { issues: [{ id: "issue-2" }], next: null } });
+		if (!second.ok) throw new Error(second.message);
+		expect(second.value.issues.map((issue) => issue.id)).toEqual(ids.slice(3));
+		expect(second.value.comments).toHaveLength(45);
+		expect(second.value.next).toBeNull();
 		// One team's is measured on its own.
 		expect(await workspace.archivedIssues(owner, { teamId: "team-other" })).toEqual({
 			ok: true,
@@ -1022,8 +1077,231 @@ describe("archive", () => {
 		});
 	});
 
+	it("answers the whole archive of many small rows, which a character count refused", async () => {
+		const { workspace, admin } = await withTeam();
+		const ids = ["issue-1", "issue-2", "issue-3"];
+		for (const id of ids) {
+			await admin.apply({
+				name: "issue.create",
+				args: { id, teamId: TEAM_ID, title: id, status: "done", sortOrder: "a0" },
+			});
+			await archive(admin, id, true);
+		}
+		// Short comments, written straight to storage, since one mutation each would take minutes.
+		// The old count allowed 512 characters for each, which put them past its 8M.
+		const count = 16_500;
+		expect(count * (512 + "Looks good".length)).toBeGreaterThan(8 * 1024 * 1024);
+		await runInDurableObject(workspace, (_, state) => {
+			drizzle(state.storage, { schema }).run(sql`
+				with recursive n(i) as (select 1 union all select i + 1 from n where i < ${count})
+				insert into comments (id, issue_id, author_id, body, created_at, updated_at)
+				select 'comment-' || i, 'issue-' || (i % 3 + 1), ${owner.id}, 'Looks good', i, i from n`);
+		});
+
+		const whole = await workspace.archivedIssues(owner, { teamId: null });
+		if (!whole.ok || whole.value === "too_large") throw new Error("Not the whole archive");
+		expect(whole.value.issues.map((issue) => issue.id)).toEqual(ids);
+		expect(whole.value.comments).toHaveLength(count);
+		expect(new Set(whole.value.comments.map((comment) => comment.id)).size).toBe(count);
+		expect(whole.value.activities.length).toBeGreaterThan(0);
+	});
+
+	it("allows each row of the whole archive what it sends besides its text", async () => {
+		const { workspace, admin } = await withTeam();
+		await admin.apply({
+			name: "label.create",
+			args: { id: "label-bug", name: "Bug", color: "#ff0000" },
+		});
+		await admin.apply({
+			name: "issue.create",
+			args: {
+				id: "issue-1",
+				teamId: TEAM_ID,
+				title: 'Measure "me" ünd 🧪',
+				description: "Line one\nLine two",
+				status: "done",
+				estimate: 3,
+				dueDate: "2026-11-30",
+				labelIds: ["label-bug"],
+				sortOrder: "a0",
+			},
+		});
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "comment-1", issueId: "issue-1", body: "A comment" },
+		});
+		await archive(admin, "issue-1", true);
+
+		const whole = await workspace.archivedIssues(owner, { teamId: null });
+		if (!whole.ok || whole.value === "too_large") throw new Error("Not the whole archive");
+		const [issue] = whole.value.issues;
+		const [comment] = whole.value.comments;
+		if (!issue || !comment) throw new Error("Not archived");
+		expect(whole.value.activities.length).toBeGreaterThan(0);
+		expect(overhead(issue, getTableColumns(schema.issues))).toBe(ARCHIVE_ROW_ALLOWANCE.issue);
+		expect(overhead(comment, getTableColumns(schema.comments))).toBe(ARCHIVE_ROW_ALLOWANCE.comment);
+		for (const activity of whole.value.activities) {
+			expect(overhead(activity, getTableColumns(schema.activities))).toBe(
+				ARCHIVE_ROW_ALLOWANCE.activity,
+			);
+		}
+	});
+
+	it("counts text with a character past U+00FF at two bytes a character, as RPC sends it", {
+		timeout: 30_000,
+	}, async () => {
+		const { workspace, admin } = await withTeam();
+		await admin.apply({
+			name: "issue.create",
+			args: { id: "issue-1", teamId: TEAM_ID, title: "Big", status: "done", sortOrder: "a0" },
+		});
+		await archive(admin, "issue-1", true);
+		// 13 MB in UTF-8, but one emoji in each comment makes structured clone store it all at two
+		// bytes a character: 26 MB, over what one answer may hold.
+		await runInDurableObject(workspace, (_, state) => {
+			drizzle(state.storage, { schema }).run(sql`
+				with recursive n(i) as (select 1 union all select i + 1 from n where i < 130)
+				insert into comments (id, issue_id, author_id, body, created_at, updated_at)
+				select 'comment-' || i, 'issue-1', ${owner.id}, printf('%.*c', 99998, 'x') || '🧪', i, i
+				from n`);
+		});
+		expect(await workspace.archivedIssues(owner, { teamId: null })).toEqual({
+			ok: true,
+			value: "too_large",
+		});
+	});
+
+	/** Archives one issue with `count` comments of `body`, written straight to storage. */
+	async function archivedWithComments(body: string, count: number) {
+		const { workspace, admin } = await withTeam();
+		await admin.apply({
+			name: "issue.create",
+			args: { id: "issue-1", teamId: TEAM_ID, title: "Big", status: "done", sortOrder: "a0" },
+		});
+		await archive(admin, "issue-1", true);
+		const stored = await runInDurableObject(workspace, (_, state) => {
+			const db = drizzle(state.storage, { schema });
+			db.run(sql`
+				with recursive n(i) as (select 1 union all select i + 1 from n where i < ${count})
+				insert into comments (id, issue_id, author_id, body, created_at, updated_at)
+				select 'comment-' || i, 'issue-1', ${owner.id}, ${body}, i, i from n`);
+			return db.get<{ bytes: number }>(
+				sql`select length(cast(body as blob)) as bytes from comments limit 1`,
+			);
+		});
+		// Stored whole, NULs and all.
+		expect(stored?.bytes).toBe(new TextEncoder().encode(body).length);
+		return workspace;
+	}
+
+	it("counts wide text after a NUL, which SQLite's length and glob stop at", {
+		timeout: 30_000,
+	}, async () => {
+		// 18 MB in UTF-8, but 36 MB in structured clone, past the RPC limit.
+		const workspace = await archivedWithComments(`\0${"x".repeat(99_998)}🧪`, 180);
+		expect(await workspace.archivedIssues(owner, { teamId: null })).toEqual({
+			ok: true,
+			value: "too_large",
+		});
+	});
+
+	it("counts an emoji at the four bytes structured clone gives it", {
+		timeout: 30_000,
+	}, async () => {
+		// 25 MB in UTF-8, and 25,000 × "ab🧪" is 100,000 UTF-16 units, so 33.4 MB in structured
+		// clone, past the RPC limit. Two bytes a code point would count it at 25 MB.
+		const workspace = await archivedWithComments("ab🧪".repeat(25_000), 167);
+		expect(await workspace.archivedIssues(owner, { teamId: null })).toEqual({
+			ok: true,
+			value: "too_large",
+		});
+	});
+
+	it("counts a lone surrogate at what it reads back as", { timeout: 30_000 }, async () => {
+		const { workspace } = await withTeam();
+		// Each body is stored as 300 KB, three bytes a surrogate, but reads back as three U+FFFD
+		// each, 600 KB in structured clone: 37 MB in all, past the RPC limit.
+		await runInDurableObject(workspace, (instance) => {
+			for (let n = 0; n < 62; n++) {
+				const id = `issue-${n}`;
+				const mutations: MutationInput[] = [
+					{
+						name: "issue.create",
+						args: { id, teamId: TEAM_ID, title: id, status: "done", sortOrder: "a0" },
+					},
+					{
+						name: "comment.create",
+						args: { id: `${id}-comment`, issueId: id, body: "\ud800".repeat(100_000) },
+					},
+					{ name: "issue.archive", args: { id, archived: true } },
+				];
+				for (const [m, mutation] of mutations.entries()) {
+					const result = instance.mutate(owner, "client-surrogates", `m-${n}-${m}`, mutation);
+					if (!result.ok) throw new Error(result.message);
+				}
+			}
+		});
+		expect(await workspace.archivedIssues(owner, { teamId: null })).toEqual({
+			ok: true,
+			value: "too_large",
+		});
+	});
+
+	it("estimates the whole archive at no less than it comes to, as JSON or structured clone", async () => {
+		const { workspace } = await withTeam();
+		const texts = [
+			"Plain ASCII",
+			"Café crème, naïve",
+			"ab🧪".repeat(40),
+			"\0 hidden wide text: 漢字 🧪",
+			"漢字かな交じり文",
+			"🧪🧪🧪",
+			'Quotes " and \\ and \n escapes',
+		];
+		await runInDurableObject(workspace, (instance) => {
+			for (const [n, text] of texts.entries()) {
+				const id = `issue-${n}`;
+				const mutations: MutationInput[] = [
+					{
+						name: "issue.create",
+						args: {
+							id,
+							teamId: TEAM_ID,
+							title: text,
+							description: text,
+							status: "done",
+							sortOrder: "a0",
+						},
+					},
+					...texts.map(
+						(body, c): MutationInput => ({
+							name: "comment.create",
+							args: { id: `${id}-comment-${c}`, issueId: id, body },
+						}),
+					),
+					{ name: "issue.archive", args: { id, archived: true } },
+				];
+				for (const [m, mutation] of mutations.entries()) {
+					const result = instance.mutate(owner, "client-estimate", `m-${n}-${m}`, mutation);
+					if (!result.ok) throw new Error(result.message);
+				}
+			}
+		});
+		const whole = await workspace.archivedIssues(owner, { teamId: null });
+		if (!whole.ok || whole.value === "too_large") throw new Error("Not the whole archive");
+		expect(whole.value.issues).toHaveLength(texts.length);
+		expect(whole.value.comments).toHaveLength(texts.length ** 2);
+		const estimate = await runInDurableObject(workspace, (_, state) =>
+			archiveSize(drizzle(state.storage, { schema }), null),
+		);
+		expect(estimate).toBeGreaterThanOrEqual(cloneBytes(whole.value));
+		expect(estimate).toBeGreaterThanOrEqual(
+			new TextEncoder().encode(JSON.stringify(whole.value)).length,
+		);
+	});
+
 	it("answers every archived issue at once in v0.21.0's shape when not asked for pages", {
-		timeout: 60_000,
+		timeout: 30_000,
 	}, async () => {
 		const { workspace, admin } = await withTeam();
 		await admin.apply({ name: "team.create", args: { id: "team-ops", key: "OPS", name: "Ops" } });
