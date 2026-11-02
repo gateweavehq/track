@@ -73,4 +73,12 @@ describe("guideSteps", () => {
 		expect(text(null)).not.toContain("claude mcp add");
 		expect(text(null)).toContain("BETTER_AUTH_URL");
 	});
+
+	it("points a team moving in to the import and to GitHub", () => {
+		const titles = steps().mutations.map((mutation) =>
+			mutation.name === "issue.create" ? mutation.args.title : "",
+		);
+		expect(titles).toContain("Bring your issues from another tracker");
+		expect(titles).toContain("Link pull requests from GitHub");
+	});
 });
