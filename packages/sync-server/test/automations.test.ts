@@ -1,4 +1,4 @@
-import { runInDurableObject } from "cloudflare:test";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import {
 	AUTOMATION_MONTH_MS,
 	type MutationInput,
@@ -6,7 +6,7 @@ import {
 } from "@gateweave/track-protocol";
 import { inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/durable-sqlite";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { MemberProfile } from "../src";
 import {
 	AUTOMATION_BATCH,
@@ -48,11 +48,19 @@ async function setup() {
 		} as MutationInput);
 	// The alarm the change wakes would run the automations on the real clock. The tests run them
 	// at times of their own instead, so they turn it off, and age issues after it, where they can.
+	// A run the change already started must end first: deleting the alarm does not stop it, and
+	// it would archive issues aged meanwhile at the real time.
 	const automate = async (patch: {
 		archiveAfterMonths?: number | null;
 		closeAfterMonths?: number | null;
 	}) => {
 		await ok(owner, { name: "team.update", args: { id: TEAM_ID, patch } });
+		await runDurableObjectAlarm(workspace);
+		// A run ends by setting the next alarm, ahead of now.
+		await vi.waitFor(async () => {
+			const alarm = await runInDurableObject(workspace, (_, state) => state.storage.getAlarm());
+			expect(alarm).toBeGreaterThan(Date.now());
+		});
 		await runInDurableObject(workspace, (_, state) => state.storage.deleteAlarm());
 	};
 
