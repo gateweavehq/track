@@ -246,7 +246,9 @@ test("an admin imports a GitHub repository's issues and comments", async ({ page
 	await expect(page.getByText("Same here.")).toBeVisible();
 });
 
-test("an admin picks a Linear team and imports its issues", async ({ page }) => {
+test("an admin picks a Linear team and imports its issues, relations and projects", async ({
+	page,
+}) => {
 	const { slug } = await startWorkspace(page);
 	await page.context().route("https://api.linear.app/graphql", async (route) => {
 		const { query } = route.request().postDataJSON() as { query: string };
@@ -276,10 +278,56 @@ test("an admin picks a Linear team and imports its issues", async ({ page }) => 
 									project: { name: "Security" },
 									parent: null,
 									labels: { nodes: [{ name: "Chore", color: "#5e6ad2" }] },
+									relations: {
+										nodes: [{ id: "r1", type: "blocks", relatedIssue: { id: "b" } }],
+									},
+								},
+								{
+									id: "b",
+									identifier: "OPS-8",
+									title: "Revoke the old keys",
+									description: null,
+									priority: 0,
+									estimate: null,
+									dueDate: null,
+									createdAt: "2024-06-02T09:00:00.000Z",
+									url: "https://linear.app/acme/issue/OPS-8",
+									state: { name: "Todo", type: "unstarted" },
+									assignee: null,
+									project: { name: "Security" },
+									parent: null,
+									labels: { nodes: [] },
+									relations: { nodes: [] },
 								},
 							]),
 						}
-					: { comments: list([]) };
+					: operation === "Projects"
+						? {
+								team: {
+									projects: list([
+										{
+											name: "Security",
+											description: "Keys and access",
+											content: null,
+											targetDate: "2024-09-30",
+											status: { type: "started" },
+											lead: null,
+											projectUpdates: {
+												nodes: [
+													{
+														id: "u1",
+														body: "Waiting on the vendor.",
+														health: "atRisk",
+														createdAt: "2024-06-03T09:00:00.000Z",
+														user: { name: "Grace" },
+													},
+												],
+											},
+										},
+									]),
+								},
+							}
+						: { comments: list([]) };
 		await route.fulfill({ json: { data }, headers: { "Access-Control-Allow-Origin": "*" } });
 	});
 
@@ -289,11 +337,16 @@ test("an admin picks a Linear team and imports its issues", async ({ page }) => 
 	await page.getByRole("button", { name: "Connect" }).click();
 	await expect(page.getByLabel("Linear team")).toHaveValue("t-ops");
 	await page.getByRole("button", { name: "Read issues" }).click();
-	await expect(page.getByText("From Linear: 1 issue.")).toBeVisible();
+	await expect(
+		page.getByText("From Linear: 2 issues, 1 relation and 1 project update."),
+	).toBeVisible();
 	await expect(page.getByText("New labels: Chore.")).toBeVisible();
 	await expect(page.getByText("New projects: Security.")).toBeVisible();
-	await page.getByRole("button", { name: "Import 1 issue" }).click();
-	await expect(page.getByRole("status")).toHaveText("Imported 1 issue.");
+	await page.getByRole("button", { name: "Import 2 issues" }).click();
+	await expect(page.getByRole("status")).toHaveText(
+		"Imported 2 issues, 1 relation and 1 project update.",
+	);
+	await expect(syncBadge(page)).toHaveText("Live");
 
 	await page.goto(`/${slug}/issue/ENG-1`);
 	await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue("Rotate the keys");
@@ -301,4 +354,19 @@ test("an admin picks a Linear team and imports its issues", async ({ page }) => 
 	await expect(properties.getByRole("button", { name: /^In Review/ })).toBeVisible();
 	await expect(properties.getByRole("button", { name: /^High/ })).toBeVisible();
 	await expect(page.getByRole("link", { name: "OPS-7" })).toBeVisible();
+	await expect(page.getByRole("list", { name: "Blocks" }).getByRole("link")).toHaveText(
+		/Revoke the old keys/,
+	);
+
+	// The project comes with its description and how it was going.
+	await page.goto(`/${slug}/projects`);
+	await page
+		.getByRole("link", { name: /Security/ })
+		.first()
+		.click();
+	await expect(page.getByRole("heading", { name: "Security", level: 1 })).toBeVisible();
+	await expect(page.getByText("Keys and access")).toBeVisible();
+	const updates = page.getByRole("region", { name: "Updates" });
+	await expect(updates).toContainText("Grace wrote in Linear:");
+	await expect(updates).toContainText("Waiting on the vendor.");
 });
