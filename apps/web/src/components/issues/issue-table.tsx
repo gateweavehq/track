@@ -25,6 +25,7 @@ import { CycleIcon } from "#/components/cycles/meta";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { ProjectStatusIcon } from "#/components/projects/meta";
 import { Button } from "#/components/ui/button";
+import { Checkbox } from "#/components/ui/checkbox";
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
@@ -43,6 +44,7 @@ import {
 	TABLE_COLUMN_LABELS,
 	toggleColumn,
 } from "#/lib/display";
+import { useHotkeys } from "#/lib/hotkeys";
 import { isIssueOverdue, issueKey } from "#/lib/issues";
 import { useUpdateIssue } from "#/lib/mutations";
 import {
@@ -55,6 +57,7 @@ import {
 } from "#/lib/queries";
 import { nextSort, type SortColumn, sortIssues, type TableSort } from "#/lib/table";
 import { cn } from "#/lib/utils";
+import { BulkBar } from "./bulk-bar";
 import { DateField } from "./date-field";
 import { LabelChips, LabelPicker } from "./labels";
 import { PRIORITY_META, PriorityIcon, StatusIcon } from "./meta";
@@ -67,6 +70,7 @@ import {
 	StatusPicker,
 } from "./pickers";
 import { Estimate } from "./schedule";
+import { useIssueSelection } from "./selection";
 
 /**
  * The least each column takes, at least as wide as anything its cells show. Only the rows on
@@ -100,7 +104,7 @@ const OVERSCAN = 15;
  * It scrolls sideways inside its own container, with the ID and Title columns staying put. The
  * columns and the sort are display options, so they go with the page's link or saved view. Only
  * the rows near the screen are in the page, so a table of thousands opens and sorts as quickly as
- * one of a few dozen.
+ * one of a few dozen. Rows are picked by their checkboxes, as in a list, to change them together.
  */
 export function IssueTable({
 	issues,
@@ -128,6 +132,12 @@ export function IssueTable({
 	);
 	const body = useRef<HTMLTableSectionElement>(null);
 	const [first, last] = useRowsOnScreen(rows.length, body);
+	const selection = useIssueSelection(rows);
+	const { checkedIds, checking, onCheck } = selection;
+	const uncheckAll = () => {
+		if (checking) selection.clear();
+	};
+	useHotkeys({ Escape: uncheckAll });
 	// Keys are monospaced, at most about half a rem a character, plus the cell's padding.
 	const idWidth = useMemo(() => {
 		const longest = Math.max(
@@ -183,12 +193,16 @@ export function IssueTable({
 								project={issue.projectId ? projects.get(issue.projectId) : undefined}
 								cycle={issue.cycleId ? cycles.get(issue.cycleId) : undefined}
 								columns={shown}
+								checked={checkedIds.has(issue.id)}
+								checking={checking}
+								onCheck={onCheck}
 							/>
 						))}
 						<Spacer rows={rows.length - last} columns={shown.length} />
 					</tbody>
 				</table>
 			</div>
+			<BulkBar selection={selection} total={rows.length} />
 		</div>
 	);
 }
@@ -339,6 +353,9 @@ const TableRow = memo(function TableRow({
 	project,
 	cycle,
 	columns,
+	checked,
+	checking,
+	onCheck,
 }: {
 	/** Its place in the sorted rows, for assistive technology, which sees only those rendered. */
 	index: number;
@@ -348,6 +365,11 @@ const TableRow = memo(function TableRow({
 	project: Project | undefined;
 	cycle: Cycle | undefined;
 	columns: readonly TableColumn[];
+	/** Whether it is among the issues picked to change together. */
+	checked: boolean;
+	/** Whether any issue is picked, so every row shows its checkbox. */
+	checking: boolean;
+	onCheck: (issueId: string, range: boolean) => void;
 }) {
 	const { slug } = useWorkspace();
 	const update = useUpdateIssue();
@@ -368,14 +390,31 @@ const TableRow = memo(function TableRow({
 				);
 			case "title":
 				return (
-					<Link
-						to="/$workspace/issue/$issueKey"
-						params={{ workspace: slug, issueKey: key }}
-						title={issue.title}
-						className="block w-48 truncate hover:underline sm:w-72"
-					>
-						{issue.title}
-					</Link>
+					<div className="flex items-center gap-2">
+						<Checkbox
+							checked={checked}
+							aria-label={`Select ${key}`}
+							onClick={(event) => {
+								// Toggled here, with the Shift key in hand, rather than by Radix.
+								event.preventDefault();
+								onCheck(issue.id, event.shiftKey);
+							}}
+							className={cn(
+								"border-muted-foreground/60",
+								!checking &&
+									!checked &&
+									"opacity-0 focus-visible:opacity-100 group-hover:opacity-100",
+							)}
+						/>
+						<Link
+							to="/$workspace/issue/$issueKey"
+							params={{ workspace: slug, issueKey: key }}
+							title={issue.title}
+							className="block w-48 truncate hover:underline sm:w-72"
+						>
+							{issue.title}
+						</Link>
+					</div>
 				);
 			case "status":
 				return (
@@ -509,12 +548,12 @@ const TableRow = memo(function TableRow({
 	};
 
 	return (
-		<tr aria-rowindex={index + 2} className="group hover:bg-muted/60">
+		<tr aria-rowindex={index + 2} data-checked={checked} className="group hover:bg-muted/60">
 			{columns.map((column) => (
 				<td
 					key={column}
 					className={cn(
-						"h-10 whitespace-nowrap border-b bg-background px-2 first:pl-3 group-hover:bg-muted sm:first:pl-4",
+						"h-10 whitespace-nowrap border-b bg-background px-2 first:pl-3 group-hover:bg-muted group-data-[checked=true]:bg-accent sm:first:pl-4",
 						cellEdge(column),
 					)}
 				>
