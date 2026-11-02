@@ -434,18 +434,75 @@ describe("readJsonImport", () => {
 		expect(notes).toEqual([expect.stringContaining("history stays behind")]);
 	});
 
-	it("says which archived issues it leaves behind, since the export has only part of them", () => {
-		const archived = issue({
+	it("brings archived issues along whole, and archives them once their rows are in", async () => {
+		const old = issue({
 			id: "i9",
 			teamId: "t1",
 			number: 9,
 			title: "Old",
+			description: "Kept on the server",
 			status: "done",
+			priority: 2,
+			labelIds: ["l1"],
+			createdAt: 5,
 			archivedAt: 50,
 		});
+		// Archived where it was, but its status here is open: it cannot be archived.
+		const reopened = issue({ id: "i8", teamId: "t1", number: 8, title: "Odd", archivedAt: 60 });
+		const said: Comment = { ...reply, id: "c9", issueId: "i9", body: "Shipped long ago." };
+		const related: IssueRelation = { ...blocks, id: "r9", issueId: "i9", relatedIssueId: "i1" };
 		const { source, notes } = readJsonImport(
-			workspaceToJson({ ...exported, issues: [...exported.issues, archived] }),
+			workspaceToJson({
+				...exported,
+				// The replica's slim rows, as a browser holds them; the server's are whole.
+				issues: [...exported.issues, { ...old, description: null }, reopened],
+				relations: [blocks, related],
+				archived: { issues: [old, reopened], comments: [said], activities: [] },
+			}),
 		);
+		expect(notes).toEqual([]);
+		expect(source.issues.find((each) => each.title === "Old")).toMatchObject({
+			description: "Kept on the server",
+			labels: ["Bug"],
+			priority: 2,
+			archived: true,
+			comments: [expect.objectContaining({ body: "Shipped long ago." })],
+		});
+		expect(source.relations).toHaveLength(2);
+
+		const plan = await planImport(source, elsewhere(), "home-eng");
+		expect(plan).toMatchObject({ issues: 4, comments: 2, relations: 2, archived: 1 });
+		const oldId = await importId("track:i9");
+		// Last of all, after its comment and relation, as only a closed issue is archived.
+		expect(plan.mutations.at(-1)).toEqual({
+			name: "issue.archive",
+			args: { id: oldId, archived: true },
+		});
+		expect(argsOf(plan.mutations, "issue.archive")).toHaveLength(1);
+		expect(argsOf(plan.mutations, "issue.create").find((args) => args.id === oldId)).toMatchObject({
+			status: "done",
+			description: "Kept on the server",
+		});
+	});
+
+	it("says which archived issues of an older export it leaves behind, as they are only slim", () => {
+		const doc = JSON.parse(workspaceToJson(exported));
+		doc.archivedIssues = [
+			{
+				id: "i9",
+				key: "ENG-9",
+				teamId: "t1",
+				number: 9,
+				title: "Old",
+				status: "done",
+				projectId: null,
+				cycleId: null,
+				parentId: null,
+				estimate: null,
+				archivedAt: 50,
+			},
+		];
+		const { source, notes } = readJsonImport(JSON.stringify(doc));
 		expect(source.issues.map((each) => each.title)).not.toContain("Old");
 		expect(notes).toContainEqual(expect.stringContaining("1 archived issue stays behind"));
 	});

@@ -7,13 +7,14 @@ import {
 	type Label,
 	type Member,
 	type Project,
+	type SyncedIssue,
 	type Team,
 	type WorkflowStatus,
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import {
-	ARCHIVED_EXPORT_NOTE,
 	archivedInExport,
+	archivedLeftOutNote,
 	CSV_COLUMNS,
 	type ExportSource,
 	exportFileName,
@@ -129,7 +130,7 @@ function cycle(id: string, teamId: string): Cycle {
 	};
 }
 
-function source(issues: Issue[], extra: Partial<ExportSource> = {}): ExportSource {
+function source(issues: SyncedIssue[], extra: Partial<ExportSource> = {}): ExportSource {
 	return {
 		workspace: { slug: "acme", name: "Acme" },
 		teams: [ops, eng],
@@ -302,45 +303,53 @@ describe("issuesToCsv", () => {
 		expect(rows(issuesToCsv(source([])))).toHaveLength(1);
 	});
 
-	it("lists archived issues last, with only what the replica holds of them", () => {
+	it("lists archived issues last, whole, as the server sent them", () => {
+		const old = issue({
+			id: "a",
+			teamId: "t1",
+			number: 1,
+			title: "Old",
+			status: "done",
+			description: "Kept on the server",
+			priority: 2,
+			assigneeId: "u2",
+			projectId: "p1",
+			labelIds: ["l1"],
+			estimate: 3,
+			archivedAt: CREATED,
+		});
 		const csv = issuesToCsv(
-			source([
-				issue({
-					id: "a",
-					teamId: "t1",
-					number: 1,
-					title: "Old",
-					status: "done",
-					description: "Never in the replica",
-					priority: 2,
-					projectId: "p1",
-					estimate: 3,
-					archivedAt: CREATED,
-				}),
-				issue({ id: "b", teamId: "t1", number: 2, title: "New" }),
-			]),
+			source([{ ...old, description: null }, issue({ id: "b", teamId: "t1", number: 2 })], {
+				archived: { issues: [old], comments: [], activities: [] },
+			}),
 		);
 		expect(rows(csv).slice(1)).toEqual([
-			expect.arrayContaining(["ENG-2", "New"]),
+			expect.arrayContaining(["ENG-2", "Title"]),
 			[
 				"ENG-1",
 				"Old",
-				"",
+				"Kept on the server",
 				"Engineering",
 				"Done",
-				"",
-				"",
-				"",
+				"High",
+				"bot@example.test",
+				"ada@example.test",
 				"Launch",
 				"",
-				"",
+				"Bug",
 				"",
 				"",
 				"3",
-				"",
-				"",
+				"2026-10-30T12:30:00.000Z",
+				"2026-10-30T12:30:01.000Z",
 			],
 		]);
+	});
+
+	it("leaves archived issues out when the server did not send them", () => {
+		const old = issue({ id: "a", teamId: "t1", number: 1, status: "done", archivedAt: CREATED });
+		const csv = issuesToCsv(source([old, issue({ id: "b", teamId: "t1", number: 2 })]));
+		expect(rows(csv).map((row) => row[0])).toEqual(["Key", "ENG-2"]);
 	});
 });
 
@@ -423,39 +432,74 @@ describe("workspaceToJson", () => {
 		expect(doc.relations).toEqual([]);
 	});
 
-	it("lists archived issues apart, slim, and says their details are not included", () => {
-		const old = issue({
-			id: "z",
-			teamId: "t1",
-			number: 7,
-			title: "Old",
-			status: "done",
-			description: "Never in the replica",
-			labelIds: ["l1"],
-			archivedAt: CREATED,
-		});
-		const doc = JSON.parse(workspaceToJson(source([...issues, old])));
-		expect(doc.issues.map((item: Issue) => item.id)).toEqual(["b", "a"]);
-		expect(doc.archivedIssues).toEqual([
-			{
-				id: "z",
-				key: "ENG-7",
-				teamId: "t1",
-				number: 7,
-				title: "Old",
-				status: "done",
-				projectId: null,
-				cycleId: null,
-				parentId: null,
-				estimate: null,
-				archivedAt: CREATED,
-			},
-		]);
-		expect(doc.notes).toEqual([ARCHIVED_EXPORT_NOTE]);
-		expect(ARCHIVED_EXPORT_NOTE).toContain("not included yet");
-		expect(archivedInExport(source([...issues, old]))).toBe(1);
-		expect(archivedInExport(source([...issues, old]), "t2")).toBe(0);
+	const old = issue({
+		id: "z",
+		teamId: "t1",
+		number: 7,
+		title: "Old",
+		status: "done",
+		description: "Kept on the server",
+		labelIds: ["l1"],
+		archivedAt: CREATED,
+	});
+	// The replica holds it slim, without its comments and history; the server has them.
+	const slim = {
+		id: "z",
+		teamId: "t1",
+		number: 7,
+		title: "Old",
+		status: "done",
+		projectId: null,
+		cycleId: null,
+		parentId: null,
+		estimate: null,
+		archivedAt: CREATED,
+	};
 
+	it("lists archived issues apart, whole, with their comments and history", () => {
+		const doc = JSON.parse(
+			workspaceToJson(
+				source([...issues, slim], {
+					...full,
+					issues: [...issues, slim],
+					archived: {
+						issues: [old],
+						comments: [comment("c9", "z")],
+						activities: [activity("x9", "z")],
+					},
+				}),
+			),
+		);
+		expect(doc.issues.map((item: Issue) => item.id)).toEqual(["b", "a"]);
+		expect(doc.archivedIssues).toEqual([{ ...old, key: "ENG-7" }]);
+		expect(doc.comments.map((item: Comment) => item.id)).toEqual(["c1", "c2", "c9"]);
+		expect(doc.activities.map((item: Activity) => item.id)).toEqual(["x1", "x2", "x9"]);
+		expect(doc.notes).toEqual([]);
+		expect(archivedInExport(source([...issues, slim]))).toBe(1);
+		expect(archivedInExport(source([...issues, slim]), "t2")).toBe(0);
+	});
+
+	it("takes the server's word for which issues are archived, and holds each once", () => {
+		// Archived on the server a moment ago; the replica has not heard yet.
+		const doc = JSON.parse(
+			workspaceToJson(
+				source([...issues, { ...old, archivedAt: null }], {
+					archived: { issues: [old], comments: [], activities: [] },
+				}),
+			),
+		);
+		expect(doc.issues.map((item: Issue) => item.id)).toEqual(["b", "a"]);
+		expect(doc.archivedIssues.map((item: Issue) => item.id)).toEqual(["z"]);
+	});
+
+	it("says how many archived issues it left out without the server", () => {
+		const doc = JSON.parse(workspaceToJson(source([...issues, slim]), "t1"));
+		expect(doc.issues.map((item: Issue) => item.id)).toEqual(["b"]);
+		expect(doc.archivedIssues).toEqual([]);
+		expect(doc.notes).toEqual([archivedLeftOutNote(1)]);
+		expect(archivedLeftOutNote(1)).toContain("1 archived issue is not in this export");
+		// Another team's archived issue is not this export's to mention.
+		expect(JSON.parse(workspaceToJson(source([...issues, slim]), "t2")).notes).toEqual([]);
 		// Without archived issues there is nothing to say.
 		expect(JSON.parse(workspaceToJson(full))).toMatchObject({ archivedIssues: [], notes: [] });
 	});

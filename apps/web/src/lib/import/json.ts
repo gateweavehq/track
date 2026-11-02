@@ -19,11 +19,40 @@ import type {
 
 // Track's own JSON export (`workspaceToJson`), read back: issues with their comments, relations,
 // parents, labels and their colors, and projects and their details, so a workspace or a team moves
-// between Track workspaces, such as from a self-hosted copy to Gateweave Cloud. History stays
-// behind: activity belongs to the people who made it, and an import is the importer's.
+// between Track workspaces, such as from a self-hosted copy to Gateweave Cloud. Archived issues
+// come along archived. History stays behind: activity belongs to the people who made it, and an
+// import is the importer's.
 
 const ref = z.string().min(1);
 const nullableRef = ref.nullable().catch(null);
+
+const exportedIssue = z.object({
+	id: ref,
+	teamId: ref,
+	key: z.string().optional(),
+	title: z.string(),
+	description: z.string().nullable().catch(null),
+	status: z.string().catch("backlog"),
+	priority: z.literal(ISSUE_PRIORITIES).catch(0),
+	assigneeId: nullableRef,
+	projectId: nullableRef,
+	parentId: nullableRef,
+	startDate: z.string().nullable().catch(null),
+	dueDate: z.string().nullable().catch(null),
+	estimate: z.number().nullable().catch(null),
+	labelIds: z.array(z.string()).catch([]),
+	createdAt: z.number().nullable().catch(null),
+});
+
+/**
+ * An archived issue as exports write it now, whole. Exports made before it held only a slim row
+ * of one (key, title, status and a few links), without these fields, and those stay behind.
+ */
+const wholeArchivedIssue = exportedIssue.extend({
+	priority: z.number(),
+	labelIds: z.array(z.string()),
+	createdAt: z.number(),
+});
 
 /** What the import reads of an export. Unknown fields are ignored; later versions may add some. */
 const exportFile = z.object({
@@ -72,25 +101,7 @@ const exportFile = z.object({
 				.catch(null),
 		)
 		.catch([]),
-	issues: z.array(
-		z.object({
-			id: ref,
-			teamId: ref,
-			key: z.string().optional(),
-			title: z.string(),
-			description: z.string().nullable().catch(null),
-			status: z.string().catch("backlog"),
-			priority: z.literal(ISSUE_PRIORITIES).catch(0),
-			assigneeId: nullableRef,
-			projectId: nullableRef,
-			parentId: nullableRef,
-			startDate: z.string().nullable().catch(null),
-			dueDate: z.string().nullable().catch(null),
-			estimate: z.number().nullable().catch(null),
-			labelIds: z.array(z.string()).catch([]),
-			createdAt: z.number().nullable().catch(null),
-		}),
-	),
+	issues: z.array(exportedIssue),
 	comments: z
 		.array(
 			z.object({
@@ -103,7 +114,7 @@ const exportFile = z.object({
 		)
 		.catch([]),
 	activities: z.array(z.unknown()).catch([]),
-	// Archived issues exported without their details, from a browser that does not keep them.
+	// Whole since archived issues come from the server; slim rows in exports made before that.
 	archivedIssues: z.array(z.unknown()).catch([]),
 	// Exports made before relations existed have none.
 	relations: z
@@ -141,6 +152,16 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 		throw new Error(`This export could not be read: ${where} is not as Track writes it.`);
 	}
 	const file = parsed.data;
+	const archivedIssues = file.archivedIssues.flatMap((row) => {
+		const whole = wholeArchivedIssue.safeParse(row);
+		return whole.success ? [exportedIssue.parse(row)] : [];
+	});
+	const archivedIds = new Set(archivedIssues.map((issue) => issue.id));
+	const slimArchived = file.archivedIssues.length - archivedIssues.length;
+	const allIssues = [
+		...file.issues.filter((issue) => !archivedIds.has(issue.id)),
+		...archivedIssues,
+	];
 
 	const teams = new Map(file.teams.map((team) => [team.id, team]));
 	const statuses = new Map(
@@ -171,7 +192,7 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 	const members = new Map(file.members.map((member) => [member.id, member]));
 	const labels = new Map(file.labels.map((label) => [label.id, label]));
 	const projects = new Map(file.projects.map((project) => [project.id, project]));
-	const issueIds = new Set(file.issues.map((issue) => issue.id));
+	const issueIds = new Set(allIssues.map((issue) => issue.id));
 	const person = (id: string | null) => {
 		const member = id ? members.get(id) : undefined;
 		return member ? { name: member.name, email: member.email } : null;
@@ -190,7 +211,7 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 		comments.set(comment.issueId, list);
 	}
 
-	const issues: ImportedIssue[] = file.issues.map((issue) => {
+	const issues: ImportedIssue[] = allIssues.map((issue) => {
 		const team = teams.get(issue.teamId);
 		return {
 			sourceId: sourceId(issue.id),
@@ -211,14 +232,15 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 			url: null,
 			reference: issue.key ?? null,
 			comments: comments.get(issue.id) ?? [],
+			archived: archivedIds.has(issue.id),
 		};
 	});
 
 	const notes: string[] = [];
-	const archived = file.archivedIssues.length;
-	if (archived > 0) {
+	if (slimArchived > 0) {
+		const one = slimArchived === 1;
 		notes.push(
-			`${archived} archived ${archived === 1 ? "issue stays" : "issues stay"} behind: the export has only ${archived === 1 ? "its" : "their"} title and status, not ${archived === 1 ? "its" : "their"} details.`,
+			`${slimArchived} archived ${one ? "issue stays" : "issues stay"} behind: the export has only ${one ? "its" : "their"} title and status, not ${one ? "its" : "their"} details. Export again with a newer version of Track to bring ${one ? "it" : "them"} along.`,
 		);
 	}
 	if (file.activities.length > 0) {

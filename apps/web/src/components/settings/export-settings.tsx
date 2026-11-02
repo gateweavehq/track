@@ -20,11 +20,11 @@ export function ExportSettings() {
 					Export
 				</h2>
 				<p className="text-sm text-muted-foreground">
-					Download your issues from the copy this browser holds, so it also works offline. CSV has
-					one row per issue and opens in a spreadsheet. JSON also holds teams, members, labels,
-					cycles, projects, comments, activity and relations. Any member can export. Archived issues
-					come with only their key, title, status, project, cycle, parent and estimate: this browser
-					does not keep their description, labels, comments or history.
+					Download your issues from the copy this browser holds. CSV has one row per issue and opens
+					in a spreadsheet. JSON also holds teams, members, labels, cycles, projects, comments,
+					activity and relations. Any member can export. This browser keeps only a short record of
+					archived issues, so they come whole from the server: exporting them needs a connection.
+					Without archived issues, export works offline too.
 				</p>
 			</div>
 			<div className="space-y-2">
