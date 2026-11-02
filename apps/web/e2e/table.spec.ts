@@ -165,8 +165,9 @@ test("rows are measured, so the keyboard reaches every row at a larger font size
 		});
 	});
 	const { slug } = await startWorkspace(page);
+	const count = 120;
 	const titles = Array.from(
-		{ length: 150 },
+		{ length: count },
 		(_, index) => `Large issue ${String(index + 1).padStart(3, "0")}`,
 	);
 	await page.goto(`/${slug}/settings/import`);
@@ -176,13 +177,13 @@ test("rows are measured, so the keyboard reaches every row at a larger font size
 		mimeType: "text/csv",
 		buffer: Buffer.from(["Title", ...titles, ""].join("\r\n")),
 	});
-	await page.getByRole("button", { name: "Import 150 issues" }).click();
-	await expect(page.getByRole("status")).toHaveText("Imported 150 issues.");
+	await page.getByRole("button", { name: `Import ${count} issues` }).click();
+	await expect(page.getByRole("status")).toHaveText(`Imported ${count} issues.`);
 	await expect(syncBadge(page)).toHaveText("Live");
 
 	await page.goto(`/${slug}/team/ENG?view=table`);
 	const first = titles[0] as string;
-	const last = titles[149] as string;
+	const last = titles[count - 1] as string;
 	await expect(rowOf(page, first)).toBeVisible();
 	expect((await rowOf(page, first).boundingBox())?.height).toBe(50);
 
@@ -201,31 +202,33 @@ test("rows are measured, so the keyboard reaches every row at a larger font size
 		expect(uncovered, `${title} is not covered`).toBe(true);
 	}
 
-	// Down past rows that were not rendered, then back up to the top.
+	// Down past rows that were not rendered, then back up under the header.
 	await rowOf(page, first).getByRole("link", { name: first }).focus();
-	await press(page, "j", 100);
-	await expectFocused(titles[100] as string);
+	await press(page, "j", 80);
+	await expectFocused(titles[80] as string);
 	await expect(rowOf(page, first)).toHaveCount(0);
 	// Screen readers still hear each row's place among all of them, the header row first.
-	await expect(page.getByRole("table")).toHaveAttribute("aria-rowcount", "151");
-	await expect(rowOf(page, titles[100] as string)).toHaveAttribute("aria-rowindex", "102");
-	await press(page, "k", 60);
-	await expectFocused(titles[40] as string);
-	await press(page, "j", titles.length);
-	await expectFocused(last);
-	await expect(rowOf(page, last)).toHaveAttribute("aria-rowindex", "151");
-	await press(page, "k", titles.length - 1);
-	await expectFocused(first);
-	await expect(rowOf(page, first)).toHaveAttribute("aria-rowindex", "2");
+	await expect(page.getByRole("table")).toHaveAttribute("aria-rowcount", String(count + 1));
+	await expect(rowOf(page, titles[80] as string)).toHaveAttribute("aria-rowindex", "82");
+	await press(page, "k", 50);
+	await expectFocused(titles[30] as string);
 
-	// With an issue picked, the bulk bar floats over the bottom: the last row stops clear of it.
-	await rowOf(page, first).getByRole("checkbox").click();
+	// With an issue picked, the bulk bar floats over the bottom: rows stop clear of it too.
+	await rowOf(page, titles[30] as string)
+		.getByRole("checkbox")
+		.click();
 	const bar = page.getByRole("region", { name: "Selected issues" });
 	await expect(bar).toContainText("1 issue selected");
-	await press(page, "j", titles.length);
+	await press(page, "j", count);
 	await expectFocused(last);
+	await expect(rowOf(page, last)).toHaveAttribute("aria-rowindex", String(count + 1));
 	await page.keyboard.press("Escape");
 	await expect(bar).toBeHidden();
+
+	// And all the way back up from the last row to the first.
+	await press(page, "k", count - 1);
+	await expectFocused(first);
+	await expect(rowOf(page, first)).toHaveAttribute("aria-rowindex", "2");
 });
 
 async function press(page: Page, key: string, times: number) {

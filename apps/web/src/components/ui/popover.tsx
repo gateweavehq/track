@@ -33,7 +33,10 @@ const PopoverContent = React.forwardRef<
 				collisionPadding={collisionPadding}
 				className={cn(
 					// At least as wide as its trigger, so a menu never looks narrower than what opened it.
-					"z-50 w-64 min-w-[var(--radix-popover-trigger-width)] rounded-md border bg-popover text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+					// It animates in but not out: one fading out stays on the page, where it took the
+					// click meant for the next picker's trigger, the Escape meant for the page, and
+					// showed its options beside the next picker's. Closed, it is gone at once.
+					"z-50 w-64 min-w-[var(--radix-popover-trigger-width)] rounded-md border bg-popover text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
 					className,
 				)}
 				{...props}
