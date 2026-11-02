@@ -8,6 +8,24 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.20.1] - 2026-11-02
+
+Bulk edit stays quick on large selections, and two follow-ups to v0.20.0's security fixes.
+Updating a self-hosted copy needs no migration and no new setting; the protocol stays at
+version 25. ([#156], [#157])
+
+### Fixed
+
+- Changing several hundred issues at once froze the tab for many seconds. The changes now go out
+  as one batch and the page redraws once per frame: about 680 issues show their change in under
+  half a second. A failed batch says in one message how many issues were left as they were,
+  instead of one message per issue. The bar's menus and Ctrl/Cmd+A no longer open where they do
+  not apply, and issues hidden by a filter leave the selection. ([#157])
+- Mail to a request's reply address is now parsed only after its address is found, so mail to
+  made-up reply addresses costs nothing. When attaching files, every refused file is reported,
+  including first tries made offline, and each one can be saved again from the device's copy.
+  ([#156])
+
 ## [0.20.0] - 2026-11-02
 
 Pick several issues and change them at once, in lists, tables and on the board; archived issues
@@ -713,6 +731,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.20.1]: https://github.com/gateweavehq/track/releases/tag/v0.20.1
 [0.20.0]: https://github.com/gateweavehq/track/releases/tag/v0.20.0
 [0.19.0]: https://github.com/gateweavehq/track/releases/tag/v0.19.0
 [0.18.0]: https://github.com/gateweavehq/track/releases/tag/v0.18.0
@@ -843,3 +862,5 @@ The first pre-release.
 [#152]: https://github.com/gateweavehq/track/pull/152
 [#153]: https://github.com/gateweavehq/track/pull/153
 [#154]: https://github.com/gateweavehq/track/pull/154
+[#156]: https://github.com/gateweavehq/track/pull/156
+[#157]: https://github.com/gateweavehq/track/pull/157
