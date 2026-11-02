@@ -1,14 +1,18 @@
 import { DurableObject } from "cloudflare:workers";
 import {
 	type Activity,
+	type ArchivedIssues,
+	archivedIssuesRequest,
 	CloseCode,
 	type Comment,
 	clientMessage,
 	type GitHubConnection,
 	type HelloMessage,
 	type Issue,
+	type IssueDetails,
 	type IssueRelation,
 	isAdminRole,
+	issueDetailsRequest,
 	MEMBER_ROLES,
 	mutationSchema,
 	type NotificationSettings,
@@ -32,6 +36,7 @@ import { drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { z } from "zod";
 import migrations from "../drizzle/migrations";
+import { findArchivedIssues, findIssueDetails } from "./archive";
 import { nextAutomationsAt, runAutomations } from "./automations";
 import { advanceCycles, nextCycleChange } from "./cycles";
 import * as schema from "./db/schema";
@@ -233,6 +238,34 @@ export class WorkspaceDO extends DurableObject {
 		const profile = memberProfile.parse(member);
 		this.#write(() => upsertMember(this.#db, profile, Date.now()));
 		return readSnapshot(this.#db, profile.id);
+	}
+
+	/**
+	 * An issue whole, with its comments, history, open proposals and pull requests, for the page of
+	 * an archived one, which replicas hold slim. The gateway passes the verified member, as for the
+	 * snapshot. A read writes nothing, so the member must already be one here: someone removed, or
+	 * never seen, is refused. An id this workspace has no live issue by, such as another
+	 * workspace's, is not found.
+	 */
+	issueDetails(member: MemberProfile, input: unknown): WebhookResult<IssueDetails> {
+		const request = issueDetailsRequest.safeParse(input);
+		if (!request.success) return { ok: false, reason: "invalid", message: "Invalid issue id" };
+		return this.#read(member, () => {
+			const details = findIssueDetails(this.#db, request.data.issueId);
+			return details
+				? { ok: true, value: details }
+				: { ok: false, reason: "not_found", message: "Issue not found" };
+		});
+	}
+
+	/** Archived issues whole, every team's or one's, with their comments and history, for exports. */
+	archivedIssues(member: MemberProfile, input: unknown): WebhookResult<ArchivedIssues> {
+		const request = archivedIssuesRequest.safeParse(input);
+		if (!request.success) return { ok: false, reason: "invalid", message: "Invalid team id" };
+		return this.#read(member, () => ({
+			ok: true,
+			value: findArchivedIssues(this.#db, request.data.teamId),
+		}));
 	}
 
 	syncMember(member: MemberProfile): void {
@@ -777,6 +810,15 @@ export class WorkspaceDO extends DurableObject {
 			if (!(error instanceof MutationRejected)) throw error;
 			return { ok: false, reason: error.reason, message: error.message };
 		}
+	}
+
+	/** Runs a member's read. Anyone who is not an active member here is refused; nothing is written. */
+	#read<T>(member: MemberProfile, fn: () => WebhookResult<T>): WebhookResult<T> {
+		const profile = memberProfile.parse(member);
+		if (!activeMember(this.#db, profile.id)) {
+			return { ok: false, reason: "forbidden", message: "Not a workspace member" };
+		}
+		return fn();
 	}
 
 	/** Runs a person's change to their own settings in a transaction. Agents are refused. */

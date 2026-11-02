@@ -6,6 +6,7 @@ import type {
 	Entities,
 	EntityName,
 	InboxItem,
+	Issue,
 	IssueRelation,
 	IssueTemplate,
 	Label,
@@ -150,3 +151,38 @@ export const SNAPSHOT_KEYS = {
 	inbox: "inbox",
 	pullRequest: "pullRequests",
 } as const satisfies { [E in EntityName]: Exclude<keyof Snapshot, "version"> };
+
+// Reads over HTTP, beside the snapshot. Replicas hold an archived issue slim; these bring the
+// rest of it from the server when there is a connection, for a page or an export, and are never
+// written into a replica. They are additions, so clients that do not ask for them are unaffected.
+
+/** What `GET /api/sync/:slug/issues/:issueId` takes: one live issue's id. */
+export const issueDetailsRequest = z.object({ issueId: z.string().min(1).max(64) });
+
+/**
+ * What `GET /api/sync/:slug/archive` takes: every team's archived issues, or one team's
+ * (`?team=`).
+ */
+export const archivedIssuesRequest = z.object({ teamId: z.string().min(1).max(64).nullable() });
+
+export type IssueDetailsRequest = z.infer<typeof issueDetailsRequest>;
+export type ArchivedIssuesRequest = z.infer<typeof archivedIssuesRequest>;
+
+/**
+ * A live issue whole, as the server holds it, with its comments and history (oldest first), its
+ * open proposals and the pull requests that mention it. For an archived issue's page.
+ */
+export interface IssueDetails {
+	issue: Issue;
+	comments: Comment[];
+	activities: Activity[];
+	proposals: Proposal[];
+	pullRequests: PullRequest[];
+}
+
+/** Archived issues whole, by team and number, with their comments and history. For exports. */
+export interface ArchivedIssues {
+	issues: Issue[];
+	comments: Comment[];
+	activities: Activity[];
+}

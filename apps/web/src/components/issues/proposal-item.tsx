@@ -30,8 +30,11 @@ export function ProposalItem({
 	onSelect,
 	onOpen,
 	registerItem,
+	readOnly = false,
 }: {
 	proposal: Proposal;
+	/** Without the buttons: an archived issue's proposal, which restoring brings back to decide. */
+	readOnly?: boolean;
 	selected?: boolean;
 	onSelect?: (proposalId: string) => void;
 	/** Enter on the focused row. */
@@ -95,24 +98,26 @@ export function ProposalItem({
 					</time>
 				</div>
 			</div>
-			<div className="flex shrink-0 gap-2 pl-7 sm:pl-0">
-				<Button
-					variant="ghost"
-					size="sm"
-					aria-describedby={textId}
-					onClick={() => decide("proposal.dismiss")}
-				>
-					Dismiss
-				</Button>
-				<Button
-					variant="outline"
-					size="sm"
-					aria-describedby={textId}
-					onClick={() => decide("proposal.accept")}
-				>
-					Accept
-				</Button>
-			</div>
+			{!readOnly && (
+				<div className="flex shrink-0 gap-2 pl-7 sm:pl-0">
+					<Button
+						variant="ghost"
+						size="sm"
+						aria-describedby={textId}
+						onClick={() => decide("proposal.dismiss")}
+					>
+						Dismiss
+					</Button>
+					<Button
+						variant="outline"
+						size="sm"
+						aria-describedby={textId}
+						onClick={() => decide("proposal.accept")}
+					>
+						Accept
+					</Button>
+				</div>
+			)}
 		</li>
 	);
 }

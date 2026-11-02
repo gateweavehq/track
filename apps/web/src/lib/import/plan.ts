@@ -6,6 +6,7 @@ import {
 	type IssuePriority,
 	type IssueRelation,
 	isActiveIssue,
+	isClosedCategory,
 	type Label,
 	liveStatuses,
 	MAX_LABELS_PER_ISSUE,
@@ -85,6 +86,11 @@ export interface ImportedIssue {
 	/** How the source refers to the issue, such as `acme/api#42`. */
 	reference: string | null;
 	comments: ImportedComment[];
+	/**
+	 * Archived in the source (a Track export). It is archived here too, after its comments and
+	 * relations are in, when the status it gets closes it; otherwise it stays in lists.
+	 */
+	archived?: boolean;
 }
 
 /**
@@ -192,6 +198,8 @@ export interface ImportPlan {
 	issues: number;
 	comments: number;
 	relations: number;
+	/** Of the issues, how many are archived once they are in. */
+	archived: number;
 	/** Updates of the projects the import brings issues into or matches. */
 	projectUpdates: number;
 	/** Issues, comments, relations and project updates an earlier run imported. */
@@ -393,6 +401,7 @@ export async function planImport(
 	let comments = 0;
 	let relations = 0;
 	let skipped = 0;
+	const toArchive: string[] = [];
 	let sortOrder = lastSortOrder(target.issues.values());
 	for (const issue of inImportOrder(source.issues)) {
 		const id = ids.get(issue.sourceId);
@@ -433,6 +442,12 @@ export async function planImport(
 				},
 			});
 			issues++;
+			// Only a closed issue can be archived. Without a status of its own it gets the team's
+			// first, which is open.
+			const category = statuses.find(
+				(known) => known.teamId === issueTeamId && known.key === status,
+			)?.category;
+			if (issue.archived && category && isClosedCategory(category)) toArchive.push(id);
 		}
 		for (const comment of [...issue.comments].sort(byCreation)) {
 			const commentId = await importId(comment.sourceId);
@@ -501,11 +516,15 @@ export async function planImport(
 		});
 		relations++;
 	}
+	// Archived last, once everything that belongs to them is in.
+	for (const id of toArchive)
+		mutations.push({ name: "issue.archive", args: { id, archived: true } });
 	return {
 		mutations,
 		issues,
 		comments,
 		relations,
+		archived: toArchive.length,
 		projectUpdates,
 		skipped,
 		newTeams,

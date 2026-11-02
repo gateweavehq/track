@@ -94,6 +94,36 @@ function timeline(issue: Issue, activity: Activity[], comments: Comment[]): Entr
 export function IssueActivity({ issue }: { issue: Issue }) {
 	const activity = useIssueActivity(issue.id);
 	const comments = useIssueComments(issue.id);
+	return <ActivitySection issue={issue} activity={activity} comments={comments} />;
+}
+
+/**
+ * An archived issue's history and comments, as the server sent them: the replica does not hold
+ * them. Read-only, without a box for a new comment; restoring the issue brings those back.
+ */
+export function ArchivedActivity({
+	issue,
+	activity,
+	comments,
+}: {
+	issue: Issue;
+	activity: Activity[];
+	comments: Comment[];
+}) {
+	return <ActivitySection issue={issue} activity={activity} comments={comments} readOnly />;
+}
+
+function ActivitySection({
+	issue,
+	activity,
+	comments,
+	readOnly = false,
+}: {
+	issue: Issue;
+	activity: Activity[];
+	comments: Comment[];
+	readOnly?: boolean;
+}) {
 	const entries = useMemo(() => timeline(issue, activity, comments), [issue, activity, comments]);
 
 	return (
@@ -105,7 +135,7 @@ export function IssueActivity({ issue }: { issue: Issue }) {
 				{entries.map((entry) => (
 					<li key={entry.key}>
 						{entry.kind === "comment" ? (
-							<CommentItem comment={entry.comment} />
+							<CommentItem comment={entry.comment} readOnly={readOnly} />
 						) : (
 							<HistoryItem
 								teamId={issue.teamId}
@@ -119,7 +149,7 @@ export function IssueActivity({ issue }: { issue: Issue }) {
 					</li>
 				))}
 			</ol>
-			<CommentComposer issueId={issue.id} />
+			{!readOnly && <CommentComposer issueId={issue.id} />}
 		</section>
 	);
 }
@@ -425,7 +455,7 @@ function Strong({ children, title }: { children: ReactNode; title?: string }) {
 	);
 }
 
-function CommentItem({ comment }: { comment: Comment }) {
+function CommentItem({ comment, readOnly }: { comment: Comment; readOnly: boolean }) {
 	const client = useSyncClient();
 	const { userId } = useWorkspace();
 	const role = useMyRole();
@@ -434,7 +464,7 @@ function CommentItem({ comment }: { comment: Comment }) {
 	const [editing, setEditing] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const mine = comment.authorId === userId;
-	const canDelete = mine || isAdmin(role);
+	const canDelete = !readOnly && (mine || isAdmin(role));
 	// A requester's reply by email is by Email, as the request is.
 	const name = actorName(comment.authorId, members);
 
