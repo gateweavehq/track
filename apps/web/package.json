@@ -46,7 +46,7 @@
 		"drizzle-orm": "catalog:",
 		"fractional-indexing": "catalog:",
 		"lucide-react": "1.62.0",
-		"postal-mime": "4.0.5",
+		"postal-mime": "4.0.8",
 		"radix-ui": "1.8.1",
 		"react": "19.3.1",
 		"react-dom": "19.3.1",
