@@ -22,6 +22,8 @@ export function UploadOutboxDrain({ userId }: { userId: string }) {
 			if (result.status === "failed") {
 				toast.error(`Could not attach ${upload.name}`, {
 					description: `${result.message} Remove its link or attach it again.`,
+					// The outbox's copy may be the only one, as with a pasted screenshot.
+					...(result.taken && takenFile(upload.name, upload.blob)),
 				});
 				return;
 			}
@@ -54,6 +56,26 @@ export function UploadOutboxDrain({ userId }: { userId: string }) {
 		};
 	}, [userId]);
 	return null;
+}
+
+/**
+ * What a toast about a file whose link holds someone else's file adds: it stays until dismissed,
+ * and offers to save the person's own copy, so they can attach it again under a new link.
+ */
+export function takenFile(name: string, blob: Blob) {
+	return {
+		duration: Number.POSITIVE_INFINITY,
+		action: { label: "Save a copy", onClick: () => saveCopy(name, blob) },
+	};
+}
+
+function saveCopy(name: string, blob: Blob) {
+	const url = URL.createObjectURL(blob);
+	const link = document.createElement("a");
+	link.href = url;
+	link.download = name;
+	link.click();
+	setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 const noop = () => () => {};

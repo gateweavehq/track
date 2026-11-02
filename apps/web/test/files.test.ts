@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { memoryOutboxStore, type PendingUpload, UploadOutbox } from "../src/lib/upload-outbox";
 import { startTrack } from "./track-worker";
 
 // Attached files (TRK-35) in the built Worker: the gateway in front of R2 lets members of a
@@ -121,8 +122,87 @@ describe("attached files", () => {
 		// A file stays as it was uploaded, even when its link is uploaded to again.
 		expect(
 			(await upload(path, sam, "something else", { "content-type": "text/plain" })).status,
-		).toBe(409);
+		).toBe(412);
 		expect(new Uint8Array(await (await download(path, maya)).arrayBuffer())).toEqual(PIXEL);
+	});
+
+	// TRK-65: the link is in the text before the file is up, so members can see an id before it
+	// holds anything. The upload belongs to whoever stored it, and nobody else's browser takes it
+	// for its own.
+	describe("binds an upload to its uploader", () => {
+		/** A person's browser outbox, sending through the Worker under their session. */
+		function outboxOf(person: Person) {
+			return new UploadOutbox({
+				store: memoryOutboxStore(),
+				fetch: ((input: RequestInfo | URL, init?: RequestInit) =>
+					upload(String(input), person, init?.body as BodyInit, {
+						...(init?.headers as Record<string, string>),
+					})) as typeof fetch,
+			});
+		}
+		function pending(path: string, person: Person, text: string): PendingUpload {
+			return {
+				path,
+				workspaceId: acme,
+				userId: person.id,
+				name: "notes.txt",
+				type: "text/plain",
+				blob: new Blob([text]),
+				createdAt: Date.now(),
+			};
+		}
+
+		it("answers a retry by the uploader with 409, which their browser counts as uploaded", async () => {
+			const path = `/api/files/${acme}/${crypto.randomUUID()}/notes.txt`;
+			const text = { "content-type": "text/plain" };
+			expect((await upload(path, maya, "mine", text)).status).toBe(201);
+			expect((await upload(path, maya, "mine", text)).status).toBe(409);
+			expect(await outboxOf(maya).add(pending(path, maya, "mine"))).toEqual({
+				status: "uploaded",
+			});
+			expect(await (await download(path, sam)).text()).toBe("mine");
+		});
+
+		it("refuses the uploader's file at a link someone else stored a file under, and says so", async () => {
+			const path = `/api/files/${acme}/${crypto.randomUUID()}/notes.txt`;
+			expect((await upload(path, sam, "not maya's", { "content-type": "text/plain" })).status).toBe(
+				201,
+			);
+
+			const refused = await upload(path, maya, "maya's notes", { "content-type": "text/plain" });
+			expect(refused.status).toBe(412);
+			// Her browser, offline when she attached it, does not report it as attached.
+			expect(await outboxOf(maya).add(pending(path, maya, "maya's notes"))).toEqual({
+				status: "failed",
+				message: "Someone else's file is already at that link.",
+				taken: true,
+			});
+			// The file under the link never changes.
+			expect(await (await download(path, maya)).text()).toBe("not maya's");
+		});
+
+		it("stores only the first of uploads that arrive together", async () => {
+			const path = `/api/files/${acme}/${crypto.randomUUID()}/notes.txt`;
+			// Enough at once that some are past the first look for the file before any is stored.
+			const senders = Array.from({ length: 8 }, (_, i) => ({
+				person: i % 2 === 0 ? maya : sam,
+				text: `upload ${i} `.repeat(20_000),
+			}));
+			const answers = await Promise.all(
+				senders.map(({ person, text }) =>
+					upload(path, person, text, { "content-type": "text/plain" }),
+				),
+			);
+			const stored = answers.flatMap((answer, i) => (answer.status === 201 ? [senders[i]] : []));
+			expect(stored).toHaveLength(1);
+			const [winner] = stored;
+			// Everyone else hears it is there; only the one who stored it hears it is theirs.
+			for (const [i, answer] of answers.entries()) {
+				if (senders[i] === winner) continue;
+				expect(answer.status).toBe(senders[i]?.person === winner?.person ? 409 : 412);
+			}
+			expect(await (await download(path, maya)).text()).toBe(winner?.text);
+		});
 	});
 
 	it("never serves a file as a page of the app", async () => {

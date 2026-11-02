@@ -1,7 +1,10 @@
 // Files attached while offline, or while an upload could not get through, wait here and upload
 // when the connection comes back, as mutations do in the replica's queue. The link is in the text
-// from the start; this keeps the file until the gateway has it. The gateway refuses an id in use
-// (409), so sending a file twice, from a retry or from two tabs, leaves it as it was.
+// from the start; this keeps the file until the gateway has it. The gateway refuses an id in use,
+// so sending a file twice, from a retry or from two tabs, leaves it as it was (409). Other members
+// see the link before the file is up, though, and an id someone else stored a file under first
+// (412) does not hold this file: that upload failed, and the person keeps their copy to attach
+// again.
 //
 // One browser can be signed in as different people over time, and the outbox outlives a session
 // that expires without a sign-out. Each file remembers who attached it, and only goes up while
@@ -27,11 +30,14 @@ export interface OutboxStore {
 	clear(workspaceId?: string): Promise<void>;
 }
 
-/** What became of an upload: on the server, still waiting, or refused for good. */
+/**
+ * What became of an upload: on the server, still waiting, or refused for good. `taken` says the
+ * link holds someone else's file, so the text shows theirs until it links this one again.
+ */
 export type UploadResult =
 	| { status: "uploaded" }
 	| { status: "waiting" }
-	| { status: "failed"; message: string };
+	| { status: "failed"; message: string; taken?: true };
 
 /**
  * Hears what became of an upload. `first` is true for the first try of a file just added, whose
@@ -157,7 +163,8 @@ export class UploadOutbox {
 			// No connection, or it dropped: the file waits.
 			return { status: "waiting" };
 		}
-		// 409: the file is there already, from an earlier try or another tab.
+		// 409: this person's file is there already, from an earlier try or another tab. Someone
+		// else's file at the link answers 412, a failure like any refusal for good.
 		if (response.ok || response.status === 409) return { status: "uploaded" };
 		// The server is busy or down for now, or the session ran out while the file waited and it
 		// goes up once its owner signs in again. Anything else will be refused again.
@@ -168,6 +175,7 @@ export class UploadOutbox {
 		return {
 			status: "failed",
 			message: `${body?.error ?? `The server answered ${response.status}`}.`,
+			...(response.status === 412 && { taken: true as const }),
 		};
 	}
 
