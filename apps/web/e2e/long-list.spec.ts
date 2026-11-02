@@ -1,53 +1,113 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { createIssue, issueRow, startWorkspace, unique } from "./helpers";
+import { issueRow, startWorkspace, syncBadge } from "./helpers";
 
 // Long enough that the list cannot draw every row at once: the rows near the screen, plus the
-// overscan on each side, are about a third of them.
-const COUNT = 120;
+// overscan on each side, are a fraction of them.
+const COUNT = 150;
+// The first few are in progress, so the list has two groups: one to collapse.
+const STARTED = 5;
+const titles = Array.from(
+	{ length: COUNT },
+	(_, index) => `Long list ${String(index).padStart(3, "0")}`,
+);
+// The todo group's issues, in the list's order.
+const todo = titles.slice(STARTED);
+
+/** Imports the issues from a CSV file, which is much quicker than a dialog for each. */
+async function importIssues(page: Page, slug: string) {
+	const csv = [
+		"Title,State",
+		...titles.map((title, index) => `${title},${index < STARTED ? "In Progress" : "Todo"}`),
+		"",
+	].join("\r\n");
+	await page.goto(`/${slug}/settings/import`);
+	await page.getByRole("button", { name: "File", exact: true }).click();
+	await page.locator('input[type="file"]').setInputFiles({
+		name: "long.csv",
+		mimeType: "text/csv",
+		buffer: Buffer.from(csv),
+	});
+	await page.getByRole("button", { name: `Import ${COUNT} issues` }).click();
+	await expect(page.getByRole("status")).toHaveText(`Imported ${COUNT} issues.`);
+	await expect(syncBadge(page)).toHaveText("Live");
+}
 
 /** The list row (its checkbox and link) for an issue; `data-selected` sits on this element. */
 function listRow(page: Page, title: string) {
 	return page.locator("[data-checked]").filter({ has: issueRow(page, title) });
 }
 
+/** Expects the issue to be the selected one, and on screen. */
+async function expectSelected(page: Page, title: string) {
+	await expect(listRow(page, title)).toHaveAttribute("data-selected", "true");
+	await expect(issueRow(page, title)).toBeFocused();
+	await expect(issueRow(page, title)).toBeInViewport();
+}
+
+async function press(page: Page, key: string, times: number) {
+	for (let step = 0; step < times; step++) await page.keyboard.press(key);
+}
+
 test("a long list renders only the rows near the screen, and the keyboard still reaches the rest", async ({
 	page,
 }) => {
-	// Creating the issues takes a while, one dialog each.
-	test.setTimeout(10 * 60_000);
 	const { slug } = await startWorkspace(page);
-	const titles: string[] = [];
-	for (let index = 0; index < COUNT; index++) {
-		const title = unique(`Long list ${String(index).padStart(3, "0")}`);
-		titles.push(title);
-		await createIssue(page, title);
-	}
+	await importIssues(page, slug);
 	await page.goto(`/${slug}/team/ENG`);
-	await expect(issueRow(page, titles[0] as string)).toBeVisible();
+	const first = todo[0] as string;
+	await expect(issueRow(page, first)).toBeVisible();
 
 	// Only the rows near the screen are in the page.
 	const rendered = page.locator("[data-checked]");
-	expect(await rendered.count()).toBeLessThan(COUNT);
+	expect(await rendered.count()).toBeLessThan(COUNT / 2);
+	await expect(issueRow(page, todo[100] as string)).toHaveCount(0);
 
 	// J moves the selection down through rows that are not rendered yet; each one scrolls in.
-	await issueRow(page, titles[0] as string).focus();
-	for (let step = 0; step < 90; step++) await page.keyboard.press("j");
-	await expect(listRow(page, titles[90] as string)).toHaveAttribute("data-selected", "true");
-	await expect(issueRow(page, titles[90] as string)).toBeInViewport();
-	expect(await rendered.count()).toBeLessThan(COUNT);
+	await issueRow(page, first).focus();
+	await press(page, "j", 100);
+	await expectSelected(page, todo[100] as string);
+	await expect(issueRow(page, first)).toHaveCount(0);
+	expect(await rendered.count()).toBeLessThan(COUNT / 2);
 
 	// K moves back up, past rows that are off screen now.
-	for (let step = 0; step < 72; step++) await page.keyboard.press("k");
-	await expect(listRow(page, titles[18] as string)).toHaveAttribute("data-selected", "true");
-	await expect(issueRow(page, titles[18] as string)).toBeInViewport();
+	await press(page, "k", 80);
+	await expectSelected(page, todo[20] as string);
 
-	// The group header sticks at the top while its rows scroll beneath it.
-	await expect(
-		page
-			.getByRole("heading")
-			.filter({ hasText: /Todo|Backlog/ })
-			.first(),
-	).toBeInViewport();
-	expect(await rendered.count()).toBeLessThan(COUNT);
+	// The group's header sticks at the top while its rows scroll beneath it.
+	await expect(page.getByRole("heading").filter({ hasText: "Todo" })).toBeInViewport();
+
+	// X picks a row; Shift+X picks everything from there to a row far below, unrendered between.
+	const bar = page.getByRole("region", { name: "Selected issues" });
+	await page.keyboard.press("x");
+	await expect(bar).toContainText("1 issue selected");
+	await press(page, "j", 110);
+	await expectSelected(page, todo[130] as string);
+	await page.keyboard.press("Shift+X");
+	await expect(bar).toContainText("111 issues selected");
+	await expect(listRow(page, todo[130] as string)).toHaveAttribute("data-checked", "true");
+	await page.keyboard.press("Escape");
+	await expect(bar).toBeHidden();
+
+	// Alt with an arrow moves the selected issue, and it keeps the selection where it lands.
+	await page.keyboard.press("Alt+ArrowUp");
+	await expect(listRow(page, todo[130] as string)).toHaveAttribute("data-selected", "true");
+	await page.keyboard.press("j");
+	await expectSelected(page, todo[129] as string);
+
+	// Ctrl/Cmd+A adds every shown issue to the picks: one picked in a collapsed group stays.
+	const started = titles[0] as string;
+	await press(page, "k", COUNT);
+	await expectSelected(page, started);
+	await page.keyboard.press("x");
+	await expect(bar).toContainText("1 issue selected");
+	await page.locator("h2 button[aria-expanded]").filter({ hasText: "In Progress" }).click();
+	await expect(issueRow(page, started)).toHaveCount(0);
+	await issueRow(page, first).focus();
+	await page.keyboard.press("ControlOrMeta+a");
+	await expect(bar).toContainText(`${todo.length + 1} issues selected`);
+
+	// J from the top reaches the end of the list.
+	await press(page, "j", todo.length - 1);
+	await expectSelected(page, todo[todo.length - 1] as string);
 });

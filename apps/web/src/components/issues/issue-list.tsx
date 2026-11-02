@@ -125,10 +125,11 @@ export function IssueList({
 		return indexes;
 	}, [entries]);
 	const [first, last] = useItemsOnScreen(offsets, root);
-	// Keep the header of the group the first rendered row belongs to, so it can stick.
-	let start = first;
-	while (start > 0 && entries[start]?.kind === "row") start--;
-	if (entries[start]?.kind !== "header") start = first;
+	// The header of the group the first rendered row belongs to is rendered too, so it can stick.
+	// The rows between it and the first rendered row are not: a spacer stands in for them.
+	let stuck = first;
+	while (stuck > 0 && entries[stuck]?.kind === "row") stuck--;
+	const header = stuck < first && entries[stuck]?.kind === "header" ? stuck : null;
 	// Collapsing a group hides its issues without unpicking them.
 	const selection = useIssueSelection(visible, issues);
 	const { checkedIds, checking, onCheck } = selection;
@@ -234,43 +235,52 @@ export function IssueList({
 
 	if (groups.length === 0) return empty;
 
+	const renderEntry = (entry: ListEntry) =>
+		entry.kind === "header" ? (
+			<GroupHeader
+				key={`group-${entry.group.key}`}
+				group={entry.group}
+				collapsed={entry.collapsed}
+				onToggle={toggle}
+				defaults={defaults}
+			/>
+		) : (
+			<IssueRow
+				key={entry.issue.id}
+				issue={entry.issue}
+				team={teams.get(entry.issue.teamId)}
+				assignee={entry.issue.assigneeId ? members.get(entry.issue.assigneeId) : undefined}
+				subIssues={subIssues.get(entry.issue.id)}
+				blocked={blocked.has(entry.issue.id)}
+				properties={properties}
+				selected={entry.issue.id === selectedId}
+				checked={checkedIds.has(entry.issue.id)}
+				checking={checking}
+				onCheck={onCheck}
+				menu={menu?.issueId === entry.issue.id ? menu.field : null}
+				onMenuChange={onMenuChange}
+				onSelect={setSelectedId}
+				registerRow={registerRow}
+			/>
+		);
+	// One keyed run, so the stuck header stays mounted as it joins the rendered entries.
+	const rendered: ReactNode[] = [];
+	const stuckHeader = header === null ? undefined : entries[header];
+	if (header !== null && stuckHeader) {
+		rendered.push(
+			renderEntry(stuckHeader),
+			<Spacer key="gap" height={(offsets[first] ?? 0) - (offsets[header + 1] ?? 0)} />,
+		);
+	}
+	for (const entry of entries.slice(first, last)) rendered.push(renderEntry(entry));
+
 	// Entries are siblings in one flat list, so a row that changes group moves to its new one
 	// without remounting and keeps focus and any open menu. Only the ones near the screen render;
 	// spacers keep the list's height and scroll position.
 	return (
 		<div ref={root}>
-			<Spacer height={offsets[start] ?? 0} />
-			{entries
-				.slice(start, last)
-				.map((entry) =>
-					entry.kind === "header" ? (
-						<GroupHeader
-							key={`group-${entry.group.key}`}
-							group={entry.group}
-							collapsed={entry.collapsed}
-							onToggle={toggle}
-							defaults={defaults}
-						/>
-					) : (
-						<IssueRow
-							key={entry.issue.id}
-							issue={entry.issue}
-							team={teams.get(entry.issue.teamId)}
-							assignee={entry.issue.assigneeId ? members.get(entry.issue.assigneeId) : undefined}
-							subIssues={subIssues.get(entry.issue.id)}
-							blocked={blocked.has(entry.issue.id)}
-							properties={properties}
-							selected={entry.issue.id === selectedId}
-							checked={checkedIds.has(entry.issue.id)}
-							checking={checking}
-							onCheck={onCheck}
-							menu={menu?.issueId === entry.issue.id ? menu.field : null}
-							onMenuChange={onMenuChange}
-							onSelect={setSelectedId}
-							registerRow={registerRow}
-						/>
-					),
-				)}
+			<Spacer height={offsets[header ?? first] ?? 0} />
+			{rendered}
 			<Spacer height={(offsets[offsets.length - 1] ?? 0) - (offsets[last] ?? 0)} />
 			<BulkBar selection={selection} total={visible.length} />
 		</div>
