@@ -54,8 +54,11 @@ export interface AuthConfig {
 export function createAuth(config: AuthConfig) {
 	const membershipChanged = async (workspaceId: string, userId: string) =>
 		config.onMembershipChange?.(workspaceId, userId);
-	// Between a user deletion's before and after hooks: the workspaces they belonged to.
-	const workspacesOfDeletedUsers = new Map<string, string[]>();
+	// Between a user deletion's before and after hooks: the workspaces they belonged to. Better
+	// Auth hands both hooks the same user object (`deleteWithHooks`, 1.7), so it keys the note,
+	// and a delete that fails or is vetoed after the before hook leaves nothing behind once that
+	// object is gone.
+	const workspacesOfDeletedUsers = new WeakMap<object, string[]>();
 	const { mailer } = config;
 
 	return betterAuth({
@@ -171,13 +174,13 @@ export function createAuth(config: AuthConfig) {
 							.where(eq(schema.member.userId, user.id))
 							.all();
 						workspacesOfDeletedUsers.set(
-							user.id,
+							user,
 							rows.map((row) => row.workspaceId),
 						);
 					},
 					after: async (user) => {
-						const workspaceIds = workspacesOfDeletedUsers.get(user.id) ?? [];
-						workspacesOfDeletedUsers.delete(user.id);
+						const workspaceIds = workspacesOfDeletedUsers.get(user) ?? [];
+						workspacesOfDeletedUsers.delete(user);
 						await Promise.all(workspaceIds.map((id) => membershipChanged(id, user.id)));
 					},
 				},

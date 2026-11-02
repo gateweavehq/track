@@ -76,4 +76,65 @@ describe("Better Auth's hooks", () => {
 			{ workspaceId: "w-initech", userId: "u-dana", stillMember: false },
 		]);
 	});
+
+	it("tells a user's workspaces nothing while deleting them fails, and only once it succeeds", async () => {
+		const now = new Date();
+		await db.insert(schema.user).values({ id: "u-erin", name: "Erin", email: "erin@example.com" });
+		await db.insert(schema.organization).values({
+			id: "w-hooli",
+			name: "Hooli",
+			slug: "hooli",
+			createdAt: now,
+		});
+		await db.insert(schema.member).values({
+			id: "m-erin",
+			organizationId: "w-hooli",
+			userId: "u-erin",
+			role: "member",
+			createdAt: now,
+		});
+		const d1 = await mf.getD1Database("DB");
+		await d1
+			.prepare(
+				`CREATE TRIGGER keep_erin BEFORE DELETE ON "user" WHEN OLD.id = 'u-erin'
+				BEGIN SELECT RAISE(ABORT, 'Erin stays'); END`,
+			)
+			.run();
+		const told: string[] = [];
+		const auth = createAuth({
+			db,
+			secret: "a-test-secret-that-is-long-enough-for-better-auth",
+			baseURL: "http://localhost:4710",
+			onMembershipChange: async (workspaceId) => {
+				told.push(workspaceId);
+			},
+		});
+		try {
+			await expect((await auth.$context).internalAdapter.deleteUser("u-erin")).rejects.toThrow();
+		} finally {
+			await d1.prepare("DROP TRIGGER keep_erin").run();
+		}
+		expect(told).toEqual([]);
+		expect(await db.select().from(schema.member).where(eq(schema.member.userId, "u-erin"))).toEqual(
+			[expect.objectContaining({ organizationId: "w-hooli" })],
+		);
+
+		// She joins another workspace before the delete is tried again. The one that goes through
+		// tells the workspaces she belongs to then, each once, and nothing from the failed try.
+		await db.insert(schema.organization).values({
+			id: "w-pied",
+			name: "Pied Piper",
+			slug: "pied",
+			createdAt: now,
+		});
+		await db.insert(schema.member).values({
+			id: "m-erin-pied",
+			organizationId: "w-pied",
+			userId: "u-erin",
+			role: "member",
+			createdAt: now,
+		});
+		await (await auth.$context).internalAdapter.deleteUser("u-erin");
+		expect(told.sort()).toEqual(["w-hooli", "w-pied"]);
+	});
 });

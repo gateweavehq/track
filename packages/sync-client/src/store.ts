@@ -141,6 +141,8 @@ export class Replica {
 	#hasData = false;
 	#pending: PendingMutation[] = [];
 	#state: SyncState = toState(EMPTY, 0, new Map());
+	/** The state is out of date and is rebuilt when next read. */
+	#stale = false;
 	readonly #listeners = new Set<() => void>();
 
 	constructor(private readonly userId: string) {}
@@ -158,7 +160,15 @@ export class Replica {
 		return this.#pending;
 	}
 
-	getState = (): SyncState => this.#state;
+	/**
+	 * The visible state. It is rebuilt when read after a change, not on every change: a burst of
+	 * changes, such as a server answering a thousand mutations, replays the pending ones once
+	 * per read rather than once per answer.
+	 */
+	getState = (): SyncState => {
+		if (this.#stale) this.#build();
+		return this.#state;
+	};
 
 	/**
 	 * The issues that are not archived, kept as the same map while they are the same rows: an
@@ -276,7 +286,14 @@ export class Replica {
 		};
 	}
 
+	/** Marks the state out of date and tells the listeners, who read it when they need it. */
 	#rebuild(): void {
+		this.#stale = true;
+		for (const listener of [...this.#listeners]) listener();
+	}
+
+	#build(): void {
+		this.#stale = false;
 		let tables = this.#confirmed;
 		if (this.#pending.length > 0) {
 			const draft = new Draft(tables);
@@ -284,7 +301,6 @@ export class Replica {
 			tables = draft.finish();
 		}
 		this.#state = toState(tables, this.#version, this.#activeIssues(tables.issue));
-		for (const listener of [...this.#listeners]) listener();
 	}
 }
 

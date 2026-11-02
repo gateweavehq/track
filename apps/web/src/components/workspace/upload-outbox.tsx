@@ -20,11 +20,7 @@ export function UploadOutboxDrain({ userId }: { userId: string }) {
 		const stop = outbox.onSettled((upload, result, first) => {
 			if (first || result.status === "waiting") return;
 			if (result.status === "failed") {
-				toast.error(`Could not attach ${upload.name}`, {
-					description: `${result.message} Remove its link or attach it again.`,
-					// The outbox's copy may be the only one, as with a pasted screenshot.
-					...(result.taken && takenFile(upload.name, upload.blob)),
-				});
+				refusedFile(upload.name, upload.blob, result.message, result.taken === true);
 				return;
 			}
 			uploaded.push(upload.name);
@@ -56,6 +52,17 @@ export function UploadOutboxDrain({ userId }: { userId: string }) {
 		};
 	}, [userId]);
 	return null;
+}
+
+/**
+ * Says a file was refused for good. When its link holds someone else's file, it offers the
+ * person's own copy, which may be the only one, as with a pasted screenshot.
+ */
+export function refusedFile(name: string, blob: Blob, message: string, taken: boolean) {
+	toast.error(`Could not attach ${name}`, {
+		description: `${message} Remove its link or attach it again.`,
+		...(taken && takenFile(name, blob)),
+	});
 }
 
 /**

@@ -49,10 +49,19 @@ describe.skipIf(!supportsBrowserTabs())("tabs", () => {
 		await confirmed;
 		await waitForConvergence(leader, follower);
 
+		// So does a batch, mutation by mutation.
+		const batch = follower.mutateAll([
+			make.issue(team.args.id, "Batch one"),
+			make.issue(team.args.id, "Batch two"),
+		]);
+		await waitFor(() => leader.getState().issues.size === 2);
+		await Promise.all(batch);
+		await waitForConvergence(leader, follower);
+
 		// Other users' changes reach the follower through the leader.
 		const bob = await workspace.live("bob");
 		await bob.mutate(make.issue(team.args.id, "From Bob"));
-		await waitFor(() => follower.getState().issues.size === 1);
+		await waitFor(() => follower.getState().issues.size === 3);
 		expect(issueBy(follower, "From Bob")).toEqual(issueBy(leader, "From Bob"));
 		expect(network.connects).toBe(1);
 	});

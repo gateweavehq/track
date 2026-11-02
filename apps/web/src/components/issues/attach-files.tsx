@@ -3,7 +3,7 @@ import { type ClipboardEvent, type DragEvent, type RefObject, useRef } from "rea
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { useWorkspace } from "#/components/workspace/context";
-import { takenFile } from "#/components/workspace/upload-outbox";
+import { refusedFile, takenFile } from "#/components/workspace/upload-outbox";
 import {
 	attachmentMarkdown,
 	attachmentName,
@@ -11,7 +11,7 @@ import {
 	insertParagraph,
 	MAX_FILE_BYTES,
 } from "#/lib/attachments";
-import { uploadOutbox } from "#/lib/upload-outbox";
+import { type Refusal, refusals, uploadOutbox } from "#/lib/upload-outbox";
 
 /**
  * Attaching files to a Markdown text box: pasting, dropping, or the attach button. Each file's
@@ -103,19 +103,26 @@ function startUploads(workspaceId: string, userId: string, files: readonly File[
 	);
 	const [only] = links;
 	const what = only && links.length === 1 ? only.name : `${links.length} files`;
+	const refused = ({ item, message, taken }: Refusal<(typeof links)[number]>) =>
+		refusedFile(item.name, item.file, message, taken);
 	if (!navigator.onLine) {
 		toast(`${what} will upload when you are back online`, {
 			description: "The link is in the text already.",
+		});
+		// The browser can be wrong about the connection. A first try that gets through all the
+		// same settles here, not in the outbox's drain, which reports only files that waited.
+		void Promise.all(results).then((outcomes) => {
+			for (const refusal of refusals(links, outcomes)) refused(refusal);
 		});
 		return links.map(({ markdown }) => markdown).join("\n");
 	}
 	toast.promise(
 		Promise.all(results).then((outcomes) => {
-			const index = outcomes.findIndex((outcome) => outcome.status === "failed");
-			const failed = outcomes[index];
-			if (failed?.status === "failed") {
-				throw new AttachError(failed.message, failed.taken ? links[index]?.file : undefined);
-			}
+			// The first refusal is this toast's; each other one gets its own, so that no file whose
+			// link was taken goes without its copy offered.
+			const [first, ...others] = refusals(links, outcomes);
+			for (const refusal of others) refused(refusal);
+			if (first) throw new AttachError(first.message, first.taken ? first.item.file : undefined);
 			return outcomes.some((outcome) => outcome.status === "waiting");
 		}),
 		{

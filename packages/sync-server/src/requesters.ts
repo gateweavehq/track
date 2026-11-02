@@ -121,28 +121,39 @@ export const requesterReply = z.object({
 export type RequesterReply = z.infer<typeof requesterReply>;
 
 /** Who may reply where: a reply key and the address the reply came from. */
-export const replyAddress = z.object({ key: z.string().max(64), from: z.string().max(254) });
-export type ReplyAddress = z.infer<typeof replyAddress>;
+export interface ReplyAddress {
+	key: string;
+	from: string;
+}
 
 /**
- * The request a reply to `key` from `from` would be filed on, or null for a key no request has,
- * another sender, or a deleted request. Reads only.
+ * The request a reply to `key` would be filed on, with the address its decision went to, the only
+ * one whose replies it takes. Null for a key no request has, or a deleted request. Reads only.
  */
-export function findReplyTarget(db: Db, { key, from }: ReplyAddress): { id: string } | null {
+export function findReplyRequest(db: Db, key: string): { id: string; email: string } | null {
 	if (!REPLY_KEY.test(key)) return null;
 	const requester = db
 		.select()
 		.from(schema.requesters)
 		.where(eq(schema.requesters.replyKey, key))
 		.get();
-	if (!requester || requester.email !== from.trim().toLowerCase()) return null;
-	return (
-		db
-			.select({ id: schema.issues.id })
-			.from(schema.issues)
-			.where(and(eq(schema.issues.id, requester.issueId), isNull(schema.issues.deletedAt)))
-			.get() ?? null
-	);
+	if (!requester) return null;
+	const issue = db
+		.select({ id: schema.issues.id })
+		.from(schema.issues)
+		.where(and(eq(schema.issues.id, requester.issueId), isNull(schema.issues.deletedAt)))
+		.get();
+	return issue ? { id: issue.id, email: requester.email } : null;
+}
+
+/**
+ * The request a reply to `key` from `from` would be filed on, or null for a key no request has,
+ * another sender, or a deleted request. Reads only.
+ */
+export function findReplyTarget(db: Db, { key, from }: ReplyAddress): { id: string } | null {
+	const request = findReplyRequest(db, key);
+	if (!request || request.email !== from.trim().toLowerCase()) return null;
+	return { id: request.id };
 }
 
 /**

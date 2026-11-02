@@ -107,10 +107,10 @@ export async function handleIntakeEmail(message: ForwardableEmailMessage): Promi
 
 /**
  * Files a requester's reply to the decision on their request as a comment on it. Only the address
- * the decision went to may reply, and each request takes only so many. The key and the sender are
- * checked before anything is counted or stored, and a reply that fails the check is refused as
- * mail to a missing address is. A reply with nothing of its own, once quotes are taken out, files
- * nothing.
+ * the decision went to may reply, and each request takes only so many. The key is checked before
+ * the message is read, so mail to a made-up address costs no parsing, and the sender once it is,
+ * before anything is counted or stored. A reply that fails either check is refused as mail to a
+ * missing address is. A reply with nothing of its own, once quotes are taken out, files nothing.
  */
 async function fileReply(
 	message: ForwardableEmailMessage,
@@ -119,11 +119,15 @@ async function fileReply(
 	key: string,
 	sender: string,
 ): Promise<void> {
+	// Only a key of a reply key's form gets here (parseIntakeAddress), and only one a request has
+	// gets past this.
+	const target = await stub.replyTarget(key);
+	if (!target) return message.setReject("No such address");
 	const email = await PostalMime.parse(message.raw, { maxPartCount: 200 });
 	const from = ((email.from && "address" in email.from ? email.from.address : undefined) || sender)
 		.trim()
 		.toLowerCase();
-	if (!(await stub.replyTarget(key, from))) return message.setReject("No such address");
+	if (from !== target.email) return message.setReject("No such address");
 	if (!(await limitEmailedReplies(key))) {
 		return message.setReject("Too many replies to this request; try again later");
 	}

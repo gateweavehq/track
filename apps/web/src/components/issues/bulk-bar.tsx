@@ -1,12 +1,13 @@
-import type { Issue } from "@gateweave/track-protocol";
+import type { Issue, MutationInput } from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Archive, CircleDashed, Layers, Tag, Trash2, UserRound, X } from "lucide-react";
 import { forwardRef, type ReactNode, useState } from "react";
 import { CycleIcon } from "#/components/cycles/meta";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/workspace/confirm-dialog";
-import { type IssuePatch, send, useUpdateIssue } from "#/lib/mutations";
-import { useStatuses } from "#/lib/queries";
+import { issueKey } from "#/lib/issues";
+import { type BatchChange, type IssuePatch, sendBatch } from "#/lib/mutations";
+import { useStatuses, useTeamsById } from "#/lib/queries";
 import { isIssueClosed } from "#/lib/statuses";
 import { LabelMenu } from "./labels";
 import { PriorityIcon } from "./meta";
@@ -43,7 +44,7 @@ export function BulkBar({
 		clear: onClear,
 	} = selection;
 	const client = useSyncClient();
-	const update = useUpdateIssue();
+	const teams = useTeamsById();
 	const statuses = useStatuses();
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const first = issues[0];
@@ -54,12 +55,26 @@ export function BulkBar({
 		const value = read(first);
 		return { value, mixed: issues.some((issue) => read(issue) !== value) };
 	};
-	const apply = (patch: (issue: Issue) => IssuePatch | null) => {
+	/** Sends one change for each issue that `change` gives one for, as one batch. */
+	const each = (change: (issue: Issue) => MutationInput | null) => {
+		const changes: BatchChange[] = [];
 		for (const issue of issues) {
-			const changes = patch(issue);
-			if (changes) update(issue, changes);
+			const mutation = change(issue);
+			if (mutation) changes.push({ key: issueKey(teams.get(issue.teamId), issue), mutation });
 		}
+		return sendBatch(client, changes);
 	};
+	/** Updates every issue `patch` gives a patch for, against the version on screen. */
+	const apply = (patch: (issue: Issue) => IssuePatch | null) =>
+		each((issue) => {
+			const changes = patch(issue);
+			return (
+				changes && {
+					name: "issue.update",
+					args: { id: issue.id, baseVersion: issue.version, patch: changes },
+				}
+			);
+		});
 	const menuProps = (field: BulkField) => ({
 		open: menu === field,
 		onOpenChange: (open: boolean) => onMenuChange(open ? field : null),
@@ -123,13 +138,14 @@ export function BulkBar({
 				onToggle={(labelId) => {
 					// A label they all have comes off all of them; otherwise it goes on those without it.
 					const remove = shared.includes(labelId);
-					for (const issue of issues) {
-						if (issue.labelIds.includes(labelId) !== remove) continue;
-						send(client, {
-							name: remove ? "issue.removeLabel" : "issue.addLabel",
-							args: { id: issue.id, labelId },
-						});
-					}
+					each((issue) =>
+						issue.labelIds.includes(labelId) === remove
+							? {
+									name: remove ? "issue.removeLabel" : "issue.addLabel",
+									args: { id: issue.id, labelId },
+								}
+							: null,
+					);
 				}}
 			>
 				<BarButton icon={<Tag />}>Labels</BarButton>
@@ -160,9 +176,12 @@ export function BulkBar({
 					aria-label={archive}
 					title={archive}
 					onClick={() => {
-						for (const issue of closed) {
-							send(client, { name: "issue.archive", args: { id: issue.id, archived: true } });
-						}
+						const archiving = new Set(closed);
+						each((issue) =>
+							archiving.has(issue)
+								? { name: "issue.archive", args: { id: issue.id, archived: true } }
+								: null,
+						);
 					}}
 				>
 					<Archive />
@@ -194,9 +213,7 @@ export function BulkBar({
 					confirmLabel="Delete"
 					onClose={() => setConfirmDelete(false)}
 					onConfirm={() => {
-						for (const issue of issues) {
-							send(client, { name: "issue.delete", args: { id: issue.id } });
-						}
+						each((issue) => ({ name: "issue.delete", args: { id: issue.id } }));
 						setConfirmDelete(false);
 						onClear();
 					}}
