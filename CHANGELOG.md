@@ -10,10 +10,10 @@ notes. Publishing a release deploys it to Gateweave Cloud.
 
 ## [0.22.0] - 2026-11-02
 
-Issues with very long comment threads keep working, and text with invisible broken characters is
-cleaned or refused. Updating a self-hosted copy applies a migration in each workspace's
-database, which runs on its own; there is no D1 migration and no new setting. The protocol stays
-at version 25. ([#168], [#169])
+Long lists are much faster, issues with very long comment threads keep working, and text with
+invisible broken characters is cleaned or refused. Updating a self-hosted copy applies a
+migration in each workspace's database, which runs on its own; there is no D1 migration and no
+new setting. The protocol stays at version 25. ([#168], [#169], [#171])
 
 ### Fixed
 
@@ -24,6 +24,11 @@ at version 25. ([#168], [#169])
 
 ### Changed
 
+- Issue lists draw only the rows near the screen. Changing 2,000 issues at once now shows in about
+  135 ms instead of 1,160, and opening a workspace from the device's copy in about 340 ms instead
+  of 1,100. Rows are measured, so the list holds at any font size, and screen readers hear each
+  row's place in the list. When a change is refused because its issue is gone, the message says
+  so apart from other refusals. ([#171])
 - Text with NUL characters or lone halves of an emoji's character pair is refused by the server,
   since it confused search or came back silently changed. The app, request forms, intake email,
   the guided start, the importer and GitHub titles clean such text instead, so people do not run
@@ -943,3 +948,4 @@ The first pre-release.
 [#166]: https://github.com/gateweavehq/track/pull/166
 [#168]: https://github.com/gateweavehq/track/pull/168
 [#169]: https://github.com/gateweavehq/track/pull/169
+[#171]: https://github.com/gateweavehq/track/pull/171
