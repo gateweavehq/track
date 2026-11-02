@@ -144,7 +144,7 @@ export const LINK_HEADER = "x-track-link";
 /**
  * Header carrying the session a socket was opened with, its id and when it expires (ms), on socket
  * requests. The gateway checks the session only at the handshake; the object closes the socket
- * when the session ends ({@link WorkspaceDO.endSession}) or runs out.
+ * when the session ends ({@link WorkspaceDO.endSessions}) or runs out.
  */
 export const SESSION_HEADER = "x-track-session";
 
@@ -300,14 +300,15 @@ export class WorkspaceDO extends DurableObject {
 	}
 
 	/**
-	 * Closes the user's sockets that were opened with this session, which has just ended: signed
-	 * out, revoked, or ended by a password reset. Their clients sign in again, or reconnect with
-	 * the session they have now.
+	 * Closes the user's sockets that were opened with any of these sessions, which have just
+	 * ended: signed out, revoked, or ended by a password reset. Their clients sign in again, or
+	 * reconnect with the session they have now.
 	 */
-	endSession(userId: string, sessionId: string): void {
+	endSessions(userId: string, sessionIds: string[]): void {
+		const ended = new Set(z.array(z.string()).parse(sessionIds));
 		for (const ws of this.ctx.getWebSockets()) {
 			const state = socketState(ws);
-			if (state.userId === userId && state.sessionId === sessionId) {
+			if (state.userId === userId && ended.has(state.sessionId)) {
 				ws.close(CloseCode.SessionEnded, "Session ended");
 			}
 		}

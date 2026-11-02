@@ -68,8 +68,9 @@ async function signIn(client: string, email: string, rememberMe = true) {
 }
 
 /** Opens a sync socket as a signed-in browser would, and notes what it hears and how it closes. */
-async function openSocket(slug: string, cookie: string) {
+async function openSocket(slug: string, cookie: string, headers: Record<string, string> = {}) {
 	const { status, ws } = await track.socket(`${origin}/api/sync/${slug}/socket`, {
+		...headers,
 		origin,
 		cookie,
 	});
@@ -134,6 +135,66 @@ describe("ended sessions", () => {
 			timeout: 5_000,
 		});
 		await expectServed(kept);
+	});
+
+	it("goes by the session the gateway checked, not one the browser names", async () => {
+		const client = "203.0.113.143";
+		const cookie = await owner(client, "forged@sessions.test", "forges");
+		const socket = await openSocket("forges", cookie, {
+			"x-track-session": JSON.stringify({ id: "forged", expiresAt: Number.MAX_SAFE_INTEGER }),
+		});
+
+		const signedOut = await authApi("/sign-out", { client, cookie, body: {} });
+		expect(signedOut.status).toBe(200);
+
+		await vi.waitFor(() => expect(socket.code).toBe(CloseCode.SessionEnded), { timeout: 5_000 });
+	});
+
+	it("closes every session's sockets, in every workspace, when the password is reset", async () => {
+		const client = "203.0.113.144";
+		const email = "reset@sessions.test";
+		const first = await owner(client, email, "resets");
+		const created = await authApi("/organization/create", {
+			client,
+			cookie: first,
+			body: { name: "resets-too", slug: "resets-too" },
+		});
+		expect(created.status).toBe(200);
+		const cookies = [first, await signIn(client, email), await signIn(client, email)];
+		const sockets: Awaited<ReturnType<typeof openSocket>>[] = [];
+		for (const cookie of cookies) {
+			for (const slug of ["resets", "resets-too"]) sockets.push(await openSocket(slug, cookie));
+		}
+
+		const requested = await authApi("/request-password-reset", {
+			client,
+			body: { email, redirectTo: "/reset-password" },
+		});
+		expect(requested.status).toBe(200);
+		const token = await vi.waitFor(
+			async () => {
+				const sent = (await track.emails()).find(
+					(each) => each.to === email && each.subject.startsWith("Reset your"),
+				);
+				const link = /\/api\/auth\/reset-password\/([^?\s]+)/.exec(sent?.text ?? "")?.[1];
+				if (!link) throw new Error("No reset email yet");
+				return link;
+			},
+			{ timeout: 5_000 },
+		);
+		const reset = await authApi("/reset-password", {
+			client,
+			body: { token, newPassword: "a-new-long-test-password" },
+		});
+		expect(reset.status).toBe(200);
+
+		await vi.waitFor(
+			() =>
+				expect(sockets.map((socket) => socket.code)).toEqual(
+					sockets.map(() => CloseCode.SessionEnded),
+				),
+			{ timeout: 5_000 },
+		);
 	});
 
 	it("refuses the socket of a session that has run out", async () => {

@@ -2776,19 +2776,23 @@ describe("membership", () => {
 		expect(removed?.removedAt).toEqual(expect.any(Number));
 	});
 
-	it("closes the sockets of a session that ended, and only those", async () => {
+	it("closes the sockets of sessions that ended, and only those", async () => {
 		const { workspace, admin } = await withTeam();
 		const ended = { id: "session-ended", expiresAt: Number.MAX_SAFE_INTEGER };
+		const alsoEnded = { id: "session-also-ended", expiresAt: Number.MAX_SAFE_INTEGER };
 		const signedOut = await TestClient.connect(workspace, alice, undefined, ended);
 		await signedOut.hello();
+		const revoked = await TestClient.connect(workspace, alice, undefined, alsoEnded);
+		await revoked.hello();
 		const stillIn = await TestClient.live(workspace, alice);
 		// Another person's socket with the same session id is not theirs to close.
 		const other = await TestClient.connect(workspace, bob, undefined, ended);
 		await other.hello();
 
-		await workspace.endSession(alice.id, ended.id);
+		await workspace.endSessions(alice.id, [ended.id, alsoEnded.id]);
 
 		expect((await signedOut.closed()).code).toBe(CloseCode.SessionEnded);
+		expect((await revoked.closed()).code).toBe(CloseCode.SessionEnded);
 		await createIssue(admin, "issue-after-sign-out");
 		await stillIn.op((op) => op.entity === "issue" && op.id === "issue-after-sign-out");
 		await other.op((op) => op.entity === "issue" && op.id === "issue-after-sign-out");
@@ -2797,7 +2801,8 @@ describe("membership", () => {
 	it("refuses a socket's messages once its session has run out", async () => {
 		const { workspace } = await withTeam();
 		const session = { id: "session-short", expiresAt: Date.now() + 200 };
-		const client = await TestClient.connect(workspace, alice, undefined, session);
+		// The owner, who could make the team were the socket still theirs.
+		const client = await TestClient.connect(workspace, owner, undefined, session);
 		await client.hello();
 
 		await new Promise((resolve) => setTimeout(resolve, 300));
@@ -2808,6 +2813,7 @@ describe("membership", () => {
 		});
 
 		expect((await client.closed()).code).toBe(CloseCode.SessionEnded);
+		expect((await snapshotOf(workspace)).teams.map((team) => team.id)).not.toContain("team-late");
 	});
 
 	it("sends nothing more to a socket whose session has run out", async () => {

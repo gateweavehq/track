@@ -87,10 +87,13 @@ itself, because each time a member connects their current profile is upserted.
 Sessions end the same way. The gateway checks the session only when a socket opens, so it hands
 the object the session's id and expiry with the member, and the socket keeps them. When a session
 ends early (signing out, revoking sessions, a password reset, deleting the user), Better Auth's
-session delete hook, which every one of those paths runs for each session, tells each of the
-user's workspaces to close the sockets opened with it (`endSession`). A socket whose session has
-run out is closed the next time it sends or would be sent anything, which also covers a hook that
-failed. Both close with `4401`.
+session delete hook, which every one of those paths runs for each session, notes it
+(`apps/web/src/server/auth/ended-sessions.ts`). When the request is over, its after hook sends
+what it noted in the background (`waitUntil`): one D1 lookup of each user's workspaces, and one
+`endSessions` call per workspace with all of that user's ended sessions, which closes the sockets
+opened with them. A password reset that ends ten sessions costs the same as one. A socket whose
+session has run out is closed the next time it sends or would be sent anything, which also covers
+a report that failed. Both close with `4401`.
 
 ### Roles and invitations
 

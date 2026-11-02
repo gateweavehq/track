@@ -643,6 +643,33 @@ describe("ended sessions", () => {
 		await client.close();
 	});
 
+	it("sends a mutation the ended socket left unacknowledged again, once reconnected", async () => {
+		const sockets: string[][] = [];
+		const transport = scriptedTransport(
+			(socket, message) => {
+				const sent = sockets.at(-1);
+				sent?.push(message);
+				const parsed = JSON.parse(message) as { type: string; id?: string };
+				if (parsed.type === "hello") socket.reply({ type: "ready", version: 1 });
+				// The session ends as the first socket's mutation arrives, before it is applied.
+				else if (sockets.length === 1) socket.close(CloseCode.SessionEnded, "Session ended");
+				else socket.reply({ type: "ack", id: parsed.id, version: 2 });
+			},
+			() => sockets.push([]),
+		);
+		const client = new SyncClient({ userId: "alice", transport, retry: { minDelay: 5 } });
+		await waitForLive(client);
+
+		const create = make.team();
+		await client.mutate(create);
+
+		expect(sockets).toHaveLength(2);
+		const mutations = sockets.map((sent) => sent.filter((each) => each.includes('"mutate"')));
+		expect(mutations[0]).toHaveLength(1);
+		expect(mutations[1]).toEqual(mutations[0]);
+		await client.close();
+	});
+
 	it("asks for a sign-in when the browser has no session left", async () => {
 		const server = endingSession(() => false);
 		const client = new SyncClient({
