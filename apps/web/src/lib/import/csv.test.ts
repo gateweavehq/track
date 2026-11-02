@@ -185,3 +185,161 @@ describe("a Track export read back", () => {
 		expect(readCsvImport(csv).source.issues[0]?.labels).toEqual(["Bug", "UI", "web"]);
 	});
 });
+
+describe("a Jira CSV export", () => {
+	// The shape Jira Cloud's "Export Excel CSV (all fields)" writes: repeated columns, its own
+	// dates, account ids next to names, and parents by numeric issue id.
+	const header = [
+		"Summary",
+		"Issue key",
+		"Issue id",
+		"Issue Type",
+		"Status",
+		"Status Category",
+		"Priority",
+		"Assignee",
+		"Assignee Id",
+		"Reporter",
+		"Reporter Id",
+		"Created",
+		"Due date",
+		"Labels",
+		"Labels",
+		"Sprint",
+		"Sprint",
+		"Description",
+		"Custom field (Story Points)",
+		"Parent",
+		"Comment",
+		"Comment",
+	];
+	const csv = [
+		header.join(","),
+		[
+			"Checkout fails on Safari",
+			"SHOP-12",
+			"10042",
+			"Bug",
+			"QA Ready",
+			"In Progress",
+			"Highest",
+			"Ada Lovelace",
+			"712020:aaaa1111-2222-3333-4444-555566667777",
+			"Grace Hopper",
+			"5b10ac8d82e05b22cc7d4ef5",
+			"02/Nov/26 2:27 PM",
+			"20/Nov/26",
+			"checkout",
+			"safari",
+			"Sprint 4",
+			"Sprint 5",
+			'"Steps:\n# open the cart\n# pay"',
+			"3.0",
+			"10040",
+			'"03/Nov/26 9:05 AM;5b10ac8d82e05b22cc7d4ef5;Seen on iOS 18; not on macOS."',
+			'"04/Nov/26 11:30 PM;712020:ffff0000-1111-2222-3333-444455556666;Fixed in the next build."',
+		].join(","),
+		[
+			"Payments epic",
+			"SHOP-10",
+			"10040",
+			"Epic",
+			"Done",
+			"Done",
+			"Medium",
+			"",
+			"",
+			"Grace Hopper",
+			"5b10ac8d82e05b22cc7d4ef5",
+			"01/Oct/2026 10:00 AM",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+		].join(","),
+		[
+			"Plain task",
+			"SHOP-13",
+			"10043",
+			"Task",
+			"Ready for QA",
+			"To Do",
+			"Low",
+			"",
+			"",
+			"",
+			"",
+			"02/Nov/26 12:15 AM",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"just a note",
+			"",
+		].join(","),
+	].join("\n");
+
+	it("reads every label and comment, its dates, story points and parents", () => {
+		const { source, ignored } = readCsvImport(csv);
+		expect(source.name).toBe("Jira");
+		expect(ignored).toEqual(["Sprint"]);
+		const [bug, epic, task] = source.issues;
+		expect(bug).toMatchObject({
+			title: "Checkout fails on Safari",
+			reference: "SHOP-12",
+			description: "Steps:\n# open the cart\n# pay",
+			// A status of the team's own naming means what its category says.
+			status: { name: "QA Ready", category: "started" },
+			priority: 1,
+			assignee: { name: "Ada Lovelace" },
+			labels: ["checkout", "safari", "Bug"],
+			createdAt: Date.UTC(2026, 10, 2, 14, 27),
+			dueDate: "2026-11-20",
+			estimate: 3,
+			parentSourceId: epic?.sourceId,
+			comments: [
+				{
+					body: "Seen on iOS 18; not on macOS.",
+					author: "Grace Hopper",
+					createdAt: Date.UTC(2026, 10, 3, 9, 5),
+				},
+				// An account id nobody in the file has is left out rather than shown.
+				{
+					body: "Fixed in the next build.",
+					author: null,
+					createdAt: Date.UTC(2026, 10, 4, 23, 30),
+				},
+			],
+		});
+		expect(epic).toMatchObject({
+			status: { name: "Done", category: "completed" },
+			labels: ["Epic"],
+			createdAt: Date.UTC(2026, 9, 1, 10),
+			parentSourceId: null,
+		});
+		expect(task).toMatchObject({
+			status: { category: "unstarted" },
+			labels: [],
+			createdAt: Date.UTC(2026, 10, 2, 0, 15),
+			comments: [{ body: "just a note", author: null, createdAt: null }],
+		});
+		const ids = source.issues.flatMap((issue) => issue.comments.map((comment) => comment.sourceId));
+		expect(new Set(ids).size).toBe(ids.length);
+	});
+
+	it("gives comments the same source ids every run", () => {
+		const ids = (text: string) =>
+			readCsvImport(text).source.issues.flatMap((issue) => issue.comments.map((c) => c.sourceId));
+		expect(ids(csv.replace("Plain task", "Plain task renamed"))).toEqual(ids(csv));
+	});
+});

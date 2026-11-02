@@ -1446,8 +1446,9 @@ it has one. The code is `packages/sync-server/src/github.ts`, with the gateways 
 ### Imports
 
 Issues come in from another tracker through the browser, as the same mutations people make. An
-importer only reads its source into a common shape in `apps/web/src/lib/import/`: a CSV file,
-Track's own JSON export, a GitHub repository (REST) or a Linear team (GraphQL). Both APIs allow requests from browsers, so
+importer only reads its source into a common shape in `apps/web/src/lib/import/`: a CSV file
+(Jira's export among them, with its repeated label and comment columns, its dates and its parents
+by issue id), Track's own JSON export, a GitHub repository (REST) or a Linear team (GraphQL). Both APIs allow requests from browsers, so
 the person's token or API key goes from their browser to GitHub or Linear and never reaches the
 Worker, and nothing stores it. Then `planImport` matches labels and projects by name, creating
 the missing ones, and people by email, then name. A status is matched by name among the team's

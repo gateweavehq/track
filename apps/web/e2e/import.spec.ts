@@ -69,6 +69,45 @@ test("an admin imports issues from a CSV file, and importing it again skips them
 	await expect(page.getByRole("button", { name: "Import", exact: true })).toBeDisabled();
 });
 
+// Jira's export: repeated label and comment columns, its own dates, and a parent by issue id.
+const JIRA = [
+	"Summary,Issue key,Issue id,Issue Type,Status,Status Category,Priority,Reporter,Reporter Id,Created,Labels,Labels,Parent,Comment",
+	"Payments,SHOP-10,10040,Epic,Done,Done,Medium,Grace Hopper,5b10ac8d82e05b22cc7d4ef5,01/Mar/24 10:00 AM,,,,",
+	'Checkout fails on Safari,SHOP-12,10042,Bug,QA Ready,In Progress,Highest,Grace Hopper,5b10ac8d82e05b22cc7d4ef5,02/Mar/24 2:27 PM,checkout,safari,10040,"03/Mar/24 9:05 AM;5b10ac8d82e05b22cc7d4ef5;Seen on iOS; not on macOS."',
+	"",
+].join("\r\n");
+
+test("an admin imports a Jira CSV export with its comments, labels and parents", async ({
+	page,
+}) => {
+	const { slug } = await startWorkspace(page);
+	await page.goto(`/${slug}/settings/import`);
+	await page.getByRole("button", { name: "File", exact: true }).click();
+	await page.locator('input[type="file"]').setInputFiles({
+		name: "Jira.csv",
+		mimeType: "text/csv",
+		buffer: Buffer.from(JIRA),
+	});
+	await expect(page.getByText("From Jira: 2 issues and 1 comment.")).toBeVisible();
+	await page.getByRole("button", { name: "Import 2 issues" }).click();
+	await expect(page.getByRole("status")).toHaveText("Imported 2 issues and 1 comment.");
+	await expect(syncBadge(page)).toHaveText("Live");
+
+	await page.goto(`/${slug}/issue/ENG-2`);
+	await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue(
+		"Checkout fails on Safari",
+	);
+	await expect(page.getByRole("link", { name: /Sub-issue of ENG-1/ })).toBeVisible();
+	const properties = page.getByRole("complementary", { name: "Properties" });
+	await expect(properties.getByRole("button", { name: /^In Progress/ })).toBeVisible();
+	for (const label of ["checkout", "safari", "Bug"]) {
+		await expect(properties.getByText(label, { exact: true })).toBeVisible();
+	}
+	const comment = page.getByRole("article", { name: /^Comment by/ });
+	await expect(comment).toContainText("Grace Hopper wrote in Jira:");
+	await expect(comment).toContainText("Seen on iOS; not on macOS.");
+});
+
 test("a workspace's JSON export moves into another workspace with comments, relations and teams", async ({
 	page,
 }) => {
