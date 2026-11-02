@@ -1,13 +1,23 @@
 import type { Issue } from "@gateweave/track-protocol";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
-import { CircleDashed, Layers, Tag, Trash2, UserRound, X } from "lucide-react";
+import { Archive, CircleDashed, Layers, Tag, Trash2, UserRound, X } from "lucide-react";
 import { forwardRef, type ReactNode, useState } from "react";
+import { CycleIcon } from "#/components/cycles/meta";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/workspace/confirm-dialog";
 import { type IssuePatch, send, useUpdateIssue } from "#/lib/mutations";
+import { useStatuses } from "#/lib/queries";
+import { isIssueClosed } from "#/lib/statuses";
 import { LabelMenu } from "./labels";
 import { PriorityIcon } from "./meta";
-import { AssigneePicker, PriorityPicker, ProjectPicker, StatusPicker } from "./pickers";
+import {
+	AssigneePicker,
+	CyclePicker,
+	PriorityPicker,
+	ProjectPicker,
+	StatusPicker,
+} from "./pickers";
+import type { useIssueSelection } from "./selection";
 
 /** A property menu the bar can open from the keyboard, as a list opens a row's. */
 export type BulkField = "status" | "priority" | "assignee";
@@ -18,24 +28,23 @@ export type BulkField = "status" | "priority" | "assignee";
  * checks, stamps and tells of each as it would one at a time.
  */
 export function BulkBar({
-	issues,
+	selection,
 	total,
-	menu,
-	onMenuChange,
-	onSelectAll,
-	onClear,
 }: {
-	/** The selected issues, in list order. */
-	issues: Issue[];
-	/** How many issues the list shows, to offer selecting them all. */
+	selection: ReturnType<typeof useIssueSelection>;
+	/** How many issues are shown, to offer picking them all. */
 	total: number;
-	menu: BulkField | null;
-	onMenuChange: (menu: BulkField | null) => void;
-	onSelectAll: () => void;
-	onClear: () => void;
 }) {
+	const {
+		checked: issues,
+		menu,
+		setMenu: onMenuChange,
+		selectAll: onSelectAll,
+		clear: onClear,
+	} = selection;
 	const client = useSyncClient();
 	const update = useUpdateIssue();
+	const statuses = useStatuses();
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const first = issues[0];
 	if (!first) return null;
@@ -55,12 +64,18 @@ export function BulkBar({
 		open: menu === field,
 		onOpenChange: (open: boolean) => onMenuChange(open ? field : null),
 	});
-	// Statuses belong to a team, so they are offered only for issues of one team.
+	// Statuses and cycles belong to a team, so they are offered only for issues of one team.
 	const oneTeam = issues.every((issue) => issue.teamId === first.teamId);
 	const shared = first.labelIds.filter((labelId) =>
 		issues.every((issue) => issue.labelIds.includes(labelId)),
 	);
 	const count = issues.length === 1 ? "1 issue" : `${issues.length} issues`;
+	// Only closed issues are archived; the open ones among them stay as they are.
+	const closed = issues.filter(
+		(issue) => issue.archivedAt === null && isIssueClosed(statuses, issue),
+	);
+	const archive =
+		closed.length === 1 ? "Archive 1 closed issue" : `Archive ${closed.length} closed issues`;
 
 	return (
 		<section
@@ -127,7 +142,32 @@ export function BulkBar({
 			>
 				<BarButton icon={<Layers />}>Project</BarButton>
 			</ProjectPicker>
+			{oneTeam && (
+				<CyclePicker
+					teamId={first.teamId}
+					{...common((issue) => issue.cycleId)}
+					onChange={(cycleId) => apply((issue) => (issue.cycleId === cycleId ? null : { cycleId }))}
+				>
+					<BarButton icon={<CycleIcon />}>Cycle</BarButton>
+				</CyclePicker>
+			)}
 			<span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border" />
+			{closed.length > 0 && (
+				<Button
+					variant="ghost"
+					size="icon"
+					className="size-8 shrink-0"
+					aria-label={archive}
+					title={archive}
+					onClick={() => {
+						for (const issue of closed) {
+							send(client, { name: "issue.archive", args: { id: issue.id, archived: true } });
+						}
+					}}
+				>
+					<Archive />
+				</Button>
+			)}
 			<Button
 				variant="ghost"
 				size="icon"

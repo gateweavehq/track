@@ -54,3 +54,37 @@ test("several issues are picked in a list and changed, then deleted, at once", a
 	await expect(bar).toBeHidden();
 	await expect(syncBadge(page)).toHaveText("Live");
 });
+
+test("a table picks issues too: all at once, and the closed ones archived", async ({ page }) => {
+	const { slug } = await startWorkspace(page);
+	const titles = [unique("Plan the launch"), unique("Write the post"), unique("Fix the footer")];
+	for (const title of titles) await createIssue(page, title);
+	const [plan, post, footer] = titles as [string, string, string];
+	await page.goto(`/${slug}/team/ENG`);
+	await page.getByRole("button", { name: "Table" }).click();
+	await expect(page.getByRole("link", { name: footer })).toBeVisible();
+
+	// Ctrl/Cmd+A picks every issue shown; the filter field keeps it for its own text.
+	const bar = page.getByRole("region", { name: "Selected issues" });
+	await page.getByPlaceholder("Filter issues").fill("x");
+	await page.keyboard.press("ControlOrMeta+a");
+	await expect(bar).toBeHidden();
+	await page.getByPlaceholder("Filter issues").fill("");
+	await page.getByRole("link", { name: plan }).focus();
+	await page.keyboard.press("ControlOrMeta+a");
+	await expect(bar).toContainText("3 issues selected");
+
+	// Done for two of them, so only those are offered to the archive.
+	await page.getByRole("checkbox", { name: "Select ENG-3" }).click();
+	await bar.getByRole("button", { name: "Status" }).click();
+	await page.getByRole("option", { name: "Done" }).click();
+	await expect(bar.getByRole("button", { name: "Archive 2 closed issues" })).toBeVisible();
+
+	await bar.getByRole("button", { name: "Archive 2 closed issues" }).click();
+	await expect(page.getByRole("link", { name: plan })).toBeHidden();
+	await expect(page.getByRole("link", { name: post })).toBeHidden();
+	await expect(page.getByRole("link", { name: footer })).toBeVisible();
+	// The archived ones left with the selection.
+	await expect(bar).toBeHidden();
+	await expect(syncBadge(page)).toHaveText("Live");
+});

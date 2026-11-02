@@ -21,6 +21,7 @@ import { BulkBar, type BulkField } from "./bulk-bar";
 import { useIssueDropZone, useIssueMoves } from "./dnd";
 import { GroupIcon, useGroupName } from "./group-label";
 import { type IssueField, IssueRow } from "./issue-row";
+import { useIssueSelection } from "./selection";
 
 /**
  * Issues in groups (by status unless the display options say otherwise), driven from the keyboard:
@@ -68,9 +69,6 @@ export function IssueList({
 	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [menu, setMenu] = useState<{ issueId: string; field: IssueField } | null>(null);
-	const [checkedIds, setCheckedIds] = useState<ReadonlySet<string>>(() => new Set());
-	const [bulkMenu, setBulkMenu] = useState<BulkField | null>(null);
-	const anchor = useRef<string | null>(null);
 	const rows = useRef(new Map<string, HTMLAnchorElement>());
 
 	const shown = groups.length > 0;
@@ -79,32 +77,8 @@ export function IssueList({
 	}, [shown, issues.length]);
 
 	const visible = groups.flatMap((group) => (collapsed.has(group.key) ? [] : group.issues));
-	// Picked issues that left the list, filtered out or deleted elsewhere, are no longer picked.
-	const checked = visible.filter((issue) => checkedIds.has(issue.id));
-	const checking = checked.length > 0;
-
-	const order = useRef(visible);
-	order.current = visible;
-	const onCheck = useCallback((issueId: string, range: boolean) => {
-		const ids = order.current.map((issue) => issue.id);
-		const from = anchor.current === null ? -1 : ids.indexOf(anchor.current);
-		const to = ids.indexOf(issueId);
-		setCheckedIds((current) => {
-			const next = new Set(current);
-			if (range && from !== -1 && to !== -1) {
-				for (const id of ids.slice(Math.min(from, to), Math.max(from, to) + 1)) next.add(id);
-			} else if (!next.delete(issueId)) {
-				next.add(issueId);
-			}
-			return next;
-		});
-		anchor.current = issueId;
-	}, []);
-	const clearChecked = () => {
-		setCheckedIds(new Set());
-		setBulkMenu(null);
-		anchor.current = null;
-	};
+	const selection = useIssueSelection(visible);
+	const { checkedIds, checking, onCheck } = selection;
 
 	const registerRow = useCallback((issueId: string, link: HTMLAnchorElement | null) => {
 		if (link) rows.current.set(issueId, link);
@@ -124,7 +98,7 @@ export function IssueList({
 
 	function openMenu(field: BulkField) {
 		if (checking) {
-			setBulkMenu(field);
+			selection.setMenu(field);
 			return;
 		}
 		if (selectedId && visible.some((issue) => issue.id === selectedId)) {
@@ -151,7 +125,7 @@ export function IssueList({
 	}
 	const extendToSelected = () => checkSelected(true);
 	const uncheckAll = () => {
-		if (checking) clearChecked();
+		if (checking) selection.clear();
 	};
 
 	const next = () => select(1);
@@ -222,16 +196,7 @@ export function IssueList({
 					)),
 				];
 			})}
-			{checking && (
-				<BulkBar
-					issues={checked}
-					total={visible.length}
-					menu={bulkMenu}
-					onMenuChange={setBulkMenu}
-					onSelectAll={() => setCheckedIds(new Set(visible.map((issue) => issue.id)))}
-					onClear={clearChecked}
-				/>
-			)}
+			<BulkBar selection={selection} total={visible.length} />
 		</div>
 	);
 }
