@@ -4,7 +4,7 @@ packages:
 
 # Versions shared across workspace packages. Reference them with "catalog:".
 catalog:
-  "@cloudflare/vitest-plugin": 1.4.8
+  "@cloudflare/vitest-plugin": 1.4.11
   "@testing-library/react": 16.3.3
   drizzle-kit: 0.31.11
   drizzle-orm: 0.45.4
@@ -12,7 +12,7 @@ catalog:
   happy-dom: 21.0.4
   typescript: 7.0.2
   vitest: 5.0.5
-  wrangler: 4.153.0
+  wrangler: 4.156.0
   zod: 4.6.7
 
 allowBuilds:
