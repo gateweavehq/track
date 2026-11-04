@@ -84,6 +84,27 @@ function buildAuth() {
 	});
 }
 
+const PROVIDER_LOGOUT = "/api/auth/backchannel-logout/";
+
+/**
+ * Takes a POST for Better Auth. A provider waits only so long for the answer to a logout token, and
+ * its giving up would cancel the request, leaving someone signed in to Track after signing out there.
+ * So a logout is seen through once it has arrived, and read first, while the sender is still there.
+ */
+export async function postToAuth(request: Request): Promise<Response> {
+	if (!new URL(request.url).pathname.startsWith(PROVIDER_LOGOUT)) {
+		return getAuth().handler(request);
+	}
+	const arrived = new Request(request.url, {
+		method: "POST",
+		headers: request.headers,
+		body: await request.arrayBuffer(),
+	});
+	const answer = getAuth().handler(arrived);
+	waitUntil(answer);
+	return answer;
+}
+
 export const githubEnabled = Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
 
 export const emailEnabled = Boolean(mailer) && !demoEnabled();

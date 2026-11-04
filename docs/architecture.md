@@ -277,7 +277,9 @@ uses their own provider: one path, differing only by configuration.
   `sid` ends just those sessions, and only if they belong to the `sub` it may also name. A token
   naming only a `sub` ends everything of that person's, which is the safe side of a provider that
   cannot say which. The sessions end through Better Auth, so their sync sockets close as with any
-  other ended session.
+  other ended session. Once a token has arrived it is seen through with `waitUntil`, even if the
+  provider stops waiting. Keys that cannot be fetched at that moment get a 503 and end nothing: it
+  says nothing about the token, and a provider tries a 503 again where it takes a 400 as final.
 - **Signing out of Track stays in Track.** The provider's session is left alone, as other apps
   signed in through it would expect, and `disableProviderLogout` keeps the plugin from sending
   anyone there.
