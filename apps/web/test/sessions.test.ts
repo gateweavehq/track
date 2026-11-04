@@ -221,3 +221,19 @@ describe("ended sessions", () => {
 		expect(socket.messages.some((message) => message.includes('"ready"'))).toBe(false);
 	});
 });
+
+describe("the page", () => {
+	it("shows who is signed in, but not their session's token", async () => {
+		const email = "page-token@example.com";
+		const cookie = await owner("198.51.100.200", email, "page-token");
+		const signed = /session_token=([^;]+)/.exec(cookie)?.[1] ?? "";
+		const token = decodeURIComponent(signed).split(".")[0] ?? "";
+		expect(token.length).toBeGreaterThan(16);
+
+		const response = await track.fetch(`${origin}/`, { headers: { cookie } });
+		expect(response.status).toBe(200);
+		const html = await response.text();
+		expect(html).toContain(email);
+		expect(html).not.toContain(token);
+	});
+});
