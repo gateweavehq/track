@@ -201,17 +201,25 @@ deployment, the `demo` environment in `wrangler.jsonc`. You do not need it: it i
 From a version without attachments, the next deploy creates the R2 bucket, so R2 must be on in
 the account first (see the top of this page).
 
-**Button:** your copy does not follow this repository on its own. Pull new releases into it and
-push; Workers Builds deploys the push and applies the migrations:
+**Button:** your copy does not follow this repository on its own, and shares no history with it,
+so `git pull` refuses. This takes the latest release into your copy instead, as one commit on top
+of it. A copy can skip releases, however old it is:
 
 ```sh
 git remote add upstream https://github.com/gateweavehq/track.git   # once
-git pull upstream main
+git fetch upstream
+git show upstream/main:scripts/update-copy.mjs | node --input-type=module
 git push
 ```
 
-The button writes your database's ID into `wrangler.jsonc`. Keep your version of those lines if
-a pull ever conflicts there.
+The script pushes nothing, and `git reset --hard HEAD~1` undoes it until you do. The push is what
+deploys: Workers Builds builds it and applies the D1 migrations, each workspace's Durable Object
+applies its own the next time it wakes, and open tabs reload if the protocol changed.
+
+What your copy changed stays: the Worker's, database's and bucket's names in `wrangler.jsonc`, the
+name in `package.json`, and having no workflows. If something else you changed conflicts with the
+release, the script names the files for you to fix before committing. To take a release other than
+the latest, end the third line with `node --input-type=module - --to v1.2.3`.
 
 Track is in early development. Read [CHANGELOG.md](../CHANGELOG.md) before updating, as some
 releases change how things work.

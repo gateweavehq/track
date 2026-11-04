@@ -16,7 +16,7 @@
 		"deploy": "pnpm --filter @gateweave/track-web run deploy",
 		"wrangler": "pnpm --filter @gateweave/track-web exec wrangler --cwd ../..",
 		"typecheck": "pnpm -r typecheck",
-		"test": "pnpm -r test",
+		"test": "pnpm -r test && node --test scripts/update-copy.test.mjs",
 		"test:e2e": "pnpm --filter @gateweave/track-web test:e2e",
 		"test:perf": "pnpm --filter @gateweave/track-web test:perf",
 		"check": "biome check && node scripts/check-migrations.mjs",
