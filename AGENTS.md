@@ -22,7 +22,7 @@ Read [docs/architecture.md](docs/architecture.md) before changing sync, auth or 
 | `packages/sync-server` | `WorkspaceDO`: SQLite storage, mutation handlers, oplog, realtime fan-out |
 | `packages/sync-client` | Browser replica: IndexedDB, optimistic mutations, tab leader election     |
 | `docs/`                | Architecture, roadmap, self-hosting and ecosystem notes                   |
-| `scripts/`             | Repository tooling (`doctor`, `check-migrations`)                         |
+| `scripts/`             | Repository tooling (`doctor`, `check-migrations`, `update-copy`)          |
 | `.claude/skills/`      | Step-by-step playbooks for recurring tasks (plain Markdown, any agent)    |
 | `wrangler.jsonc`       | The Worker's config, at the root because the Deploy button reads it there |
 
