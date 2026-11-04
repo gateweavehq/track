@@ -801,8 +801,10 @@ describe("the sign-in page", () => {
 	it("explains a refusal in its own words", async () => {
 		expect(await page(1, "?error=account_not_linked")).toContain("already has an account");
 		const made = await page(1, `?error=${encodeURIComponent("Call this number")}`);
-		expect(made).toContain("did not work");
-		expect(made.replaceAll(/<script[\s\S]*?<\/script>/g, "")).not.toContain("Call this number");
+		// What the page says, since the router also carries its query along in a script.
+		const said = /role="alert"[^>]*>([^<]*)</.exec(made)?.[1];
+		expect(said).toContain("did not work");
+		expect(said).not.toContain("Call this number");
 	});
 });
 

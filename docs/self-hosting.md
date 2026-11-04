@@ -206,9 +206,12 @@ button or the provider signs someone out. With the back-channel logout URI regis
 at the provider ends the Track sessions it started. Signing out of Track leaves the provider's
 session alone.
 
-If Track and the provider are both Workers on one zone, give each a
+If Track and the provider are both Workers, give each a
 [Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/#worker-to-worker-communication).
-A Worker cannot reach another on its own zone through a route.
+A Worker cannot reach another on its own zone through a route, and two on `workers.dev` cannot reach
+each other at all: Cloudflare answers with error 1042, and the button says it could not reach the
+provider. If they have to stay on `workers.dev`, add `global_fetch_strictly_public` to
+`compatibility_flags` in each one's `wrangler.jsonc`.
 
 ### Email
 

@@ -88,6 +88,22 @@ test("someone who turns the provider down comes back to sign in another way", as
 	await expect(page.getByRole("button", { name: BUTTON })).toBeEnabled();
 });
 
+test("a provider that cannot be reached leaves the button ready to try again", async ({ page }) => {
+	// `test/oidc-sign-in.test.ts` shows the server answers this way when the provider is down.
+	await page.route("**/api/auth/sign-in/social", (route) =>
+		route.fulfill({
+			status: 404,
+			contentType: "application/json",
+			body: JSON.stringify({ code: "PROVIDER_NOT_FOUND", message: "Provider not found" }),
+		}),
+	);
+
+	await pressButton(page);
+
+	await expect(page.getByRole("alert")).toContainText("could not reach Test Provider");
+	await expect(page.getByRole("button", { name: BUTTON })).toBeEnabled();
+});
+
 test("an agent's authorization carries on after signing in through the provider", async ({
 	page,
 	context,
