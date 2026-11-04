@@ -30,6 +30,8 @@ Fix what fails. Don't skip or weaken tests. `pnpm format` fixes most lint and fo
 - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `perf`. Scopes are package or
   area names: `protocol`, `sync-server`, `sync-client`, `web`, `auth`, `deps`.
 - The body says why the change is needed and anything a reviewer could not tell from the diff.
+- No AI attribution in commits or pull requests: no `Co-authored-by` trailer naming an AI, no
+  "Generated with" line and no session link. When merging, check the squash message too.
 - Commit the generated files that belong to the change (migrations, `pnpm-lock.yaml`). Never
   commit `.dev.vars`.
 - Each commit should pass on its own. In particular, keep `package.json` and `pnpm-lock.yaml` in

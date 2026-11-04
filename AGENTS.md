@@ -159,6 +159,10 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org), with a
   scope when it helps: `fix(sync-server): reject updates to deleted issues`. Explain why in the
   body.
+- Commits, pull requests, comments and release notes carry no AI attribution: no
+  `Co-authored-by` trailer naming an AI, no "Generated with" line and no session link. If your
+  tool adds them, take them out before you push, and out of the message of a squash merge,
+  which GitHub fills from the commits. History already merged stays as it is.
 - Fill in the pull request template. A CLA bot asks first-time contributors to sign once.
 - Follow `.claude/skills/open-pull-request/SKILL.md` for the full flow.
 - Pull requests leave `CHANGELOG.md` alone, so parallel branches do not conflict there. A
