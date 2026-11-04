@@ -310,10 +310,10 @@ export async function startTrack(
 							// Turnstile names the host the challenge was solved on.
 							return Response.json({ success, hostname: TURNSTILE_HOSTNAME });
 						}
-						const github = await githubStandIn(request, url);
-						if (github) return github;
 						const answered = await standIn?.(request, url);
 						if (answered) return answered;
+						const github = await githubStandIn(request, url);
+						if (github) return github;
 						if (url.host === RECEIVER_HOST) {
 							received.push({
 								url: request.url,
