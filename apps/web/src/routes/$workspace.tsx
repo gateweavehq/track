@@ -96,6 +96,18 @@ function WorkspaceNotFound() {
 	);
 }
 
+/**
+ * Whether this person, still signed in, is no longer a member. Their connection says so as well, and
+ * a tab they are leaving from may be on its way out with something to say, so it should not reload.
+ */
+async function lostWorkspace(slug: string): Promise<boolean> {
+	try {
+		return Boolean(await getSession()) && !(await getWorkspace({ data: slug }));
+	} catch {
+		return false;
+	}
+}
+
 function useWorkspaceClient(slug: string, workspaceId: string, userId: string) {
 	const [client, setClient] = useState<SyncClient | null>(null);
 	useEffect(() => {
@@ -113,6 +125,14 @@ function useWorkspaceClient(slug: string, workspaceId: string, userId: string) {
 			storageKey: replicaKey(userId, workspaceId),
 			userId,
 			onReject: (error) => report(error),
+			// Another tab deleted this device's copy, and this one cannot go on from memory: tabs opened
+			// after it would read an empty database and wait for it. Reloading lets go of what it holds,
+			// and of the lock, and finds out where it belongs now.
+			onDeleted: () => {
+				void lostWorkspace(slug).then((lost) => {
+					if (!lost) window.location.reload();
+				});
+			},
 		});
 		// Access is gone: the user was removed, or the workspace deleted.
 		const unsubscribe = next.subscribeStatus(() => {

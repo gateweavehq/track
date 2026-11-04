@@ -1586,6 +1586,17 @@ update, a tab still open on the old version leads only the tabs of its own versi
 nothing but "Update available". It never holds up a tab on the new version, which would otherwise
 wait for a leader that writes the wrong storage and speaks the old messages.
 
+A leader keeps the lock for as long as its tab stays open, even once its session has ended, so two
+things keep it from standing in the way of the next sign-in. When a new tab asks a leader that was
+told it is signed out, the leader tries to connect again and tells every tab what it finds: a tab
+of this replica only exists for its own user, so the session it finds is theirs. It does this only
+when asked, because retrying on its own, on focus for instance, could connect one person's replica
+with another's session. And when another tab deletes the replica, as on signing out, the tab
+reloads. It could not go on leading from memory, because tabs opened after that read an empty
+database and would wait for it forever. It first asks the server, because the one case that needs
+no reload is someone still signed in who is no longer a member: their connection tells them, and a
+tab they are leaving from may be on its way out with something still to say.
+
 Where IndexedDB or Web Locks are unavailable, each tab keeps its replica in memory and connects
 on its own.
 
