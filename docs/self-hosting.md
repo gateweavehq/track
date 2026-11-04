@@ -127,6 +127,9 @@ address in place of `https://track.example.com`:
 - **Events:** Pull request and Push.
 - **Where it can be installed:** any account, unless only your own organization uses it.
 
+GitHub will not install an app until it has a private key, so generate one on the app's page. Track
+never signs as the app and does not read the key, so you can delete the downloaded file.
+
 Then set `GITHUB_APP_SLUG` to the app's name in its URL (`github.com/apps/<slug>`),
 `GITHUB_APP_CLIENT_ID` to its client ID, and the client secret and webhook secret as secrets:
 `pnpm wrangler secret put GITHUB_APP_CLIENT_SECRET` and
