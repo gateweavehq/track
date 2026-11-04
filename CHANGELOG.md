@@ -8,6 +8,34 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.25.0] - 2026-11-04
+
+Track can sign people in through an OpenID Connect provider, and a password can no longer reach a
+page's URL, so anyone running a copy should update. Updating a self-hosted copy applies one D1
+migration, which only adds a column, and needs no new setting; the protocol stays at version 25.
+([#183], [#184], [#187], [#188])
+
+### Security
+
+- Pressed before the page's script had run, on a slow connection for example, the submit button on
+  the sign-in and password reset pages made the browser send the form itself, with the password in
+  the URL: in the address bar, the history and any log of requests. These buttons now stay disabled
+  until there is a script. ([#188])
+
+### Added
+
+- Sign in through any OpenID Connect provider, such as Gateweave ID, Pocket ID or Keycloak, with
+  `OIDC_ISSUER`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`, and `OIDC_PROVIDER_NAME` for the button.
+  Signing out at the provider ends the sessions it started. Without them nothing changes. See
+  docs/self-hosting.md. ([#187])
+- `scripts/update-copy.mjs` updates a copy made with the Deploy button, which `git pull` cannot:
+  that copy shares no history with this repository. See docs/self-hosting.md. ([#183], [#184])
+
+### Changed
+
+- A refused sign-in through GitHub comes back to the sign-in page with an explanation, not to
+  Better Auth's error page. ([#187])
+
 ## [0.24.0] - 2026-11-04
 
 A new workspace now learns how to move in from another tracker, and dependencies are up to date.
@@ -858,6 +886,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.25.0]: https://github.com/gateweavehq/track/releases/tag/v0.25.0
 [0.24.0]: https://github.com/gateweavehq/track/releases/tag/v0.24.0
 [0.23.0]: https://github.com/gateweavehq/track/releases/tag/v0.23.0
 [0.22.0]: https://github.com/gateweavehq/track/releases/tag/v0.22.0
@@ -1012,3 +1041,7 @@ The first pre-release.
 [#177]: https://github.com/gateweavehq/track/pull/177
 [#179]: https://github.com/gateweavehq/track/pull/179
 [#180]: https://github.com/gateweavehq/track/pull/180
+[#183]: https://github.com/gateweavehq/track/pull/183
+[#184]: https://github.com/gateweavehq/track/pull/184
+[#187]: https://github.com/gateweavehq/track/pull/187
+[#188]: https://github.com/gateweavehq/track/pull/188
