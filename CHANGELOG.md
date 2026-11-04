@@ -8,6 +8,18 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.26.3] - 2026-11-05
+
+A tab left open could keep someone out of their workspace after signing in again. Updating a self-hosted copy needs no
+migration and no new setting, and the protocol stays at version 25. ([#198])
+
+### Fixed
+
+- **A tab left open could stand in the way of the next sign-in.** A new tab said "Your session has ended" though the
+  person had just signed in, or stayed on "Loading…", until the old tab was reloaded or closed. A tab told that its session had ended now connects again when a new tab asks, and
+  tells every tab what it finds. A tab whose local copy is deleted by signing out in another tab now reloads, unless
+  the person is still signed in and has only left the workspace. ([#198])
+
 ## [0.26.2] - 2026-11-04
 
 Signing out at a provider could leave someone signed in to Track. Updating a self-hosted copy needs no migration and
@@ -1102,3 +1114,4 @@ The first pre-release.
 [#192]: https://github.com/gateweavehq/track/pull/192
 [#194]: https://github.com/gateweavehq/track/pull/194
 [#196]: https://github.com/gateweavehq/track/pull/196
+[#198]: https://github.com/gateweavehq/track/pull/198
