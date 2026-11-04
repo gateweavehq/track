@@ -72,6 +72,10 @@ pnpm wrangler secret put BETTER_AUTH_URL
 | `BETTER_AUTH_URL`           | The address people use, such as `https://track.example.com`. Turns on MCP.    |
 | `GITHUB_CLIENT_ID`          | Turns on "Sign in with GitHub", with `GITHUB_CLIENT_SECRET`.                  |
 | `GITHUB_CLIENT_SECRET`      | The client secret of the same GitHub OAuth app.                               |
+| `OIDC_ISSUER`               | Turns on an OpenID Connect provider, with the two below. See below.           |
+| `OIDC_CLIENT_ID`            | This deployment's client ID at the provider.                                  |
+| `OIDC_CLIENT_SECRET`        | Its client secret there.                                                      |
+| `OIDC_PROVIDER_NAME`        | What the sign-in button calls it. Unset: "single sign-on".                    |
 | `GITHUB_APP_SLUG`           | Turns on the GitHub App, with the three below. See below.                     |
 | `GITHUB_APP_CLIENT_ID`      | The GitHub App's client ID.                                                   |
 | `GITHUB_APP_CLIENT_SECRET`  | The GitHub App's client secret.                                               |
@@ -175,6 +179,36 @@ the bucket for attached files, where there is one.
 Create a [GitHub OAuth app](https://github.com/settings/developers) with the callback URL
 `https://track.example.com/api/auth/callback/github` (your address), then set
 `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
+
+### Sign in through an OpenID Connect provider
+
+Any OpenID Connect provider can sign people in: Gateweave ID, Pocket ID, authentik, Keycloak, Okta
+and others. It adds a button to the sign-in page, and passwords keep working.
+
+1. Register Track with the provider as a confidential client that uses the authorization code
+   flow and `client_secret_basic`, with the scopes `openid`, `profile` and `email`:
+   - Redirect URI: `https://track.example.com/api/auth/callback/oidc` (your address)
+   - Back-channel logout URI, if the provider has them:
+     `https://track.example.com/api/auth/backchannel-logout/oidc`
+2. Set `OIDC_ISSUER` to the provider's issuer, the address its
+   `/.well-known/openid-configuration` is under, then `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`.
+   `OIDC_PROVIDER_NAME` names the button, as in "Continue with Acme".
+
+Someone new gets an account. Someone whose address already has one links to it only when the
+provider says the address is verified and they have verified it in Track too, so anyone who could
+sign up at the provider with that address cannot take over the account. Without
+[email](#email) nobody can verify an address in Track, so existing accounts stay with their
+passwords.
+
+If the provider is down, its button says so, and everything else keeps working. People already
+signed in stay signed in, because Track asks the provider nothing except when someone uses that
+button or the provider signs someone out. With the back-channel logout URI registered, signing out
+at the provider ends the Track sessions it started. Signing out of Track leaves the provider's
+session alone.
+
+If Track and the provider are both Workers on one zone, give each a
+[Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/#worker-to-worker-communication).
+A Worker cannot reach another on its own zone through a route.
 
 ### Email
 

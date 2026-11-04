@@ -234,11 +234,14 @@ export async function startTrack(
 		demo = false,
 		vars = {},
 		isolateVars = [],
+		outbound: standIn,
 	}: {
 		isolates?: number;
 		demo?: boolean;
 		vars?: Record<string, string>;
 		isolateVars?: Record<string, string>[];
+		/** Answers the Worker's outbound requests it recognizes, as a stand-in for that service. */
+		outbound?: (request: Request, url: URL) => Promise<Response | undefined>;
 	} = {},
 ) {
 	const config = JSON.parse(readFileSync(join(serverDir, "wrangler.json"), "utf8")) as BuiltConfig;
@@ -309,6 +312,8 @@ export async function startTrack(
 						}
 						const github = await githubStandIn(request, url);
 						if (github) return github;
+						const answered = await standIn?.(request, url);
+						if (answered) return answered;
 						if (url.host === RECEIVER_HOST) {
 							received.push({
 								url: request.url,

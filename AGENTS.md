@@ -141,6 +141,7 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
   `pnpm --filter @gateweave/track-web exec playwright install chromium`. They are not part of
   `pnpm verify`; CI runs them as the `e2e` job. Every test signs up its own user and workspace.
   Go offline with `network.goOffline()` (`e2e/network.ts`), which also closes open sockets.
+  `e2e/provider.mjs` stands in for an OpenID Connect provider, on the app's port plus 40.
   To run them in two checkouts at once, give each its own port with `TRACK_E2E_PORT` (4712 to
   4719), set for the build and for Playwright alike.
 - `apps/web/perf` holds the performance budgets. Playwright (its own config, the same server on

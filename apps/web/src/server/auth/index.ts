@@ -27,6 +27,16 @@ export function appOrigin(request: Request): string {
 	return new URL(baseURL ?? request.url).origin;
 }
 
+/** The public demo has no sign-in to offer: the server makes its visitors' accounts. */
+const oidc =
+	env.OIDC_ISSUER && env.OIDC_CLIENT_ID && env.OIDC_CLIENT_SECRET && !demoEnabled()
+		? {
+				issuer: env.OIDC_ISSUER,
+				clientId: env.OIDC_CLIENT_ID,
+				clientSecret: env.OIDC_CLIENT_SECRET,
+			}
+		: undefined;
+
 let instance: ReturnType<typeof buildAuth> | undefined;
 
 /**
@@ -50,6 +60,7 @@ function buildAuth() {
 			env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
 				? { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET }
 				: undefined,
+		oidc,
 		// Membership lives in D1; each workspace's Durable Object keeps a replica for authorization
 		// and for showing members to clients. A failed push heals the next time that user connects.
 		onMembershipChange: (workspaceId, userId) =>
@@ -76,6 +87,9 @@ function buildAuth() {
 export const githubEnabled = Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
 
 export const emailEnabled = Boolean(mailer) && !demoEnabled();
+
+/** What the sign-in page calls the OpenID Connect provider, if there is one. */
+export const oidcProviderName = oidc ? env.OIDC_PROVIDER_NAME || "single sign-on" : null;
 
 async function logFailure(work: Promise<unknown>, what: string) {
 	try {

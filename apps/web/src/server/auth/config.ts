@@ -14,12 +14,15 @@ import type { Mailer } from "../email/mailer";
 import { invitationEmail, passwordResetEmail, verificationEmail } from "../email/templates";
 import { agentMembers } from "./agents";
 import { EndedSessions } from "./ended-sessions";
+import { type OidcProvider, oidcDatabaseHooks, oidcSignIn } from "./oidc-sign-in";
 
 export interface AuthConfig {
 	db: Database;
 	secret: string;
 	baseURL?: string | undefined;
 	github?: { clientId: string; clientSecret: string } | undefined;
+	/** An OpenID Connect provider to offer on the sign-in page. */
+	oidc?: OidcProvider | undefined;
 	/**
 	 * URL of the MCP endpoint. Turns Track into an OAuth server that AI agents sign in to, with
 	 * tokens bound to this URL. It must be canonical, so it needs a pinned `baseURL`.
@@ -71,6 +74,7 @@ export function createAuth(config: AuthConfig) {
 		async (userId, sessionIds) => config.onSessionsEnded?.(userId, sessionIds),
 		config.runInBackground,
 	);
+	const oidcHooks = oidcDatabaseHooks();
 
 	return betterAuth({
 		secret: config.secret,
@@ -114,6 +118,12 @@ export function createAuth(config: AuthConfig) {
 			}),
 		},
 		socialProviders: config.github ? { github: config.github } : {},
+		session: {
+			additionalFields: {
+				/** The provider's session this one came from, which its logout tokens name. */
+				oidcSid: { type: "string", required: false, input: false, returned: false, index: true },
+			},
+		},
 		disabledPaths: [
 			// Returns every pending invitation to any member, ids included (see the hook below).
 			// The app does not use it.
@@ -170,11 +180,13 @@ export function createAuth(config: AuthConfig) {
 			}),
 		},
 		databaseHooks: {
+			account: oidcHooks.account,
 			// Every Better Auth path that ends a session deletes its row through here, one by one
 			// even when it ends many (`deleteManyWithHooks`, 1.7). Sync sockets outlive the request
 			// that checked their session, so they are told, once the request is over and all
 			// together. The hook gets the endpoint's context, whose `context` the after hook sees.
 			session: {
+				create: oidcHooks.session.create,
 				delete: {
 					after: async (session, context) => {
 						endedSessions.add(context?.context ?? null, session.userId, session.id);
@@ -282,6 +294,7 @@ export function createAuth(config: AuthConfig) {
 				},
 			}),
 			agentMembers({ db: config.db, onMembershipChange: membershipChanged }),
+			...(config.oidc ? oidcSignIn(config.db, config.oidc) : []),
 			...(config.mcpResource
 				? [
 						// Signs access tokens; the MCP endpoint verifies them against its JWKS. Sessions
