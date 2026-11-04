@@ -8,6 +8,18 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.26.2] - 2026-11-04
+
+Signing out at a provider could leave someone signed in to Track. Updating a self-hosted copy needs no migration and
+no new setting, and the protocol stays at version 25. ([#196])
+
+### Fixed
+
+- **A provider's logout could be lost.** If the provider stopped waiting for the answer, Workers cancelled the
+  request and the session stayed, which happened on Gateweave Cloud. A logout that has arrived is now seen through.
+  When Track cannot fetch the provider's keys at that moment it answers 503 rather than 400, so that a provider can
+  try again, and nothing ends until the token has been checked. ([#196])
+
 ## [0.26.1] - 2026-11-04
 
 Better Auth 1.7.16, a security release, so anyone running a copy should update. Updating a self-hosted
@@ -923,6 +935,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.26.2]: https://github.com/gateweavehq/track/releases/tag/v0.26.2
 [0.26.1]: https://github.com/gateweavehq/track/releases/tag/v0.26.1
 [0.26.0]: https://github.com/gateweavehq/track/releases/tag/v0.26.0
 [0.25.0]: https://github.com/gateweavehq/track/releases/tag/v0.25.0
@@ -1088,3 +1101,4 @@ The first pre-release.
 [#191]: https://github.com/gateweavehq/track/pull/191
 [#192]: https://github.com/gateweavehq/track/pull/192
 [#194]: https://github.com/gateweavehq/track/pull/194
+[#196]: https://github.com/gateweavehq/track/pull/196
