@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Brings a copy of Track made with the Deploy button up to a release of this repository.
 //
 //   git remote add upstream https://github.com/gateweavehq/track.git   (once)
@@ -14,6 +13,9 @@
 // wrangler.jsonc and package.json, and no workflows. So this is a three-way merge from the release
 // named in the copy's CHANGELOG.md: what the copy changed stays, what the release changed comes
 // in, and the result is one commit on top of the copy. Nothing is pushed.
+//
+// This file has no shebang and only ASCII: Windows PowerShell starts piped text with a byte order
+// mark, which is harmless before a comment and a syntax error before a shebang.
 
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";

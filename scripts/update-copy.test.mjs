@@ -142,6 +142,16 @@ test("runs from a pipe, as the first update of an old copy has to", () => {
 	assert.equal(read("src/app.txt"), "two\n");
 });
 
+test("runs from Windows PowerShell's pipe, which starts with a byte order mark", () => {
+	const piped = spawnSync("node", ["--input-type=module"], {
+		cwd: copy,
+		input: `\uFEFF${readFileSync(SCRIPT, "utf8")}`,
+		encoding: "utf8",
+	});
+	assert.equal(piped.status, 0, piped.stderr);
+	assert.equal(read("src/app.txt"), "two\n");
+});
+
 test("updates again from the release it reached, with the copy's later changes kept", () => {
 	assert.equal(update().status, 0);
 	writeFileSync(join(copy, "local.txt"), "ours\n");
