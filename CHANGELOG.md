@@ -8,6 +8,17 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.26.1] - 2026-11-04
+
+Better Auth 1.7.16, a security release, so anyone running a copy should update. Updating a self-hosted
+copy needs no migration and no new setting, and the protocol stays at version 25. ([#194])
+
+### Security
+
+- **Better Auth 1.7.16.** Email verification and email-change links worked for an account other than the
+  one they were issued to. Generic OAuth profiles are now bound to the ID token's subject, which signing
+  in through an OpenID Connect provider rests on. ([#194])
+
 ## [0.26.0] - 2026-11-04
 
 Every signed-in page carried the session's token in its HTML, and signing in with GitHub stored
@@ -912,6 +923,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.26.1]: https://github.com/gateweavehq/track/releases/tag/v0.26.1
 [0.26.0]: https://github.com/gateweavehq/track/releases/tag/v0.26.0
 [0.25.0]: https://github.com/gateweavehq/track/releases/tag/v0.25.0
 [0.24.0]: https://github.com/gateweavehq/track/releases/tag/v0.24.0
@@ -1075,3 +1087,4 @@ The first pre-release.
 [#190]: https://github.com/gateweavehq/track/pull/190
 [#191]: https://github.com/gateweavehq/track/pull/191
 [#192]: https://github.com/gateweavehq/track/pull/192
+[#194]: https://github.com/gateweavehq/track/pull/194
