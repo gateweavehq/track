@@ -74,12 +74,13 @@ export function GitHubSettings({ data }: { data: WorkspaceGitHub }) {
 						{installUrl
 							? "Install Track's GitHub App on the repositories you choose, or connect a repository, or every repository of an organization, with a webhook on GitHub."
 							: "Connect a repository, or every repository of an organization, with a webhook on GitHub."}{" "}
-						Pull requests and commits that name an issue, such as ENG-12, are linked to it and move
-						it along:
+						Pull requests and commits that name an issue, such as ENG-12, are linked to it. A key
+						that is only mentioned in a description moves nothing. Otherwise:
 					</p>
 					<ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
 						<li>
-							A draft pull request moves the issue to In Progress, and an open one to In Review.
+							A draft pull request moves the issue its branch or title names, or that it says it
+							fixes, to In Progress, and an open one to In Review.
 						</li>
 						<li>
 							A merged pull request moves the issues it fixes to Done: the one its branch is named
