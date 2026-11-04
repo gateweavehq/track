@@ -3,7 +3,7 @@ import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { AuthPage } from "#/components/auth-page";
-import { Button } from "#/components/ui/button";
+import { LiveButton } from "#/components/live-button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { authClient, inAuthorizationFlow } from "#/lib/auth-client";
@@ -76,9 +76,9 @@ function DemoLogin() {
 					{error}
 				</p>
 			)}
-			<Button className="w-full" disabled={pending} onClick={open}>
+			<LiveButton className="w-full" disabled={pending} onClick={open}>
 				{pending ? "Opening your workspace\u2026" : "Open a demo workspace"}
-			</Button>
+			</LiveButton>
 		</AuthPage>
 	);
 }
@@ -131,9 +131,9 @@ function ProviderButton({
 	}
 
 	return (
-		<Button variant="outline" className="w-full" disabled={pending} onClick={onClick}>
+		<LiveButton variant="outline" className="w-full" disabled={pending} onClick={onClick}>
 			{`Continue with ${label}`}
-		</Button>
+		</LiveButton>
 	);
 }
 
@@ -256,9 +256,9 @@ function SignInForm() {
 							{error}
 						</p>
 					)}
-					<Button type="submit" className="w-full" disabled={pending}>
+					<LiveButton type="submit" className="w-full" disabled={pending}>
 						{mode === "sign-in" ? "Sign in" : "Create account"}
-					</Button>
+					</LiveButton>
 				</form>
 
 				<p className="text-center text-sm text-muted-foreground">
