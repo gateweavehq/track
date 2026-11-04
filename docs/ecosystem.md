@@ -29,7 +29,7 @@ Every product follows the same principles as Track:
 | ---------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | **Track**  | Issues, projects and planning for product teams                   | Early access                                                               |
 | **Agents** | Coding agents' setups, and agents and teams that run on their own | Early access ([gateweavehq/agents](https://github.com/gateweavehq/agents)) |
-| **ID**     | Single sign-on, passkeys and access to internal apps              | Next                                                                       |
+| **ID**     | Single sign-on, passkeys and access to internal apps              | In progress ([gateweavehq/id](https://github.com/gateweavehq/id))          |
 | **Mail**   | Shared inboxes, and email in and out of every product             | Next; email-to-issue and inbox email ship in Track                         |
 | **CRM**    | Contacts, companies and deals                                     | Proposed                                                                   |
 | **ERP**    | Invoicing, inventory and orders, one module at a time             | Later                                                                      |
@@ -40,21 +40,31 @@ Built once and used by every product.
 
 ### Identity and workspaces
 
-One Gateweave account per person and one workspace per team, shared by every product. A workspace
-is the Better Auth organization Track already uses, so members, roles and invitations carry
-over unchanged.
+One Gateweave account per person, from **Gateweave ID**: an OpenID Connect provider in the space of
+Pocket ID and authentik, with no server to run.
 
-- In Gateweave Cloud, an identity Worker owns the users and workspaces in D1. Product Workers
-  verify sessions through a service binding, so a sign-in on one product covers all of them.
-- Self-hosted products keep working on their own with built-in auth, and can point to a shared
-  identity Worker when a team runs more than one.
+Products are ordinary OIDC clients of ID. Each keeps its own users, sessions, workspaces and
+built-in sign-in, in Gateweave Cloud and self-hosted alike:
 
-The identity Worker is also a product of its own, **Gateweave ID**, in the space of Pocket ID and
-authentik but with no server to run:
+- **One path.** Cloud and self-hosting differ only by configuration, so there is one sign-in flow
+  to test and secure.
+- **Failure stays contained.** People already signed in keep working while ID is down.
+- **Nothing moves.** No product's data migrates, and the gateways' membership checks stay as they
+  are.
+- **We use what customers use.** Track and Agents sign in the way Grafana or Gitea do.
+
+This replaces an earlier plan in which product Workers verified one shared session through a service
+binding. That needed ID up for every request, and a second path for self-hosters.
+
+It gives a person one account, not a team one workspace: Track and Agents each keep their own.
+Subscriptions per workspace in Gateweave Cloud need that solved, and it is still an open design.
+
+ID's own design is in its [architecture notes](https://github.com/gateweavehq/id/blob/main/docs/architecture.md).
+It offers:
 
 - **An OpenID Connect provider for any app.** Grafana, Gitea, Outline or anything else that
-  supports OIDC signs people in with their Gateweave account. It is the same Better Auth OAuth
-  provider that already signs AI agents in to Track's MCP server.
+  supports OIDC signs people in with their Gateweave account. A workspace owns its apps, and only
+  its members can use them.
 - **Passkeys and MFA**, groups, and per-app rules for who may sign in.
 - **Access to internal apps.** Pangolin's job, protecting self-hosted apps without opening ports,
   is what Cloudflare Tunnel and Cloudflare Access already do. Gateweave ID is the identity
@@ -130,8 +140,8 @@ same time as the sync engine. Every product gets the same keyboard-first command
 1. **Track:** MVP, then launch. Proves the stack and builds an audience.
 2. **Agents in Track:** issue triage. A differentiator for the launch and the first real user
    of the agent design.
-3. **ID:** the identity Worker, extracted from Track's auth (which already includes an OAuth
-   provider for MCP), first as single sign-on across Gateweave products, then for any app.
+3. **ID:** an OpenID Connect provider, first as single sign-on across Gateweave products, with
+   Track and Agents as its first clients, then for any app.
 4. **Mail, starting small:** what Track needs anyway (notifications, email-to-issue), then
    shared inboxes.
 5. **CRM:** the second full product. Starting it triggers extracting `@gateweave/sync` and

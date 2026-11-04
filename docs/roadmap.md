@@ -112,3 +112,6 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - Assigning an issue to an agent that works on it and proposes a pull request: Gateweave Agents'
   "Work on Track issues", on an agent member's key and webhook. Track's part, `get_workspace`
   naming the caller, shipped in v0.13.0.
+- Sign in through any OpenID Connect provider, set up by configuration, so a person's
+  [Gateweave ID](ecosystem.md#identity-and-workspaces) account opens Track without a new password.
+  Without that configuration nothing changes.
