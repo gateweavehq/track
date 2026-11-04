@@ -405,6 +405,33 @@ describe("offline", () => {
 		expect(online.snapshots).toBe(0);
 	});
 
+	it("tells the page when another tab deletes the replica, and not when one upgrades it", async () => {
+		const id = crypto.randomUUID();
+		const deleted = `deleted-${id}`;
+		const upgraded = `upgraded-${id}`;
+		let deletions = 0;
+		const count = { onDeleted: () => deletions++ };
+		const persistence = await openIdbPersistence(deleted, count);
+
+		await deleteIdbReplica(deleted);
+		expect(deletions).toBe(1);
+		persistence.close();
+
+		deletions = 0;
+		const older = await openIdbPersistence(upgraded, count);
+		// A newer build's tab, opening the database at its own version.
+		await new Promise<void>((resolve, reject) => {
+			const opening = indexedDB.open(`track:${upgraded}`, PROTOCOL_VERSION * 1000 + 999);
+			opening.onerror = () => reject(opening.error);
+			opening.onsuccess = () => {
+				opening.result.close();
+				resolve();
+			};
+		});
+		expect(deletions).toBe(0);
+		older.close();
+	});
+
 	it("forgets a workspace whose replica was deleted", async () => {
 		const ws = setup();
 		const key = `forget-${ws.id}`;

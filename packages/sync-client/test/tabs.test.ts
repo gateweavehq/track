@@ -1,6 +1,13 @@
 import { PROTOCOL_VERSION } from "@gateweave/track-protocol";
 import { afterEach, describe, expect, it } from "vitest";
-import { browserTabs, openIdbPersistence, supportsBrowserTabs, tabsName } from "../src";
+import {
+	browserTabs,
+	HttpError,
+	openIdbPersistence,
+	supportsBrowserTabs,
+	type Transport,
+	tabsName,
+} from "../src";
 import {
 	issueBy,
 	make,
@@ -87,6 +94,51 @@ describe.skipIf(!supportsBrowserTabs())("tabs", () => {
 		expect(tab.getStatus().loaded).toBe(true);
 		expect(network.connects).toBe(1);
 		releaseOld();
+	});
+
+	it("wake a leader left signed out, as a new tab means someone has signed in", async () => {
+		workspace = new TestWorkspace();
+		const network = workspace.network("alice");
+		const key = `tabs-${workspace.id}`;
+		let signedIn = true;
+		const transport: Transport = {
+			...network.transport,
+			probe: async () => {
+				if (!signedIn) throw new HttpError(401);
+				return network.transport.probe();
+			},
+		};
+		const openTab = () =>
+			workspace.client("alice", {
+				transport,
+				persistence: openIdbPersistence(key),
+				tabs: browserTabs(tabsName(key)),
+			});
+		const leader = openTab();
+		await waitForLive(leader);
+
+		// Its session ends. Sockets go, and the probe says why.
+		signedIn = false;
+		network.offline();
+		await waitFor(() => leader.getStatus().connection === "unauthorized");
+		const connects = network.connects;
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(network.connects).toBe(connects);
+
+		// A tab that opens with nobody signed in hears so, and the leader goes back to asking.
+		const early = openTab();
+		await waitFor(() => network.connects > connects);
+		await waitFor(() => leader.getStatus().connection === "unauthorized");
+		await waitFor(() => early.getStatus().connection === "unauthorized");
+		await early.close();
+
+		// Signed in again, the next tab gets the workspace, and so does the one that was asking.
+		signedIn = true;
+		network.online();
+		const late = openTab();
+		await waitFor(() => leader.getStatus().connection === "live");
+		await waitFor(() => late.getStatus().connection === "live");
+		expect(network.sockets).toBe(1);
 	});
 
 	it("hand the connection over when the leader closes", async () => {

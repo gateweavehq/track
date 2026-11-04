@@ -47,11 +47,23 @@ type Database = IDBPDatabase<ReplicaSchema>;
 const STATE_STORES = ["meta", ...ENTITY_NAMES] as const;
 const ALL_STORES = [...STATE_STORES, "pending"] as const;
 
+export interface IdbPersistenceOptions {
+	/**
+	 * Another tab deleted this replica, as on signing out. The client is left with memory alone. If
+	 * it leads, every tab opened after this reads an empty database and waits for it forever, so the
+	 * page should let go of this client rather than carry on.
+	 */
+	onDeleted?: () => void;
+}
+
 /**
  * Opens the IndexedDB replica stored under `key`. Use a key that is unique per user and
  * workspace, so that two accounts on one browser never read each other's data.
  */
-export async function openIdbPersistence(key: string): Promise<Persistence> {
+export async function openIdbPersistence(
+	key: string,
+	{ onDeleted }: IdbPersistenceOptions = {},
+): Promise<Persistence> {
 	let persistence: IdbPersistence | undefined;
 	const db = await openDB<ReplicaSchema>(DB_PREFIX + key, DB_VERSION, {
 		upgrade(db) {
@@ -65,9 +77,11 @@ export async function openIdbPersistence(key: string): Promise<Persistence> {
 			);
 		},
 		// Another tab is upgrading or deleting the database. Step aside instead of blocking it;
-		// writes from here on fail, and the client carries on from memory.
-		blocking() {
+		// writes from here on fail. An upgrade comes from a newer build, whose tabs lead on their own,
+		// so the client carries on from memory until it is told it is outdated. A delete has no version.
+		blocking(_current, blockedVersion) {
 			persistence?.close();
+			if (blockedVersion === null) onDeleted?.();
 		},
 	});
 	persistence = new IdbPersistence(db);
@@ -76,7 +90,7 @@ export async function openIdbPersistence(key: string): Promise<Persistence> {
 
 /**
  * Deletes the replica stored under `key`, for example once the user has lost access to its
- * workspace. Tabs that still have it open close their copy and carry on from memory.
+ * workspace. Tabs that still have it open close their copy and hear of it through `onDeleted`.
  */
 export async function deleteIdbReplica(key: string): Promise<void> {
 	await deleteDB(DB_PREFIX + key);

@@ -306,9 +306,12 @@ export class SyncClient {
 				this.#send(message.pending);
 				return;
 			case "status?":
-				if (this.#role === "leader") {
-					this.#tabs.post({ type: "status", connection: this.#status.connection });
-				}
+				if (this.#role !== "leader") return;
+				// A new tab of this replica means its user has signed in, perhaps after this tab's session
+				// ended. This tab keeps the lock for as long as it stays open, so if it only answered, the
+				// new tab would stay signed out with it. Connecting tells every tab what it finds.
+				if (this.#status.connection === "unauthorized") void this.#connect();
+				else this.#tabs.post({ type: "status", connection: this.#status.connection });
 				return;
 		}
 		// The leader hears from the server directly. Anything else reaching it is from a previous

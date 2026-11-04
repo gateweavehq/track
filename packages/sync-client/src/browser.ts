@@ -14,6 +14,8 @@ export interface BrowserSyncClientOptions {
 	storageKey: string;
 	userId: string;
 	onReject?: (error: MutationError) => void;
+	/** Another tab deleted this replica. See `IdbPersistenceOptions`. */
+	onDeleted?: () => void;
 	/** Origin of the app. Defaults to the current page's origin. */
 	baseUrl?: string;
 }
@@ -24,14 +26,14 @@ export interface BrowserSyncClientOptions {
  * an in-memory replica per tab where IndexedDB or the Web Locks API is unavailable.
  */
 export function createBrowserSyncClient(options: BrowserSyncClientOptions): SyncClient {
-	const { workspace, storageKey, userId, onReject, baseUrl } = options;
+	const { workspace, storageKey, userId, onReject, onDeleted, baseUrl } = options;
 	const shared = supportsBrowserTabs();
 	return new SyncClient({
 		userId,
 		onReject,
 		transport: httpTransport({ workspace, baseUrl }),
 		persistence: shared
-			? openIdbPersistence(storageKey).catch((error: unknown) => {
+			? openIdbPersistence(storageKey, { onDeleted }).catch((error: unknown) => {
 					console.warn("sync: IndexedDB is unavailable; keeping data in memory", error);
 					return new MemoryPersistence();
 				})

@@ -78,6 +78,43 @@ test("an edit in one tab appears in another without a reload", async ({ page, co
 	await expect(issueRow(page, fromSecond)).toBeVisible();
 });
 
+test("leaving a workspace goes back to the person's workspaces, and takes their other tab along", async ({
+	page,
+	browser,
+}) => {
+	const workspace = await startWorkspace(page);
+	const guestContext = await newBrowserContext(browser);
+	try {
+		const guestPage = await guestContext.newPage();
+		const guest = await joinByInvitation(page, guestPage, workspace);
+		const otherTab = await guestContext.newPage();
+		await otherTab.goto(`/${workspace.slug}/team/ENG`);
+		await expect(syncBadge(otherTab)).toHaveText("Live");
+
+		await guestPage.goto(`/${workspace.slug}/settings/members`);
+		await guestPage.getByRole("button", { name: `More for ${guest.name}` }).click();
+		await guestPage.getByRole("menuitem", { name: `Leave ${workspace.name}` }).click();
+		let reloads = 0;
+		guestPage.on("load", () => {
+			reloads += 1;
+		});
+		await guestPage.getByRole("button", { name: "Leave", exact: true }).click();
+
+		await expect(guestPage.getByText(`You left ${workspace.name}`)).toBeVisible();
+		await expect(guestPage.getByRole("heading", { name: "Workspaces" })).toBeVisible();
+		await expect(
+			otherTab.getByRole("heading", { name: /no longer have access|Workspace not found/ }),
+		).toBeVisible();
+		// The other tab deletes this device's copy as soon as it hears, which must not reload this one
+		// on its way out and take the message with it. A reload would come a moment after that delete,
+		// as the tab asks the server first, so nothing shows it has not happened but waiting.
+		await guestPage.waitForTimeout(1_500);
+		expect(reloads).toBe(0);
+	} finally {
+		await guestContext.close();
+	}
+});
+
 test("a second person who joined by invitation link sees edits live", async ({ page, browser }) => {
 	const workspace = await startWorkspace(page);
 	const { slug } = workspace;
