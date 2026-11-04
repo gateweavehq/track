@@ -22,7 +22,12 @@ export const getHome = createServerFn({ method: "GET" }).handler(async () => {
 });
 
 export const getAuthOptions = createServerFn({ method: "GET" }).handler(async () => {
-	const { emailEnabled, githubEnabled } = await import("#/server/auth");
+	const { emailEnabled, githubEnabled, oidcProviderName } = await import("#/server/auth");
 	const { demoEnabled } = await import("#/server/demo/mode");
-	return { github: githubEnabled, email: emailEnabled, demo: demoEnabled() };
+	return {
+		github: githubEnabled,
+		oidc: oidcProviderName,
+		email: emailEnabled,
+		demo: demoEnabled(),
+	};
 });

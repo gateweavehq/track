@@ -6,6 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { PROVIDER_PORT, provider } from "./provider.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 process.chdir(root);
@@ -37,6 +38,8 @@ const migrated = spawnSync(
 	{ stdio: "inherit" },
 );
 if (migrated.status !== 0) process.exit(migrated.status ?? 1);
+
+provider.listen(PROVIDER_PORT, "localhost");
 
 const server = spawn(
 	process.execPath,

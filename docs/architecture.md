@@ -247,6 +247,40 @@ attempts per 10 seconds and 3 password-reset requests per minute. It identifies 
 `CF-Connecting-IP`. Cloudflare sets that header and clients cannot. Counts are kept in memory,
 per isolate, so the limit slows guessing but is not a hard cap.
 
+### Signing in through a provider
+
+With `OIDC_ISSUER`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` set, Track is a client of an OpenID
+Connect provider, through Better Auth's `generic-oauth` plugin
+(`apps/web/src/server/auth/oidc-sign-in.ts`). What comes out of it is an account row and an
+ordinary session, so nothing past the sign-in page knows the difference. It is how Gateweave Cloud
+signs people in with [Gateweave ID](ecosystem.md#identity-and-workspaces), and how a self-hoster
+uses their own provider: one path, differing only by configuration.
+
+- **Discovery waits until someone needs it.** The plugin's `init` waits for the provider's discovery
+  document with no time limit, and every request to a new isolate waits for `init`, so a slow
+  provider would stop password sign-in and every session check. Track replaces `init` so that each
+  isolate starts as the plugin does after a failed discovery, which it retries, within 10 seconds,
+  for a request that names the provider. That sets a field of the plugin's that is not public, so an
+  upgrade that moves it fails the tests rather than the deployment. The cost is one wait for the
+  first person to use the button in each isolate.
+- **Linking is never assumed.** The provider is not in `trustedProviders`, so an existing account
+  links only when the provider says the address is verified and Track's account has verified it too.
+  Anything but a JSON `true` in `email_verified` counts as unverified, since some providers send text.
+- **Track keeps no tokens.** It signs people in and never acts for them at the provider, so the
+  account hook clears them all, and the ID token too, as soon as it has served its purpose. The
+  client authenticates with `client_secret_basic`, which every provider has to take.
+- **The provider can end sessions.** `POST /api/auth/backchannel-logout/oidc` takes a logout token,
+  checked against the provider's keys: issuer, audience, at most 5 minutes old, the logout event and
+  no nonce, which together keep an ID token from passing as one. A session row keeps the `sid` of
+  the ID token it came from (`session.oidc_sid`, never sent to the browser), and a token naming a
+  `sid` ends just those sessions, and only if they belong to the `sub` it may also name. A token
+  naming only a `sub` ends everything of that person's, which is the safe side of a provider that
+  cannot say which. The sessions end through Better Auth, so their sync sockets close as with any
+  other ended session.
+- **Signing out of Track stays in Track.** The provider's session is left alone, as other apps
+  signed in through it would expect, and `disableProviderLogout` keeps the plugin from sending
+  anyone there.
+
 ### AI agents (MCP)
 
 `/mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server, so AI agents can

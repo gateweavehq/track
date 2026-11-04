@@ -310,6 +310,9 @@ importers:
       fractional-indexing:
         specifier: 'catalog:'
         version: 4.0.0
+      jose:
+        specifier: 6.2.14
+        version: 6.2.14
       lucide-react:
         specifier: 1.65.0
         version: 1.65.0(@types/react@19.3.0)(react@19.3.1)
@@ -386,9 +389,6 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 21.0.4
-      jose:
-        specifier: 6.2.14
-        version: 6.2.14
       miniflare:
         specifier: 5.20261023.0-beta
         version: 5.20261023.0-beta(@types/node@26.6.6)

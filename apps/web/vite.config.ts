@@ -12,6 +12,7 @@ import { devSecrets } from "./scripts/dev-secrets";
 
 /** Where the end-to-end tests reach the app (see e2e/server.mjs). */
 const E2E_ORIGIN = `http://localhost:${Number(process.env.TRACK_E2E_PORT) || 4711}`;
+const E2E_PROVIDER = `http://localhost:${(Number(process.env.TRACK_E2E_PORT) || 4711) + 40}`;
 
 export default defineConfig(({ command }) => ({
 	resolve: { tsconfigPaths: true },
@@ -25,9 +26,19 @@ export default defineConfig(({ command }) => ({
 			persistState: process.env.TRACK_STATE_DIR ? { path: process.env.TRACK_STATE_DIR } : true,
 			config: (config) => {
 				// The end-to-end build (e2e/build.mjs) pins the address the tests use, which is what
-				// turns /mcp on, so the tests can play an agent.
+				// turns /mcp on, so the tests can play an agent. It also points at their stand-in for an
+				// OpenID Connect provider (e2e/provider.mjs).
 				const e2e = process.env.TRACK_E2E
-					? { vars: { ...config.vars, BETTER_AUTH_URL: E2E_ORIGIN } }
+					? {
+							vars: {
+								...config.vars,
+								BETTER_AUTH_URL: E2E_ORIGIN,
+								OIDC_ISSUER: E2E_PROVIDER,
+								OIDC_CLIENT_ID: "track-e2e",
+								OIDC_CLIENT_SECRET: "track-e2e-secret",
+								OIDC_PROVIDER_NAME: "Test Provider",
+							},
+						}
 					: {};
 				if (command !== "serve") return e2e;
 				// In dev only: `secrets.required` would drop the optional settings in .dev.vars.
