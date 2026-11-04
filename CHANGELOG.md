@@ -8,6 +8,32 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.26.0] - 2026-11-04
+
+Every signed-in page carried the session's token in its HTML, and signing in with GitHub stored
+GitHub's token where nothing used it, so anyone running a copy should update. GitHub's automation
+also now moves an issue only when a pull request is about it. Updating a self-hosted copy applies one
+D1 migration, which deletes those stored GitHub tokens, and needs no new setting; the protocol stays
+at version 25. ([#190], [#191], [#192])
+
+### Security
+
+- Every signed-in page carried the session's token in its HTML, where a saved page or anything that
+  keeps a copy of the document would have it too. The cookie is `HttpOnly` to keep it from there, and
+  no page reads it, so pages no longer get it. Better Auth's `/get-session` still answers a script
+  with it, so this keeps the token out of documents, not out of reach of a script already running in
+  the page. ([#190])
+- Signing in with GitHub stored GitHub's access token, unencrypted, in `account`. Nothing read it:
+  Track never acts for someone there, and its GitHub integration makes an exchange of its own. Track
+  now keeps none of them, and a migration deletes the ones already stored. ([#192])
+
+### Changed
+
+- **A pull request that only mentions an issue in its description links it and no longer moves it.**
+  An issue named to say it was out of scope used to go to In Review with no work done on it. The
+  branch name, the title and a closing word such as "Fixes ENG-12" still move an issue, and a closing
+  word added by a later edit moves it when the edit arrives. ([#191])
+
 ## [0.25.0] - 2026-11-04
 
 Track can sign people in through an OpenID Connect provider, and a password can no longer reach a
@@ -886,6 +912,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.26.0]: https://github.com/gateweavehq/track/releases/tag/v0.26.0
 [0.25.0]: https://github.com/gateweavehq/track/releases/tag/v0.25.0
 [0.24.0]: https://github.com/gateweavehq/track/releases/tag/v0.24.0
 [0.23.0]: https://github.com/gateweavehq/track/releases/tag/v0.23.0
@@ -1045,3 +1072,6 @@ The first pre-release.
 [#184]: https://github.com/gateweavehq/track/pull/184
 [#187]: https://github.com/gateweavehq/track/pull/187
 [#188]: https://github.com/gateweavehq/track/pull/188
+[#190]: https://github.com/gateweavehq/track/pull/190
+[#191]: https://github.com/gateweavehq/track/pull/191
+[#192]: https://github.com/gateweavehq/track/pull/192
