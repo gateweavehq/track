@@ -8,6 +8,23 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.24.0] - 2026-11-04
+
+A new workspace now learns how to move in from another tracker, and dependencies are up to date.
+Updating a self-hosted copy needs no migration and no new setting; the protocol stays at version
+25. ([#179], [#180])
+
+### Added
+
+- The guided start has two more issues: bringing issues from another tracker (Settings, Import,
+  from Jira's CSV export, a Linear team, a GitHub repository, CSV or another workspace's JSON
+  export), and linking pull requests from GitHub (Settings, GitHub). ([#179])
+
+### Changed
+
+- Dependencies are updated. postal-mime, which reads intake email, goes to 4.2.0, with fixes for
+  how it reads malformed messages, and wrangler to 4.156.0. ([#180])
+
 ## [0.23.0] - 2026-11-02
 
 Teams can move from Jira, and moving from Linear keeps more. Updating a self-hosted copy needs no
@@ -841,6 +858,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.24.0]: https://github.com/gateweavehq/track/releases/tag/v0.24.0
 [0.23.0]: https://github.com/gateweavehq/track/releases/tag/v0.23.0
 [0.22.0]: https://github.com/gateweavehq/track/releases/tag/v0.22.0
 [0.21.1]: https://github.com/gateweavehq/track/releases/tag/v0.21.1
@@ -992,3 +1010,5 @@ The first pre-release.
 [#175]: https://github.com/gateweavehq/track/pull/175
 [#176]: https://github.com/gateweavehq/track/pull/176
 [#177]: https://github.com/gateweavehq/track/pull/177
+[#179]: https://github.com/gateweavehq/track/pull/179
+[#180]: https://github.com/gateweavehq/track/pull/180
