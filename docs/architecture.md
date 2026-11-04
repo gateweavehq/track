@@ -1427,6 +1427,9 @@ it has one. The code is `packages/sync-server/src/github.ts`, with the gateways 
   Pull requests are an entity of their own (`pullRequest`), in every member's replica, with the
   ids of the issues they link and close; the snapshot leaves out those that only name deleted
   issues. The issue page lists them, and MCP's `get_issue` returns them.
+- **A plain mention moves nothing.** A key in a description can be there for any reason, even to
+  say an issue is left out, so it only links. A pull request moves the issues its branch or title
+  names, and those a closing word names wherever it is.
 - **Automation only moves forward.** A draft pull request moves its issues to In Progress, an
   open one to In Review, and a merged one moves the issues it closes to Done. A push to the
   default branch moves the issues its commits close to Done (commits GitHub marks as not
@@ -1435,7 +1438,8 @@ it has one. The code is `packages/sync-server/src/github.ts`, with the gateways 
   of the category in its order. An issue is never moved back to an earlier status in its team's
   order, nor out of a completed or canceled status. Only a change of the pull request's state moves
   issues (opened, reopened, ready for review, converted to draft, merged), or an edit that links
-  an issue anew; new commits or an edit leave linked issues where people put them.
+  an issue anew or adds a closing word; new commits or other edits leave linked issues where people
+  put them.
 - **GitHub is the actor.** Changes are made as `GITHUB_ACTOR_ID` (`github`), shown as "GitHub".
   History entries carry their `source`, the pull request (`acme/app#7`) or commit
   (`acme/app@abc1234`) with its URL. The status's field stamp names the client `github`, so an

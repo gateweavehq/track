@@ -261,14 +261,15 @@ describe("pull requests", () => {
 		]);
 		expect(await statuses(workspace)).toMatchObject({
 			"issue-1": "in_progress",
-			"issue-2": "in_progress",
+			// Named in passing, which links it and says nothing about its work.
+			"issue-2": "todo",
 			"issue-3": "backlog",
 		});
 
 		await deliver("pull_request", pullRequest("ready_for_review", { body: "Also ENG-2." }));
 		expect(await statuses(workspace)).toMatchObject({
 			"issue-1": "in_review",
-			"issue-2": "in_review",
+			"issue-2": "todo",
 		});
 
 		const merged = {
@@ -280,7 +281,7 @@ describe("pull requests", () => {
 		expect(await statuses(workspace)).toMatchObject({
 			"issue-1": "done",
 			// Mentioned, not fixed.
-			"issue-2": "in_review",
+			"issue-2": "todo",
 		});
 		expect((await pullRequests(workspace))[0]?.state).toBe("merged");
 
@@ -299,6 +300,61 @@ describe("pull requests", () => {
 			label: "acme/app#7",
 			url: "https://github.com/acme/app/pull/7",
 		});
+	});
+
+	// TRK-84: a pull request on our own board named an issue to say it was out of scope, and the issue
+	// went to In Review with no work done on it.
+	it("leave an issue their description only names where it is", async () => {
+		const { workspace, deliver } = await setup();
+		const fields = { branch: "login", body: "ENG-2 is out of scope here." };
+		await deliver("pull_request", pullRequest("opened", { ...fields, draft: true }));
+		await deliver("pull_request", pullRequest("ready_for_review", fields));
+		await deliver("pull_request", pullRequest("edited", fields));
+		expect((await statuses(workspace))["issue-2"]).toBe("backlog");
+		expect((await workspace.pullRequests("issue-2")).map((row) => row.number)).toEqual([7]);
+
+		await deliver(
+			"pull_request",
+			pullRequest("closed", { ...fields, state: "closed", merged_at: "2026-10-31T09:00:00Z" }),
+		);
+		expect((await statuses(workspace))["issue-2"]).toBe("backlog");
+		const history = (await workspace.snapshot(owner)).activities.filter(
+			(entry) => entry.issueId === "issue-2" && entry.actorId === GITHUB_ACTOR_ID,
+		);
+		expect(history).toEqual([]);
+	});
+
+	it("move an issue their title names, without closing it", async () => {
+		const { workspace, deliver } = await setup();
+		const fields = { branch: "login", title: "ENG-2: a better login", body: "More in ENG-2." };
+		await deliver("pull_request", pullRequest("opened", { ...fields, draft: true }));
+		expect((await statuses(workspace))["issue-2"]).toBe("in_progress");
+		await deliver("pull_request", pullRequest("ready_for_review", fields));
+		expect((await statuses(workspace))["issue-2"]).toBe("in_review");
+
+		expect((await pullRequests(workspace))[0]?.closingIssueIds).toEqual([]);
+		await deliver(
+			"pull_request",
+			pullRequest("closed", { ...fields, state: "closed", merged_at: "2026-10-31T09:00:00Z" }),
+		);
+		expect((await statuses(workspace))["issue-2"]).toBe("in_review");
+	});
+
+	it("move an issue their description says they fix as soon as it says so", async () => {
+		const { workspace, as, deliver } = await setup();
+		await deliver("pull_request", pullRequest("opened", { branch: "login", body: "See ENG-2." }));
+		expect((await statuses(workspace))["issue-2"]).toBe("backlog");
+
+		await deliver("pull_request", pullRequest("edited", { branch: "login", body: "Fixes ENG-2." }));
+		expect((await statuses(workspace))["issue-2"]).toBe("in_review");
+
+		// It is old news from here on, and someone may move the issue on purpose.
+		await setStatus(workspace, as, "issue-2", "todo");
+		await deliver(
+			"pull_request",
+			pullRequest("edited", { branch: "login", body: "Fixes ENG-2, at last." }),
+		);
+		expect((await statuses(workspace))["issue-2"]).toBe("todo");
 	});
 
 	it("close what their title or body says they fix", async () => {
@@ -435,7 +491,7 @@ describe("pull requests", () => {
 		// Someone moves it back on purpose; a new commit or an edit must not undo that.
 		await setStatus(workspace, as, "issue-1", "in_progress");
 		await deliver("pull_request", pullRequest("synchronize"));
-		await deliver("pull_request", pullRequest("edited", { body: "Needs ENG-3 too." }));
+		await deliver("pull_request", pullRequest("edited", { title: "Fix login, and ENG-3" }));
 		expect(await statuses(workspace)).toMatchObject({
 			"issue-1": "in_progress",
 			"issue-3": "in_review",

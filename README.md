@@ -39,8 +39,9 @@ Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
   leave unread can follow you by email, as you choose.
 - **Webhooks.** Each change can be posted to a URL of yours as it happens, signed per
   [Standard Webhooks](https://www.standardwebhooks.com) and retried while the receiver is down.
-- **GitHub.** Pull requests and commits that name an issue link to it and move it along: In
-  Progress for a draft, In Review when opened, Done when merged.
+- **GitHub.** Pull requests and commits that name an issue link to it. A pull request whose branch
+  or title names it, or that says "Fixes" it, moves it along: In Progress for a draft, In Review
+  when opened, Done when merged.
 - **Your data is yours.** Export a workspace or one team as CSV or JSON from Settings, Export. It
   is built in the browser from its local copy, so it works offline. Settings, Import reads either
   file back, into the same workspace or another, and brings issues in from GitHub, Linear and

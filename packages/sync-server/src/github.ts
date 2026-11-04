@@ -326,6 +326,12 @@ const CLOSING = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+([a-z][a-z0-9]{
 interface Reference {
 	issue: schema.IssueRow;
 	closing: boolean;
+	/** Named where a pull request says what it is about, not only somewhere in its description. */
+	about: boolean;
+}
+
+function asAbout(mention: Mention): Mention {
+	return { ...mention, about: true };
 }
 
 class GitHubEvents {
@@ -344,10 +350,12 @@ class GitHubEvents {
 			.from(schema.pullRequests)
 			.where(eq(schema.pullRequests.id, id))
 			.get();
-		// The branch was named for the issue, so merging it closes the issue.
+		// The branch was named for the issue, so merging it closes the issue. A description can name an
+		// issue for any reason, even to say it is left out, so there a key only links it. It comes last,
+		// since the first mention of a key says whether the pull request is about it.
 		const references = this.#resolve([
-			...mentions(pr.head.ref, true),
-			...mentions(pr.title),
+			...mentions(pr.head.ref, true).map(asAbout),
+			...mentions(pr.title).map(asAbout),
 			...mentions(pr.body ?? ""),
 		]);
 		if (!existing && references.size === 0) return;
@@ -383,11 +391,14 @@ class GitHubEvents {
 			url: pr.html_url,
 		};
 		const linked = new Set(existing?.issueIds);
+		const closed = new Set(existing?.closingIssueIds);
 		const moved = STATE_ACTIONS.has(action) || (action === "closed" && state === "merged");
 		for (const [issueId, reference] of references) {
+			if (!reference.about && !reference.closing) continue;
 			// An edit or a new commit says nothing new about issues that were already linked, and
-			// someone may have moved them on purpose since.
-			if (!moved && linked.has(issueId)) continue;
+			// someone may have moved them on purpose since. A closing word added by an edit is news.
+			const newlyClosing = reference.closing && !closed.has(issueId);
+			if (!moved && linked.has(issueId) && !newlyClosing) continue;
 			const target = targetStatus(state, reference.closing);
 			if (target) this.#advance(issueId, target, source);
 		}
@@ -459,7 +470,7 @@ class GitHubEvents {
 		);
 		// By key; null for a key that names no live issue.
 		const byKey = new Map<string, Reference | null>();
-		for (const { teamKey, number, closing } of mentioned) {
+		for (const { teamKey, number, closing, about = false } of mentioned) {
 			const key = `${teamKey}-${number}`;
 			const known = byKey.get(key);
 			if (known !== undefined) {
@@ -482,7 +493,7 @@ class GitHubEvents {
 								),
 							)
 							.get();
-			byKey.set(key, issue ? { issue, closing } : null);
+			byKey.set(key, issue ? { issue, closing, about } : null);
 		}
 		const found = new Map<string, Reference>();
 		for (const reference of byKey.values()) {
@@ -496,6 +507,7 @@ interface Mention {
 	teamKey: string;
 	number: number;
 	closing: boolean;
+	about?: boolean;
 }
 
 /**
