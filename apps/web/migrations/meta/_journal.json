@@ -36,6 +36,13 @@
       "when": 1793800277902,
       "tag": "0004_oidc_session",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793810859118,
+      "tag": "0005_clear_github_tokens",
+      "breakpoints": true
     }
   ]
 }
