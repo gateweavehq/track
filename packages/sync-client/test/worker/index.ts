@@ -38,10 +38,11 @@ export default {
 
 		const stub = env.WORKSPACE.getByName(workspace);
 		if (endpoint === "socket") {
+			await stub.syncMember(member);
 			return stub.fetch("https://workspace/socket", {
 				headers: {
 					Upgrade: "websocket",
-					[MEMBER_HEADER]: JSON.stringify(member),
+					[MEMBER_HEADER]: member.id,
 					// Sessions are the app's to end; here they last.
 					[SESSION_HEADER]: JSON.stringify({ id: user, expiresAt: Number.MAX_SAFE_INTEGER }),
 				},

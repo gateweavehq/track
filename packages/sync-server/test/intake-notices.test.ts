@@ -38,10 +38,11 @@ async function setup({ link = true } = {}) {
 	await as(owner, { name: "team.create", args: { id: TEAM_ID, key: "ENG", name: "Engineering" } });
 	await as(owner, { name: "team.update", args: { id: TEAM_ID, patch: { intakeForm: true } } });
 	if (link) {
+		await workspace.syncMember(owner);
 		const response = await workspace.fetch("https://workspace/socket", {
 			headers: {
 				Upgrade: "websocket",
-				[MEMBER_HEADER]: JSON.stringify(owner),
+				[MEMBER_HEADER]: owner.id,
 				[LINK_HEADER]: JSON.stringify(LINK),
 				[SESSION_HEADER]: JSON.stringify(SESSION),
 			},

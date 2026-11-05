@@ -132,8 +132,12 @@ import {
 } from "./webhooks";
 
 /**
- * Header carrying the verified member on socket requests. The Durable Object is only reachable
+ * Header carrying the verified member's id on socket requests. The Durable Object is only reachable
  * through the app worker's binding, which sets this after checking the session and membership.
+ *
+ * Only the id, because Workers Logs records this request's headers for seven days, and a person's name
+ * and address have no business there. The gateway hands those over first with `syncMember`, whose
+ * arguments are not logged. A socket can only be opened by `fetch`, so this one request has to stay.
  */
 export const MEMBER_HEADER = "x-track-member";
 
@@ -684,19 +688,20 @@ export class WorkspaceDO extends DurableObject {
 		if (url.pathname !== "/socket" || request.headers.get("Upgrade") !== "websocket") {
 			return new Response("Not found", { status: 404 });
 		}
-		const member = memberProfile.safeParse(parseJson(request.headers.get(MEMBER_HEADER)));
-		if (!member.success) return new Response("Missing member", { status: 400 });
+		const userId = request.headers.get(MEMBER_HEADER);
+		if (!userId || !activeMember(this.#db, userId)) {
+			return new Response("Missing member", { status: 400 });
+		}
 		const session = socketSession.safeParse(parseJson(request.headers.get(SESSION_HEADER)));
 		if (!session.success) return new Response("Missing session", { status: 400 });
 
-		this.#write(() => upsertMember(this.#db, member.data, Date.now()));
 		const link = workspaceLink.safeParse(parseJson(request.headers.get(LINK_HEADER)));
 		if (link.success) this.ctx.storage.transactionSync(() => saveLink(this.#db, link.data));
 
 		const { 0: client, 1: server } = new WebSocketPair();
 		this.ctx.acceptWebSocket(server);
 		server.serializeAttachment({
-			userId: member.data.id,
+			userId,
 			sessionId: session.data.id,
 			expiresAt: session.data.expiresAt,
 			clientId: null,

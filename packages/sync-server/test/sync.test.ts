@@ -160,12 +160,56 @@ describe("connection", () => {
 		});
 	});
 
+	describe("who a socket is for", () => {
+		const open = (workspace: ReturnType<typeof freshWorkspace>, member: string) =>
+			workspace.fetch("https://workspace/socket", {
+				headers: {
+					Upgrade: "websocket",
+					"x-track-member": member,
+					"x-track-session": JSON.stringify(SESSION),
+				},
+			});
+
+		it("opens for someone the gateway named", async () => {
+			const workspace = freshWorkspace();
+			await workspace.syncMember(owner);
+			const response = await open(workspace, owner.id);
+			expect(response.status).toBe(101);
+			response.webSocket?.accept();
+			response.webSocket?.close(1000);
+		});
+
+		it("refuses someone it has not been told about", async () => {
+			const workspace = freshWorkspace();
+			await workspace.syncMember(owner);
+			expect((await open(workspace, alice.id)).status).toBe(400);
+		});
+
+		it("refuses someone who has been removed", async () => {
+			const workspace = freshWorkspace();
+			await workspace.syncMember(alice);
+			await workspace.removeMember(alice.id);
+			expect((await open(workspace, alice.id)).status).toBe(400);
+		});
+
+		// Workers Logs records this request's headers, so a gateway sending the profile here would put
+		// everyone's name and address in the logs. Refused, it cannot pass for working.
+		it("does not take a person's profile in the header", async () => {
+			const workspace = freshWorkspace();
+			const response = await open(workspace, JSON.stringify(owner));
+			expect(response.status).toBe(400);
+			await workspace.syncMember(owner);
+			expect((await open(workspace, JSON.stringify(owner))).status).toBe(400);
+		});
+	});
+
 	it("answers keepalive pings", async () => {
 		const workspace = freshWorkspace();
+		await workspace.syncMember(owner);
 		const response = await workspace.fetch("https://workspace/socket", {
 			headers: {
 				Upgrade: "websocket",
-				"x-track-member": JSON.stringify(owner),
+				"x-track-member": owner.id,
 				"x-track-session": JSON.stringify(SESSION),
 			},
 		});

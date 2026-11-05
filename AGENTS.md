@@ -91,7 +91,8 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    channel's key, which the object makes, admits them after Turnstile or a rate limit, a key no
    team has gets the same 404 or refusal as a missing workspace, and they can only file a request
    into that team's intake. Non-members get the same 404 or "not found" as a missing workspace. The verified member
-   travels in `MEMBER_HEADER` or as the `member` argument of `mutate`, which only a gateway sets.
+   travels in `MEMBER_HEADER`, as an id only since Workers Logs records it, or as the `member`
+   argument of `mutate`, which only a gateway sets.
 7. **Server code never reaches the browser bundle.** In server functions, import server modules
    dynamically inside the handler, as `apps/web/src/lib/session.ts` does.
 8. **Migrations are append-only.** Generate them with Drizzle Kit and commit them. Never edit a

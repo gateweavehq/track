@@ -91,10 +91,11 @@ const LINK: WorkspaceLink = { id: "ws-1", slug: "acme", origin: "https://track.e
 
 /** Opens and closes a socket, as a browser does through the gateway, which records the link. */
 async function connect(workspace: Workspace, member: MemberProfile, link: WorkspaceLink) {
+	await workspace.syncMember(member);
 	const response = await workspace.fetch("https://workspace/socket", {
 		headers: {
 			Upgrade: "websocket",
-			[MEMBER_HEADER]: JSON.stringify(member),
+			[MEMBER_HEADER]: member.id,
 			[LINK_HEADER]: JSON.stringify(link),
 			[SESSION_HEADER]: JSON.stringify(SESSION),
 		},
