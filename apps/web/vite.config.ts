@@ -37,6 +37,9 @@ export default defineConfig(({ command }) => ({
 								OIDC_CLIENT_ID: "track-e2e",
 								OIDC_CLIENT_SECRET: "track-e2e-secret",
 								OIDC_PROVIDER_NAME: "Test Provider",
+								LEGAL_NOTICE_URL: "https://legal.example/notice",
+								PRIVACY_POLICY_URL: "https://legal.example/privacy",
+								TERMS_URL: "https://legal.example/terms",
 							},
 						}
 					: {};

@@ -5,6 +5,7 @@ import {
 	type MemberRole,
 } from "@gateweave/track-protocol";
 import { createContext, type ReactNode, useContext } from "react";
+import type { LegalLinks } from "#/lib/legal";
 import { useMembersById } from "#/lib/queries";
 
 export interface WorkspaceInfo {
@@ -15,6 +16,8 @@ export interface WorkspaceInfo {
 	role: MemberRole;
 	/** True on the public demo, which shows a banner. */
 	demo?: boolean;
+	/** The deployment's legal pages, for the workspace menu. */
+	legal?: LegalLinks;
 }
 
 const WorkspaceContext = createContext<WorkspaceInfo | null>(null);

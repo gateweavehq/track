@@ -24,21 +24,30 @@ export const getSession = createServerFn({ method: "GET" }).handler(async () => 
 export const getHome = createServerFn({ method: "GET" }).handler(async () => {
 	const { getAuth } = await import("#/server/auth");
 	const { demoEnabled } = await import("#/server/demo/mode");
+	const { legalLinks } = await import("#/server/legal");
 	const headers = getRequestHeaders();
 	const auth = getAuth();
 	const session = withoutToken(await auth.api.getSession({ headers }));
-	if (!session || !demoEnabled()) return { session, sandbox: undefined };
+	const legal = legalLinks();
+	if (!session || !demoEnabled()) return { session, sandbox: undefined, legal };
 	const [sandbox] = await auth.api.listOrganizations({ headers });
-	return { session, sandbox: sandbox?.slug };
+	return { session, sandbox: sandbox?.slug, legal };
 });
 
 export const getAuthOptions = createServerFn({ method: "GET" }).handler(async () => {
 	const { emailEnabled, githubEnabled, oidcProviderName } = await import("#/server/auth");
 	const { demoEnabled } = await import("#/server/demo/mode");
+	const { legalLinks } = await import("#/server/legal");
 	return {
 		github: githubEnabled,
 		oidc: oidcProviderName,
 		email: emailEnabled,
 		demo: demoEnabled(),
+		legal: legalLinks(),
 	};
+});
+
+export const getLegalLinks = createServerFn({ method: "GET" }).handler(async () => {
+	const { legalLinks } = await import("#/server/legal");
+	return legalLinks();
 });

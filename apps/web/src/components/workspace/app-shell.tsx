@@ -6,6 +6,7 @@ import {
 	Bot,
 	ChevronDown,
 	CircleUserRound,
+	FileText,
 	Inbox,
 	IterationCcw,
 	Keyboard,
@@ -14,8 +15,10 @@ import {
 	LogOut,
 	Menu,
 	Plus,
+	Scale,
 	Search,
 	Settings,
+	Shield,
 	SquarePen,
 	UserPlus,
 } from "lucide-react";
@@ -34,6 +37,7 @@ import {
 import { Kbd } from "#/components/ui/kbd";
 import { authClient } from "#/lib/auth-client";
 import { MOD_LABEL } from "#/lib/hotkeys";
+import { legalEntries } from "#/lib/legal";
 import { useMembersById, useProposalCount, useSavedViews, useTeams } from "#/lib/queries";
 import { forgetEverything } from "#/lib/replica";
 import { cn } from "#/lib/utils";
@@ -290,8 +294,11 @@ function Sidebar() {
 	);
 }
 
+const LEGAL_ICONS = { notice: Scale, privacy: Shield, terms: FileText };
+
 function WorkspaceMenu() {
-	const { name, slug } = useWorkspace();
+	const { name, slug, legal } = useWorkspace();
+	const legalPages = legalEntries(legal);
 	const admin = isAdmin(useMyRole());
 	const client = useSyncClient();
 	const navigate = useNavigate();
@@ -348,6 +355,18 @@ function WorkspaceMenu() {
 					</Link>
 				</DropdownMenuItem>
 				<DropdownMenuSeparator />
+				{legalPages.map(({ kind, label, href }) => {
+					const Icon = LEGAL_ICONS[kind];
+					return (
+						<DropdownMenuItem key={kind} asChild>
+							<a href={href} target="_blank" rel="noreferrer">
+								<Icon />
+								{label}
+							</a>
+						</DropdownMenuItem>
+					);
+				})}
+				{legalPages.length > 0 && <DropdownMenuSeparator />}
 				<DropdownMenuItem onSelect={() => void signOut()}>
 					<LogOut />
 					Sign out

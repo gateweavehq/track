@@ -2,9 +2,11 @@ import { createFileRoute, Link, useLocation } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
+import { LegalLinks } from "#/components/legal-links";
 import { Button } from "#/components/ui/button";
 import { authClient, inAuthorizationFlow } from "#/lib/auth-client";
 import { getConsentRequest } from "#/lib/oauth";
+import { getLegalLinks } from "#/lib/session";
 import { useDocumentTitle } from "#/lib/title";
 
 // Better Auth sends people here with the signed authorization request in the query. Loose, so
@@ -17,12 +19,18 @@ const consentSearch = z.looseObject({
 export const Route = createFileRoute("/oauth/consent")({
 	validateSearch: consentSearch,
 	loaderDeps: ({ search }) => ({ clientId: search.client_id }),
-	loader: ({ deps }) => (deps.clientId ? getConsentRequest({ data: deps.clientId }) : null),
+	loader: async ({ deps }) => {
+		const [request, legal] = await Promise.all([
+			deps.clientId ? getConsentRequest({ data: deps.clientId }) : null,
+			getLegalLinks(),
+		]);
+		return { request, legal };
+	},
 	component: ConsentPage,
 });
 
 function ConsentPage() {
-	const request = Route.useLoaderData();
+	const { request } = Route.useLoaderData();
 	const search = Route.useSearch();
 	const searchStr = useLocation({ select: (location) => location.searchStr });
 	const [pending, setPending] = useState(false);
@@ -105,11 +113,13 @@ function destination(redirectUri: string | undefined): string {
 }
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
+	const { legal } = Route.useLoaderData();
 	return (
 		<main className="flex min-h-svh items-center justify-center p-6">
 			<div className="w-full max-w-sm space-y-6">
 				<h1 className="text-xl font-semibold tracking-tight">{title}</h1>
 				{children}
+				<LegalLinks links={legal} />
 			</div>
 		</main>
 	);
