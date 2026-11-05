@@ -24,7 +24,7 @@ import type { MutationInput } from "./mutations";
 import type { WorkflowStatus } from "./statuses";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 25;
+export const PROTOCOL_VERSION = 26;
 
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";

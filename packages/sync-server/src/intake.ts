@@ -7,6 +7,7 @@ import {
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import * as schema from "./db/schema";
+import { notifyOfRequest } from "./inbox";
 import { ChangeSet, type WriteResult } from "./log";
 import { recordRequester } from "./requesters";
 import { indexIssue } from "./search";
@@ -74,9 +75,9 @@ export function findIntake(db: Db, via: IntakeChannel, key: string): IntakeTarge
 
 /**
  * Files a request into the intake of the team whose channel it came through, in the team's first
- * status. The channel is its creator, as nobody it came from need be a member. It tells nobody in
- * their inbox, so a stranger's text cannot mention people into hearing from it; webhooks hear of
- * it as of any new issue. Null when the channel is off. Runs in one transaction.
+ * status. The channel is its creator, as nobody it came from need be a member. It mentions nobody,
+ * so a stranger's text cannot bring people to it: only those who follow the team's intake hear of
+ * it, as webhooks do of any new issue. Null when the channel is off. Runs in one transaction.
  */
 export function fileRequest(
 	db: Db,
@@ -127,7 +128,8 @@ export function fileRequest(
 	changes.put("issue", toIssue(row));
 	changes.events.push({ type: "issue.created", issue: row });
 
+	const wake = notifyOfRequest(db, changes, actor.id, row);
 	const result = changes.result();
 	const queued = queueDeliveries(db, actor, changes.events, result.version, now);
-	return { result: { ...result, queued }, issueId: row.id };
+	return { result: { ...result, queued, wake }, issueId: row.id };
 }

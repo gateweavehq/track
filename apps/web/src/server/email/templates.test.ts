@@ -177,6 +177,32 @@ describe("inboxDigestEmail", () => {
 		expect(due.subject).toBe("ENG-12: Export issues as CSV is due Monday, November 2");
 	});
 
+	it("says a new request came, with no one's name on a stranger's words", () => {
+		const email = inboxDigestEmail({
+			...base,
+			items: [{ ...entry, actor: "Someone", event: { type: "request" } }],
+		});
+		expect(email.subject).toBe("New request ENG-12: Export issues as CSV");
+		expect(email.text).toContain("New request ENG-12\n");
+	});
+
+	it("keeps a request's title short and on one line in the subject, and escapes it", () => {
+		const email = inboxDigestEmail({
+			...base,
+			items: [
+				{
+					...entry,
+					title: `<b>Win</b>\r\nBcc: everyone@example.com ${"x".repeat(200)}`,
+					event: { type: "request" },
+				},
+			],
+		});
+		expect(email.subject).not.toMatch(/[\r\n]/);
+		expect(email.subject.length).toBeLessThan(120);
+		expect(email.html).not.toContain("<b>Win</b>");
+		expect(email.html).toContain("&lt;b&gt;Win&lt;/b&gt;");
+	});
+
 	it("escapes what members typed, and keeps it short", () => {
 		const email = inboxDigestEmail({
 			...base,

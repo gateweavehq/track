@@ -435,6 +435,10 @@ export const mutationSchema = z.discriminatedUnion("name", [
 		args: z.object({ issueId: id, subscribed: z.boolean() }),
 	}),
 	z.object({
+		name: z.literal("team.followIntake"),
+		args: z.object({ teamId: id, following: z.boolean() }),
+	}),
+	z.object({
 		name: z.literal("inbox.update"),
 		args: z.object({
 			/**

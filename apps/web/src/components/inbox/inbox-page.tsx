@@ -399,6 +399,8 @@ function EventText({ event, issue }: { event: InboxEvent; issue: SyncedIssue }) 
 			);
 		case "intake":
 			return event.accepted ? <>accepted the request</> : <>declined the request</>;
+		case "request":
+			return <>filed a request</>;
 		case "due": {
 			const day = today();
 			if (event.on === day) return <>reminds you it is due today</>;

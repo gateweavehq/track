@@ -324,6 +324,7 @@ describe("inbox email", () => {
 				comment: "inbox",
 				mention: "inbox",
 				due: "inbox",
+				request: "inbox",
 			},
 		});
 		expect(await emailAt(workspace, alice)).toBeNull();

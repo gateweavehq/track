@@ -14,7 +14,7 @@ import * as schema from "./db/schema";
 import type { ChangeSet } from "./log";
 import { readSettings } from "./notifications";
 import { MutationRejected } from "./rejected";
-import { type Db, toInboxItem, toSubscription } from "./state";
+import { type Db, toInboxItem, toSubscription, toTeam } from "./state";
 import { isClosedStatus } from "./statuses";
 
 /**
@@ -46,6 +46,7 @@ export function notify(db: Db, changes: ChangeSet, actorId: string, imported: bo
 						told.add(issue.assigneeId);
 					}
 				}
+				if (!imported && issue.intake) inbox.tellFollowers(issue, told);
 				if (!imported) inbox.mention(issue.id, mentionedIds(issue.description), null, told);
 				break;
 			}
@@ -129,6 +130,21 @@ export function notifyOfReply(
 }
 
 /**
+ * Tells the people who follow a team's intake of a request a stranger filed, from `intake.ts`. It
+ * mentions nobody, as the text is a stranger's. Returns whether an email's time was set.
+ */
+export function notifyOfRequest(
+	db: Db,
+	changes: ChangeSet,
+	actorId: string,
+	issue: Pick<schema.IssueRow, "id" | "teamId">,
+): boolean {
+	const inbox = new Inbox(db, changes, actorId);
+	inbox.tellFollowers(issue, new Set());
+	return inbox.flush();
+}
+
+/**
  * Reminds assignees that their issues are due, from the alarm; Track is the actor. Returns whether
  * a reminder is to be emailed.
  */
@@ -158,6 +174,27 @@ export function subscribeToIssue(
 	const existing = findSubscription(db, args.issueId, member.userId);
 	if (existing?.subscribed === args.subscribed) return;
 	writeSubscription(db, changes, args.issueId, member.userId, args.subscribed);
+}
+
+/** `team.followIntake`: a person's own choice to hear of new requests in a team's intake. */
+export function followIntake(
+	db: Db,
+	changes: ChangeSet,
+	member: schema.MemberRow,
+	args: MutationArgs<"team.followIntake">,
+): void {
+	requirePerson(member);
+	const team = db.select().from(schema.teams).where(eq(schema.teams.id, args.teamId)).get();
+	if (!team) throw new MutationRejected("not_found", "Team not found");
+	if (team.intakeFollowers.includes(member.userId) === args.following) return;
+	writeIntakeFollowers(
+		db,
+		changes,
+		team.id,
+		args.following
+			? [...team.intakeFollowers, member.userId]
+			: team.intakeFollowers.filter((id) => id !== member.userId),
+	);
 }
 
 /**
@@ -215,7 +252,7 @@ export function updateInbox(
 	}
 }
 
-/** Removes a member's subscriptions and inbox, when they leave the workspace. */
+/** Removes a member's subscriptions, inbox and intakes they follow, when they leave. */
 export function forgetMember(db: Db, changes: ChangeSet, memberId: string): void {
 	const subscriptions = db
 		.delete(schema.subscriptions)
@@ -229,6 +266,28 @@ export function forgetMember(db: Db, changes: ChangeSet, memberId: string): void
 		.returning({ id: schema.inboxItems.id })
 		.all();
 	for (const { id } of items) changes.deletePrivate("inbox", id, memberId);
+	// Coming back later, they start again from nothing, as their subscriptions do.
+	for (const team of db.select().from(schema.teams).all()) {
+		if (team.intakeFollowers.includes(memberId)) {
+			const followers = team.intakeFollowers.filter((id) => id !== memberId);
+			writeIntakeFollowers(db, changes, team.id, followers);
+		}
+	}
+}
+
+function writeIntakeFollowers(
+	db: Db,
+	changes: ChangeSet,
+	teamId: string,
+	followers: string[],
+): void {
+	const row = db
+		.update(schema.teams)
+		.set({ intakeFollowers: followers, updatedAt: changes.now })
+		.where(eq(schema.teams.id, teamId))
+		.returning()
+		.get();
+	if (row) changes.put("team", toTeam(row));
 }
 
 function requirePerson(member: schema.MemberRow) {
@@ -336,6 +395,24 @@ class Inbox {
 			.all();
 		for (const { memberId } of subscribers) {
 			if (!except?.has(memberId)) this.tell(issueId, memberId, event);
+		}
+	}
+
+	/**
+	 * Tells the people who follow a team's intake of a new request, and adds them to `told`.
+	 * Those it tells then follow the request, so they hear of comments, replies and the decision on
+	 * it. Someone who turned this kind of news off is left out of both.
+	 */
+	tellFollowers(issue: Pick<schema.IssueRow, "id" | "teamId">, told: Set<string>): void {
+		const team = this.db
+			.select({ followers: schema.teams.intakeFollowers })
+			.from(schema.teams)
+			.where(eq(schema.teams.id, issue.teamId))
+			.get();
+		for (const memberId of team?.followers ?? []) {
+			if (told.has(memberId) || !this.tell(issue.id, memberId, { type: "request" })) continue;
+			this.subscribe(issue.id, memberId);
+			told.add(memberId);
 		}
 	}
 

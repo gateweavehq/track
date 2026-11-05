@@ -32,8 +32,13 @@ const KINDS: { kind: NotificationKind; label: string; description: string }[] = 
 		description: "An agent proposes a change to an issue you follow, for a person to decide.",
 	},
 	{
+		kind: "request",
+		label: "New requests",
+		description: "A request reaches the intake of a team you follow, from anyone.",
+	},
+	{
 		kind: "intake",
-		label: "Requests",
+		label: "Decisions on requests",
 		description: "Someone accepts or declines a request you follow, such as one you filed.",
 	},
 	{ kind: "unassigned", label: "Unassigned", description: "Someone takes you off an issue." },

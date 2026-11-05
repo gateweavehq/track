@@ -46,6 +46,11 @@ export const teams = sqliteTable("teams", {
 	intakeFormKey: text("intake_form_key").unique(),
 	/** The secret in the team's intake email address; null while it is off. */
 	intakeEmailKey: text("intake_email_key").unique(),
+	/** Who hears of each new request in the team's intake, by user id. */
+	intakeFollowers: text("intake_followers", { mode: "json" })
+		.$type<string[]>()
+		.notNull()
+		.default(sql`'[]'`),
 	issueCounter: integer("issue_counter").notNull().default(0),
 	createdAt: integer("created_at").notNull(),
 	updatedAt: integer("updated_at").notNull(),
