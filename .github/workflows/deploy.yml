@@ -1,7 +1,8 @@
 name: Deploy
 
 # Gateweave Cloud's deploys. Every green build of main goes to staging, and publishing a release
-# deploys that tag to production. Forks skip both jobs: they have no Cloudflare credentials.
+# deploys that tag to production, then to the public demo. Forks skip them all: they have no
+# Cloudflare credentials.
 on:
   workflow_run:
     workflows: [CI]
@@ -64,3 +65,27 @@ jobs:
       # `run` is needed: `pnpm deploy` is a built-in command.
       - name: Deploy
         run: pnpm --filter @gateweave/track-web run deploy
+
+  # The demo follows production, so a visitor sees what a release shipped. A release that fails on
+  # production goes no further.
+  demo:
+    if: github.repository == 'gateweavehq/track' && github.event_name == 'release'
+    needs: production
+    runs-on: ubuntu-latest
+    environment:
+      name: demo
+      url: https://track-demo.gateweave.com
+    concurrency: deploy-demo
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Migrations first, so the new code never meets an old schema.
+      - name: Apply D1 migrations
+        run: pnpm --filter @gateweave/track-web db:migrate:demo
+      - name: Deploy
+        run: pnpm --filter @gateweave/track-web deploy:demo

@@ -53,7 +53,8 @@ root unless noted.
 | `pnpm wrangler`   | The pinned Wrangler, run from the repository root                            |
 
 Gateweave's public demo is the `demo` environment in `wrangler.jsonc`: `pnpm --filter
-@gateweave/track-web deploy:demo` and `db:migrate:demo` mirror the staging scripts. Its code
+@gateweave/track-web deploy:demo` and `db:migrate:demo` mirror the staging scripts, and a
+release runs them after production. Its code
 (`apps/web/src/server/demo/`) must stay inert unless `TRACK_DEMO` is `"1"`; see
 `docs/architecture.md`. The sample data for `pnpm dev:seed` and the demo lives there too.
 
@@ -169,7 +170,8 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
 - Follow `.claude/skills/open-pull-request/SKILL.md` for the full flow.
 - Pull requests leave `CHANGELOG.md` alone, so parallel branches do not conflict there. A
   maintainer adds each version's entry when releasing: merge it to `main`, then publish a GitHub
-  release of that commit with the same notes. Publishing deploys Gateweave Cloud's production.
+  release of that commit with the same notes. Publishing deploys Gateweave Cloud's production,
+  then the public demo.
 
 ## Playbooks
 
