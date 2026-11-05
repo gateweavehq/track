@@ -2,7 +2,8 @@ import type { getWorkspace } from "./workspace";
 
 // What this browser remembers about the signed-in user's workspaces, so that one already on the
 // device can open without a connection. It holds only what the loaders would otherwise ask the
-// server for: ids, names and roles. The issues themselves live in each workspace's replica.
+// server for: ids, names, roles and the deployment's legal links. The issues themselves live in
+// each workspace's replica.
 
 export type KnownWorkspace = NonNullable<Awaited<ReturnType<typeof getWorkspace>>>;
 

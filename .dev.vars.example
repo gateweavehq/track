@@ -41,5 +41,11 @@ BETTER_AUTH_SECRET=
 # address to this Worker (a catch-all rule), such as requests.example.com.
 # INTAKE_EMAIL_DOMAIN=
 
+# Optional: the addresses of your legal pages, linked from the sign-in pages, the workspace menu and
+# the public request form. Nothing is linked when they are unset.
+# LEGAL_NOTICE_URL=
+# PRIVACY_POLICY_URL=
+# TERMS_URL=
+
 # Optional: the most megabytes of attached files each workspace may keep. Unlimited when unset.
 # ATTACHMENT_QUOTA_MB=

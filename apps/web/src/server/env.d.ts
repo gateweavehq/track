@@ -39,6 +39,14 @@ declare namespace Cloudflare {
 		 */
 		ATTACHMENT_QUOTA_MB?: string;
 		/**
+		 * The addresses of this deployment's legal pages, linked from the sign-in pages, the
+		 * workspace menu and the public request form. Each is left out when unset, or when it is not
+		 * an http(s) address.
+		 */
+		LEGAL_NOTICE_URL?: string;
+		PRIVACY_POLICY_URL?: string;
+		TERMS_URL?: string;
+		/**
 		 * The deployment's GitHub App, which admins install on their repositories instead of adding
 		 * a webhook by hand: its URL name (`github.com/apps/<slug>`), its OAuth client id and
 		 * secret, which show GitHub's word on who may reach an installation, and the secret that

@@ -82,6 +82,16 @@ pnpm wrangler secret put BETTER_AUTH_URL
 | `GITHUB_APP_WEBHOOK_SECRET` | The secret that signs the GitHub App's deliveries.                            |
 | `EMAIL_FROM`                | Turns on email, such as `Gateweave Track <track@example.com>`.                |
 | `ATTACHMENT_QUOTA_MB`       | Limits each workspace's attached files, such as `1024`. Unset or blank: none. |
+| `LEGAL_NOTICE_URL`          | The address of your legal notice. See below.                                  |
+| `PRIVACY_POLICY_URL`        | The address of your privacy policy.                                           |
+| `TERMS_URL`                 | The address of your terms.                                                    |
+
+### Your legal pages
+
+Track comes with no legal notice, privacy policy or terms, and never links to Gateweave's: whoever
+runs a copy decides what applies to it. Set any of the three addresses above, and it is linked from
+the sign-in pages, the workspace menu and the public request form. With `TERMS_URL` set, the sign-in
+page also says that continuing means agreeing to them.
 
 ### Your own domain
 

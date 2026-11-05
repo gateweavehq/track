@@ -11,16 +11,19 @@ export const getWorkspace = createServerFn({ method: "GET" })
 		const auth = getAuth();
 		const { findMembership } = await import("#/server/workspaces");
 		const { demoEnabled } = await import("#/server/demo/mode");
+		const { legalLinks } = await import("#/server/legal");
 		const session = await auth.api.getSession({ headers: getRequestHeaders() });
 		if (!session) return null;
 		const membership = await findMembership(db, slug, session.user.id);
 		if (!membership) return null;
+		const legal = legalLinks();
 		return {
 			id: membership.workspaceId,
 			name: membership.workspaceName,
 			userId: session.user.id,
 			role: membership.profile.role,
 			...(demoEnabled() && { demo: true }),
+			...(legal && { legal }),
 		};
 	});
 

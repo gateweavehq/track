@@ -3,11 +3,13 @@ import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { AuthPage } from "#/components/auth-page";
+import { LegalLinks } from "#/components/legal-links";
 import { LiveButton } from "#/components/live-button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { authClient, inAuthorizationFlow } from "#/lib/auth-client";
 import { startDemo } from "#/lib/demo";
+import type { LegalLinks as LegalLinksType } from "#/lib/legal";
 import { safeRedirect } from "#/lib/redirect";
 import { getAuthOptions, getSession } from "#/lib/session";
 import { signInRefusal } from "#/lib/sign-in-refusal";
@@ -40,11 +42,11 @@ const OIDC_PROVIDER = "oidc";
 
 function LoginPage() {
 	const options = Route.useLoaderData();
-	return options.demo ? <DemoLogin /> : <SignInForm />;
+	return options.demo ? <DemoLogin legal={options.legal} /> : <SignInForm />;
 }
 
 /** The public demo has no accounts to sign in to: each visitor gets a private sandbox. */
-function DemoLogin() {
+function DemoLogin({ legal }: { legal: LegalLinksType | undefined }) {
 	const router = useRouter();
 	const [error, setError] = useState<string | null>(null);
 	const [pending, setPending] = useState(false);
@@ -64,6 +66,7 @@ function DemoLogin() {
 
 	return (
 		<AuthPage
+			legal={legal}
 			title="Try Gateweave Track"
 			description="Open-source, realtime issue tracking on Cloudflare."
 		>
@@ -274,6 +277,8 @@ function SignInForm() {
 						{mode === "sign-in" ? "Create an account" : "Sign in"}
 					</button>
 				</p>
+
+				<LegalLinks links={options.legal} agreeing />
 			</div>
 		</main>
 	);

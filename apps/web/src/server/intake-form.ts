@@ -3,6 +3,8 @@ import { cleanText } from "@gateweave/track-protocol";
 import { eq } from "drizzle-orm";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
+import { legalEntries } from "#/lib/legal";
+import { legalLinks } from "#/server/legal";
 import { db } from "./auth";
 import { readText } from "./body";
 import { schema } from "./db";
@@ -186,6 +188,16 @@ function notFound(): Response {
 }
 
 /** A page of its own: whoever fills in the form is not signed in, and the app is not needed. */
+/** Someone leaving their words and address here should be able to read what becomes of them. */
+function legalFooter(): string {
+	const links = legalEntries(legalLinks()).map(
+		({ label, href }) =>
+			`<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer" style="color:inherit">${label}</a>`,
+	);
+	if (links.length === 0) return "";
+	return `<footer style="max-width:560px;margin:16px auto 0;text-align:center;font-size:13px;color:#525252">${links.join(" · ")}</footer>`;
+}
+
 function html(status: number, heading: string, content: string): Response {
 	const page = `<!doctype html>
 <html lang="en">
@@ -195,6 +207,7 @@ function html(status: number, heading: string, content: string): Response {
 <h1 style="margin:0 0 8px;font-size:20px;line-height:1.3">${escapeHtml(heading)}</h1>
 ${content}
 </main>
+${legalFooter()}
 </body>
 </html>`;
 	return new Response(page, {

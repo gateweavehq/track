@@ -1,5 +1,6 @@
 import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { LegalLinks } from "#/components/legal-links";
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
 import { Input } from "#/components/ui/input";
@@ -13,7 +14,7 @@ import { startGuidedTeam } from "#/lib/workspace";
 
 export const Route = createFileRoute("/")({
 	beforeLoad: async () => {
-		const { session, sandbox } = await withOfflineFallback(
+		const { session, sandbox, legal } = await withOfflineFallback(
 			() => getHome(),
 			() => {
 				// An installed app starts here. Without a connection, open the workspace used last.
@@ -24,13 +25,13 @@ export const Route = createFileRoute("/")({
 		);
 		if (!session) throw redirect({ to: "/login" });
 		if (sandbox) throw redirect({ to: "/$workspace", params: { workspace: sandbox } });
-		return { session };
+		return { session, legal };
 	},
 	component: WorkspacesPage,
 });
 
 function WorkspacesPage() {
-	const { session } = Route.useRouteContext();
+	const { session, legal } = Route.useRouteContext();
 	const router = useRouter();
 	const workspaces = authClient.useListOrganizations();
 
@@ -79,6 +80,8 @@ function WorkspacesPage() {
 			</section>
 
 			<CreateWorkspace />
+
+			<LegalLinks links={legal} />
 		</main>
 	);
 }
