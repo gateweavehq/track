@@ -1532,6 +1532,15 @@ describe("Replica", () => {
 			const closing = withItem();
 			closing.addPending(open({ intakeForm: false }));
 			expect(closing.getState().teams.get("t1")?.intakeFollowers).toEqual([]);
+
+			const already = new Replica("alice");
+			already.reset({
+				...snapshot,
+				members: [alice("owner")],
+				teams: [{ ...team, intakeFormKey: "f".repeat(32), intakeFollowers: ["alice"] }],
+			});
+			already.addPending(open({ intakeEmail: true }));
+			expect(already.getState().teams.get("t1")?.intakeFollowers).toEqual(["alice"]);
 		});
 
 		it("predicts subscribing, but nothing for agents", () => {

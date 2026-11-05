@@ -201,6 +201,11 @@ describe("opening a way in", () => {
 		await openChannel({ intakeForm: true, intakeEmail: true });
 		expect(await followers(workspace)).toEqual([owner.id]);
 
+		// Already following, the one who opens another way in is not counted again.
+		await openChannel({ intakeEmail: false });
+		await openChannel({ intakeEmail: true });
+		expect(await followers(workspace)).toEqual([owner.id]);
+
 		await openChannel({ intakeForm: false });
 		await openChannel({ intakeForm: true }, admin);
 		expect(await followers(workspace)).toEqual([owner.id, admin.id]);
