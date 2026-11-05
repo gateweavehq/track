@@ -8,6 +8,24 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.26.6] - 2026-11-05
+
+Sessions and invitations past their time now go by themselves. Updating a self-hosted copy needs no migration and no
+new setting, and the protocol stays at version 25. ([#205])
+
+### Fixed
+
+- **What was past its time stayed.** Better Auth removes a session or a verification only when something looks it up, so
+  one nobody came back for stayed for good, with the address and browser it came from, and an invitation kept the address
+  it was sent to. A daily Cron Trigger now deletes sessions, verifications, OAuth tokens, client assertions and
+  invitations past their time, in batches. Nothing anyone can see changes. ([#205])
+
+### Upgrading
+
+Deploying creates the Cron Trigger, at 03:23 UTC, from `wrangler.jsonc`. If you keep your own copy of that file, add
+`"triggers": { "crons": ["23 3 * * *"] }`, or the rows stay. It counts toward your account's limit of Cron Triggers. The
+first run deletes everything already past its time.
+
 ## [0.26.5] - 2026-11-05
 
 Opening a workspace wrote the member's name and email address into Workers Logs. Updating a self-hosted copy needs no
@@ -977,6 +995,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.26.6]: https://github.com/gateweavehq/track/releases/tag/v0.26.6
 [0.26.5]: https://github.com/gateweavehq/track/releases/tag/v0.26.5
 [0.26.4]: https://github.com/gateweavehq/track/releases/tag/v0.26.4
 [0.26.3]: https://github.com/gateweavehq/track/releases/tag/v0.26.3
@@ -1147,6 +1166,7 @@ The first pre-release.
 [#192]: https://github.com/gateweavehq/track/pull/192
 [#194]: https://github.com/gateweavehq/track/pull/194
 [#196]: https://github.com/gateweavehq/track/pull/196
+[#205]: https://github.com/gateweavehq/track/pull/205
 [#203]: https://github.com/gateweavehq/track/pull/203
 [#201]: https://github.com/gateweavehq/track/pull/201
 [#198]: https://github.com/gateweavehq/track/pull/198
