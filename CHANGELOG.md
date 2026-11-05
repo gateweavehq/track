@@ -959,6 +959,8 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.26.4]: https://github.com/gateweavehq/track/releases/tag/v0.26.4
+[0.26.3]: https://github.com/gateweavehq/track/releases/tag/v0.26.3
 [0.26.2]: https://github.com/gateweavehq/track/releases/tag/v0.26.2
 [0.26.1]: https://github.com/gateweavehq/track/releases/tag/v0.26.1
 [0.26.0]: https://github.com/gateweavehq/track/releases/tag/v0.26.0
