@@ -192,11 +192,11 @@ isolate counts on its own rather than refuse or allow everyone.
 
 Gateweave runs a public demo at https://track-demo.gateweave.com, as its own deployment: the
 `demo` environment in `wrangler.jsonc`
-(`pnpm --filter @gateweave/track-web deploy:demo`, with `db:migrate:demo` for its database). It
-is a separate Worker with its own D1 database and Durable Objects, and it shares nothing with
-production. Self-hosters do not need it, and the code stays inert on any deployment where the
-`TRACK_DEMO` variable is not `"1"`: the server function, the cleanup and the sign-in changes all
-check it first. To try it locally, add `TRACK_DEMO=1` to `.dev.vars` and restart `pnpm dev`.
+(`pnpm --filter @gateweave/track-web deploy:demo`, with `db:migrate:demo` for its database).
+Publishing a release deploys it, after production. It is a separate Worker with its own D1
+database and Durable Objects, and it shares nothing with production. Self-hosters do not need
+it, and the code stays inert on any deployment where the `TRACK_DEMO` variable is not `"1"`: the
+server function, the cleanup and the sign-in changes all check it first. To try it locally, add `TRACK_DEMO=1` to `.dev.vars` and restart `pnpm dev`.
 
 A shared demo account would be vandalized within minutes, so each visitor gets a sandbox:
 
