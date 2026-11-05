@@ -100,10 +100,11 @@ export async function handleSyncRequest(request: Request): Promise<Response> {
 		slug: decodeURIComponent(slug),
 		origin: appOrigin(request),
 	};
+	await stub.syncMember(membership.profile);
 	return stub.fetch("https://workspace/socket", {
 		headers: {
 			Upgrade: "websocket",
-			[MEMBER_HEADER]: JSON.stringify(membership.profile),
+			[MEMBER_HEADER]: membership.profile.id,
 			[LINK_HEADER]: JSON.stringify(link),
 			[SESSION_HEADER]: JSON.stringify(socketSession),
 		},

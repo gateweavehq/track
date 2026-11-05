@@ -88,10 +88,11 @@ export class TestClient {
 		clientId = crypto.randomUUID(),
 		session: SocketSession = SESSION,
 	) {
+		await workspace.syncMember(member);
 		const response = await workspace.fetch("https://workspace/socket", {
 			headers: {
 				Upgrade: "websocket",
-				[MEMBER_HEADER]: JSON.stringify(member),
+				[MEMBER_HEADER]: member.id,
 				[SESSION_HEADER]: JSON.stringify(session),
 			},
 		});

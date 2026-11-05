@@ -225,8 +225,9 @@ The Durable Object has **no public route**. Only the Worker can reach it, throug
 3. It loads the Better Auth session and resolves the slug to a membership in D1. Non-members get
    the same `404` as a missing workspace, so slugs cannot be probed.
 4. It forwards the request to `WORKSPACE.getByName(workspaceId)`. A snapshot request becomes an
-   RPC call. A socket request is forwarded with the verified member and the session's id and
-   expiry in internal headers that the client cannot set, so the socket closes when the session
+   RPC call. A socket request is forwarded with the verified member's id and the session's id and
+   expiry in internal headers that the client cannot set, after an RPC call with the member's profile,
+   because Workers Logs records those headers and not RPC arguments. So the socket closes when the session
    ends.
 
 The DO is keyed by workspace id, not slug, so renaming a workspace does not move its data.
