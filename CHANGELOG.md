@@ -8,6 +8,25 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.27.0] - 2026-11-05
+
+People can now follow a team's intake, and hear of each request that comes through its form or email address. Updating a
+self-hosted copy needs no new setting. The protocol moves to version 26, so clients reload and re-sync. ([#207])
+
+### Added
+
+- **Following a team's intake.** A request filed through a public form or an intake email told nobody, so someone had to
+  open the intake page to find it. Anyone can now follow a team's intake from that page. Each new request reaches them
+  as a new kind of notification, "New requests", in the inbox and by email unless they change it, and subscribes them to
+  the request, so they hear of comments, replies and the decision. Whoever turns on a form or address starts out
+  following, and leaving the workspace ends it. A stranger's text still mentions nobody. ([#207])
+
+### Upgrading
+
+Durable Object migration `0030_intake_followers` adds one column with an empty default, and runs by itself when each
+workspace wakes. A form or address that is already on stays silent until someone follows its team's intake: open the
+intake page and press Follow.
+
 ## [0.26.6] - 2026-11-05
 
 Sessions and invitations past their time now go by themselves. Updating a self-hosted copy needs no migration and no
@@ -995,6 +1014,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.27.0]: https://github.com/gateweavehq/track/releases/tag/v0.27.0
 [0.26.6]: https://github.com/gateweavehq/track/releases/tag/v0.26.6
 [0.26.5]: https://github.com/gateweavehq/track/releases/tag/v0.26.5
 [0.26.4]: https://github.com/gateweavehq/track/releases/tag/v0.26.4
@@ -1166,6 +1186,7 @@ The first pre-release.
 [#192]: https://github.com/gateweavehq/track/pull/192
 [#194]: https://github.com/gateweavehq/track/pull/194
 [#196]: https://github.com/gateweavehq/track/pull/196
+[#207]: https://github.com/gateweavehq/track/pull/207
 [#205]: https://github.com/gateweavehq/track/pull/205
 [#203]: https://github.com/gateweavehq/track/pull/203
 [#201]: https://github.com/gateweavehq/track/pull/201
