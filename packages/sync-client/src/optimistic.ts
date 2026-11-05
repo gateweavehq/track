@@ -51,6 +51,7 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 				closeAfterMonths: null,
 				intakeFormKey: null,
 				intakeEmailKey: null,
+				intakeFollowers: [],
 				createdAt: now,
 				updatedAt: now,
 			});
@@ -124,9 +125,17 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			// form's link and the intake email address are the server's to make.
 			const { cycles, intakeForm, intakeEmail, ...patch } = mutation.args.patch;
 			const settings = cycles && { weeks: cycles.weeks, timeZone: cycles.timeZone };
+			// As on the server: whoever opens a way in starts following what comes through it.
+			const opened =
+				(intakeForm === true && team.intakeFormKey === null) ||
+				(intakeEmail === true && team.intakeEmailKey === null);
 			draft.put("team", {
 				...team,
 				...patch,
+				...(opened &&
+					!team.intakeFollowers.includes(userId) && {
+						intakeFollowers: [...team.intakeFollowers, userId],
+					}),
 				...(cycles === undefined ? {} : { cycles: settings }),
 				...(intakeForm === false && { intakeFormKey: null }),
 				...(intakeEmail === false && { intakeEmailKey: null }),
@@ -518,6 +527,20 @@ export function applyOptimistic(draft: Draft, pending: PendingMutation, userId: 
 			const id = privateId(issueId, userId);
 			if (draft.get("subscription", id)?.subscribed === subscribed) return;
 			draft.put("subscription", { id, issueId, memberId: userId, subscribed, updatedAt: now });
+			return;
+		}
+		case "team.followIntake": {
+			const { teamId, following } = mutation.args;
+			const team = draft.get("team", teamId);
+			if (!team || draft.get("member", userId)?.role === "agent") return;
+			if (team.intakeFollowers.includes(userId) === following) return;
+			draft.put("team", {
+				...team,
+				intakeFollowers: following
+					? [...team.intakeFollowers, userId]
+					: team.intakeFollowers.filter((id) => id !== userId),
+				updatedAt: now,
+			});
 			return;
 		}
 		case "inbox.update": {

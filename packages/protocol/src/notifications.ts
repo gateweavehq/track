@@ -11,6 +11,7 @@ export const NOTIFICATION_KINDS = [
 	"mention",
 	"due",
 	"intake",
+	"request",
 ] as const satisfies readonly InboxEvent["type"][];
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -39,6 +40,7 @@ export const DEFAULT_NOTIFICATIONS: NotificationSettings = {
 	mention: "email",
 	due: "email",
 	intake: "inbox",
+	request: "email",
 };
 
 /** A change to a person's settings. Kinds left out stay as they are. */

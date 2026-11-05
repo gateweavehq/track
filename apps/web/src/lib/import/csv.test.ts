@@ -99,6 +99,7 @@ describe("a Track export read back", () => {
 		closeAfterMonths: null,
 		intakeFormKey: null,
 		intakeEmailKey: null,
+		intakeFollowers: [],
 		createdAt: 1,
 		updatedAt: 1,
 	};

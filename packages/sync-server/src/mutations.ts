@@ -16,7 +16,7 @@ import { syncArchive } from "./archive";
 import { automationsDueNow } from "./automations";
 import { scheduleCycles } from "./cycles";
 import * as schema from "./db/schema";
-import { notify, subscribeToIssue, updateInbox } from "./inbox";
+import { followIntake, notify, subscribeToIssue, updateInbox } from "./inbox";
 import { ChangeSet, type WriteResult } from "./log";
 import {
 	decide,
@@ -205,6 +205,9 @@ export function applyMutation(
 		case "issue.subscribe":
 			subscribeToIssue(db, changes, actor.member, mutation.args);
 			break;
+		case "team.followIntake":
+			followIntake(db, changes, actor.member, mutation.args);
+			break;
 		case "inbox.update":
 			updateInbox(db, changes, actor.member, mutation.args);
 			break;
@@ -254,6 +257,7 @@ function createTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 		closeAfterMonths: null,
 		intakeFormKey: null,
 		intakeEmailKey: null,
+		intakeFollowers: [],
 		issueCounter: 0,
 		createdAt: changes.now,
 		updatedAt: changes.now,
@@ -275,12 +279,22 @@ function updateTeam(db: Db, changes: ChangeSet, actor: Actor, args: MutationArgs
 	const form = intakeForm === undefined ? {} : { intakeFormKey: intakeForm ? newFormKey() : null };
 	const email =
 		intakeEmail === undefined ? {} : { intakeEmailKey: intakeEmail ? newEmailKey() : null };
+	// Whoever opens a way in hears of what comes through it, until they choose not to. A new link
+	// opens nothing, so it leaves alone someone who stopped following.
+	const opened =
+		(intakeForm === true && team.intakeFormKey === null) ||
+		(intakeEmail === true && team.intakeEmailKey === null);
+	const followers =
+		opened && !team.intakeFollowers.includes(actor.member.userId)
+			? { intakeFollowers: [...team.intakeFollowers, actor.member.userId] }
+			: {};
 	const row = db
 		.update(schema.teams)
 		.set({
 			...patch,
 			...form,
 			...email,
+			...followers,
 			...(schedule !== undefined && { cycles: settings }),
 			updatedAt: changes.now,
 		})

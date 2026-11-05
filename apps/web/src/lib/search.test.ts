@@ -51,6 +51,7 @@ const team: Team = {
 	closeAfterMonths: null,
 	intakeFormKey: null,
 	intakeEmailKey: null,
+	intakeFollowers: [],
 	createdAt: 0,
 	updatedAt: 0,
 };

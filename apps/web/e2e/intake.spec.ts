@@ -1,5 +1,12 @@
-import { expect, test } from "./fixtures";
-import { createIssue, issueRow, startWorkspace, syncBadge, unique } from "./helpers";
+import { expect, newBrowserContext, test } from "./fixtures";
+import {
+	createIssue,
+	issueRow,
+	joinByInvitation,
+	startWorkspace,
+	syncBadge,
+	unique,
+} from "./helpers";
 
 test("a request waits in the team's intake, out of lists, until it is accepted or declined", async ({
 	page,
@@ -51,6 +58,75 @@ test("a request waits in the team's intake, out of lists, until it is accepted o
 	await expect(page.getByText("Not something we plan to do.")).toBeVisible();
 	const properties = page.getByRole("complementary", { name: "Properties" });
 	await expect(properties.getByRole("button", { name: /^Canceled/ })).toBeVisible();
+});
+
+test("whoever follows a team's intake hears of each new request", async ({ page, browser }) => {
+	const workspace = await startWorkspace(page);
+	const { slug } = workspace;
+	const title = unique("Refund for a double charge");
+	const quiet = unique("Filed while nobody follows");
+	const context = await newBrowserContext(browser);
+	try {
+		const guest = await context.newPage();
+		await joinByInvitation(page, guest, workspace);
+
+		await page.goto(`/${slug}/team/ENG/intake`);
+		await page.getByRole("button", { name: "Follow Engineering's intake" }).click();
+		const stop = page.getByRole("button", { name: "Stop following Engineering's intake" });
+		await expect(stop).toHaveAttribute("aria-pressed", "true");
+		await expect(syncBadge(page)).toHaveText("Live");
+
+		const file = async (name: string) => {
+			await guest.goto(`/${slug}/team/ENG/intake`);
+			await guest.getByRole("button", { name: "New request" }).first().click();
+			await guest.getByLabel("Title").fill(name);
+			await guest.getByRole("button", { name: "File request" }).click();
+			await expect(guest.getByRole("dialog")).toBeHidden();
+			await expect(syncBadge(guest)).toHaveText("Live");
+		};
+		await file(title);
+
+		// It reaches the owner's inbox live, saying what it is, and the page knows they follow.
+		await page.goto(`/${slug}/inbox`);
+		const row = page.getByRole("listitem").filter({ hasText: title });
+		await expect(row).toContainText("filed a request");
+
+		// Stopping is kept across a reload, and the next one tells nobody.
+		await page.goto(`/${slug}/team/ENG/intake`);
+		await stop.click();
+		await expect(page.getByRole("button", { name: "Follow Engineering's intake" })).toBeVisible();
+		await expect(syncBadge(page)).toHaveText("Live");
+		await page.reload();
+		await expect(page.getByRole("button", { name: "Follow Engineering's intake" })).toBeVisible();
+
+		await file(quiet);
+		await page.goto(`/${slug}/inbox`);
+		await expect(row).toBeVisible();
+		await expect(page.getByRole("listitem").filter({ hasText: quiet })).toHaveCount(0);
+
+		// The settings have a line for it.
+		await page.goto(`/${slug}/settings/notifications`);
+		await expect(page.getByText("New requests", { exact: true })).toBeVisible();
+	} finally {
+		await context.close();
+	}
+});
+
+test("an admin who turns the form on follows the intake from then on", async ({ page }) => {
+	const { slug } = await startWorkspace(page);
+	await page.goto(`/${slug}/team/ENG/intake`);
+	await expect(page.getByRole("button", { name: "Follow Engineering's intake" })).toBeVisible();
+
+	await page.getByRole("button", { name: "Form and email" }).click();
+	const dialog = page.getByRole("dialog", { name: "Intake for Engineering" });
+	await dialog
+		.getByRole("region", { name: "Request form" })
+		.getByRole("button", { name: "Turn on" })
+		.click();
+	await dialog.getByRole("button", { name: "Close" }).first().click();
+	await expect(
+		page.getByRole("button", { name: "Stop following Engineering's intake" }),
+	).toHaveAttribute("aria-pressed", "true");
 });
 
 test("an admin turns the team's request form on, shares its link, and turns it off", async ({

@@ -37,6 +37,8 @@ async function setup({ link = true } = {}) {
 	};
 	await as(owner, { name: "team.create", args: { id: TEAM_ID, key: "ENG", name: "Engineering" } });
 	await as(owner, { name: "team.update", args: { id: TEAM_ID, patch: { intakeForm: true } } });
+	// These are about who follows a request. Following the intake has its own tests.
+	await as(owner, { name: "team.followIntake", args: { teamId: TEAM_ID, following: false } });
 	if (link) {
 		await workspace.syncMember(owner);
 		const response = await workspace.fetch("https://workspace/socket", {

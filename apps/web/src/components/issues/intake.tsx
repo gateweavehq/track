@@ -2,7 +2,7 @@ import type { Issue, Team } from "@gateweave/track-protocol";
 import { uuidv7 } from "@gateweave/track-sync-client";
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link } from "@tanstack/react-router";
-import { Ban, Check, Inbox, Link2, Plus } from "lucide-react";
+import { Ban, Bell, BellOff, Check, Inbox, Link2, Plus } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { IntakeChannelsDialog } from "#/components/teams/intake-channels-dialog";
 import { Button } from "#/components/ui/button";
@@ -149,6 +149,38 @@ export function IntakeNotice({ issue, team }: { issue: Issue; team: Team }) {
 	);
 }
 
+/**
+ * Follows the team's intake, or stops. Followers hear of each new request in their inbox, and by
+ * email if they leave it unread. Agents have no inbox, so they get no button.
+ */
+function FollowIntakeButton({ team }: { team: Team }) {
+	const client = useSyncClient();
+	const { userId } = useWorkspace();
+	const agent = useMyRole() === "agent";
+	if (agent) return null;
+
+	const following = team.intakeFollowers.includes(userId);
+	const label = following ? "Stop following" : "Follow";
+	return (
+		<Button
+			variant="ghost"
+			size="sm"
+			aria-pressed={following}
+			aria-label={`${label} ${team.name}'s intake`}
+			title={following ? "You hear of each new request" : "Hear of each new request"}
+			onClick={() =>
+				send(client, {
+					name: "team.followIntake",
+					args: { teamId: team.id, following: !following },
+				})
+			}
+		>
+			{following ? <BellOff /> : <Bell />}
+			<span className="hidden sm:inline">{label}</span>
+		</Button>
+	);
+}
+
 /** A team's requests, the oldest first, each with a way to accept or decline it. */
 export function TeamIntake({ team }: { team: Team }) {
 	const { slug } = useWorkspace();
@@ -182,6 +214,7 @@ export function TeamIntake({ team }: { team: Team }) {
 				<h1 className="text-sm font-medium">Intake</h1>
 				<span className="text-sm text-muted-foreground tabular-nums">{issues.length}</span>
 				<div className="ml-auto" />
+				<FollowIntakeButton team={team} />
 				{admin && (
 					<Button
 						variant="ghost"

@@ -1,0 +1,1 @@
+ALTER TABLE `teams` ADD `intake_followers` text DEFAULT '[]' NOT NULL;

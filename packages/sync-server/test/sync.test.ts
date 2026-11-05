@@ -4243,6 +4243,7 @@ describe("search", () => {
 			db.run(sql`drop table requesters`);
 			db.run(sql`drop table issue_comment_search`);
 			db.run(sql`drop table issue_comment_search_docs`);
+			db.run(sql`alter table teams drop column intake_followers`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${search.when}`);
 			await migrate(db, migrations);
 		});
@@ -4286,6 +4287,7 @@ describe("search", () => {
 					''
 				)
 			`);
+			db.run(sql`alter table teams drop column intake_followers`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${apart.when}`);
 			await migrate(db, migrations);
 			return db.all<{ issueId: string; inline: number; apart: number }>(sql`

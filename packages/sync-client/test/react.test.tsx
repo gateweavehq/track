@@ -18,6 +18,7 @@ const snapshot: Snapshot = {
 			closeAfterMonths: null,
 			intakeFormKey: null,
 			intakeEmailKey: null,
+			intakeFollowers: [],
 			createdAt: 1,
 			updatedAt: 1,
 		},

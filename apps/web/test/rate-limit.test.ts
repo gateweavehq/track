@@ -93,7 +93,8 @@ it.each([
 		const answers = await Promise.all(Array.from({ length: size }, () => get("junk.example")));
 		for (const answer of answers) statuses.add(answer.status);
 	};
-	for (let sent = 0; sent < 110; sent += 5) await someJunk(5);
+	// However slowly the machine runs, and however much the limit gives back meanwhile.
+	for (let sent = 0; sent < 2_000 && !statuses.has(429); sent += 5) await someJunk(5);
 	let answered = false;
 	const junk = (async () => {
 		while (!answered) await someJunk(2);

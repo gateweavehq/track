@@ -61,7 +61,8 @@ export function IntakeChannelsDialog({
 					<DialogTitle>Intake for {team.name}</DialogTitle>
 					<DialogDescription>
 						People without an account can send requests to the team's intake, where someone on the
-						team accepts or declines each one.
+						team accepts or declines each one. Turning one on makes you follow the intake, so you
+						hear of what comes in. Anyone can follow it or stop from its page.
 					</DialogDescription>
 				</DialogHeader>
 				<Channel

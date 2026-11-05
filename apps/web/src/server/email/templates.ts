@@ -87,7 +87,8 @@ export function inboxDigestEmail({
 	inboxUrl: string;
 	settingsUrl: string;
 }): Message {
-	// Titles, names and comments are typed by members, so they are kept short and on one line.
+	// Titles, names and comments are typed by members, and a request's title by anyone who can
+	// reach its form or address, so they are kept short and on one line.
 	const space = clip(workspace, 60);
 	const [only] = items;
 	const subject =
@@ -191,6 +192,8 @@ function summary(item: DigestEntry, issue: string): string {
 			return `${issue} is due ${dueDay(item.event.on)}`;
 		case "intake":
 			return `${actor} ${item.event.accepted ? "accepted" : "declined"} the request ${issue}`;
+		case "request":
+			return `New request ${issue}`;
 	}
 }
 

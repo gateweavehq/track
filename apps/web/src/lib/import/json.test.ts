@@ -27,6 +27,7 @@ const eng: Team = {
 	closeAfterMonths: null,
 	intakeFormKey: null,
 	intakeEmailKey: null,
+	intakeFollowers: [],
 	createdAt: 1,
 	updatedAt: 1,
 };
@@ -39,6 +40,7 @@ const ops: Team = {
 	closeAfterMonths: null,
 	intakeFormKey: null,
 	intakeEmailKey: null,
+	intakeFollowers: [],
 	createdAt: 1,
 	updatedAt: 1,
 };

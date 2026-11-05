@@ -28,6 +28,7 @@ const team: Team = {
 	closeAfterMonths: null,
 	intakeFormKey: null,
 	intakeEmailKey: null,
+	intakeFollowers: [],
 	createdAt: 1,
 	updatedAt: 1,
 };
@@ -1471,6 +1472,75 @@ describe("Replica", () => {
 			r.reset({ ...snapshot, members: [alice("member")], inbox: [{ ...item, unread: 0 }] });
 			r.addPending(update(0, { read: false }));
 			expect(r.getState().inbox.get(item.id)?.unread).toBe(1);
+		});
+
+		it("predicts following a team's intake and stopping, replayed over the server's result", () => {
+			const follow = (following: boolean) =>
+				pending("m1", { name: "team.followIntake", args: { teamId: "t1", following } });
+			const r = withItem();
+			r.addPending(follow(true));
+			expect(r.getState().teams.get("t1")?.intakeFollowers).toEqual(["alice"]);
+
+			applyOps(r, [
+				{
+					version: 3,
+					entity: "team",
+					id: "t1",
+					op: "put",
+					data: { ...team, intakeFollowers: ["bob", "alice"] },
+				},
+			]);
+			expect(r.getState().teams.get("t1")?.intakeFollowers).toEqual(["bob", "alice"]);
+
+			r.removePending("m1");
+			r.addPending(follow(false));
+			expect(r.getState().teams.get("t1")?.intakeFollowers).toEqual(["bob"]);
+		});
+
+		it("predicts no following for agents, or for a team it does not have", () => {
+			const agent = withItem("agent");
+			agent.addPending(
+				pending("m1", { name: "team.followIntake", args: { teamId: "t1", following: true } }),
+			);
+			expect(agent.getState().teams.get("t1")?.intakeFollowers).toEqual([]);
+
+			const r = withItem();
+			r.addPending(
+				pending("m1", { name: "team.followIntake", args: { teamId: "none", following: true } }),
+			);
+			expect(r.getState().teams.has("none")).toBe(false);
+		});
+
+		it("predicts that opening a way in follows the intake, and a new link does not", () => {
+			const open = (patch: { intakeForm?: boolean; intakeEmail?: boolean }) =>
+				pending("m1", { name: "team.update", args: { id: "t1", patch } });
+			for (const patch of [{ intakeForm: true }, { intakeEmail: true }]) {
+				const r = withItem();
+				r.addPending(open(patch));
+				expect(r.getState().teams.get("t1")?.intakeFollowers).toEqual(["alice"]);
+			}
+
+			const renewed = new Replica("alice");
+			renewed.reset({
+				...snapshot,
+				members: [alice("owner")],
+				teams: [{ ...team, intakeFormKey: "f".repeat(32), intakeEmailKey: "e".repeat(16) }],
+			});
+			renewed.addPending(open({ intakeForm: true, intakeEmail: true }));
+			expect(renewed.getState().teams.get("t1")?.intakeFollowers).toEqual([]);
+
+			const closing = withItem();
+			closing.addPending(open({ intakeForm: false }));
+			expect(closing.getState().teams.get("t1")?.intakeFollowers).toEqual([]);
+
+			const already = new Replica("alice");
+			already.reset({
+				...snapshot,
+				members: [alice("owner")],
+				teams: [{ ...team, intakeFormKey: "f".repeat(32), intakeFollowers: ["alice"] }],
+			});
+			already.addPending(open({ intakeEmail: true }));
+			expect(already.getState().teams.get("t1")?.intakeFollowers).toEqual(["alice"]);
 		});
 
 		it("predicts subscribing, but nothing for agents", () => {

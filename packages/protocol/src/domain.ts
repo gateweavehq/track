@@ -98,6 +98,11 @@ export interface Team {
 	 * team's intake, or null when it is off. Like the form's key, a new one each time it is turned on.
 	 */
 	intakeEmailKey: string | null;
+	/**
+	 * The people who hear of each new request in the team's intake, by user id. Each chooses for
+	 * themselves, and whoever turns the form or the address on starts out among them.
+	 */
+	intakeFollowers: string[];
 	createdAt: number;
 	updatedAt: number;
 }
@@ -583,7 +588,9 @@ export type InboxEvent =
 	/** The issue, assigned to the member, is due on `on` (`YYYY-MM-DD`). Track reminds them. */
 	| { type: "due"; on: string }
 	/** Someone took the request out of its team's intake: accepted it, or declined it. */
-	| { type: "intake"; accepted: boolean };
+	| { type: "intake"; accepted: boolean }
+	/** A new request reached the intake of a team the member follows. */
+	| { type: "request" };
 
 /**
  * An issue in a member's inbox, private to them. There is one per issue, holding its newest

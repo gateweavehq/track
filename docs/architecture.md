@@ -691,6 +691,13 @@ team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search fi
 - **The people who follow it hear of it**, as an `intake` event in their inbox (a kind of its own
   in notification settings, inbox only by default), in place of the status change it made. A
   decline that a change to the workflow makes tells nobody, as the change itself does not.
+- **People can follow a team's intake** (`team.followIntake`, `Team.intakeFollowers`), each for
+  themselves, from its page. A new request, however it was filed, reaches them as a `request`
+  event (a kind of its own, inbox and email by default) and subscribes them to it, so they hear of
+  comments, replies and the decision. Nobody follows until they choose to, except that whoever
+  turns on a team's form or address starts out following, since a way in that tells nobody is one
+  nobody answers. A new link leaves alone someone who stopped. Someone who leaves the workspace
+  stops following. A follower whose settings turn this kind off is neither told nor subscribed.
 - **Whoever filed it through a form or by email is emailed the decision**, with the reply to a
   decline, when they left an address (`packages/sync-server/src/requesters.ts`). The Durable
   Object keeps the address and the workspace's id, which the gateway checked in D1, in a
@@ -740,8 +747,9 @@ TanStack Start and serves the form as a small page of its own:
   gets the same 404 as a missing workspace.
 - **The form is the creator.** A request is filed as `INTAKE_FORM_ACTOR_ID` (`form`), shown as
   "Request form", in the team's first status, with the title and description typed in, and the
-  address the person left, if any, at the end of the description. It tells nobody in their
-  inbox, so a stranger's text cannot mention people into hearing from it; webhooks hear of it,
+  address the person left, if any, at the end of the description. It mentions nobody, so a
+  stranger's text cannot bring people to it. Those who follow the team's intake hear of it, whose
+  title they see in their inbox and email, kept short and on one line. Webhooks hear of it,
   with a `system` actor named "Request form".
 - **Nothing runs on the page but Turnstile.** It is served `no-store`, with a
   Content-Security-Policy that allows only Turnstile's script and frame and posts only to itself,
@@ -775,8 +783,8 @@ sends every address at the domain to the Worker's `email` handler, from one catc
   them where there is no bucket. If the request cannot be filed after all, as when the address
   was turned off a moment before, the files are deleted.
 - **The address is the creator** (`INTAKE_EMAIL_ACTOR_ID`, `email`, shown as "Email"), with the
-  same rules as the form: the team's first status, nobody's inbox, webhooks with a `system`
-  actor named "Email".
+  same rules as the form: the team's first status, only its followers' inboxes, webhooks with a
+  `system` actor named "Email".
 
 Without `INTAKE_EMAIL_DOMAIN`, and on the public demo, every address is refused, and the dialog
 in the app says why. The address that mail came from hears of the decision (above).
