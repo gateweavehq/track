@@ -8,6 +8,22 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.28.0] - 2026-11-05
+
+A deployment can now link its legal notice, privacy policy and terms. Updating a self-hosted copy needs no migration,
+and nothing changes until you set them. The protocol stays at version 26. ([#209])
+
+### Added
+
+- **Links to your legal pages.** Three optional settings, `LEGAL_NOTICE_URL`, `PRIVACY_POLICY_URL` and `TERMS_URL`, are
+  linked from the pages around signing in, the workspace list, the workspace menu, where they also work offline, and a
+  team's public request form. With `TERMS_URL` set, the sign-in page also says that continuing means agreeing to them.
+  Track comes with no legal pages of its own and never links to Gateweave's. ([#209])
+
+### Upgrading
+
+No migration. To show links, set any of the three addresses; see `docs/self-hosting.md`.
+
 ## [0.27.0] - 2026-11-05
 
 People can now follow a team's intake, and hear of each request that comes through its form or email address. Updating a
@@ -1014,6 +1030,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.28.0]: https://github.com/gateweavehq/track/releases/tag/v0.28.0
 [0.27.0]: https://github.com/gateweavehq/track/releases/tag/v0.27.0
 [0.26.6]: https://github.com/gateweavehq/track/releases/tag/v0.26.6
 [0.26.5]: https://github.com/gateweavehq/track/releases/tag/v0.26.5
@@ -1186,6 +1203,7 @@ The first pre-release.
 [#192]: https://github.com/gateweavehq/track/pull/192
 [#194]: https://github.com/gateweavehq/track/pull/194
 [#196]: https://github.com/gateweavehq/track/pull/196
+[#209]: https://github.com/gateweavehq/track/pull/209
 [#207]: https://github.com/gateweavehq/track/pull/207
 [#205]: https://github.com/gateweavehq/track/pull/205
 [#203]: https://github.com/gateweavehq/track/pull/203
