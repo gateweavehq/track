@@ -8,6 +8,18 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.26.4] - 2026-11-05
+
+A Worker with nothing to do with Track could use up the sign-in limits of every other Worker. Updating a self-hosted
+copy needs no migration and no new setting, and the protocol stays at version 25. ([#201])
+
+### Fixed
+
+- **One Worker could use up what another needs.** Every Worker on Cloudflare reaches Track from one address, so
+  Track's sign-in limits counted them all as one caller, and enough junk from any of them could stop a provider's
+  logout reaching Track. A Worker is now counted by its zone, which Cloudflare sets and a sender cannot change. Anyone
+  else is counted by their address as before, whatever they claim. ([#201])
+
 ## [0.26.3] - 2026-11-05
 
 A tab left open could keep someone out of their workspace after signing in again. Updating a self-hosted copy needs no
@@ -1114,4 +1126,5 @@ The first pre-release.
 [#192]: https://github.com/gateweavehq/track/pull/192
 [#194]: https://github.com/gateweavehq/track/pull/194
 [#196]: https://github.com/gateweavehq/track/pull/196
+[#201]: https://github.com/gateweavehq/track/pull/201
 [#198]: https://github.com/gateweavehq/track/pull/198
