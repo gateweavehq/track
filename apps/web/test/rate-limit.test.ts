@@ -57,6 +57,55 @@ it("counts a client's attempts in every isolate together", async () => {
 	expect(track.logs.filter((log) => log.message.startsWith("rate limit:"))).toEqual([]);
 });
 
+// Every Worker reaches another zone from this one address, whoever runs it (TRK-92).
+const WORKERS = "2a06:98c0:3600::103";
+
+it("counts Workers on different zones apart", async () => {
+	const statuses = [];
+	for (let attempt = 0; attempt < 4; attempt++) {
+		statuses.push(await signIn({ "cf-connecting-ip": WORKERS, "cf-worker": "one.example" }));
+	}
+	expect(statuses).toEqual([401, 401, 401, 429]);
+	expect(await signIn({ "cf-connecting-ip": WORKERS, "cf-worker": "other.example" })).toBe(401);
+});
+
+it("gives nobody a way out of a limit by saying they are a Worker", async () => {
+	const statuses = [];
+	for (let attempt = 0; attempt < 4; attempt++) {
+		statuses.push(
+			await signIn({ "cf-connecting-ip": "203.0.113.60", "cf-worker": `zone-${attempt}.example` }),
+		);
+	}
+	expect(statuses).toEqual([401, 401, 401, 429]);
+});
+
+// The default limit gives one back every tenth of a second, so what is tested has to come during the junk.
+it.each([
+	["a read from Better Auth", "/api/auth/get-session"],
+	["an OAuth discovery document", "/.well-known/oauth-authorization-server"],
+])("counts Workers on different zones apart for %s", async (_name, path) => {
+	const get = (zone: string) =>
+		track.fetchIn(0, `${origin}${path}`, {
+			headers: { "cf-connecting-ip": WORKERS, "cf-worker": zone },
+		});
+	const statuses = new Set<number>();
+	const someJunk = async (size: number) => {
+		const answers = await Promise.all(Array.from({ length: size }, () => get("junk.example")));
+		for (const answer of answers) statuses.add(answer.status);
+	};
+	for (let sent = 0; sent < 110; sent += 5) await someJunk(5);
+	let answered = false;
+	const junk = (async () => {
+		while (!answered) await someJunk(2);
+	})();
+	const answer = await get("other.example").finally(() => {
+		answered = true;
+	});
+	await junk;
+	expect(statuses).toContain(429);
+	expect(answer.status).not.toBe(429);
+});
+
 it("limits how fast one client creates workspaces, each a Durable Object", async () => {
 	const client = { "cf-connecting-ip": "203.0.113.40" };
 	const signedUp = await track.fetch(`${origin}/api/auth/sign-up/email`, {
