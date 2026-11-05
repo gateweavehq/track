@@ -8,6 +8,24 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.26.5] - 2026-11-05
+
+Opening a workspace wrote the member's name and email address into Workers Logs. Updating a self-hosted copy needs no
+migration and no new setting, and the protocol stays at version 25. ([#203])
+
+### Fixed
+
+- **People's names and addresses reached the logs.** The request that opens a workspace's socket carried the member's
+  whole profile in a header, and Workers Logs records that request's headers for seven days, so anyone who can read a
+  deployment's logs could read them. It now carries only the person's id, and the gateway hands over the profile first
+  by RPC, whose arguments are not logged. What is already in the logs ages out by itself. ([#203])
+
+### Upgrading
+
+During the deploy, a tab can reach an old gateway with a new object or the other way round. Its socket is refused and it
+reconnects, as with any deploy. A gateway you changed yourself must call `syncMember` before opening a socket, and send
+the member's id rather than their profile.
+
 ## [0.26.4] - 2026-11-05
 
 A Worker with nothing to do with Track could use up the sign-in limits of every other Worker. Updating a self-hosted
@@ -959,6 +977,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.26.5]: https://github.com/gateweavehq/track/releases/tag/v0.26.5
 [0.26.4]: https://github.com/gateweavehq/track/releases/tag/v0.26.4
 [0.26.3]: https://github.com/gateweavehq/track/releases/tag/v0.26.3
 [0.26.2]: https://github.com/gateweavehq/track/releases/tag/v0.26.2
@@ -1128,5 +1147,6 @@ The first pre-release.
 [#192]: https://github.com/gateweavehq/track/pull/192
 [#194]: https://github.com/gateweavehq/track/pull/194
 [#196]: https://github.com/gateweavehq/track/pull/196
+[#203]: https://github.com/gateweavehq/track/pull/203
 [#201]: https://github.com/gateweavehq/track/pull/201
 [#198]: https://github.com/gateweavehq/track/pull/198
