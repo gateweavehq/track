@@ -169,6 +169,14 @@ Everything else, mostly session checks, keeps Better Auth's default of 100 per 1
 the isolate's memory, so it never waits on a Durable Object. The email cap uses the same
 Durable Object, keyed by recipient. Keys are hashed before they become Durable Object names.
 
+Every Worker reaches another zone from one address, `2a06:98c0:3600::103`, whoever runs it, so
+counted by address they would all spend one allowance, and junk from any of them could stop a
+provider's logout from arriving. Better Auth therefore counts a request with that address and a
+`cf-worker` header by the zone it names, which Cloudflare sets and a sender cannot change. Anyone
+else who sends that header is counted by their own address as before. It is done before the
+handler sees the request (`countedByWhoSentIt`), because the handler counts first of all. So a
+session made from a Worker holds a made-up address, which nothing here shows anyone.
+
 Limits use the generic cell rate algorithm: a burst of `max`, then one every `window / max`
 seconds, with one timestamp of state per rule. If a `RateLimiter` cannot be reached, the
 isolate counts on its own rather than refuse or allow everyone.

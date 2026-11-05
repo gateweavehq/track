@@ -1,5 +1,5 @@
 import handler from "@tanstack/react-start/server-entry";
-import { getAuth } from "./server/auth";
+import { handleAuthRequest } from "./server/auth";
 import { demoEnabled } from "./server/demo/mode";
 import { handleFileRequest, isFileRequest } from "./server/files";
 import { handleGitHubRequest, isGitHubRequest } from "./server/github";
@@ -32,7 +32,7 @@ export default {
 		if (isUnsubscribeRequest(url)) return handleUnsubscribeRequest(request);
 		// A team's public request form: a page of its own, for people who are not signed in.
 		if (isIntakeFormRequest(url)) return handleIntakeFormRequest(request);
-		if (OAUTH_DISCOVERY.test(url.pathname)) return getAuth().handler(request);
+		if (OAUTH_DISCOVERY.test(url.pathname)) return handleAuthRequest(request);
 		return handler.fetch(request);
 	},
 	// Email Routing sends mail for teams' intake addresses here (INTAKE_EMAIL_DOMAIN).

@@ -638,6 +638,48 @@ describe("signing out at the provider", () => {
 		expect(await isSignedIn(track, kept.cookie)).toBe(true);
 	});
 
+	it("ends a session while a Worker on another zone sends junk to the same place", async () => {
+		// Every Worker reaches another zone from this one address, whoever runs it (TRK-92).
+		const fromWorker = (zone: string, body: string) =>
+			track.fetchIn(0, `${origin}/api/auth/backchannel-logout/oidc`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/x-www-form-urlencoded",
+					"cf-connecting-ip": "2a06:98c0:3600::103",
+					"cf-worker": zone,
+				},
+				body,
+			});
+		const statuses = new Set<number>();
+		const someJunk = async (size: number) => {
+			const answers = await Promise.all(
+				Array.from({ length: size }, () => fromWorker("junk.example", "logout_token=junk")),
+			);
+			for (const answer of answers) statuses.add(answer.status);
+		};
+		const person = { sub: "sub-junk", email: "junk@oidc.test" };
+		const session = await signIn(track, provider, { ...person, sid: "sid-junk" });
+		const token = await provider.logoutToken({ sub: person.sub, sid: "sid-junk" });
+
+		// The limit gives one back every tenth of a second, so the delivery has to come during the junk.
+		for (let sent = 0; sent < 110; sent += 5) await someJunk(5);
+		let delivered = false;
+		const junk = (async () => {
+			while (!delivered) await someJunk(2);
+		})();
+		const response = await fromWorker(
+			"provider.example",
+			new URLSearchParams({ logout_token: token ?? "" }).toString(),
+		).finally(() => {
+			delivered = true;
+		});
+		await junk;
+
+		expect(statuses).toContain(429);
+		expect(response.status).toBe(200);
+		expect(await isSignedIn(track, session.cookie)).toBe(false);
+	});
+
 	it("finds a session by its id alone, when that is all a token says", async () => {
 		const { cookie } = await signIn(track, provider, {
 			sub: "sub-sid-only",

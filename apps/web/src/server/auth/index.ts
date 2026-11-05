@@ -11,6 +11,7 @@ import {
 	workspaceStub,
 } from "../workspaces";
 import { createAuth } from "./config";
+import { countedByWhoSentIt } from "./workers-address";
 
 export const db = createDb(env.DB);
 
@@ -84,6 +85,14 @@ function buildAuth() {
 	});
 }
 
+/**
+ * Everything from outside reaches Better Auth through here, because its handler counts a request
+ * first of all, before anything in it can step in.
+ */
+export async function handleAuthRequest(request: Request): Promise<Response> {
+	return getAuth().handler(await countedByWhoSentIt(request));
+}
+
 const PROVIDER_LOGOUT = "/api/auth/backchannel-logout/";
 
 /**
@@ -93,14 +102,14 @@ const PROVIDER_LOGOUT = "/api/auth/backchannel-logout/";
  */
 export async function postToAuth(request: Request): Promise<Response> {
 	if (!new URL(request.url).pathname.startsWith(PROVIDER_LOGOUT)) {
-		return getAuth().handler(request);
+		return handleAuthRequest(request);
 	}
 	const arrived = new Request(request.url, {
 		method: "POST",
 		headers: request.headers,
 		body: await request.arrayBuffer(),
 	});
-	const answer = getAuth().handler(arrived);
+	const answer = handleAuthRequest(arrived);
 	waitUntil(answer);
 	return answer;
 }
