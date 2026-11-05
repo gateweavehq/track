@@ -8,6 +8,8 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"observability": { "enabled": true },
 	"upload_source_maps": true,
+	// Once a day, deletes sessions and invitations past their time. Environments inherit this.
+	"triggers": { "crons": ["23 3 * * *"] },
 	// Workspace directory and auth. The database is provisioned on first deploy.
 	"d1_databases": [
 		{ "binding": "DB", "database_name": "gateweave-track", "migrations_dir": "apps/web/migrations" }

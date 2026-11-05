@@ -1,5 +1,6 @@
 import handler from "@tanstack/react-start/server-entry";
-import { handleAuthRequest } from "./server/auth";
+import { db, handleAuthRequest } from "./server/auth";
+import { pruneExpired } from "./server/db/prune";
 import { demoEnabled } from "./server/demo/mode";
 import { handleFileRequest, isFileRequest } from "./server/files";
 import { handleGitHubRequest, isGitHubRequest } from "./server/github";
@@ -39,10 +40,13 @@ export default {
 	async email(message) {
 		await handleIntakeEmail(message);
 	},
-	// The demo deployment has a Cron Trigger; nothing else schedules this.
+	// Every deployment clears what is past its time once a day. The demo's Cron Trigger runs every 10
+	// minutes instead, and deletes its visitors first, the promise it has to keep.
 	async scheduled() {
-		if (!demoEnabled()) return;
-		const { cleanUpDemo } = await import("./server/demo/cleanup");
-		await cleanUpDemo();
+		if (demoEnabled()) {
+			const { cleanUpDemo } = await import("./server/demo/cleanup");
+			await cleanUpDemo();
+		}
+		await pruneExpired(db);
 	},
 } satisfies ExportedHandler<Cloudflare.Env>;

@@ -76,6 +76,13 @@ different protocol versions in production. It also gives self-hosters one thing 
 | Member replica (name, avatar, role) | Workspace DO | Pushed from D1 by membership hooks |
 | Attached files                      | R2           | The file gateway                   |
 
+Some rows in D1 have a time limit that nothing would otherwise enforce, because Better Auth removes a
+session or a verification only when something looks it up. So the Worker's daily Cron Trigger deletes
+sessions, verifications, OAuth tokens and client assertions past their time, and invitations
+(`apps/web/src/server/db/prune.ts`). Every deployment inherits the schedule from `wrangler.jsonc`, and
+the demo runs it after its own cleanup, every ten minutes. Gateweave Cloud's privacy policy states
+these periods, so a change here is a change to it.
+
 The DO keeps a replica of membership for two reasons: it authorizes writes (for example, only
 admins manage teams) and clients need member names to render assignees. Better Auth hooks push
 every join, role change and removal to the DO. Two removals pass no organization hook, so they
