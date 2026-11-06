@@ -61,11 +61,23 @@ function currentRelease() {
 	return `v${match[1]}`;
 }
 
-/** What says which Worker and database a deploy reaches. A change here would look like lost data. */
+/**
+ * What says which Worker, database and queue a deploy reaches. A change here would look like lost
+ * data. Only the top level: a release's own environments are nothing to a copy.
+ */
 function identity(wrangler) {
-	return ["name", "database_id"]
-		.map((key) => new RegExp(`"${key}":\\s*"([^"]*)"`).exec(wrangler)?.[1] ?? "")
-		.join(" ");
+	const [topLevel = ""] = wrangler.split(/"env"\s*:/);
+	const named = (key) =>
+		[...topLevel.matchAll(new RegExp(`"${key}":\\s*"([^"]*)"`, "g"))].map((found) => found[1]);
+	return {
+		worker: ["name", "database_id", "database_name"].flatMap(named).join(" "),
+		queues: named("queue").join(" "),
+	};
+}
+
+/** A release may bring a copy its first queue, which the deploy makes. One it has must stay. */
+function sameResources(before, after) {
+	return before.worker === after.worker && (!before.queues || before.queues === after.queues);
 }
 
 /**
@@ -154,7 +166,7 @@ if (conflicts.length > 0) {
 			`Updating from ${current} to ${target} left conflicts with what this copy changed:`,
 			...conflicts.map((file) => `  ${file}`),
 			"",
-			"Fix those files, keeping your Worker's and database's names in wrangler.jsonc, then:",
+			"Fix those files, keeping your Worker's, database's and queue's names in wrangler.jsonc, then:",
 			"  git add -A",
 			`  git commit -m "chore: update Track to ${target}"`,
 			"To start over instead: git reset --hard",
@@ -164,10 +176,10 @@ if (conflicts.length > 0) {
 
 const before = identity(git("show", `${head}:wrangler.jsonc`));
 const after = identity(git("show", ":wrangler.jsonc"));
-if (before !== after) {
+if (!sameResources(before, after)) {
 	git("reset", "--hard", "--quiet");
 	stop(
-		"The update would point wrangler.jsonc at another Worker or database, so nothing was changed.",
+		"The update would point wrangler.jsonc at another Worker, database or queue, so nothing was changed.",
 	);
 }
 
