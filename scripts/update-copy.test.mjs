@@ -383,6 +383,41 @@ test("stops rather than point the copy at another bucket", () => {
 	assert.equal(run(copy, "rev-parse", "HEAD"), head);
 });
 
+test("stops rather than give a binding another database, even with the old one kept", () => {
+	const databases = (...pairs) =>
+		wrangler(WORKER).replace(
+			'{ "binding": "DB" }',
+			pairs
+				.map(([binding, name]) => `{ "binding": "${binding}", "database_name": "${name}" }`)
+				.join(", "),
+		);
+	const head = updatingBetween(
+		databases(["DB", "our-accounts"]),
+		databases(["DB", "new-accounts"], ["ARCHIVE", "our-accounts"]),
+	);
+	const result = update();
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, /another Worker, database, bucket or queue/);
+	assert.equal(run(copy, "rev-parse", "HEAD"), head);
+});
+
+test("stops rather than give a binding another bucket, even with the old one kept", () => {
+	const buckets = (...pairs) =>
+		addingToConfig(
+			`"r2_buckets": [${pairs
+				.map(([binding, name]) => `{ "binding": "${binding}", "bucket_name": "${name}" }`)
+				.join(", ")}]`,
+		);
+	const head = updatingBetween(
+		buckets(["FILES", "our-files"]),
+		buckets(["FILES", "new-files"], ["ARCHIVE", "our-files"]),
+	);
+	const result = update();
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, /another Worker, database, bucket or queue/);
+	assert.equal(run(copy, "rev-parse", "HEAD"), head);
+});
+
 test("takes a queue a release adds beside the one a copy has", () => {
 	const queues = (...names) =>
 		addingToConfig(

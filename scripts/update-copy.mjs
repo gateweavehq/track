@@ -75,8 +75,8 @@ function readConfig(text) {
 }
 
 /**
- * What a deploy reaches: a change here would look like lost data. Only the top level, because a
- * release's own environments are nothing to a copy, and not the names bindings go by in the code.
+ * What a deploy reaches, each with the binding the code reaches it by: a change here would look
+ * like lost data. Only the top level, because a release's own environments are nothing to a copy.
  */
 function resources(wrangler) {
 	const config = readConfig(wrangler);
@@ -84,10 +84,13 @@ function resources(wrangler) {
 	return [
 		`worker ${config.name}`,
 		...(config.d1_databases ?? []).map(
-			(database) => `database ${database.database_name ?? ""} ${database.database_id ?? ""}`,
+			({ binding, database_name, database_id }) =>
+				`database ${binding} ${database_name ?? ""} ${database_id ?? ""}`,
 		),
-		...(config.r2_buckets ?? []).map((bucket) => `bucket ${bucket.bucket_name}`),
-		...queues.map((queue) => `queue ${queue.queue}`),
+		...(config.r2_buckets ?? []).map(
+			({ binding, bucket_name }) => `bucket ${binding} ${bucket_name}`,
+		),
+		...queues.map(({ binding, queue }) => `queue ${binding ?? ""} ${queue}`),
 	];
 }
 
