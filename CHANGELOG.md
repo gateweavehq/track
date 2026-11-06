@@ -8,6 +8,34 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.28.1] - 2026-11-06
+
+A copy's settings now stay through a deploy. If you set anything on a self-hosted copy as a Text variable in the
+dashboard, read this one: it may have been gone since your last deploy. No migration, and the protocol stays at version
+26.
+
+### Fixed
+
+- **Settings made in the dashboard stay through a deploy.** Wrangler removes a plain-text variable it does not find in
+  `wrangler.jsonc` unless `keep_vars` says otherwise, and ours did not. So every push and every `update-copy` took away
+  what had been set as a Text variable, without a word. `TURNSTILE_SITE_KEY` going stops the request forms, and email
+  and the legal pages could go the same way. Secrets were not affected, and neither was Gateweave Cloud. ([#215])
+- **`update-copy` reads `wrangler.jsonc` as data.** It searched the file's text for a Worker's name and database, so a
+  release that renamed `database_name` could get through on a copy with default names, and one that changed its own
+  staging database could stop an update for no reason. ([#213])
+
+### Changed
+
+- **The self-hosting guide says to use the Workers Paid plan.** It used to say a free account is enough. It also says
+  where the Git account is on the Deploy form, and what to do when GitHub refuses an update's push because a commit
+  carries a private address. ([#214], [#215])
+
+### Upgrading
+
+No migration. After updating, look through the Worker's variables in the dashboard and set again what has gone. A site
+key missing there means the request forms were not open. A variable taken out of `vars` in `wrangler.jsonc` now stays on
+the Worker until someone removes it in the dashboard.
+
 ## [0.28.0] - 2026-11-05
 
 A deployment can now link its legal notice, privacy policy and terms. Updating a self-hosted copy needs no migration,
@@ -1030,6 +1058,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.28.1]: https://github.com/gateweavehq/track/releases/tag/v0.28.1
 [0.28.0]: https://github.com/gateweavehq/track/releases/tag/v0.28.0
 [0.27.0]: https://github.com/gateweavehq/track/releases/tag/v0.27.0
 [0.26.6]: https://github.com/gateweavehq/track/releases/tag/v0.26.6
@@ -1082,6 +1111,9 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#215]: https://github.com/gateweavehq/track/pull/215
+[#214]: https://github.com/gateweavehq/track/pull/214
+[#213]: https://github.com/gateweavehq/track/pull/213
 [#15]: https://github.com/gateweavehq/track/pull/15
 [#17]: https://github.com/gateweavehq/track/pull/17
 [#18]: https://github.com/gateweavehq/track/pull/18
