@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startTrack } from "./track-worker";
+import { INTAKE_EMAIL_DOMAIN, startTrack } from "./track-worker";
 
 // A branch's Preview gets none of the Worker's bindings or secrets. Without the secret, Better Auth
 // would sign sessions with the default in its source, for anyone to forge. So a deployment missing
@@ -36,5 +36,22 @@ describe.each([
 		});
 		expect(response.status).toBe(503);
 		expect(response.headers.get("set-cookie")).toBeNull();
+	});
+
+	it("refuses mail for an intake address", async () => {
+		const from = "someone@example.com";
+		const to = `workspace.key@${INTAKE_EMAIL_DOMAIN}`;
+		const raw = [
+			`From: ${from}`,
+			`To: ${to}`,
+			"Subject: Hello",
+			"Message-ID: <hello@example.com>",
+			"",
+			"Hello",
+		].join("\r\n");
+		expect(await worker.email(from, to, raw)).toEqual({
+			outcome: "rejected",
+			rejectReason: "This deployment is not set up to take email",
+		});
 	});
 });
