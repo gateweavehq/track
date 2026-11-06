@@ -196,9 +196,9 @@ the bucket for attached files, where there is one.
 
 ### Sign in with GitHub
 
-Create a [GitHub OAuth app](https://github.com/settings/developers) with the callback URL
-`https://track.example.com/api/auth/callback/github` (your address), then set
-`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
+Create a [GitHub OAuth app](https://github.com/settings/developers) whose redirect URI, which
+GitHub has also called the callback URL, is `https://track.example.com/api/auth/callback/github`
+(your address), then set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
 
 ### Sign in through an OpenID Connect provider
 
