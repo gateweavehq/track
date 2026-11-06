@@ -250,12 +250,17 @@ export async function startTrack(
 	{
 		isolates = 1,
 		demo = false,
+		withoutDatabase = false,
+		withoutSecret = false,
 		vars = {},
 		isolateVars = [],
 		outbound: standIn,
 	}: {
 		isolates?: number;
 		demo?: boolean;
+		/** What a branch's Preview lacks. */
+		withoutDatabase?: boolean;
+		withoutSecret?: boolean;
 		vars?: Record<string, string>;
 		isolateVars?: Record<string, string>[];
 		/** Answers the Worker's outbound requests it recognizes, as a stand-in for that service. */
@@ -289,7 +294,7 @@ export async function startTrack(
 					compatibilityDate: config.compatibility_date,
 					compatibilityFlags: config.compatibility_flags,
 					bindings: {
-						BETTER_AUTH_SECRET: secret,
+						...(withoutSecret ? {} : { BETTER_AUTH_SECRET: secret }),
 						BETTER_AUTH_URL: origin,
 						// The demo deployment has no email binding and no sender.
 						...(demo
@@ -312,7 +317,7 @@ export async function startTrack(
 						serviceBindings: { EMAIL: "outbox" },
 						r2Buckets: { FILES: "track-files" },
 					}),
-					d1Databases: { DB: "track-test" },
+					d1Databases: { [withoutDatabase ? "UNBOUND_DB" : "DB"]: "track-test" },
 					// Every copy uses the first one's Durable Objects.
 					durableObjects: {
 						WORKSPACE: { className: "WorkspaceDO", useSQLite: true, scriptName: names[0] },
@@ -373,7 +378,7 @@ export async function startTrack(
 		}),
 	);
 
-	const db = await mf.getD1Database("DB");
+	const db = await mf.getD1Database(withoutDatabase ? "UNBOUND_DB" : "DB");
 	const migrations = join(app, "migrations");
 	for (const file of readdirSync(migrations)
 		.filter((name) => name.endsWith(".sql"))
