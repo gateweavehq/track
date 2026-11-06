@@ -4,7 +4,7 @@
 // `vite build` first.
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PROVIDER_PORT, provider } from "./provider.mjs";
 
@@ -15,17 +15,14 @@ process.chdir(root);
 const state = resolve(root, ".wrangler", "e2e-state");
 rmSync(state, { recursive: true, force: true });
 
-// Only the secret matters; the app runs with email off. An existing .dev.vars (at the repository
-// root, next to wrangler.jsonc) is left alone.
-const devVars = resolve(root, "../../.dev.vars");
-if (!existsSync(devVars)) {
-	const secret = randomBytes(32).toString("base64");
-	const template = readFileSync(resolve(root, "../../.dev.vars.example"), "utf8");
-	writeFileSync(
-		devVars,
-		template.replace(/^BETTER_AUTH_SECRET=.*$/m, `BETTER_AUTH_SECRET=${secret}`),
-	);
-}
+// Only the secret matters; the app runs with email off. A preview reads it from beside the built
+// Worker, where a build leaves a copy of .dev.vars if there is one, and CI has none. A Worker without
+// it serves nothing, so the tests have their own wherever they run. The .dev.vars at the repository
+// root is left alone.
+writeFileSync(
+	resolve(root, "dist/server/.dev.vars"),
+	`BETTER_AUTH_SECRET=${randomBytes(32).toString("hex")}\n`,
+);
 
 // Run the tools with this Node, not through a shell: Playwright stops the server by killing this
 // process, and a shell in between would leave the server running (and Playwright waiting).

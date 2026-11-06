@@ -1,4 +1,6 @@
+import { env } from "cloudflare:workers";
 import handler from "@tanstack/react-start/server-entry";
+import { isAutomated } from "./lib/intake-email";
 import { db, handleAuthRequest } from "./server/auth";
 import { pruneExpired } from "./server/db/prune";
 import { demoEnabled } from "./server/demo/mode";
@@ -18,8 +20,25 @@ export { WorkspaceDO } from "./server/workspace-do";
 const OAUTH_DISCOVERY =
 	/^\/\.well-known\/(oauth-protected-resource|oauth-authorization-server|openid-configuration)(\/|$)/;
 
+/**
+ * A branch's Preview gets none of the Worker's bindings or secrets. Nothing works without the
+ * database. Without the secret, Better Auth signs with the default in its source, because with no
+ * NODE_ENV on a Worker it does not know this is production. So such a deployment serves nothing else.
+ */
+function isSetUp() {
+	return Boolean(env.DB && env.BETTER_AUTH_SECRET);
+}
+
+function notSetUp() {
+	return new Response(
+		"This deployment has no database or no BETTER_AUTH_SECRET, so it serves nothing. A Preview of a branch gets neither by itself: see Preview builds in docs/self-hosting.md.\n",
+		{ status: 503, headers: { "content-type": "text/plain; charset=utf-8" } },
+	);
+}
+
 export default {
 	fetch(request) {
+		if (!isSetUp()) return notSetUp();
 		const url = new URL(request.url);
 		// Sync is handled before TanStack Start so WebSocket upgrade responses pass through untouched.
 		if (isSyncRequest(url)) return handleSyncRequest(request);
@@ -38,6 +57,15 @@ export default {
 	},
 	// Email Routing sends mail for teams' intake addresses here (INTAKE_EMAIL_DOMAIN).
 	async email(message) {
+		if (!isSetUp()) {
+			// Nobody could sign in to read what this filed, so the sender hears it went nowhere. A bounce
+			// or an out-of-office reply would only come back, so it is dropped, as an address that works
+			// drops it.
+			if (!isAutomated(message.headers)) {
+				message.setReject("This deployment is not set up to take email");
+			}
+			return;
+		}
 		await handleIntakeEmail(message);
 	},
 	// Every deployment clears what is past its time once a day. The demo's Cron Trigger runs every 10
