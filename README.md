@@ -125,8 +125,9 @@ pnpm wrangler login
 pnpm run deploy    # builds, applies D1 migrations, deploys
 ```
 
-A free Cloudflare account is enough. [docs/self-hosting.md](docs/self-hosting.md) covers both
-ways, your own domain, AI agents, GitHub sign-in, email and updating.
+Use the Workers Paid plan, because a password sign-in takes more CPU than the Free plan gives a
+request. [docs/self-hosting.md](docs/self-hosting.md) covers both ways, your own domain, AI agents,
+GitHub sign-in, email and updating.
 
 Gateweave Cloud deploys itself from GitHub Actions (`.github/workflows/deploy.yml`): every green
 build of `main` goes to staging (`pnpm deploy:staging`, the `staging` environment in
