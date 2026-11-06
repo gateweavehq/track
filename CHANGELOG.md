@@ -8,6 +8,37 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.28.2] - 2026-11-06
+
+Branches now build on a copy made with the Deploy button, and a deployment without its secret no longer runs. No
+migration.
+
+### Fixed
+
+- **Every push to a branch of a button's copy failed its build.** The button turns Preview builds on, and Wrangler will
+  not build a Preview without a `previews` block in `wrangler.jsonc`. So each branch showed a failed build, Dependabot's
+  included. Those builds now pass. ([#219])
+- **A deployment without `BETTER_AUTH_SECRET` signed sessions with a public value,** the default in Better Auth's
+  source. Better Auth refuses that default only when `NODE_ENV` is `production`, and a Worker has none. A deployed
+  Worker needs the secret to deploy, so this was open only to a Preview given a database and no secret of its own. Now a
+  deployment missing the database or the secret answers 503, says why, serves nothing else, and refuses mail for intake
+  addresses, dropping what a machine sent. ([#219])
+- **`update-copy` no longer guesses or leaves anything behind.** A line a copy rewrote that stands twice in
+  `wrangler.jsonc` could land on the wrong one, so it is now left to a person. A run stopped halfway left a replacement
+  that falsified the copy's history and stopped the next run. ([#218])
+
+### Changed
+
+- **The self-hosting guide says what a Preview gets:** none of the Worker's bindings or secrets, where it used to say
+  Previews share the database. It says how to give them what they need, and that Dependabot's pull requests on a copy
+  are not needed. `update-copy` keeps Dependabot's file out once a copy has deleted it. ([#219])
+
+### Upgrading
+
+No migration. If you gave a Preview a database, give Previews a secret of their own, or they now answer 503: `pnpm
+wrangler preview base-config secret put BETTER_AUTH_SECRET`. Anyone with an account on such a Preview should treat its
+sessions as forgeable until then.
+
 ## [0.28.1] - 2026-11-06
 
 A copy's settings now stay through a deploy. If you set anything on a self-hosted copy as a Text variable in the
@@ -1058,6 +1089,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.28.2]: https://github.com/gateweavehq/track/releases/tag/v0.28.2
 [0.28.1]: https://github.com/gateweavehq/track/releases/tag/v0.28.1
 [0.28.0]: https://github.com/gateweavehq/track/releases/tag/v0.28.0
 [0.27.0]: https://github.com/gateweavehq/track/releases/tag/v0.27.0
@@ -1111,6 +1143,8 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#219]: https://github.com/gateweavehq/track/pull/219
+[#218]: https://github.com/gateweavehq/track/pull/218
 [#215]: https://github.com/gateweavehq/track/pull/215
 [#214]: https://github.com/gateweavehq/track/pull/214
 [#213]: https://github.com/gateweavehq/track/pull/213
