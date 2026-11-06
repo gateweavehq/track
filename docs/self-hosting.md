@@ -24,6 +24,8 @@ command line.
 The button copies this repository to your GitHub or GitLab account and connects the copy to
 Workers Builds, so every push to its main branch deploys. On the form:
 
+- **Git account** is the first field, the account the copy goes to. If nothing is connected yet,
+  connect GitHub or GitLab there.
 - **Project name** names the Worker. It answers on `<project name>.<your subdomain>.workers.dev`.
 - **D1 database** and **R2 bucket**: choose **Create new**.
 - **BETTER_AUTH_SECRET** signs sessions. Use a long random string, for example from
@@ -69,6 +71,10 @@ Everything except `BETTER_AUTH_SECRET` is optional. Set them in the Cloudflare d
 ```sh
 pnpm wrangler secret put BETTER_AUTH_URL
 ```
+
+Text variables and secrets both stay through a deploy, because `wrangler.jsonc` sets `keep_vars`. A
+copy older than v0.28.1 lost its text variables on every deploy, so look through them after
+updating. A site key missing there means the request forms were not open.
 
 | Name                        | What it does                                                                  |
 | --------------------------- | ----------------------------------------------------------------------------- |
@@ -269,6 +275,16 @@ git push
 The script pushes nothing, and `git reset --hard HEAD~1` undoes it until you do. The push is what
 deploys: Workers Builds builds it and applies the D1 migrations, each workspace's Durable Object
 applies its own the next time it wakes, and open tabs reload if the protocol changed.
+
+If GitHub refuses the push with `push declined due to email privacy restrictions`, the commit
+carries the address your GitHub settings keep private. Use the `noreply` address those settings
+show you, and make the commit again:
+
+```sh
+git config user.email "<your noreply address>"
+git commit --amend --reset-author --no-edit
+git push
+```
 
 What your copy changed stays: the Worker's, database's and bucket's names in `wrangler.jsonc`, the
 name in `package.json`, and having no workflows. If something else you changed conflicts with the
