@@ -38,20 +38,29 @@ describe.each([
 		expect(response.headers.get("set-cookie")).toBeNull();
 	});
 
-	it("refuses mail for an intake address", async () => {
-		const from = "someone@example.com";
-		const to = `workspace.key@${INTAKE_EMAIL_DOMAIN}`;
-		const raw = [
+	const from = "someone@example.com";
+	const to = `workspace.key@${INTAKE_EMAIL_DOMAIN}`;
+	const mail = (...headers: string[]) =>
+		[
 			`From: ${from}`,
 			`To: ${to}`,
 			"Subject: Hello",
 			"Message-ID: <hello@example.com>",
+			...headers,
 			"",
 			"Hello",
 		].join("\r\n");
-		expect(await worker.email(from, to, raw)).toEqual({
+
+	it("refuses mail for an intake address", async () => {
+		expect(await worker.email(from, to, mail())).toEqual({
 			outcome: "rejected",
 			rejectReason: "This deployment is not set up to take email",
+		});
+	});
+
+	it("drops a machine's reply rather than bounce it", async () => {
+		expect(await worker.email(from, to, mail("Auto-Submitted: auto-replied"))).toEqual({
+			outcome: "ok",
 		});
 	});
 });

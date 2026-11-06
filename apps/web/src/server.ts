@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import handler from "@tanstack/react-start/server-entry";
+import { isAutomated } from "./lib/intake-email";
 import { db, handleAuthRequest } from "./server/auth";
 import { pruneExpired } from "./server/db/prune";
 import { demoEnabled } from "./server/demo/mode";
@@ -56,8 +57,15 @@ export default {
 	},
 	// Email Routing sends mail for teams' intake addresses here (INTAKE_EMAIL_DOMAIN).
 	async email(message) {
-		// Nobody could sign in to read what this filed, so the sender hears it went nowhere.
-		if (!isSetUp()) return message.setReject("This deployment is not set up to take email");
+		if (!isSetUp()) {
+			// Nobody could sign in to read what this filed, so the sender hears it went nowhere. A bounce
+			// or an out-of-office reply would only come back, so it is dropped, as an address that works
+			// drops it.
+			if (!isAutomated(message.headers)) {
+				message.setReject("This deployment is not set up to take email");
+			}
+			return;
+		}
 		await handleIntakeEmail(message);
 	},
 	// Every deployment clears what is past its time once a day. The demo's Cron Trigger runs every 10
