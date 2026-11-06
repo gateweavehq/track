@@ -4,14 +4,40 @@
 
 <h1 align="center">Gateweave Track</h1>
 
-Open-source, realtime issue tracking built natively on Cloudflare.
+<p align="center">
+  <strong>An open-source, realtime issue tracker that runs on one Cloudflare Worker.</strong><br>
+  No server to patch, no Postgres to back up. It opens at once and keeps working offline.
+</p>
+
+<p align="center">
+  <a href="https://github.com/gateweavehq/track/releases/latest"><img src="https://img.shields.io/github/v/release/gateweavehq/track?label=release" alt="Latest release"></a>
+  <a href="https://github.com/gateweavehq/track/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/gateweavehq/track/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/gateweavehq/track" alt="License: AGPL-3.0"></a>
+</p>
+
+<p align="center">
+  <a href="https://track-demo.gateweave.com"><strong>Try the demo</strong></a> ·
+  <a href="#deploying"><strong>Deploy your own</strong></a> ·
+  <a href="https://gateweave.com/blog/one-cloudflare-worker">What it measures and costs</a>
+</p>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/realtime-dark.gif">
+  <img src="docs/images/realtime-light.gif" alt="Two browsers side by side on one workspace. A card dragged in one moves in the other, a new issue appears in both, and an edit made offline arrives when the browser reconnects.">
+</picture>
+
+<p align="center">
+  Two browsers on <a href="https://track-demo.gateweave.com">the public demo</a>, in real time.
+  One click opens a private workspace full of sample issues, deleted a day later.
+</p>
+
+<p align="center">
+  <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/gateweavehq/track"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare"></a>
+</p>
 
 Track keeps every workspace in its own Durable Object, so edits reach everyone instantly, the
 app stays fast at any size, and the whole thing deploys as a single Worker you can run on your
 own Cloudflare account.
-
-**[Try the demo](https://track-demo.gateweave.com)**: one click opens a private workspace full of
-sample issues, deleted a day later. Or [deploy your own](#deploying) in a few minutes.
 
 Track is the first product of [Gateweave](https://gateweave.com), a family of open-source,
 Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
@@ -46,6 +72,23 @@ Cloudflare-native business tools. See [docs/ecosystem.md](docs/ecosystem.md).
   is built in the browser from its local copy, so it works offline. Settings, Import reads either
   file back, into the same workspace or another, and brings issues in from GitHub, Linear and
   Jira (its CSV export, with comments).
+
+<table>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/board-dark.webp">
+        <img src="docs/images/board-light.webp" alt="A team's board, with issues in Backlog, Todo, In Progress and In Review columns.">
+      </picture>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/issue-dark.webp">
+        <img src="docs/images/issue-light.webp" alt="An issue's page: its description, activity and comments, with status, priority, assignee and project at the side.">
+      </picture>
+    </td>
+  </tr>
+</table>
 
 ## Tech stack
 
