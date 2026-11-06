@@ -61,11 +61,43 @@ function currentRelease() {
 	return `v${match[1]}`;
 }
 
-/** What says which Worker and database a deploy reaches. A change here would look like lost data. */
-function identity(wrangler) {
-	return ["name", "database_id"]
-		.map((key) => new RegExp(`"${key}":\\s*"([^"]*)"`).exec(wrangler)?.[1] ?? "")
-		.join(" ");
+const JSON_STRING = /"(?:[^"\\]|\\.)*"/.source;
+const COMMENT = new RegExp(`(${JSON_STRING})|//[^\\n]*|/\\*[\\s\\S]*?\\*/`, "g");
+const TRAILING_COMMA = new RegExp(`(${JSON_STRING})|,(\\s*[}\\]])`, "g");
+
+/** wrangler.jsonc as data, so that nothing in a comment can pass for a setting. */
+function readConfig(text) {
+	return JSON.parse(
+		text
+			.replace(COMMENT, (_, string) => string ?? "")
+			.replace(TRAILING_COMMA, (_, string, close) => string ?? close),
+	);
+}
+
+/**
+ * What a deploy reaches, each with the binding the code reaches it by: a change here would look
+ * like lost data. Only the top level, because a release's own environments are nothing to a copy.
+ */
+function resources(wrangler) {
+	const config = readConfig(wrangler);
+	const queues = [...(config.queues?.producers ?? []), ...(config.queues?.consumers ?? [])];
+	return [
+		`worker ${config.name}`,
+		...(config.d1_databases ?? []).map(
+			({ binding, database_name, database_id }) =>
+				`database ${binding} ${database_name ?? ""} ${database_id ?? ""}`,
+		),
+		...(config.r2_buckets ?? []).map(
+			({ binding, bucket_name }) => `bucket ${binding} ${bucket_name}`,
+		),
+		...queues.map(({ binding, queue }) => `queue ${binding ?? ""} ${queue}`),
+	];
+}
+
+/** A release may bring a copy more, which the deploy makes. What the copy has must stay. */
+function keepsResources(before, after) {
+	const kept = new Set(resources(after));
+	return resources(before).every((resource) => kept.has(resource));
 }
 
 /**
@@ -154,7 +186,7 @@ if (conflicts.length > 0) {
 			`Updating from ${current} to ${target} left conflicts with what this copy changed:`,
 			...conflicts.map((file) => `  ${file}`),
 			"",
-			"Fix those files, keeping your Worker's and database's names in wrangler.jsonc, then:",
+			"Fix those files, keeping the names of your Worker, database, bucket and queue in wrangler.jsonc, then:",
 			"  git add -A",
 			`  git commit -m "chore: update Track to ${target}"`,
 			"To start over instead: git reset --hard",
@@ -162,12 +194,20 @@ if (conflicts.length > 0) {
 	);
 }
 
-const before = identity(git("show", `${head}:wrangler.jsonc`));
-const after = identity(git("show", ":wrangler.jsonc"));
-if (before !== after) {
+let sameResources;
+try {
+	sameResources = keepsResources(
+		git("show", `${head}:wrangler.jsonc`),
+		git("show", ":wrangler.jsonc"),
+	);
+} catch {
+	git("reset", "--hard", "--quiet");
+	stop("wrangler.jsonc could not be read, so nothing was changed.");
+}
+if (!sameResources) {
 	git("reset", "--hard", "--quiet");
 	stop(
-		"The update would point wrangler.jsonc at another Worker or database, so nothing was changed.",
+		"The update would point wrangler.jsonc at another Worker, database, bucket or queue, so nothing was changed.",
 	);
 }
 
