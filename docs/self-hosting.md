@@ -1,9 +1,13 @@
 # Self-hosting
 
 Track runs on your own Cloudflare account as one Worker, with a D1 database for accounts and the
-list of workspaces, a Durable Object for each workspace, and an R2 bucket for attached files. A
-free Cloudflare account is enough to start. Email to any address needs the Workers Paid plan;
-Track works without email.
+list of workspaces, a Durable Object for each workspace, and an R2 bucket for attached files.
+
+Use the Workers Paid plan. On the Free plan a request gets
+[10 ms of CPU](https://developers.cloudflare.com/workers/platform/limits/), and checking a password
+takes far more: 85 ms in the one sign-in measured on a deployed Worker. Track has not been run on
+the Free plan, so how often a sign-in would fail there is not known. Email to any address needs the
+Paid plan too; Track works without email.
 
 R2 has a free tier, but it is turned on once per account, in the dashboard under R2 Object
 Storage, before anything can use it. To run without attachments instead, delete the
