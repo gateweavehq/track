@@ -147,3 +147,10 @@ jobs:
         run: pnpm --filter @gateweave/track-web exec playwright install --with-deps chromium
       - name: Build and measure
         run: pnpm test:perf
+      - name: Upload the trace of a run over budget
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-trace
+          path: apps/web/test-results-perf
+          retention-days: 7
