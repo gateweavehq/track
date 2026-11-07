@@ -8,6 +8,28 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.30.0] - 2026-11-07
+
+People can change their name and password on their account page. There is no migration in this release.
+
+### Added
+
+- **Your name and password on the account page.** A new name reaches everyone in your workspaces at once, in mentions
+  already written too. Someone who signs in through GitHub or a sign-in provider has no password here, and the page says
+  so. A name they change stays theirs: the provider's is read only when the account is made. ([#240])
+
+### Security
+
+- **A new password needs the current one, at five tries a minute.** The change emails the person and ends every other
+  session, whatever the request asks, since whoever knew the old password may be the one asking. A tab left open in the
+  browser that made the change carries on with the new session. ([#240])
+- **A name is 1 to 100 characters, at sign-up too, and a rename changes nothing else.** Ten a minute. ([#240])
+
+### If you run your own
+
+- **Anyone holding a session can now rename that account,** within the rules above. There is no setting for it.
+- **On a server without email, the password email is not sent.** Everything else about the change still happens.
+
 ## [0.29.5] - 2026-11-07
 
 Track's pages now say what a browser may do with them. There is no migration in this release.
@@ -1213,6 +1235,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.30.0]: https://github.com/gateweavehq/track/releases/tag/v0.30.0
 [0.29.5]: https://github.com/gateweavehq/track/releases/tag/v0.29.5
 [0.29.4]: https://github.com/gateweavehq/track/releases/tag/v0.29.4
 [0.29.3]: https://github.com/gateweavehq/track/releases/tag/v0.29.3
@@ -1274,6 +1297,7 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#240]: https://github.com/gateweavehq/track/pull/240
 [#238]: https://github.com/gateweavehq/track/pull/238
 [#236]: https://github.com/gateweavehq/track/pull/236
 [#234]: https://github.com/gateweavehq/track/pull/234
