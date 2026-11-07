@@ -8,6 +8,27 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.29.5] - 2026-11-07
+
+Track's pages now say what a browser may do with them. There is no migration in this release.
+
+### Security
+
+- **Pages sent no security headers,** so any site could put Track in a frame under its own buttons, and a script that
+  got into a page could load and send anything. Every answer now gets `X-Content-Type-Options`, `Referrer-Policy` and,
+  over HTTPS, `Strict-Transport-Security`. A page also gets `X-Frame-Options`, `Cache-Control: private, no-store` and a
+  Content-Security-Policy with a nonce made for that response. The request form and attached files keep their stricter
+  policies. ([#238])
+
+### If you run your own
+
+- **A member's picture shows only from GitHub or your sign-in provider's own host.** From anywhere else, their initials
+  show instead.
+- **Leave Web Analytics' automatic setup and Rocket Loader off for this hostname.** A zone setting that adds scripts to
+  a page does nothing here or gets in the way. See "Your own domain" in `docs/self-hosting.md`.
+- **A browser that has seen `Strict-Transport-Security` keeps to HTTPS on that host for a year,** which sign-in already
+  needed.
+
 ## [0.29.4] - 2026-11-07
 
 Someone signing up can no longer choose the address of their picture. There is no migration in this release.
@@ -1192,6 +1213,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.29.5]: https://github.com/gateweavehq/track/releases/tag/v0.29.5
 [0.29.4]: https://github.com/gateweavehq/track/releases/tag/v0.29.4
 [0.29.3]: https://github.com/gateweavehq/track/releases/tag/v0.29.3
 [0.29.2]: https://github.com/gateweavehq/track/releases/tag/v0.29.2
@@ -1252,6 +1274,7 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#238]: https://github.com/gateweavehq/track/pull/238
 [#236]: https://github.com/gateweavehq/track/pull/236
 [#234]: https://github.com/gateweavehq/track/pull/234
 [#229]: https://github.com/gateweavehq/track/pull/229
