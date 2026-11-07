@@ -57,6 +57,20 @@
       "when": 1794014339474,
       "tag": "0007_member_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794020121493,
+      "tag": "0008_erasure_queue",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1794020122025,
+      "tag": "0009_owner_role_lists",
+      "breakpoints": true
     }
   ]
 }
