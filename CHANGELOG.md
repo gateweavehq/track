@@ -8,6 +8,27 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.29.3] - 2026-11-07
+
+Closes the account routes a stolen session cookie could use and the app does not. Self-hosted copies should update.
+There is no migration in this release.
+
+### Security
+
+- **A stolen cookie could delete an account without its password.** Deleting an account asks for the password only where
+  there is one, and Better Auth's `/unlink-account` removed a password on a recent session alone. On an account that
+  also signs in with GitHub or a provider, a cookie under a day old could do both. The route is now closed. ([#234])
+- **A stolen cookie could try passwords.** `/verify-password` and `/change-password` took one from any session. The app
+  has no use for either, and both are closed. ([#234])
+- **Other routes that any session could call and the app has no use for are closed:** `/update-user`, `/list-sessions`,
+  `/list-accounts`, `/get-access-token`, `/refresh-token` and `/account-info`. An account keeps none of a provider's
+  tokens, so the token routes had nothing to give. ([#234])
+
+### Changed
+
+- **These routes now answer 404,** for anyone who called them by hand. The app has no page for any of them, and changing
+  a password still goes through a reset. ([#234])
+
 ## [0.29.2] - 2026-11-07
 
 The members page no longer says an invitation was emailed before that is known. There is no migration in this release.
@@ -1161,6 +1182,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.29.3]: https://github.com/gateweavehq/track/releases/tag/v0.29.3
 [0.29.2]: https://github.com/gateweavehq/track/releases/tag/v0.29.2
 [0.29.1]: https://github.com/gateweavehq/track/releases/tag/v0.29.1
 [0.29.0]: https://github.com/gateweavehq/track/releases/tag/v0.29.0
@@ -1219,6 +1241,7 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#234]: https://github.com/gateweavehq/track/pull/234
 [#229]: https://github.com/gateweavehq/track/pull/229
 [#227]: https://github.com/gateweavehq/track/pull/227
 [#226]: https://github.com/gateweavehq/track/pull/226
