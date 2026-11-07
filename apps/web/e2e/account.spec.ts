@@ -138,13 +138,13 @@ test("someone changes their password, and only this browser stays signed in", as
 	}
 });
 
-test("someone signs out their other devices without giving a password", async ({
+test("someone signs out everywhere with no password, and a copy of their cookie stops working", async ({
 	page,
 	context,
 	browser,
 }) => {
 	const { person, slug } = await startWorkspace(page);
-	const before = unique("Before the other device was signed out");
+	const before = unique("Before signing out everywhere");
 	await createIssue(page, before);
 	// Reloaded, so nothing from making the workspace is still moving when the session ends.
 	await page.reload();
@@ -152,14 +152,24 @@ test("someone signs out their other devices without giving a password", async ({
 	await expect(syncBadge(page)).toHaveText("Live");
 
 	const elsewhereContext = await newBrowserContext(browser);
+	const copyContext = await newBrowserContext(browser);
 	try {
+		// Whoever stole this browser's cookie has the same session as this browser.
+		await copyContext.addCookies(await context.cookies());
+		const copy = await copyContext.newPage();
+		await copy.goto("/");
+		await expect(copy).not.toHaveURL(/\/login/);
+
 		const elsewhere = await elsewhereContext.newPage();
-		await elsewhere.goto("/login");
-		await waitForHydration(elsewhere);
-		await elsewhere.getByLabel("Email").fill(person.email);
-		await elsewhere.getByLabel("Password").fill(person.password);
-		await elsewhere.getByRole("button", { name: "Sign in", exact: true }).click();
-		await expect(elsewhere).not.toHaveURL(/\/login/);
+		const signIn = async (where: typeof elsewhere) => {
+			await where.goto("/login");
+			await waitForHydration(where);
+			await where.getByLabel("Email").fill(person.email);
+			await where.getByLabel("Password").fill(person.password);
+			await where.getByRole("button", { name: "Sign in", exact: true }).click();
+			await expect(where).not.toHaveURL(/\/login/);
+		};
+		await signIn(elsewhere);
 		await elsewhere.goto(`/${slug}/team/ENG`);
 		await expect(issueRow(elsewhere, before)).toBeVisible();
 		await expect(syncBadge(elsewhere)).toHaveText("Live");
@@ -167,23 +177,24 @@ test("someone signs out their other devices without giving a password", async ({
 		const account = await context.newPage();
 		await account.goto("/settings/account");
 		await waitForHydration(account);
-		await expect(account.getByText("Your other devices are signed out.")).toHaveCount(0);
-		await account.getByRole("button", { name: "Sign out everywhere else" }).click();
-		await expect(account.getByRole("status")).toHaveText("Your other devices are signed out.");
+		await account.getByRole("button", { name: "Sign out everywhere" }).click();
+		await expect(
+			account.getByRole("heading", { name: "You are signed out everywhere" }),
+		).toBeVisible();
 
-		// The other device hears at once.
+		// The other device hears at once, and this browser's other tab goes with its local copy.
 		await expect(elsewhere.getByRole("heading", { name: "Your session has ended" })).toBeVisible();
-		await elsewhere.goto("/");
-		await expect(elsewhere).toHaveURL(/\/login/);
+		await expect(page).toHaveURL(/\/login/);
+		await copy.goto("/");
+		await expect(copy).toHaveURL(/\/login/);
 
-		// This browser's session is the one that stays, so the tab left open carries on with it.
-		await expect(syncBadge(page)).toHaveText("Live");
-		const after = unique("After the other device was signed out");
-		await createIssue(page, after);
-		await expect(issueRow(page, after)).toBeVisible();
-		await account.reload();
-		await expect(account.getByRole("heading", { name: "Your account" })).toBeVisible();
+		await account.getByRole("link", { name: "Back to sign-in" }).click();
+		await expect(account).toHaveURL(/\/login/);
+		await signIn(account);
+		await account.goto(`/${slug}/team/ENG`);
+		await expect(issueRow(account, before)).toBeVisible();
 	} finally {
 		await elsewhereContext.close();
+		await copyContext.close();
 	}
 });
