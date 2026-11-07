@@ -116,7 +116,10 @@ page also says that continuing means agreeing to them.
 
 In the dashboard, open the Worker and add a custom domain under Settings › Domains & Routes. Or
 add `"routes": [{ "pattern": "track.example.com", "custom_domain": true }]` to `wrangler.jsonc`.
-Sign-in works on any address the Worker serves.
+Sign-in works on any address the Worker serves, as long as it is HTTPS: session cookies are marked
+`Secure`, so a browser won't keep them over plain HTTP. Turn on
+[Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/)
+for the domain so that nobody lands on the plain address.
 
 ### AI agents (MCP)
 
