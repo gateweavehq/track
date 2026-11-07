@@ -49,7 +49,7 @@ test("someone changes their name, and the team sees it as it happens", async ({
 		await save.click();
 		await expect(guestPage.getByText("Your name is changed.")).toBeVisible();
 		await expect(field).toHaveValue(name);
-		await expect(guestPage.getByRole("banner").getByText(name)).toBeVisible();
+		await expect(guestPage.locator("header").getByText(name)).toBeVisible();
 		await expect(save).toBeDisabled();
 
 		// The owner, who never reloaded, sees it as it happens, in what was already written too.
