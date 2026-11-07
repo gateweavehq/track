@@ -179,8 +179,9 @@ day anyway.
   - The search index is merged, because FTS5 leaves deleted words readable in its pages until then.
   - Their sockets close.
 - **It is asked until it has answered.** A `pending_erasure` row goes only once its workspace has
-  answered. The daily cron asks again for the 20 oldest rows waiting, a number a Worker on the Free
-  plan can reach. Asking twice writes nothing and sends no ops.
+  answered. The daily cron asks again for 20 of them, a number a Worker on the Free plan can reach,
+  those never tried again and the ones tried longest ago first, so a run of them that keep failing
+  does not keep the rest waiting. Asking twice writes nothing and sends no ops.
 - **Workspaces they left count too.** Each keeps their name on what they did there. A trigger notes
   whoever leaves in `former_member` (ids only, agents left out), however they came to leave, and
   the note goes with the account or the workspace. Workspaces someone left before v0.29 are not
