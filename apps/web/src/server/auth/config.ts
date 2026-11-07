@@ -141,6 +141,22 @@ export function createAuth(config: AuthConfig) {
 			"/organization/get-full-organization",
 			// The JWT plugin's session-to-token exchange. Agents get tokens through OAuth instead.
 			"/token",
+			// The rest are offered to any session, and the app does not use them. A cookie may be stolen.
+			// Takes a password away on a recent session alone, and deleting an account then asks for
+			// none. Gateweave ID keeps it, and asks for the password there; see its passwordRemoval.
+			"/unlink-account",
+			// Say whether a password is right, faster than deleting an account lets anyone guess.
+			"/verify-password",
+			"/change-password",
+			// An account keeps none of a provider's tokens, so these have nothing to give.
+			"/get-access-token",
+			"/refresh-token",
+			"/account-info",
+			"/list-accounts",
+			// Hands over the tokens of someone's sessions.
+			"/list-sessions",
+			// Renames someone, and sets the picture other members' browsers fetch.
+			"/update-user",
 		],
 		emailVerification: mailer && {
 			sendVerificationEmail: async ({ user, url }) => {
