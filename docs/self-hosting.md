@@ -260,6 +260,18 @@ them, emails of inbox news they leave unread. With email on, joining a workspace
 verified address. Serve Track over HTTPS (a `workers.dev` or custom domain is) so that those
 emails carry a one-click unsubscribe link: Email Service refuses one over HTTP.
 
+## When someone deletes their account
+
+People delete their own account on `/account`, and their name, address and picture go from every
+workspace, with no setting to turn on. If you publish a privacy notice, say what stays: what they
+wrote stays with the team under "Deleted member", and files they attached stay with the workspace.
+[The architecture notes](architecture.md#deleting-an-account) have the full list, including
+workspaces someone left before v0.29, which you would have to clear by hand if they ask, and
+what Cloudflare's point-in-time recovery keeps.
+
+An account that is the only owner of a workspace is refused until someone else owns it or it is
+deleted. If you restore D1 or a workspace to a time before a deletion, the person comes back.
+
 ## The public demo
 
 Gateweave's own demo (a private sandbox per visitor, deleted after a day) is a separate

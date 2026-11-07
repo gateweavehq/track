@@ -61,6 +61,19 @@ export function invitationEmail({
 }
 
 /** Unread news on one issue, as an inbox digest lists it. */
+export function accountDeletedEmail({ email }: { email: string }): Message {
+	return compose({
+		subject: `Your ${PRODUCT} account was deleted`,
+		heading: "Your account was deleted",
+		body: [
+			`The ${PRODUCT} account for ${email} has been deleted, from a session signed in to it. It cannot be brought back.`,
+			'Workspaces keep what you wrote in them, under "Deleted member". Your name, address and picture are gone from them.',
+		],
+		footer:
+			"If this was not you, someone else had your password or a recent session. Tell whoever runs this server.",
+	});
+}
+
 export interface DigestEntry {
 	key: string;
 	title: string;

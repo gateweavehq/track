@@ -13,6 +13,7 @@ import { schema } from "../db";
 import type { Mailer } from "../email/mailer";
 import { invitationEmail, passwordResetEmail, verificationEmail } from "../email/templates";
 import { agentMembers } from "./agents";
+import { DELETE_ACCOUNT, deleteAccount } from "./delete-account";
 import { EndedSessions } from "./ended-sessions";
 import { type OidcProvider, oidcDatabaseHooks, oidcSignIn } from "./oidc-sign-in";
 
@@ -39,6 +40,8 @@ export interface AuthConfig {
 	onWorkspaceDeleted?: (workspaceId: string) => Promise<void>;
 	/** Called after a workspace's slug changes, since webhook payloads link with it. */
 	onWorkspaceRenamed?: (workspaceId: string, slug: string) => Promise<void>;
+	/** Called in the background after someone deletes their account. */
+	onAccountDeleted?: (userId: string) => Promise<void>;
 	/** Called after a user's profile changes. */
 	onUserUpdated?: (userId: string) => Promise<void>;
 	/**
@@ -296,12 +299,25 @@ export function createAuth(config: AuthConfig) {
 						membershipChanged(organization.id, member.userId),
 					afterRemoveMember: ({ organization, member }) =>
 						membershipChanged(organization.id, member.userId),
+					// The plugin deletes the members first, which the owner trigger would refuse. With the
+					// workspace gone they follow by cascade, and the plugin finds nothing left to delete.
+					beforeDeleteOrganization: async ({ organization }) => {
+						await config.db
+							.delete(schema.organization)
+							.where(eq(schema.organization.id, organization.id))
+							.run();
+					},
 					afterDeleteOrganization: async ({ organization }) => {
 						await config.onWorkspaceDeleted?.(organization.id);
 					},
 				},
 			}),
 			agentMembers({ db: config.db, onMembershipChange: membershipChanged }),
+			deleteAccount({
+				db: config.db,
+				mailer: config.mailer,
+				onAccountDeleted: config.onAccountDeleted,
+			}),
 			...(config.oidc ? oidcSignIn(config.db, config.oidc) : []),
 			...(config.mcpResource
 				? [
@@ -354,6 +370,7 @@ export const DEMO_BLOCKED_PATHS: ReadonlySet<string> = new Set([
 	"/change-email",
 	"/change-password",
 	"/delete-user",
+	DELETE_ACCOUNT,
 ]);
 
 /** Lets an agent act as the user in Track: read and change what the user can. */

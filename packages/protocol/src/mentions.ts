@@ -40,6 +40,18 @@ export function newMentions(before: string | null, after: string | null): string
 }
 
 /**
+ * The text with its mentions of one member showing `name` instead of the name as written, inside
+ * code too: code only stops a mention from telling anyone, and the name is there all the same.
+ */
+export function renameMentions(markdown: string, member: { id: string; name: string }): string {
+	if (!markdown.includes(`${MENTION_SCHEME}${member.id})`)) return markdown;
+	const link = mentionLink(member);
+	return markdown.replace(MENTION, (match, _text: string, id: string) =>
+		id === member.id ? link : match,
+	);
+}
+
+/**
  * The text with each mention as `@Name`, for where Markdown shows as plain text, such as an
  * email. `name` gives a member's current name; without one, the name as written stays.
  */

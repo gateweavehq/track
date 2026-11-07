@@ -89,7 +89,8 @@ every join, role change and removal to the DO. Two removals pass no organization
 have hooks of their own: leaving (`/organization/leave`, an after-hook on the path) and deleting
 a user, whose memberships go by cascade (a database hook notes their workspaces before the
 delete and tells each one after). A removal closes the person's sockets. The replica also heals
-itself, because each time a member connects their current profile is upserted.
+itself, because each time a member connects their current profile is upserted. Someone who deletes
+their own account takes another path, which does more ([below](#deleting-an-account)).
 
 Sessions end the same way. The gateway checks the session only when a socket opens, so it hands
 the object the session's id and expiry with the member, and the socket keeps them. When a session
@@ -132,6 +133,68 @@ them to any member through two endpoints, which would let a member pick up an ad
 - `get-full-organization`, which the app does not use, is disabled.
 
 The public invite page only describes pending invitations that have not expired.
+
+### Deleting an account
+
+People delete their own account on `/account`, through `POST /api/auth/account/delete`
+(`apps/web/src/server/auth/delete-account.ts`). Better Auth's `/delete-user` stays off: it lets
+someone with a password through without it, and its hooks can only remove a member from a
+workspace, which leaves their name there. The demo refuses the path, since its visitors go after a
+day anyway.
+
+- **What it asks for.** A session from the last day, and the password if the account has one. An
+  account without one types its address in the page, which only guards against a slip.
+- **A workspace keeps an owner.** The only owner of a workspace is refused and told which, because
+  a workspace with no owner has nobody who can fix it. The plugin and this endpoint both count and
+  then act, so two owners leaving at once could each see the other still there. Two triggers on
+  `member` hold it in the database, however a row comes to change, and they let go of a workspace
+  that is being deleted. That needs the organization row to go first, so
+  `beforeDeleteOrganization` deletes it and its members follow by cascade.
+- **D1 goes in one batch.** It notes every workspace that has to forget the person in
+  `pending_erasure` (ids only), deletes the user, and takes invitations addressed to them.
+  Foreign keys take the sessions, sign-ins, memberships, OAuth clients and tokens, and the
+  invitations they sent. It is one transaction, so no account goes without that note, and a
+  trigger's refusal leaves everything in place.
+- **Each workspace then forgets them.** A gateway-only `forgetPerson` RPC
+  (`packages/sync-server/src/forget.ts`), in one transaction. It is not a mutation, because no
+  client asks for it and nothing is predicted.
+  - The member row stays, because the ids on what they did resolve to it, as "Deleted member" with
+    no address or picture, marked removed. `upsertMember` leaves such a row alone, so a push that
+    was already on its way cannot bring the name back.
+  - Their subscriptions, inbox, notification settings and intake following go.
+  - Mentions of them are renamed in descriptions, comments, project descriptions and updates,
+    templates, proposals, the copies of proposals in other people's inboxes, and replies waiting
+    to reach a requester. The Markdown holds the name as written, so showing the current name
+    would not be enough. Each changed row goes out as an op, with its dates unchanged, because
+    nobody edited it.
+  - The log is rewritten in place, since it would otherwise hand the old rows to anyone catching
+    up: their `member` ops take the new row, ops holding a mention of them are renamed, and ops
+    private to them go. Other members never saw those, so they open no gap anyone can notice. The
+    newest op always stays, because the next version counts from it.
+  - Webhook deliveries, kept 7 days for settings to show, are rewritten too. A delivery still
+    waiting goes out renamed, and its signature is right, because it is made when sending.
+  - The search index is merged, because FTS5 leaves deleted words readable in its pages until then.
+  - Their sockets close.
+- **It is asked until it has answered.** A `pending_erasure` row goes only once its workspace has
+  answered. The daily cron asks again for the 20 oldest rows waiting, a number a Worker on the Free
+  plan can reach. Asking twice writes nothing and sends no ops.
+- **Workspaces they left count too.** Each keeps their name on what they did there. A trigger notes
+  whoever leaves in `former_member` (ids only, agents left out), however they came to leave, and
+  the note goes with the account or the workspace. Workspaces someone left before v0.29 are not
+  noted, so their name stays in those until someone asks whoever runs the server.
+
+What stays, and the page says so before anyone confirms:
+
+- What they wrote, as the team's record, under "Deleted member", and their id on what they did.
+- Their name wherever someone typed it as plain text, which nothing can find.
+- Files they attached, which belong to the workspace, and issues assigned to them, as with anyone
+  removed.
+- Requests they filed through a public form or by email, which were never tied to an account.
+- Copies on other people's devices until those next sync. A device kept offline holds the old name
+  until it reconnects.
+- Point-in-time recovery, which Cloudflare provides and Track does not control: 30 days back for a
+  Durable Object, and for D1 30 days on Workers Paid or 7 on Workers Free. Restoring a state from
+  before the deletion brings the person back with it.
 
 ### Email
 

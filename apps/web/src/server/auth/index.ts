@@ -2,6 +2,7 @@ import { env, waitUntil } from "cloudflare:workers";
 import { createDb } from "../db";
 import { demoEnabled } from "../demo/mode";
 import { mailer } from "../email";
+import { forgetInWorkspaces } from "../erasure";
 import { authRateLimits } from "../rate-limit";
 import {
 	deleteWorkspaceFiles,
@@ -78,6 +79,9 @@ function buildAuth() {
 			waitUntil(logFailure(deleteWorkspaceFiles(workspaceId), "deleting a workspace's files"));
 			await logFailure(workspaceStub(workspaceId).destroy(), "workspace deletion");
 		},
+		// What this misses stays noted, and the daily cron asks again.
+		onAccountDeleted: (userId) =>
+			logFailure(forgetInWorkspaces(db, userId), "forgetting a deleted account"),
 		onWorkspaceRenamed: (workspaceId, slug) =>
 			logFailure(workspaceStub(workspaceId).relink(slug), "workspace rename"),
 		demo: demoEnabled(),

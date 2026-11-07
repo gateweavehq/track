@@ -42,6 +42,7 @@ import { findArchivedIssues, findArchivedIssuesPage, findIssueDetails } from "./
 import { nextAutomationsAt, runAutomations } from "./automations";
 import { advanceCycles, nextCycleChange } from "./cycles";
 import * as schema from "./db/schema";
+import { forgetPerson } from "./forget";
 import {
 	applyGitHubDelivery,
 	connectGitHubApp,
@@ -319,6 +320,20 @@ export class WorkspaceDO extends DurableObject {
 
 	removeMember(userId: string): void {
 		this.#write(() => removeMember(this.#db, userId, Date.now()));
+		this.#closeSocketsOf(userId);
+	}
+
+	/**
+	 * Called for someone who deleted their account, whether or not they are still a member here.
+	 * The gateway repeats it until it hears that it worked, and doing it twice is harmless.
+	 */
+	forgetPerson(userId: string): void {
+		const id = z.string().min(1).parse(userId);
+		this.#write(() => forgetPerson(this.#db, id, Date.now()));
+		this.#closeSocketsOf(id);
+	}
+
+	#closeSocketsOf(userId: string): void {
 		for (const ws of this.ctx.getWebSockets()) {
 			if (socketState(ws).userId === userId) {
 				ws.close(CloseCode.Forbidden, "Removed from workspace");

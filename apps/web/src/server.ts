@@ -4,6 +4,7 @@ import { isAutomated } from "./lib/intake-email";
 import { db, handleAuthRequest } from "./server/auth";
 import { pruneExpired } from "./server/db/prune";
 import { demoEnabled } from "./server/demo/mode";
+import { retryErasures } from "./server/erasure";
 import { handleFileRequest, isFileRequest } from "./server/files";
 import { handleGitHubRequest, isGitHubRequest } from "./server/github";
 import { handleGitHubAppRequest, isGitHubAppRequest } from "./server/github-app";
@@ -75,6 +76,7 @@ export default {
 			const { cleanUpDemo } = await import("./server/demo/cleanup");
 			await cleanUpDemo();
 		}
+		await retryErasures(db);
 		await pruneExpired(db);
 	},
 } satisfies ExportedHandler<Cloudflare.Env>;

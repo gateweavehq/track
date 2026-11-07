@@ -34,6 +34,25 @@ export const getHome = createServerFn({ method: "GET" }).handler(async () => {
 	return { session, sandbox: sandbox?.slug, legal };
 });
 
+/** What `/account` needs: whose account it is, and whether deleting it asks for a password. */
+export const getAccount = createServerFn({ method: "GET" }).handler(async () => {
+	const { getAuth } = await import("#/server/auth");
+	const { demoEnabled } = await import("#/server/demo/mode");
+	const { legalLinks } = await import("#/server/legal");
+	const auth = getAuth();
+	const legal = legalLinks();
+	const demo = demoEnabled();
+	const found = await auth.api.getSession({ headers: getRequestHeaders() });
+	if (!found) return { account: null, demo, legal };
+	const { internalAdapter } = await auth.$context;
+	const accounts = await internalAdapter.findAccounts(found.user.id);
+	const hasPassword = accounts.some(
+		({ providerId, password }) => providerId === "credential" && Boolean(password),
+	);
+	const { name, email } = found.user;
+	return { account: { name, email, hasPassword }, demo, legal };
+});
+
 export const getAuthOptions = createServerFn({ method: "GET" }).handler(async () => {
 	const { emailEnabled, githubEnabled, oidcProviderName } = await import("#/server/auth");
 	const { demoEnabled } = await import("#/server/demo/mode");
