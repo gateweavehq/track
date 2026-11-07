@@ -3,7 +3,7 @@ import { createDb } from "../db";
 import { demoEnabled } from "../demo/mode";
 import { mailer } from "../email";
 import { forgetInWorkspaces } from "../erasure";
-import { allowPasswordTry, authRateLimits } from "../rate-limit";
+import { allowPasswordTry, allowSpentTriesEmail, authRateLimits } from "../rate-limit";
 import {
 	deleteWorkspaceFiles,
 	endSessionsEverywhere,
@@ -89,6 +89,7 @@ function buildAuth() {
 		runInBackground: waitUntil,
 		rateLimitStorage: authRateLimits,
 		allowPasswordTry,
+		allowSpentTriesEmail,
 	});
 }
 
