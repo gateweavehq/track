@@ -230,8 +230,9 @@ and others. It adds a button to the sign-in page, and passwords keep working.
    `/.well-known/openid-configuration` is under, then `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`.
    `OIDC_PROVIDER_NAME` names the button, as in "Continue with Acme".
 
-Someone new gets an account. Someone whose address already has one links to it only when the
-provider says the address is verified and they have verified it in Track too, so anyone who could
+Someone new gets an account, named as the provider names them, and can change that name in Track
+without the provider changing it back. Someone whose address already has one links to it only when
+the provider says the address is verified and they have verified it in Track too, so anyone who could
 sign up at the provider with that address cannot take over the account. Without
 [email](#email) nobody can verify an address in Track, so existing accounts stay with their
 passwords.

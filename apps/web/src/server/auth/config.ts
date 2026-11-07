@@ -12,6 +12,7 @@ import type { Database } from "../db";
 import { schema } from "../db";
 import type { Mailer } from "../email/mailer";
 import { invitationEmail, passwordResetEmail, verificationEmail } from "../email/templates";
+import { tellOfChangedPassword, validName, validRename } from "./account-changes";
 import { agentMembers } from "./agents";
 import { DELETE_ACCOUNT, deleteAccount } from "./delete-account";
 import { EndedSessions } from "./ended-sessions";
@@ -100,6 +101,10 @@ export function createAuth(config: AuthConfig) {
 				"/organization/invite-member": { window: 60, max: 20 },
 				// Each workspace is a Durable Object; nobody needs more than a few a minute.
 				"/organization/create": { window: 60, max: 10 },
+				// Someone holding a stolen cookie would otherwise have a way to guess at the password.
+				"/change-password": { window: 60, max: 5 },
+				// Each rename is a write to every workspace someone is in.
+				"/update-user": { window: 60, max: 10 },
 			},
 			...(config.rateLimitStorage && { customStorage: config.rateLimitStorage }),
 		},
@@ -147,7 +152,6 @@ export function createAuth(config: AuthConfig) {
 			"/unlink-account",
 			// Say whether a password is right, faster than deleting an account lets anyone guess.
 			"/verify-password",
-			"/change-password",
 			// An account keeps none of a provider's tokens, so these have nothing to give.
 			"/get-access-token",
 			"/refresh-token",
@@ -155,8 +159,6 @@ export function createAuth(config: AuthConfig) {
 			"/list-accounts",
 			// Hands over the tokens of someone's sessions.
 			"/list-sessions",
-			// Renames someone, and sets the picture other members' browsers fetch.
-			"/update-user",
 		],
 		emailVerification: mailer && {
 			sendVerificationEmail: async ({ user, url }) => {
@@ -172,6 +174,14 @@ export function createAuth(config: AuthConfig) {
 				// `auth.api` calls (better-call router.mjs; better-auth api/to-auth-endpoints.mjs).
 				if (config.demo && ctx.request && DEMO_BLOCKED_PATHS.has(ctx.path)) {
 					throw new APIError("FORBIDDEN", { message: "Not available in the demo" });
+				}
+				if (ctx.path === "/update-user") return { context: { body: validRename(ctx.body) } };
+				if (ctx.path === "/sign-up/email") {
+					return { context: { body: { name: validName(ctx.body?.name) } } };
+				}
+				// Whoever knew the old password may be why it is changing, and may be the one asking.
+				if (ctx.path === "/change-password") {
+					return { context: { body: { revokeOtherSessions: true } } };
 				}
 				if (ctx.path !== "/organization/list-invitations") return;
 				// Better Auth lets every member list invitations. Where accounts cannot verify their
@@ -198,6 +208,12 @@ export function createAuth(config: AuthConfig) {
 			after: createAuthMiddleware(async (ctx) => {
 				// The request is over: the sessions it ended are reported together (see below).
 				endedSessions.flush(ctx.context);
+				if (ctx.path === "/change-password") {
+					await ctx.context.runInBackgroundOrAwait(
+						tellOfChangedPassword(ctx.context.returned, mailer),
+					);
+					return;
+				}
 				// Leaving deletes the member row without calling `afterRemoveMember` (Better Auth
 				// 1.7, organization/routes/crud-members.mjs), so the workspace is told here. The
 				// endpoint answers with the member it removed, or with an error.
@@ -215,6 +231,7 @@ export function createAuth(config: AuthConfig) {
 			session: {
 				create: oidcHooks.session.create,
 				delete: {
+					before: oidcHooks.session.delete.before,
 					after: async (session, context) => {
 						endedSessions.add(context?.context ?? null, session.userId, session.id);
 					},
@@ -391,6 +408,7 @@ export const DEMO_BLOCKED_PATHS: ReadonlySet<string> = new Set([
 	"/request-password-reset",
 	"/change-email",
 	"/change-password",
+	"/update-user",
 	"/delete-user",
 	DELETE_ACCOUNT,
 ]);

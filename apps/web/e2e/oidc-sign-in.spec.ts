@@ -45,6 +45,20 @@ test("someone new signs in through the provider, and stays signed in", async ({
 	await expect(page.getByRole("heading", { name: "Workspaces" })).toBeVisible();
 });
 
+test("someone who came through the provider has a name to change and no password", async ({
+	page,
+	context,
+}) => {
+	await providerKnows(context, someone());
+	await pressButton(page);
+	await expect(page.getByRole("heading", { name: "Workspaces" })).toBeVisible();
+
+	await page.goto("/settings/account");
+	await expect(page.getByLabel("Your name")).toBeVisible();
+	await expect(page.getByText("this account has no password to change")).toBeVisible();
+	await expect(page.getByRole("button", { name: "Change password" })).toHaveCount(0);
+});
+
 test("signing in through the provider ends up where they were going", async ({ page, context }) => {
 	await providerKnows(context, someone());
 
