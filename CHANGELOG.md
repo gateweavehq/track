@@ -8,6 +8,22 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.30.5] - 2026-11-07
+
+Whoever runs a server with no email can now help someone back in. There is no migration in this release.
+
+### Fixed
+
+- **A way back in without email.** Without email nobody could reset a forgotten password, and `/forgot-password` told
+  them to ask whoever runs the server, who had nothing to do about it. The self-hosting guide now says how: find the
+  person's `id` in a list, run one statement, and pass on the link it prints. The link works once, for an hour. Using it
+  signs the person out everywhere, as a reset does with email. ([#256])
+
+### If you run your own
+
+- **Nothing to do for this release.** Nothing changes on a server that sends email.
+- **`CONTRIBUTING.md` now says where a newcomer can start.** ([#255])
+
 ## [0.30.4] - 2026-11-07
 
 People now hear by email when the tries at their password run out. There is no migration in this release.
@@ -1312,6 +1328,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.30.5]: https://github.com/gateweavehq/track/releases/tag/v0.30.5
 [0.30.4]: https://github.com/gateweavehq/track/releases/tag/v0.30.4
 [0.30.3]: https://github.com/gateweavehq/track/releases/tag/v0.30.3
 [0.30.2]: https://github.com/gateweavehq/track/releases/tag/v0.30.2
@@ -1378,6 +1395,8 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#256]: https://github.com/gateweavehq/track/pull/256
+[#255]: https://github.com/gateweavehq/track/pull/255
 [#250]: https://github.com/gateweavehq/track/pull/250
 [#249]: https://github.com/gateweavehq/track/pull/249
 [#247]: https://github.com/gateweavehq/track/pull/247
