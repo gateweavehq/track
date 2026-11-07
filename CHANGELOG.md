@@ -8,6 +8,22 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.29.1] - 2026-11-07
+
+This release fixes how account deletion counts owners and retries, and how an HTML email is read. It has two D1
+migrations, which `pnpm run deploy` applies before the new code goes live. One adds a column and an index, and the other
+replaces two triggers.
+
+### Fixed
+
+- **An owner who also had another role, such as `owner,admin`, was not counted as an owner when deleting an account.**
+  Someone owning a workspace beside them was told they were its only owner, and such a co-owner could be missed as an
+  owner to keep. ([#227])
+- **Account erasures that keep failing no longer hold up the rest.** The daily cron asked for the 20 oldest, so twenty
+  that kept failing left later people's names in their workspaces. It now asks those tried longest ago first. ([#227])
+- **An HTML-only email to a team's intake address is now read in one pass.** Anyone who knows that address could send
+  one that took quadratic time to turn into text. ([#226])
+
 ## [0.29.0] - 2026-11-07
 
 People can delete their own account. This release has two D1 migrations, which `pnpm run deploy` applies before the new
@@ -1130,6 +1146,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.29.1]: https://github.com/gateweavehq/track/releases/tag/v0.29.1
 [0.29.0]: https://github.com/gateweavehq/track/releases/tag/v0.29.0
 [0.28.3]: https://github.com/gateweavehq/track/releases/tag/v0.28.3
 [0.28.2]: https://github.com/gateweavehq/track/releases/tag/v0.28.2
@@ -1186,6 +1203,8 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#227]: https://github.com/gateweavehq/track/pull/227
+[#226]: https://github.com/gateweavehq/track/pull/226
 [#224]: https://github.com/gateweavehq/track/pull/224
 [#222]: https://github.com/gateweavehq/track/pull/222
 [#221]: https://github.com/gateweavehq/track/pull/221
