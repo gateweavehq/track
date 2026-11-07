@@ -159,6 +159,21 @@ export function createAuth(config: AuthConfig) {
 			"/list-accounts",
 			// Hands over the tokens of someone's sessions.
 			"/list-sessions",
+			// Adds another way into the account, on a session alone. No page offers it, and signing in
+			// links an account by itself where that is safe.
+			"/link-social",
+			// Agents register themselves, and no page manages what they registered or were granted.
+			"/oauth2/create-client",
+			"/oauth2/get-client",
+			"/oauth2/get-clients",
+			"/oauth2/update-client",
+			"/oauth2/delete-client",
+			"/oauth2/client/rotate-keys",
+			"/oauth2/client/rotate-secret",
+			"/oauth2/get-consent",
+			"/oauth2/get-consents",
+			"/oauth2/update-consent",
+			"/oauth2/delete-consent",
 		],
 		emailVerification: mailer && {
 			sendVerificationEmail: async ({ user, url }) => {
