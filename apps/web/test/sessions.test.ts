@@ -137,6 +137,33 @@ describe("ended sessions", () => {
 		await expectServed(kept);
 	});
 
+	it("closes every socket when someone ends all their sessions, a copy of the cookie's too", async () => {
+		const client = "203.0.113.146";
+		const email = "everywhere@sessions.test";
+		const current = await owner(client, email, "ends-them-all");
+		const elsewhere = await signIn(client, email);
+		const sockets = [
+			await openSocket("ends-them-all", current),
+			// Whoever stole the cookie has the same session as the person pressing the button.
+			await openSocket("ends-them-all", current),
+			await openSocket("ends-them-all", elsewhere),
+		];
+
+		const response = await authApi("/revoke-sessions", { client, cookie: current, body: {} });
+		expect(response.status).toBe(200);
+
+		for (const socket of sockets) {
+			await vi.waitFor(() => expect(socket.code).toBe(CloseCode.SessionEnded), { timeout: 5_000 });
+		}
+		for (const cookie of [current, elsewhere]) {
+			const session = await track.fetch(`${origin}/api/auth/get-session`, {
+				headers: { origin, "cf-connecting-ip": client, cookie },
+			});
+			expect(await session.json()).toBeNull();
+		}
+		await signIn(client, email);
+	});
+
 	it("goes by the session the gateway checked, not one the browser names", async () => {
 		const client = "203.0.113.143";
 		const cookie = await owner(client, "forged@sessions.test", "forges");
