@@ -148,7 +148,9 @@ day anyway.
   Auth's `/unlink-account` is disabled, because it removes a password on a recent session alone,
   which would let a stolen cookie get past that question. So are the other routes it offers any
   session and the app has no use for, such as `/verify-password`, which takes guesses at a
-  password. The list is `disabledPaths` in `apps/web/src/server/auth/config.ts`.
+  password. The list is `disabledPaths` in `apps/web/src/server/auth/config.ts`. A test beside it
+  lists every route that answers, so a Better Auth upgrade that adds one fails until someone decides
+  whether it stays open.
 - **A workspace keeps an owner.** The only owner of a workspace is refused and told which, because
   a workspace with no owner has nobody who can fix it. The plugin and this endpoint both count and
   then act, so two owners leaving at once could each see the other still there. Two triggers on
