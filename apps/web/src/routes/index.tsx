@@ -42,18 +42,23 @@ function WorkspacesPage() {
 					<h1 className="text-xl font-semibold tracking-tight">Workspaces</h1>
 					<p className="text-sm text-muted-foreground">Signed in as {session.user.email}</p>
 				</div>
-				<Button
-					variant="ghost"
-					size="sm"
-					onClick={async () => {
-						await authClient.signOut();
-						// Workspace replicas are cached per user; leave nothing behind on a shared device.
-						await forgetEverything();
-						await router.invalidate();
-					}}
-				>
-					Sign out
-				</Button>
+				<div className="flex shrink-0 items-center gap-1">
+					<Button variant="ghost" size="sm" asChild>
+						<Link to="/settings/account">Account</Link>
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						onClick={async () => {
+							await authClient.signOut();
+							// Workspace replicas are cached per user; leave nothing behind on a shared device.
+							await forgetEverything();
+							await router.invalidate();
+						}}
+					>
+						Sign out
+					</Button>
+				</div>
 			</header>
 
 			<section className="space-y-2">

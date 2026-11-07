@@ -21,6 +21,7 @@ import {
 	Shield,
 	SquarePen,
 	UserPlus,
+	UserRound,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { useUnreadInboxCount } from "#/components/inbox/hooks";
@@ -297,7 +298,7 @@ function Sidebar() {
 const LEGAL_ICONS = { notice: Scale, privacy: Shield, terms: FileText };
 
 function WorkspaceMenu() {
-	const { name, slug, legal } = useWorkspace();
+	const { name, slug, legal, demo } = useWorkspace();
 	const legalPages = legalEntries(legal);
 	const admin = isAdmin(useMyRole());
 	const client = useSyncClient();
@@ -354,6 +355,14 @@ function WorkspaceMenu() {
 						Switch workspace
 					</Link>
 				</DropdownMenuItem>
+				{!demo && (
+					<DropdownMenuItem asChild>
+						<Link to="/settings/account">
+							<UserRound />
+							Your account
+						</Link>
+					</DropdownMenuItem>
+				)}
 				<DropdownMenuSeparator />
 				{legalPages.map(({ kind, label, href }) => {
 					const Icon = LEGAL_ICONS[kind];

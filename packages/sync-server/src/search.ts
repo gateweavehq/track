@@ -162,6 +162,15 @@ export function indexTeamIssues(db: Db, teamId: string): void {
 	for (const { id } of issues) indexIssue(db, id);
 }
 
+/**
+ * Merges the index into one piece. Deleting a row from FTS5 only marks its words as deleted, and
+ * they stay readable in the index's pages until a merge, which is too long for a name that has to go.
+ */
+export function optimizeSearch(db: Db): void {
+	db.run(sql`insert into issue_search (issue_search) values ('optimize')`);
+	db.run(sql`insert into issue_comment_search (issue_comment_search) values ('optimize')`);
+}
+
 /** Lowercase, without diacritics: "Résumé" becomes "resume", "İstanbul" becomes "istanbul". */
 export function normalize(text: string): string {
 	return text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();

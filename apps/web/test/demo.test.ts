@@ -200,6 +200,8 @@ describe("on the demo deployment", () => {
 			403,
 		);
 		expect(await count(track, "\"user\" where email = 'eve@example.com'")).toBe(0);
+		// Visitors go after a day, with their sandbox. Without a session, this would say 401.
+		expect((await attempt("/account/delete", {})).status).toBe(403);
 
 		// The sample people have no password to guess in the first place.
 		expect(

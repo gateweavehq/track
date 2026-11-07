@@ -2,6 +2,7 @@ import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import {
 	addDays,
 	dayIn,
+	MAX_WEBHOOKS_PER_WORKSPACE,
 	type MutationInput,
 	startOfDay,
 	type WebhookDelivery,
@@ -167,6 +168,50 @@ async function skipBackoff(workspace: Workspace) {
 	});
 }
 
+/**
+ * A hook for each of the workspace's allowed webhooks, and a change that sends two events to each,
+ * all due at once: more than go out at a time. The receiver holds on to what it gets until told
+ * to answer, so ten deliveries are out and the other ten are waiting for a turn.
+ */
+async function deliveriesWaitingForATurn(workspace: Workspace) {
+	await createIssue(workspace, owner, "parent");
+	await mutate(workspace, owner, {
+		name: "issue.create",
+		args: {
+			id: "child",
+			teamId: "team-eng",
+			title: "Part of it",
+			sortOrder: "a1",
+			parentId: "parent",
+		},
+	});
+	const hooks = [];
+	for (let n = 0; n < MAX_WEBHOOKS_PER_WORKSPACE; n++) {
+		hooks.push(
+			await createHook(workspace, {
+				url: hookUrl(String(n)),
+				events: ["issue.updated", "issue.deleted"],
+			}),
+		);
+	}
+	let answer = () => {};
+	const answered = new Promise<void>((resolve) => {
+		answer = resolve;
+	});
+	const sent: string[] = [];
+	vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+		const { url } = new Request(input);
+		if (url.startsWith(hookUrl(""))) {
+			sent.push(url);
+			await answered;
+		}
+		return new Response(null, { status: 204 });
+	});
+	await mutate(workspace, owner, { name: "issue.delete", args: { id: "parent" } });
+	await vi.waitFor(() => expect(sent).toHaveLength(10), { timeout: 5000, interval: 10 });
+	return { hooks, sent, answer };
+}
+
 function payloadOf(request: Received | undefined): WebhookPayload {
 	if (!request) throw new Error("Nothing was delivered");
 	return JSON.parse(request.body) as WebhookPayload;
@@ -178,6 +223,44 @@ function payloads(received: Received[]): WebhookPayload[] {
 		"version" in payload.data ? payload.data.version : 0;
 	return received.map(payloadOf).sort((a, b) => version(a) - version(b));
 }
+
+describe("deliveries waiting for a turn", () => {
+	// What would go wrong is something being sent, so these give it a moment to.
+	const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+	it("are not sent once their webhook is paused", async () => {
+		const workspace = await workspaceWithTeams();
+		const { hooks, sent, answer } = await deliveriesWaitingForATurn(workspace);
+
+		for (const { webhook } of hooks) {
+			ok(await workspace.updateWebhook(owner, link, webhook.id, { active: false }));
+		}
+		answer();
+		await settle();
+
+		expect(sent).toHaveLength(10);
+	});
+
+	it("are not sent once their webhook is deleted", async () => {
+		const workspace = await workspaceWithTeams();
+		const { hooks, sent, answer } = await deliveriesWaitingForATurn(workspace);
+
+		for (const { webhook } of hooks) ok(await workspace.deleteWebhook(owner, webhook.id));
+		answer();
+		await settle();
+
+		expect(sent).toHaveLength(10);
+	});
+
+	it("go out when nothing stopped them", async () => {
+		const workspace = await workspaceWithTeams();
+		const { sent, answer } = await deliveriesWaitingForATurn(workspace);
+
+		answer();
+
+		await vi.waitFor(() => expect(sent).toHaveLength(20), { timeout: 5000, interval: 10 });
+	});
+});
 
 describe("delivery", () => {
 	it("signs each event so a Standard Webhooks receiver verifies it", async () => {

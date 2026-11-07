@@ -198,6 +198,11 @@ export function activeMember(db: Db, userId: string): schema.MemberRow | undefin
 		.get();
 }
 
+/** Whether this is what `forgetPerson` left. Accounts always have an address, and no two share one. */
+export function isForgotten(member: schema.MemberRow): boolean {
+	return member.email === "";
+}
+
 /** Inserts or refreshes a member. Emits an op only when something visible changed. */
 export function upsertMember(db: Db, profile: MemberProfile, now: number): WriteResult {
 	const changes = new ChangeSet(db, null, now);
@@ -206,6 +211,8 @@ export function upsertMember(db: Db, profile: MemberProfile, now: number): Write
 		.from(schema.members)
 		.where(eq(schema.members.userId, profile.id))
 		.get();
+	// A push that left before the account was deleted can land after. Their name stays out of here.
+	if (existing && isForgotten(existing)) return changes.result();
 	const row: schema.MemberRow = {
 		userId: profile.id,
 		name: profile.name,

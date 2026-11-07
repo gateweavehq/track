@@ -22,6 +22,7 @@ import { Route as WorkspaceProposalsRouteImport } from './routes/$workspace/prop
 import { Route as WorkspaceSettingsRouteImport } from './routes/$workspace/settings'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite.$invitationId'
 import { Route as OauthConsentRouteImport } from './routes/oauth.consent'
+import { Route as SettingsAccountRouteImport } from './routes/settings.account'
 import { Route as WorkspaceCycleCycleIdRouteImport } from './routes/$workspace/cycle.$cycleId'
 import { Route as WorkspaceIssueIssueKeyRouteImport } from './routes/$workspace/issue.$issueKey'
 import { Route as WorkspaceProjectProjectIdRouteImport } from './routes/$workspace/project.$projectId'
@@ -108,6 +109,11 @@ const InviteInvitationIdRoute = InviteInvitationIdRouteImport.update({
 const OauthConsentRoute = OauthConsentRouteImport.update({
   id: '/oauth/consent',
   path: '/oauth/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsAccountRoute = SettingsAccountRouteImport.update({
+  id: '/settings/account',
+  path: '/settings/account',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WorkspaceCycleCycleIdRoute = WorkspaceCycleCycleIdRouteImport.update({
@@ -244,6 +250,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
+  '/settings/account': typeof SettingsAccountRoute
   '/$workspace/': typeof WorkspaceIndexRoute
   '/$workspace/cycle/$cycleId': typeof WorkspaceCycleCycleIdRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
@@ -279,6 +286,7 @@ export interface FileRoutesByTo {
   '/$workspace/proposals': typeof WorkspaceProposalsRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
+  '/settings/account': typeof SettingsAccountRoute
   '/$workspace': typeof WorkspaceIndexRoute
   '/$workspace/cycle/$cycleId': typeof WorkspaceCycleCycleIdRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
@@ -317,6 +325,7 @@ export interface FileRoutesById {
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
+  '/settings/account': typeof SettingsAccountRoute
   '/$workspace/': typeof WorkspaceIndexRoute
   '/$workspace/cycle/$cycleId': typeof WorkspaceCycleCycleIdRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
@@ -356,6 +365,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings'
     | '/invite/$invitationId'
     | '/oauth/consent'
+    | '/settings/account'
     | '/$workspace/'
     | '/$workspace/cycle/$cycleId'
     | '/$workspace/issue/$issueKey'
@@ -391,6 +401,7 @@ export interface FileRouteTypes {
     | '/$workspace/proposals'
     | '/invite/$invitationId'
     | '/oauth/consent'
+    | '/settings/account'
     | '/$workspace'
     | '/$workspace/cycle/$cycleId'
     | '/$workspace/issue/$issueKey'
@@ -428,6 +439,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings'
     | '/invite/$invitationId'
     | '/oauth/consent'
+    | '/settings/account'
     | '/$workspace/'
     | '/$workspace/cycle/$cycleId'
     | '/$workspace/issue/$issueKey'
@@ -461,6 +473,7 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
   OauthConsentRoute: typeof OauthConsentRoute
+  SettingsAccountRoute: typeof SettingsAccountRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -555,6 +568,13 @@ declare module '@tanstack/react-router' {
       path: '/oauth/consent'
       fullPath: '/oauth/consent'
       preLoaderRoute: typeof OauthConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/account': {
+      id: '/settings/account'
+      path: '/settings/account'
+      fullPath: '/settings/account'
+      preLoaderRoute: typeof SettingsAccountRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$workspace/cycle/$cycleId': {
@@ -796,17 +816,9 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   InviteInvitationIdRoute: InviteInvitationIdRoute,
   OauthConsentRoute: OauthConsentRoute,
+  SettingsAccountRoute: SettingsAccountRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
