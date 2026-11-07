@@ -19,9 +19,9 @@ import {
 import { type Column, getTableColumns, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import migrations from "../drizzle/migrations";
-import type { MemberProfile, MutateResult } from "../src";
+import type { MemberProfile, MutateResult, SocketSession } from "../src";
 import { ARCHIVE_ROW_ALLOWANCE, archiveSize } from "../src/archive";
 import * as schema from "../src/db/schema";
 import { compact } from "../src/log";
@@ -64,6 +64,20 @@ async function createIssue(client: TestClient, id: string, title = "Ship sync") 
 		args: { id, teamId: TEAM_ID, title, sortOrder: "a0" },
 	});
 	return issueOf(client, id);
+}
+
+/**
+ * Runs `body` with the clock just past a session's end. The clock moves rather than the test
+ * waiting for it: a session short enough to wait out can end before a busy machine has finished
+ * the handshake it is opened with.
+ */
+async function afterEndOf(session: SocketSession, body: () => Promise<void>) {
+	vi.useFakeTimers({ toFake: ["Date"], now: session.expiresAt + 1 });
+	try {
+		await body();
+	} finally {
+		vi.useRealTimers();
+	}
 }
 
 /**
@@ -3383,33 +3397,35 @@ describe("membership", () => {
 
 	it("refuses a socket's messages once its session has run out", async () => {
 		const { workspace } = await withTeam();
-		const session = { id: "session-short", expiresAt: Date.now() + 200 };
+		const session = { id: "session-short", expiresAt: Date.now() + 60_000 };
 		// The owner, who could make the team were the socket still theirs.
 		const client = await TestClient.connect(workspace, owner, undefined, session);
 		await client.hello();
 
-		await new Promise((resolve) => setTimeout(resolve, 300));
-		client.send({
-			type: "mutate",
-			id: "after-expiry",
-			mutation: { name: "team.create", args: { id: "team-late", key: "LATE", name: "Late" } },
-		});
+		await afterEndOf(session, async () => {
+			client.send({
+				type: "mutate",
+				id: "after-expiry",
+				mutation: { name: "team.create", args: { id: "team-late", key: "LATE", name: "Late" } },
+			});
 
-		expect((await client.closed()).code).toBe(CloseCode.SessionEnded);
-		expect((await snapshotOf(workspace)).teams.map((team) => team.id)).not.toContain("team-late");
+			expect((await client.closed()).code).toBe(CloseCode.SessionEnded);
+			expect((await snapshotOf(workspace)).teams.map((team) => team.id)).not.toContain("team-late");
+		});
 	});
 
 	it("sends nothing more to a socket whose session has run out", async () => {
 		const { workspace, admin } = await withTeam();
-		const session = { id: "session-short", expiresAt: Date.now() + 200 };
+		const session = { id: "session-short", expiresAt: Date.now() + 60_000 };
 		const client = await TestClient.connect(workspace, alice, undefined, session);
 		await client.hello();
 
-		await new Promise((resolve) => setTimeout(resolve, 300));
-		await createIssue(admin, "issue-after-expiry");
+		await afterEndOf(session, async () => {
+			await createIssue(admin, "issue-after-expiry");
 
-		expect((await client.closed()).code).toBe(CloseCode.SessionEnded);
-		expect(client.ops().some((op) => op.id === "issue-after-expiry")).toBe(false);
+			expect((await client.closed()).code).toBe(CloseCode.SessionEnded);
+			expect(client.ops().some((op) => op.id === "issue-after-expiry")).toBe(false);
+		});
 	});
 
 	it("wipes all data when the workspace is destroyed", async () => {
