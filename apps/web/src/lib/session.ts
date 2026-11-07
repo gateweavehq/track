@@ -34,7 +34,7 @@ export const getHome = createServerFn({ method: "GET" }).handler(async () => {
 	return { session, sandbox: sandbox?.slug, legal };
 });
 
-/** What `/account` needs: whose account it is, and whether deleting it asks for a password. */
+/** What `/settings/account` needs: whose account it is, and whether deleting it asks for a password. */
 export const getAccount = createServerFn({ method: "GET" }).handler(async () => {
 	const { getAuth } = await import("#/server/auth");
 	const { demoEnabled } = await import("#/server/demo/mode");

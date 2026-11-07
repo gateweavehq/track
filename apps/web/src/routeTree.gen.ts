@@ -11,7 +11,6 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkspaceRouteImport } from './routes/$workspace'
-import { Route as AccountRouteImport } from './routes/account'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
@@ -23,6 +22,7 @@ import { Route as WorkspaceProposalsRouteImport } from './routes/$workspace/prop
 import { Route as WorkspaceSettingsRouteImport } from './routes/$workspace/settings'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite.$invitationId'
 import { Route as OauthConsentRouteImport } from './routes/oauth.consent'
+import { Route as SettingsAccountRouteImport } from './routes/settings.account'
 import { Route as WorkspaceCycleCycleIdRouteImport } from './routes/$workspace/cycle.$cycleId'
 import { Route as WorkspaceIssueIssueKeyRouteImport } from './routes/$workspace/issue.$issueKey'
 import { Route as WorkspaceProjectProjectIdRouteImport } from './routes/$workspace/project.$projectId'
@@ -54,11 +54,6 @@ const IndexRoute = IndexRouteImport.update({
 const WorkspaceRoute = WorkspaceRouteImport.update({
   id: '/$workspace',
   path: '/$workspace',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AccountRoute = AccountRouteImport.update({
-  id: '/account',
-  path: '/account',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
@@ -114,6 +109,11 @@ const InviteInvitationIdRoute = InviteInvitationIdRouteImport.update({
 const OauthConsentRoute = OauthConsentRouteImport.update({
   id: '/oauth/consent',
   path: '/oauth/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsAccountRoute = SettingsAccountRouteImport.update({
+  id: '/settings/account',
+  path: '/settings/account',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WorkspaceCycleCycleIdRoute = WorkspaceCycleCycleIdRouteImport.update({
@@ -240,7 +240,6 @@ const WorkspaceTeamTeamKeyIntakeRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$workspace': typeof WorkspaceRouteWithChildren
-  '/account': typeof AccountRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -251,6 +250,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
+  '/settings/account': typeof SettingsAccountRoute
   '/$workspace/': typeof WorkspaceIndexRoute
   '/$workspace/cycle/$cycleId': typeof WorkspaceCycleCycleIdRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
@@ -277,7 +277,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/account': typeof AccountRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -287,6 +286,7 @@ export interface FileRoutesByTo {
   '/$workspace/proposals': typeof WorkspaceProposalsRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
+  '/settings/account': typeof SettingsAccountRoute
   '/$workspace': typeof WorkspaceIndexRoute
   '/$workspace/cycle/$cycleId': typeof WorkspaceCycleCycleIdRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
@@ -315,7 +315,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/$workspace': typeof WorkspaceRouteWithChildren
-  '/account': typeof AccountRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -326,6 +325,7 @@ export interface FileRoutesById {
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
+  '/settings/account': typeof SettingsAccountRoute
   '/$workspace/': typeof WorkspaceIndexRoute
   '/$workspace/cycle/$cycleId': typeof WorkspaceCycleCycleIdRoute
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
@@ -355,7 +355,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/$workspace'
-    | '/account'
     | '/forgot-password'
     | '/login'
     | '/reset-password'
@@ -366,6 +365,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings'
     | '/invite/$invitationId'
     | '/oauth/consent'
+    | '/settings/account'
     | '/$workspace/'
     | '/$workspace/cycle/$cycleId'
     | '/$workspace/issue/$issueKey'
@@ -392,7 +392,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/account'
     | '/forgot-password'
     | '/login'
     | '/reset-password'
@@ -402,6 +401,7 @@ export interface FileRouteTypes {
     | '/$workspace/proposals'
     | '/invite/$invitationId'
     | '/oauth/consent'
+    | '/settings/account'
     | '/$workspace'
     | '/$workspace/cycle/$cycleId'
     | '/$workspace/issue/$issueKey'
@@ -429,7 +429,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/$workspace'
-    | '/account'
     | '/forgot-password'
     | '/login'
     | '/reset-password'
@@ -440,6 +439,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings'
     | '/invite/$invitationId'
     | '/oauth/consent'
+    | '/settings/account'
     | '/$workspace/'
     | '/$workspace/cycle/$cycleId'
     | '/$workspace/issue/$issueKey'
@@ -468,12 +468,12 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   WorkspaceRoute: typeof WorkspaceRouteWithChildren
-  AccountRoute: typeof AccountRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
   OauthConsentRoute: typeof OauthConsentRoute
+  SettingsAccountRoute: typeof SettingsAccountRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -491,13 +491,6 @@ declare module '@tanstack/react-router' {
       path: '/$workspace'
       fullPath: '/$workspace'
       preLoaderRoute: typeof WorkspaceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/account': {
-      id: '/account'
-      path: '/account'
-      fullPath: '/account'
-      preLoaderRoute: typeof AccountRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/forgot-password': {
@@ -575,6 +568,13 @@ declare module '@tanstack/react-router' {
       path: '/oauth/consent'
       fullPath: '/oauth/consent'
       preLoaderRoute: typeof OauthConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/account': {
+      id: '/settings/account'
+      path: '/settings/account'
+      fullPath: '/settings/account'
+      preLoaderRoute: typeof SettingsAccountRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$workspace/cycle/$cycleId': {
@@ -811,23 +811,14 @@ const WorkspaceRouteWithChildren = WorkspaceRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   WorkspaceRoute: WorkspaceRouteWithChildren,
-  AccountRoute: AccountRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   InviteInvitationIdRoute: InviteInvitationIdRoute,
   OauthConsentRoute: OauthConsentRoute,
+  SettingsAccountRoute: SettingsAccountRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

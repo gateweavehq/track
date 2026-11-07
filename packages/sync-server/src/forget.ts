@@ -91,12 +91,18 @@ function renameInRows(db: Db, changes: ChangeSet, person: Person): void {
 		searchChanged = true;
 	}
 
-	const comments = db.select().from(schema.comments).where(mentioned(schema.comments.body)).all();
-	for (const comment of comments) {
+	const comments = db
+		.select({ comment: schema.comments, issueDeletedAt: schema.issues.deletedAt })
+		.from(schema.comments)
+		.innerJoin(schema.issues, eq(schema.issues.id, schema.comments.issueId))
+		.where(mentioned(schema.comments.body))
+		.all();
+	for (const { comment, issueDeletedAt } of comments) {
 		const body = renameMentions(comment.body, person);
 		if (body === comment.body) continue;
 		db.update(schema.comments).set({ body }).where(eq(schema.comments.id, comment.id)).run();
-		if (comment.deletedAt !== null) continue;
+		// Deleting an issue leaves its comments' rows as they were, and replicas dropped them then.
+		if (comment.deletedAt !== null || issueDeletedAt !== null) continue;
 		changes.put("comment", toComment({ ...comment, body }));
 		indexComment(db, comment);
 		searchChanged = true;
@@ -220,7 +226,9 @@ function scrubLog(db: Db, person: Person, forgotten: schema.MemberRow): void {
 
 /**
  * Deliveries are kept a while for settings to show, with the names they went out with. The ones
- * still waiting go out without the name: the signature is made when one is sent.
+ * still waiting go out without the name: `deliverDue` reads each one just before sending it, and
+ * the signature is made then. What is already on its way to a receiver cannot be called back, any
+ * more than what reached it a moment earlier.
  */
 function scrubDeliveries(db: Db, person: Person): void {
 	const deliveries = db

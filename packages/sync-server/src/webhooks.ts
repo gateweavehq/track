@@ -558,7 +558,11 @@ export async function deliverDue(db: Db, transact: Transact): Promise<boolean> {
 		while (next < claims.length) {
 			const claim = claims[next++];
 			if (!claim) break;
-			const outcome = await attempt(claim);
+			// It may have waited behind slow receivers, and in that time its webhook can be paused or
+			// deleted, or someone it names can delete their account.
+			const payload = stillToSend(db, claim.id);
+			if (payload === undefined) continue;
+			const outcome = await attempt({ ...claim, payload });
 			transact(() => recordOutcome(db, claim, outcome, Date.now()));
 		}
 	};
@@ -622,6 +626,15 @@ function claimDue(db: Db, now: number): Claim[] {
 			.run();
 	}
 	return due.map((claim) => ({ ...claim, attempts: claim.attempts + 1 }));
+}
+
+/** The body a claimed delivery goes out with now, or undefined if it should no longer go. */
+function stillToSend(db: Db, id: string): string | undefined {
+	return db
+		.select({ payload: schema.webhookDeliveries.payload })
+		.from(schema.webhookDeliveries)
+		.where(and(eq(schema.webhookDeliveries.id, id), eq(schema.webhookDeliveries.status, "pending")))
+		.get()?.payload;
 }
 
 async function attempt(claim: Claim): Promise<Outcome> {

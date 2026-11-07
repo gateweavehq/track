@@ -262,9 +262,10 @@ emails carry a one-click unsubscribe link: Email Service refuses one over HTTP.
 
 ## When someone deletes their account
 
-People delete their own account on `/account`, and their name, address and picture go from every
-workspace, with no setting to turn on. If you publish a privacy notice, say what stays: what they
-wrote stays with the team under "Deleted member", and files they attached stay with the workspace.
+People delete their own account on `/settings/account`, and their name, address and picture go
+from every workspace, with no setting to turn on. If you publish a privacy notice, say what stays:
+what they wrote stays with the team under "Deleted member", and files they attached stay with the
+workspace.
 [The architecture notes](architecture.md#deleting-an-account) have the full list, including
 workspaces someone left before v0.29, which you would have to clear by hand if they ask, and
 what Cloudflare's point-in-time recovery keeps.

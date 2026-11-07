@@ -44,7 +44,7 @@ function WorkspacesPage() {
 				</div>
 				<div className="flex shrink-0 items-center gap-1">
 					<Button variant="ghost" size="sm" asChild>
-						<Link to="/account">Account</Link>
+						<Link to="/settings/account">Account</Link>
 					</Button>
 					<Button
 						variant="ghost"

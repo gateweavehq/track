@@ -1,8 +1,13 @@
 import { runInDurableObject } from "cloudflare:test";
-import { CloseCode, type MutationInput, mentionLink } from "@gateweave/track-protocol";
+import {
+	CloseCode,
+	MAX_WEBHOOKS_PER_WORKSPACE,
+	type MutationInput,
+	mentionLink,
+} from "@gateweave/track-protocol";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/durable-sqlite";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MemberProfile } from "../src";
 import * as schema from "../src/db/schema";
 import { freshWorkspace, TestClient, type Workspace, whole } from "./client";
@@ -92,6 +97,10 @@ async function catchUp(workspace: Workspace, member: MemberProfile) {
 	client.close();
 	return { ready, ops, text: JSON.stringify(ops) };
 }
+
+afterEach(() => {
+	vi.restoreAllMocks();
+});
 
 describe("forgetting someone who deleted their account", () => {
 	it("takes their name, address and picture out of the workspace, and tells replicas", async () => {
@@ -434,5 +443,74 @@ describe("forgetting someone who deleted their account", () => {
 			.map((payload) => JSON.parse(payload))
 			.find((p) => p.type === "issue.created");
 		expect(created.data.actor).toMatchObject({ id: person.id, name: FORGOTTEN });
+	});
+
+	it("sends a delivery that waited behind slow receivers without the name", async () => {
+		const { workspace, as } = await workspaceWithTeam();
+		await as(person, createIssue());
+		await as(person, {
+			name: "issue.create",
+			args: {
+				id: "issue-2",
+				teamId: TEAM_ID,
+				title: "Part of it",
+				sortOrder: "a1",
+				parentId: ISSUE_ID,
+			},
+		});
+		const url = "https://hooks.example.com/waiting";
+		const link = { id: "workspace-1", slug: "acme", origin: "https://track.test" };
+		for (let n = 0; n < MAX_WEBHOOKS_PER_WORKSPACE; n++) {
+			const hook = await workspace.createWebhook(owner, link, {
+				url: `${url}/${n}`,
+				events: ["issue.updated", "issue.deleted"],
+				teamId: null,
+				agentId: null,
+			});
+			expect(hook.ok).toBe(true);
+		}
+		let answer = () => {};
+		const answered = new Promise<void>((resolve) => {
+			answer = resolve;
+		});
+		const sent: string[] = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const request = new Request(input, init);
+			if (request.url.startsWith(url)) {
+				sent.push(await request.text());
+				await answered;
+			}
+			return new Response(null, { status: 204 });
+		});
+
+		// Two events for each webhook, all due at once: ten go out and the other ten wait for a turn.
+		await as(person, { name: "issue.delete", args: { id: ISSUE_ID } });
+		await vi.waitFor(() => expect(sent).toHaveLength(10), { timeout: 5000, interval: 10 });
+
+		await workspace.forgetPerson(person.id);
+		answer();
+		await vi.waitFor(() => expect(sent).toHaveLength(20), { timeout: 5000, interval: 10 });
+
+		expect(sent.filter((body) => body.includes(NAME))).toHaveLength(10);
+		expect(sent.filter((body) => body.includes(FORGOTTEN))).toHaveLength(10);
+	});
+
+	it("leaves the comments of a deleted issue out of what replicas hear", async () => {
+		const { workspace, as } = await workspaceWithTeam();
+		await as(owner, createIssue());
+		await as(bob, comment("comment-1", mention));
+		await as(owner, { name: "issue.delete", args: { id: ISSUE_ID } });
+		const client = await upToDate(workspace, bob);
+
+		await workspace.forgetPerson(person.id);
+
+		// The member's op comes last, so by then everything before it has arrived.
+		await client.op((candidate) => candidate.entity === "member");
+		expect(client.ops().filter((op) => op.entity === "comment")).toEqual([]);
+		client.close();
+
+		const rows = await stored(workspace, (db) => db.select().from(schema.comments).all());
+		expect(rows.map((row) => row.body)).toEqual([renamed]);
+		expect((await catchUp(workspace, bob)).text).not.toContain(NAME);
 	});
 });

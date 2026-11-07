@@ -136,7 +136,8 @@ The public invite page only describes pending invitations that have not expired.
 
 ### Deleting an account
 
-People delete their own account on `/account`, through `POST /api/auth/account/delete`
+People delete their own account on `/settings/account`, through
+`POST /api/auth/account/delete`
 (`apps/web/src/server/auth/delete-account.ts`). Better Auth's `/delete-user` stays off: it lets
 someone with a password through without it, and its hooks can only remove a member from a
 workspace, which leaves their name there. The demo refuses the path, since its visitors go after a
@@ -172,7 +173,9 @@ day anyway.
     private to them go. Other members never saw those, so they open no gap anyone can notice. The
     newest op always stays, because the next version counts from it.
   - Webhook deliveries, kept 7 days for settings to show, are rewritten too. A delivery still
-    waiting goes out renamed, and its signature is right, because it is made when sending.
+    waiting goes out renamed, and its signature is right, because it is made when sending. Each
+    is read again just before it goes, since a batch can wait behind slow receivers. One already
+    on its way goes as it was, like one that reached its receiver a moment earlier.
   - The search index is merged, because FTS5 leaves deleted words readable in its pages until then.
   - Their sockets close.
 - **It is asked until it has answered.** A `pending_erasure` row goes only once its workspace has

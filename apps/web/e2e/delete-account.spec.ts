@@ -59,7 +59,7 @@ test("someone deletes their account, and their name goes from what the team sees
 test("the only owner of a workspace is told which one stands in the way", async ({ page }) => {
 	const workspace = await startWorkspace(page);
 
-	await page.goto("/account");
+	await page.goto("/settings/account");
 	await page.getByRole("button", { name: "Delete account" }).click();
 	await page.getByLabel("Your password").fill(workspace.person.password);
 	await page.getByRole("button", { name: "Delete my account" }).click();

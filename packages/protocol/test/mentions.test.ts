@@ -1,9 +1,91 @@
 import { describe, expect, it } from "vitest";
-import { mentionedIds, mentionLink, renameMentions } from "../src/mentions";
+import { mentionedIds, mentionLink, mentionsAsText, renameMentions } from "../src/mentions";
 
 const maya = { id: "user-1", name: "Maya Chen" };
 const gone = { id: "user-1", name: "Deleted member" };
 const other = { id: "user-12", name: "Maya Chen" };
+
+describe("what counts as a mention", () => {
+	it("starts at the last open bracket before it, as Markdown does", () => {
+		const text = `[not a link ${mentionLink(maya)}`;
+		expect(mentionedIds(text)).toEqual([maya.id]);
+		expect(renameMentions(text, gone)).toBe(`[not a link ${mentionLink(gone)}`);
+		expect(mentionsAsText(text)).toBe("[not a link @Maya Chen");
+	});
+
+	it("stays on one line", () => {
+		expect(mentionedIds("[@Maya\nChen](mention:user-1)")).toEqual([]);
+	});
+
+	it("is not one past an id's length", () => {
+		expect(mentionedIds(`[@Maya](mention:${"x".repeat(65)})`)).toEqual([]);
+	});
+
+	it("keeps an escaped bracket inside its text", () => {
+		const link = mentionLink({ id: maya.id, name: "Maya [ops] Chen" });
+		expect(mentionsAsText(`Ask ${link}`)).toBe("Ask @Maya [ops] Chen");
+		expect(mentionsAsText(`[${link}`)).toBe("[@Maya [ops] Chen");
+	});
+
+	it("is renamed behind a backslash too, since the name is there all the same", () => {
+		expect(renameMentions(`\\${mentionLink(maya)}`, gone)).toBe(`\\${mentionLink(gone)}`);
+		expect(renameMentions(`\\\\${mentionLink(maya)}`, gone)).toBe(`\\\\${mentionLink(gone)}`);
+	});
+});
+
+describe("mentions in code", () => {
+	const inFence = (fence: string, close = fence) =>
+		`${fence}\n${mentionLink(maya)}\n${close}\n${mentionLink(other)}`;
+
+	it("tell nobody inside a fence, which runs to one of its own kind at least as long", () => {
+		expect(mentionedIds(inFence("```"))).toEqual([other.id]);
+		expect(mentionedIds(inFence("~~~"))).toEqual([other.id]);
+		expect(mentionedIds(inFence("```", "`````  "))).toEqual([other.id]);
+		expect(mentionedIds(inFence("```").replaceAll("\n", "\r\n"))).toEqual([other.id]);
+		expect(mentionedIds(inFence("````", "```"))).toEqual([]);
+		expect(mentionedIds(inFence("```", "~~~"))).toEqual([]);
+		expect(mentionedIds(inFence("```", "``` not a close"))).toEqual([]);
+	});
+
+	it("count in a block indented too far to be a fence", () => {
+		expect(mentionedIds(`    \`\`\`\n${mentionLink(maya)}`)).toEqual([maya.id]);
+	});
+
+	it("tell nobody between runs of backticks just as long", () => {
+		expect(mentionedIds(`\`\`${mentionLink(maya)}\`\` ${mentionLink(other)}`)).toEqual([other.id]);
+		expect(mentionedIds(`\`${mentionLink(maya)}\`\`\` \``)).toEqual([]);
+	});
+
+	it("count when nothing closes the run before them", () => {
+		expect(mentionedIds(`so \`\`a ${mentionLink(maya)} \``)).toEqual([maya.id]);
+	});
+});
+
+describe("text made to be slow", () => {
+	// The most a comment or a description can hold, and this runs in a workspace's transaction.
+	const LIMIT = 100_000;
+	const everyLength = () => {
+		let text = "";
+		for (let length = 1; text.length < LIMIT; length++) text += `${"`".repeat(length)}x`;
+		return text;
+	};
+
+	it.each([
+		["open brackets", "[".repeat(LIMIT)],
+		["escaped brackets", `[${"\\[".repeat(LIMIT / 2)}`],
+		["brackets and letters", "[a".repeat(LIMIT / 2)],
+		["one long run of backticks", "`".repeat(LIMIT / 2) + "x".repeat(LIMIT / 2)],
+		["runs of backticks of every length", everyLength()],
+		["fences", "```\n".repeat(LIMIT / 4)],
+	])("takes no time over %s", (_, made) => {
+		const text = `${made} mention:user-1)`;
+		const start = Date.now();
+		mentionedIds(text);
+		renameMentions(text, gone);
+		mentionsAsText(text);
+		expect(Date.now() - start).toBeLessThan(1000);
+	});
+});
 
 describe("renameMentions", () => {
 	it("renames every mention of the member, and nobody else's", () => {

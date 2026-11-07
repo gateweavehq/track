@@ -357,7 +357,7 @@ function WorkspaceMenu() {
 				</DropdownMenuItem>
 				{!demo && (
 					<DropdownMenuItem asChild>
-						<Link to="/account">
+						<Link to="/settings/account">
 							<UserRound />
 							Your account
 						</Link>

@@ -10,7 +10,8 @@ import { forgetEverything } from "#/lib/replica";
 import { getAccount } from "#/lib/session";
 import { useDocumentTitle } from "#/lib/title";
 
-export const Route = createFileRoute("/account")({
+// Under /settings because no workspace can be called that, so this takes no workspace's address.
+export const Route = createFileRoute("/settings/account")({
 	beforeLoad: async () => {
 		const { account, demo, legal } = await getAccount();
 		if (!account) throw redirect({ to: "/login" });
