@@ -8,6 +8,21 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.29.2] - 2026-11-07
+
+The members page no longer says an invitation was emailed before that is known. There is no migration in this release.
+
+### Changed
+
+- **A mail that fails to send now says why in Workers Logs,** with Cloudflare's error code and without the address. It
+  used to log only a stack, with no reason. ([#229])
+
+### Fixed
+
+- **The members page said an invitation had been emailed, though it couldn't know.** The mail goes in the background, so
+  an invitation to an address that had bounced before looked sent when it wasn't. The page now says the mail is on its
+  way and offers the link in case it doesn't arrive. ([#229])
+
 ## [0.29.1] - 2026-11-07
 
 This release fixes how account deletion counts owners and retries, and how an HTML email is read. It has two D1
@@ -1146,6 +1161,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.29.2]: https://github.com/gateweavehq/track/releases/tag/v0.29.2
 [0.29.1]: https://github.com/gateweavehq/track/releases/tag/v0.29.1
 [0.29.0]: https://github.com/gateweavehq/track/releases/tag/v0.29.0
 [0.28.3]: https://github.com/gateweavehq/track/releases/tag/v0.28.3
@@ -1203,6 +1219,7 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#229]: https://github.com/gateweavehq/track/pull/229
 [#227]: https://github.com/gateweavehq/track/pull/227
 [#226]: https://github.com/gateweavehq/track/pull/226
 [#224]: https://github.com/gateweavehq/track/pull/224
