@@ -116,19 +116,67 @@ function textOf(email: Pick<Email, "text" | "html">): string {
 	return cleanText(text).replace(/\r\n?/g, "\n");
 }
 
-/** The text of an HTML-only email, roughly: tags out, paragraphs kept, entities read. */
+const ENTITIES = new Map([
+	["nbsp", " "],
+	["lt", "<"],
+	["gt", ">"],
+	["quot", '"'],
+	["#39", "'"],
+	["amp", "&"],
+]);
+
+/**
+ * The text of an HTML-only email, roughly: tags out, paragraphs kept, entities read. The result is
+ * Markdown and plain text, never HTML, so a tag left in it shows as text.
+ *
+ * It goes through the mail once. This is a stranger's mail, of up to 10 MiB, and regular expressions
+ * over the whole of it took quadratic time on runs of `<` or of spaces, enough to use up a Worker's
+ * CPU limit.
+ */
 function textOfHtml(html: string): string {
-	return html
-		.replace(/<(script|style|head)[^>]*>[\s\S]*?<\/\1>/gi, "")
-		.replace(/<br\s*\/?>/gi, "\n")
-		.replace(/<\/(p|div|li|tr|h[1-6])>/gi, "\n")
-		.replace(/<[^>]+>/g, "")
-		.replace(/&nbsp;/g, " ")
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&#39;/g, "'")
-		.replace(/&amp;/g, "&")
-		.replace(/[ \t]+\n/g, "\n")
-		.replace(/\n{3,}/g, "\n\n");
+	const parts: string[] = [];
+	// An element with no end here has none further on either, so nothing looks for it twice.
+	const endless = new Set<string>();
+	// The text from `at` is not kept yet, and the next tag is looked for from `from`.
+	let at = 0;
+	let from = 0;
+	for (;;) {
+		const open = html.indexOf("<", from);
+		if (open < 0) break;
+		// As in a browser, "a < b", "1<2" and "<>" are no tags, so they don't swallow what follows.
+		if (!/[a-z/!?]/i.test(html.charAt(open + 1))) {
+			from = open + 1;
+			continue;
+		}
+		const close = html.indexOf(">", open + 1);
+		if (close < 0) break;
+		parts.push(html.slice(at, open));
+		at = close + 1;
+		from = at;
+		const tag = html.slice(open + 1, close);
+		if (/^(?:br\s*\/?|\/(?:p|div|li|tr|h[1-6]))$/i.test(tag)) {
+			parts.push("\n");
+			continue;
+		}
+		const hidden = /^(script|style|head)(?=[\s/]|$)/i.exec(tag)?.[1]?.toLowerCase();
+		if (hidden && !endless.has(hidden)) {
+			const end = new RegExp(`</${hidden}>`, "gi");
+			end.lastIndex = at;
+			if (end.test(html)) {
+				at = end.lastIndex;
+				from = at;
+			} else {
+				endless.add(hidden);
+			}
+		}
+	}
+	parts.push(html.slice(at));
+	return (
+		parts
+			.join("")
+			.replace(/&(nbsp|lt|gt|quot|#39|amp);/g, (entity, name) => ENTITIES.get(name) ?? entity)
+			// A whole run at a time, so one with no line end after it is not gone over again from each space.
+			.replace(/[ \t]+(\n?)/g, (run, lineEnd) => lineEnd || run)
+			.replace(/\n{3,}/g, "\n\n")
+	);
 }
