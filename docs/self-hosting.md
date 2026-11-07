@@ -274,7 +274,18 @@ provider. If they have to stay on `workers.dev`, add `global_fetch_strictly_publ
 ### Email
 
 Without email, admins share invitation links themselves and nobody can reset a forgotten
-password. To turn it on:
+password for themselves. As you hold the database, you can do it for them, from the repository
+root. This makes a link that works once, for an hour, and using it signs them out everywhere.
+Whoever opens it can choose the password, so send it only to them:
+
+```sh
+TOKEN=$(openssl rand -hex 32)
+pnpm wrangler d1 execute DB --remote --command \
+  "INSERT INTO verification (id, identifier, value, expires_at) SELECT '$TOKEN', 'reset-password:$TOKEN', id, (unixepoch() + 3600) * 1000 FROM user WHERE email = 'someone@example.com'"
+echo "https://your-server/reset-password?token=$TOKEN"
+```
+
+To turn email on:
 
 1. Onboard a domain to [Cloudflare Email Sending](https://developers.cloudflare.com/email-service/):
    `pnpm wrangler email sending enable example.com`. Sending to any address needs the Workers Paid
