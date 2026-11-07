@@ -121,6 +121,10 @@ Sign-in works on any address the Worker serves, as long as it is HTTPS: session 
 [Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/)
 for the domain so that nobody lands on the plain address.
 
+Track's pages refuse scripts they did not name, so a zone setting that adds scripts to a page does
+nothing here or gets in the way. [Web Analytics' automatic setup and Rocket Loader](https://developers.cloudflare.com/fundamentals/reference/policies-compliances/content-security-policies/)
+are two of them: leave those off for this hostname.
+
 ### AI agents (MCP)
 
 Agents connect to `/mcp` and sign in through OAuth. Their tokens are bound to one address, so the
@@ -237,6 +241,9 @@ signed in stay signed in, because Track asks the provider nothing except when so
 button or the provider signs someone out. With the back-channel logout URI registered, signing out
 at the provider ends the Track sessions it started. Signing out of Track leaves the provider's
 session alone.
+
+A member's picture shows when it comes from the provider's own host or from GitHub. From anywhere
+else, the page's policy stops it and their initials show instead.
 
 If Track and the provider are both Workers, give each a
 [Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/#worker-to-worker-communication).
