@@ -8,6 +8,16 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.29.4] - 2026-11-07
+
+Someone signing up can no longer choose the address of their picture. There is no migration in this release.
+
+### Security
+
+- **An email sign-up could set any picture address,** and other members' browsers then fetched it, which told that
+  server when they were looking and from where. The sign-up form sends no picture, so it is now dropped. GitHub's and a
+  provider's stay. Pictures already stored are not changed. ([#236])
+
 ## [0.29.3] - 2026-11-07
 
 Closes the account routes a stolen session cookie could use and the app does not. Self-hosted copies should update.
@@ -1182,6 +1192,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.29.4]: https://github.com/gateweavehq/track/releases/tag/v0.29.4
 [0.29.3]: https://github.com/gateweavehq/track/releases/tag/v0.29.3
 [0.29.2]: https://github.com/gateweavehq/track/releases/tag/v0.29.2
 [0.29.1]: https://github.com/gateweavehq/track/releases/tag/v0.29.1
@@ -1241,6 +1252,7 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#236]: https://github.com/gateweavehq/track/pull/236
 [#234]: https://github.com/gateweavehq/track/pull/234
 [#229]: https://github.com/gateweavehq/track/pull/229
 [#227]: https://github.com/gateweavehq/track/pull/227
