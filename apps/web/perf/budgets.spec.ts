@@ -1,6 +1,7 @@
-import { spawnSync } from "node:child_process";
-import { appendFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import { newBrowserContext } from "../e2e/fixtures";
 import { syncBadge, waitForHydration } from "../e2e/helpers";
@@ -11,6 +12,8 @@ import { BUDGETS, ISSUES, RUNS } from "./budgets";
 
 const SLUG = "load";
 const PORT = Number(process.env.TRACK_E2E_PORT) || 4711;
+// In the config's output folder, so CI keeps it with the trace of a run over budget.
+const STALLS_FILE = resolve(import.meta.dirname, "../test-results-perf/machine-stalls.jsonl");
 
 // One worker (see the config) times the runs one at a time, so nothing else competes for the CPU.
 
@@ -20,8 +23,11 @@ interface Result {
 	runsMs: number[];
 	medianMs: number;
 	note: string;
+	since: number;
+	until: number;
 }
 const results: Result[] = [];
+let machineProbe: ChildProcess | undefined;
 
 function median(values: number[]): number {
 	const sorted = [...values].sort((a, b) => a - b);
@@ -31,8 +37,25 @@ function median(values: number[]): number {
 	return value ?? Number.NaN;
 }
 
-function record(result: Omit<Result, "medianMs">): Result {
-	const full = { ...result, medianMs: median(result.runsMs) };
+/**
+ * What `machine-probe.mjs` noted during a measurement, which says if the machine itself stalled.
+ * Read once the probe has ended: a stall that spans the end of a measurement is noted after it.
+ */
+function machineStalls({ since, until }: Result): string {
+	if (!existsSync(STALLS_FILE)) return "no stalls";
+	const stalls = readFileSync(STALLS_FILE, "utf8")
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line) as { kind: string; at: number; ms: number })
+		.filter((stall) => stall.at >= since && stall.at - stall.ms <= until);
+	if (stalls.length === 0) return "no stalls";
+	const longest = (kind: string) =>
+		Math.max(0, ...stalls.filter((stall) => stall.kind === kind).map((stall) => stall.ms));
+	return `${stalls.length} stalls, woke up to ${longest("timer")} ms late, wrote to disk in up to ${longest("disk")} ms`;
+}
+
+function record(result: Omit<Result, "medianMs" | "until">): Result {
+	const full = { ...result, medianMs: median(result.runsMs), until: Date.now() };
 	results.push(full);
 	return full;
 }
@@ -79,13 +102,27 @@ test.beforeAll(async () => {
 		{ cwd: resolve(import.meta.dirname, ".."), stdio: "inherit" },
 	);
 	if (seeded.status !== 0) throw new Error(`Seeding failed (exit ${seeded.status})`);
+
+	mkdirSync(dirname(STALLS_FILE), { recursive: true });
+	machineProbe = spawn(
+		process.execPath,
+		[resolve(import.meta.dirname, "machine-probe.mjs"), STALLS_FILE],
+		{ stdio: ["pipe", "ignore", "inherit"] },
+	);
 });
 
-test.afterAll(() => {
+test.afterAll(async () => {
+	if (machineProbe) {
+		// If it has already failed, no exit is still to come, and the numbers must print regardless.
+		const running = machineProbe.exitCode === null && machineProbe.signalCode === null;
+		const ended = running ? once(machineProbe, "exit") : undefined;
+		machineProbe.stdin?.end();
+		await ended;
+	}
 	const lines = results.map(
 		(r) =>
 			`${r.medianMs <= r.budgetMs ? "ok  " : "OVER"} ${r.name}: median ${Math.round(r.medianMs)} ms ` +
-			`(budget ${r.budgetMs} ms; runs ${r.runsMs.map(Math.round).join(", ")}; ${r.note})`,
+			`(budget ${r.budgetMs} ms; runs ${r.runsMs.map(Math.round).join(", ")}; ${r.note}; machine: ${machineStalls(r)})`,
 	);
 	console.log(`\nPerformance budgets\n${lines.join("\n")}\n`);
 
@@ -93,15 +130,15 @@ test.afterAll(() => {
 	if (!summary || results.length === 0) return;
 	const rows = results.map(
 		(r) =>
-			`| ${r.name} | ${Math.round(r.medianMs)} ms | ${r.budgetMs} ms | ${r.runsMs.map(Math.round).join(", ")} | ${r.medianMs <= r.budgetMs ? "ok" : "**over budget**"} |`,
+			`| ${r.name} | ${Math.round(r.medianMs)} ms | ${r.budgetMs} ms | ${r.runsMs.map(Math.round).join(", ")} | ${machineStalls(r)} | ${r.medianMs <= r.budgetMs ? "ok" : "**over budget**"} |`,
 	);
 	appendFileSync(
 		summary,
 		[
 			"## Performance budgets",
 			"",
-			"| Measurement | Median | Budget | Runs (ms) | |",
-			"| --- | --- | --- | --- | --- |",
+			"| Measurement | Median | Budget | Runs (ms) | Machine | |",
+			"| --- | --- | --- | --- | --- | --- |",
 			...rows,
 			"",
 		].join("\n"),
@@ -120,6 +157,7 @@ test("opening a large workspace from the local copy stays within budget", async 
 		await page.reload();
 		await listShown(page);
 
+		const since = Date.now();
 		const times: number[] = [];
 		let rows = 0;
 		for (let run = 0; run < RUNS; run++) {
@@ -133,6 +171,7 @@ test("opening a large workspace from the local copy stays within budget", async 
 			budgetMs: BUDGETS.openFromCacheMs,
 			runsMs: times,
 			note: `${ISSUES}+ issues in the workspace, ${rows} in the list`,
+			since,
 		});
 		expect(rows).toBeGreaterThan(100);
 		expect(result.medianMs, "median open time").toBeLessThan(BUDGETS.openFromCacheMs);
@@ -166,7 +205,11 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 		await writer.page.goto(`/${SLUG}/issue/${key}`);
 		const titleField = writer.page.getByRole("textbox", { name: "Title" });
 		await expect(titleField).toBeVisible();
+		// The field shows from the local copy before this page's socket is up, and an edit made before
+		// then waits for it, which would time the handshake instead of the edit.
+		await expect(syncBadge(writer.page)).toHaveText("Live");
 
+		const since = Date.now();
 		const times: number[] = [];
 		for (let run = 0; run < RUNS; run++) {
 			const title = `Perf edit ${run} ${Math.random().toString(36).slice(2, 8)}`;
@@ -219,6 +262,7 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 			budgetMs: BUDGETS.editPropagationMs,
 			runsMs: times,
 			note: "issue in the reader's view renamed, Enter to the new title in the other browser",
+			since,
 		});
 		expect(result.medianMs, "median propagation time").toBeLessThan(BUDGETS.editPropagationMs);
 	} finally {
@@ -254,6 +298,7 @@ test("a bulk change to every issue in a list stays within budget", async ({ brow
 		// The bar counts the picks: the list renders only the rows near the screen.
 		const picked = Number(/(\d+) issues selected/.exec((await bar.textContent()) ?? "")?.[1]);
 
+		const since = Date.now();
 		const times: number[] = [];
 		const longest: number[] = [];
 		for (let run = 0; run < RUNS; run++) {
@@ -316,12 +361,14 @@ test("a bulk change to every issue in a list stays within budget", async ({ brow
 			budgetMs: BUDGETS.bulkEditMs,
 			runsMs: times,
 			note: `${picked} issues picked, priority set from the bar`,
+			since,
 		});
 		const blocked = record({
 			name: "Longest task during a bulk change",
 			budgetMs: BUDGETS.bulkEditLongestTaskMs,
 			runsMs: longest,
 			note: "from the click until the server has answered every change",
+			since,
 		});
 		// Untimed: every picked issue has the last run's priority in the data, not only the rows on
 		// screen. After a reload, from the replica the server's answers left, a filter by it counts

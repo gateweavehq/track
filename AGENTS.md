@@ -151,7 +151,9 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
   app's `track:issue-list-shown` mark) and an edit reaching a second browser, five runs each.
   `pnpm test:perf` fails when a median goes over its budget in `perf/budgets.ts`, and writes the
   numbers to the job summary. CI runs it as the `perf` job; it is not part of `pnpm verify`.
-  Never loosen a budget to pass; find what got slower.
+  Never loosen a budget to pass; find what got slower. `perf/machine-probe.mjs` runs beside the
+  browsers and notes when the machine itself stalled, and each number says so, which tells a busy
+  machine from a slower app.
 - Every bug fix gets a test that fails without the fix. Never weaken or skip a test to make a
   change pass.
 
