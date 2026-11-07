@@ -39,6 +39,7 @@ function notSetUp() {
 }
 
 function route(request: Request, nonce: string): Response | Promise<Response> {
+	if (!isSetUp()) return notSetUp();
 	const url = new URL(request.url);
 	// Sync is handled before TanStack Start so WebSocket upgrade responses pass through untouched.
 	if (isSyncRequest(url)) return handleSyncRequest(request);
@@ -58,7 +59,6 @@ function route(request: Request, nonce: string): Response | Promise<Response> {
 
 export default {
 	async fetch(request) {
-		if (!isSetUp()) return notSetUp();
 		const nonce = newNonce();
 		const response = await route(request, nonce);
 		// Vite's dev server adds inline scripts of its own for hot reload, which have no nonce.
