@@ -23,9 +23,8 @@ const OAUTH_DISCOVERY =
 	/^\/\.well-known\/(oauth-protected-resource|oauth-authorization-server|openid-configuration)(\/|$)/;
 
 /**
- * A branch's Preview gets none of the Worker's bindings or secrets. Nothing works without the
- * database. Without the secret, Better Auth signs with the default in its source, because with no
- * NODE_ENV on a Worker it does not know this is production. So such a deployment serves nothing else.
+ * A branch's Preview gets none of the Worker's bindings or secrets, and accounts can't be run safely
+ * without the database and the secret. So such a deployment serves nothing else.
  */
 function isSetUp() {
 	return Boolean(env.DB && env.BETTER_AUTH_SECRET);
