@@ -30,7 +30,7 @@ Every product follows the same principles as Track:
 | **Track**  | Issues, projects and planning for product teams                   | Early access                                                               |
 | **Agents** | Coding agents' setups, and agents and teams that run on their own | Early access ([gateweavehq/agents](https://github.com/gateweavehq/agents)) |
 | **ID**     | Single sign-on, passkeys and access to internal apps              | Early access ([gateweavehq/id](https://github.com/gateweavehq/id))         |
-| **Mail**   | Shared inboxes, and email in and out of every product             | Next; email-to-issue and inbox email ship in Track                         |
+| **Mail**   | Mailboxes for people and agents, aliases and transactional email  | Next, being designed; email-to-issue and inbox email ship in Track         |
 | **CRM**    | Contacts, companies and deals                                     | Proposed                                                                   |
 | **ERP**    | Invoicing, inventory and orders, one module at a time             | Later                                                                      |
 
@@ -126,9 +126,11 @@ job before it becomes a product of its own.
 
 ### Email
 
-Cloudflare Email Routing handles inbound mail and Email Sending handles outbound. Track needs
-both first: invitations, notifications and email-to-issue. Mail grows from that into shared
-inboxes. CRM then uses it to keep conversations with customers alongside deals.
+Cloudflare Email Routing handles inbound mail and Email Sending handles outbound. Track already
+uses both: invitations, notifications and email-to-issue. Mail is its own product on the same two
+services: a mailbox per person or agent, each in its own Durable Object, addresses an agent can
+make for itself, aliases, shared inboxes, transactional sending and templates. CRM then uses it
+to keep conversations with customers alongside deals.
 
 ### Interface
 
@@ -142,8 +144,8 @@ same time as the sync engine. Every product gets the same keyboard-first command
    of the agent design.
 3. **ID:** an OpenID Connect provider, first as single sign-on across Gateweave products, with
    Track and Agents as its first clients, then for any app.
-4. **Mail, starting small:** what Track needs anyway (notifications, email-to-issue), then
-   shared inboxes.
+4. **Mail, starting with agents:** mailboxes for agents, with what each may touch and what a
+   person can see of it. Then sending and templates, mailboxes for people, and aliases.
 5. **CRM:** the second full product. Starting it triggers extracting `@gateweave/sync` and
    `@gateweave/ui`.
 6. **ERP:** last, one module at a time (invoicing first). It is the largest and most regulated
