@@ -8,6 +8,32 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.29.0] - 2026-11-07
+
+People can delete their own account. This release has two D1 migrations, which `pnpm run deploy` applies before the new
+code goes live; neither touches existing rows.
+
+### Added
+
+- **Delete your own account, on `/settings/account`.** Your name, address and picture go from every workspace you are in
+  or left from this version on. That includes mentions, the history replicas catch up from, webhook deliveries and the
+  search index. What you wrote stays with the team, under "Deleted member". The only owner of a workspace is told which
+  one stands in the way. If you run Track yourself, [say what stays in your privacy
+  notice](docs/self-hosting.md#when-someone-deletes-their-account). ([#224])
+
+### Changed
+
+- **A workspace now keeps an owner in the database,** so two owners leaving at once can't leave it with none. ([#224])
+- **New workspaces can't be called `mcp`, `oauth` or `request`,** because those addresses were already taken by the app.
+  A workspace with one of those names keeps it, and the address stays as it was. ([#224])
+
+### Fixed
+
+- **A comment or description made of many brackets or backticks could stall a workspace for over ten seconds,** measured
+  in Node at the 100,000-character limit, because of how mentions were found. They are now found in one pass over the
+  text. ([#224])
+- **Webhook deliveries waiting for their turn still went out after their webhook was paused or deleted.** ([#224])
+
 ## [0.28.3] - 2026-11-07
 
 A deployment with no `BETTER_AUTH_URL` now marks its cookies `Secure`. No migration.
@@ -1104,6 +1130,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.29.0]: https://github.com/gateweavehq/track/releases/tag/v0.29.0
 [0.28.3]: https://github.com/gateweavehq/track/releases/tag/v0.28.3
 [0.28.2]: https://github.com/gateweavehq/track/releases/tag/v0.28.2
 [0.28.1]: https://github.com/gateweavehq/track/releases/tag/v0.28.1
@@ -1159,6 +1186,7 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#224]: https://github.com/gateweavehq/track/pull/224
 [#222]: https://github.com/gateweavehq/track/pull/222
 [#221]: https://github.com/gateweavehq/track/pull/221
 [#219]: https://github.com/gateweavehq/track/pull/219
