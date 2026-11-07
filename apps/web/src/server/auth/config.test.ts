@@ -40,6 +40,48 @@ afterAll(async () => {
 	await mf?.dispose();
 });
 
+describe("reading a session", () => {
+	it("takes one query, because each is a trip to the database, and answers as it did with two", async () => {
+		const d1 = await mf.getD1Database("DB");
+		let queries = 0;
+		const counted = new Proxy(d1, {
+			get(target, key) {
+				if (key === "prepare") queries += 1;
+				const value = Reflect.get(target, key);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		});
+		const auth = createAuth({
+			db: createDb(counted as unknown as D1Database),
+			secret: "a-test-secret-that-is-long-enough-for-better-auth",
+			baseURL: "http://localhost:4710",
+		});
+		const { headers } = await auth.api.signUpEmail({
+			body: { name: "Quinn", email: "quinn@example.com", password: "a-long-test-password" },
+			returnHeaders: true,
+		});
+		const cookie = headers
+			.getSetCookie()
+			.map((line) => line.split(";")[0])
+			.join("; ");
+
+		queries = 0;
+		const found = await auth.api.getSession({ headers: new Headers({ cookie }) });
+
+		expect(queries).toBe(1);
+		expect(found?.user).toMatchObject({
+			name: "Quinn",
+			email: "quinn@example.com",
+			emailVerified: false,
+		});
+		expect(found?.user.createdAt).toBeInstanceOf(Date);
+		expect(found?.session.expiresAt).toBeInstanceOf(Date);
+		expect(found?.session.expiresAt.getTime()).toBeGreaterThan(Date.now());
+		// Not for the browser to see, joined or not.
+		expect(found?.session).not.toHaveProperty("oidcSid");
+	});
+});
+
 describe("Better Auth's hooks", () => {
 	it("tells each of a deleted user's workspaces, once their membership is gone", async () => {
 		const now = new Date();
