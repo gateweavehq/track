@@ -340,8 +340,9 @@ Every answer gets `X-Content-Type-Options`, `Referrer-Policy` and, over HTTPS,
 Content-Security-Policy with a nonce made for that response, `X-Frame-Options` and
 `Cache-Control: private, no-store`:
 
-- Nothing can frame a page, and a page connects only to Track. A script runs only from Track's own
-  address or with the nonce.
+- Nothing can frame a page. A script runs only from Track's own address or with the nonce. A page
+  connects only to Track, and to the APIs of GitHub and Linear, which [an import](#imports) reads
+  from the browser.
 - A member's picture is the one thing a page shows from elsewhere, and only from GitHub or the
   deployment's sign-in provider. Allowing every host would let a script that got in carry a
   workspace out in an image's address. A picture from anywhere else shows the member's initials.

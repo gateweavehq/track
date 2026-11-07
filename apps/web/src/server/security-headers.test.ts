@@ -40,7 +40,7 @@ it("leaves out a socket whose host would end the directive", () => {
 	const policy = contentSecurityPolicy("nonce", {
 		url: new URL("https://track.example.com;script-src/acme"),
 	});
-	expect(policy).toContain("connect-src 'self';");
+	expect(policy).toContain("connect-src 'self' https://api.github.com");
 	expect(policy.match(/script-src/g)).toHaveLength(1);
 });
 

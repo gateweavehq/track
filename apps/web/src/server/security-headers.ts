@@ -7,6 +7,9 @@ export function newNonce(): string {
 /** Where GitHub keeps the pictures it gives at sign-in. */
 const GITHUB_PICTURES = "https://avatars.githubusercontent.com";
 
+/** What an import from GitHub or Linear reads, from the browser. See `lib/import`. */
+const IMPORT_SOURCES = "https://api.github.com https://api.linear.app";
+
 /** Whether a host can go in a policy as it is. A URL may hold a semicolon, which ends a directive. */
 function isPlainHost(host: string): boolean {
 	return /^[\w.:[\]-]+$/.test(host);
@@ -55,7 +58,7 @@ export function contentSecurityPolicy(nonce: string, { url, oidcIssuer }: PagePo
 		// `blob:` is an attachment's preview while it waits to upload.
 		`img-src 'self' data: blob: ${pictures}`,
 		"font-src 'self'",
-		`connect-src 'self'${socket}`,
+		`connect-src 'self'${socket} ${IMPORT_SOURCES}`,
 		"worker-src 'self'",
 		"manifest-src 'self'",
 		"frame-ancestors 'none'",
