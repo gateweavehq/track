@@ -143,7 +143,7 @@ export function createAuth(config: AuthConfig) {
 			"/token",
 			// The rest are offered to any session, and the app does not use them. A cookie may be stolen.
 			// Takes a password away on a recent session alone, and deleting an account then asks for
-			// none. Gateweave ID has a page for this, with a check; see its passwordRemoval.
+			// none. Gateweave ID keeps it, and asks for the password there; see its passwordRemoval.
 			"/unlink-account",
 			// Say whether a password is right, faster than deleting an account lets anyone guess.
 			"/verify-password",
