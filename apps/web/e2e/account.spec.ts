@@ -137,3 +137,53 @@ test("someone changes their password, and only this browser stays signed in", as
 		await elsewhereContext.close();
 	}
 });
+
+test("someone signs out their other devices without giving a password", async ({
+	page,
+	context,
+	browser,
+}) => {
+	const { person, slug } = await startWorkspace(page);
+	const before = unique("Before the other device was signed out");
+	await createIssue(page, before);
+	// Reloaded, so nothing from making the workspace is still moving when the session ends.
+	await page.reload();
+	await expect(issueRow(page, before)).toBeVisible();
+	await expect(syncBadge(page)).toHaveText("Live");
+
+	const elsewhereContext = await newBrowserContext(browser);
+	try {
+		const elsewhere = await elsewhereContext.newPage();
+		await elsewhere.goto("/login");
+		await waitForHydration(elsewhere);
+		await elsewhere.getByLabel("Email").fill(person.email);
+		await elsewhere.getByLabel("Password").fill(person.password);
+		await elsewhere.getByRole("button", { name: "Sign in", exact: true }).click();
+		await expect(elsewhere).not.toHaveURL(/\/login/);
+		await elsewhere.goto(`/${slug}/team/ENG`);
+		await expect(issueRow(elsewhere, before)).toBeVisible();
+		await expect(syncBadge(elsewhere)).toHaveText("Live");
+
+		const account = await context.newPage();
+		await account.goto("/settings/account");
+		await waitForHydration(account);
+		await expect(account.getByText("Your other devices are signed out.")).toHaveCount(0);
+		await account.getByRole("button", { name: "Sign out everywhere else" }).click();
+		await expect(account.getByRole("status")).toHaveText("Your other devices are signed out.");
+
+		// The other device hears at once.
+		await expect(elsewhere.getByRole("heading", { name: "Your session has ended" })).toBeVisible();
+		await elsewhere.goto("/");
+		await expect(elsewhere).toHaveURL(/\/login/);
+
+		// This browser's session is the one that stays, so the tab left open carries on with it.
+		await expect(syncBadge(page)).toHaveText("Live");
+		const after = unique("After the other device was signed out");
+		await createIssue(page, after);
+		await expect(issueRow(page, after)).toBeVisible();
+		await account.reload();
+		await expect(account.getByRole("heading", { name: "Your account" })).toBeVisible();
+	} finally {
+		await elsewhereContext.close();
+	}
+});
