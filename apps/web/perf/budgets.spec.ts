@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { type Browser, expect, type Page, test } from "@playwright/test";
@@ -22,7 +23,8 @@ interface Result {
 	runsMs: number[];
 	medianMs: number;
 	note: string;
-	machine: string;
+	since: number;
+	until: number;
 }
 const results: Result[] = [];
 let machineProbe: ChildProcess | undefined;
@@ -35,22 +37,25 @@ function median(values: number[]): number {
 	return value ?? Number.NaN;
 }
 
-/** What `machine-probe.mjs` noted since `since`: it says if the machine itself stalled. */
-function machineStalls(since: number): string {
+/**
+ * What `machine-probe.mjs` noted during a measurement, which says if the machine itself stalled.
+ * Read once the probe has ended: a stall that spans the end of a measurement is noted after it.
+ */
+function machineStalls({ since, until }: Result): string {
 	if (!existsSync(STALLS_FILE)) return "no stalls";
 	const stalls = readFileSync(STALLS_FILE, "utf8")
 		.split("\n")
 		.filter(Boolean)
 		.map((line) => JSON.parse(line) as { kind: string; at: number; ms: number })
-		.filter((stall) => stall.at >= since);
+		.filter((stall) => stall.at >= since && stall.at - stall.ms <= until);
 	if (stalls.length === 0) return "no stalls";
 	const longest = (kind: string) =>
 		Math.max(0, ...stalls.filter((stall) => stall.kind === kind).map((stall) => stall.ms));
 	return `${stalls.length} stalls, woke up to ${longest("timer")} ms late, wrote to disk in up to ${longest("disk")} ms`;
 }
 
-function record({ since, ...result }: Omit<Result, "medianMs" | "machine"> & { since: number }) {
-	const full = { ...result, medianMs: median(result.runsMs), machine: machineStalls(since) };
+function record(result: Omit<Result, "medianMs" | "until">): Result {
+	const full = { ...result, medianMs: median(result.runsMs), until: Date.now() };
 	results.push(full);
 	return full;
 }
@@ -106,12 +111,16 @@ test.beforeAll(async () => {
 	);
 });
 
-test.afterAll(() => {
-	machineProbe?.stdin?.end();
+test.afterAll(async () => {
+	if (machineProbe) {
+		const ended = once(machineProbe, "exit");
+		machineProbe.stdin?.end();
+		await ended;
+	}
 	const lines = results.map(
 		(r) =>
 			`${r.medianMs <= r.budgetMs ? "ok  " : "OVER"} ${r.name}: median ${Math.round(r.medianMs)} ms ` +
-			`(budget ${r.budgetMs} ms; runs ${r.runsMs.map(Math.round).join(", ")}; ${r.note}; machine: ${r.machine})`,
+			`(budget ${r.budgetMs} ms; runs ${r.runsMs.map(Math.round).join(", ")}; ${r.note}; machine: ${machineStalls(r)})`,
 	);
 	console.log(`\nPerformance budgets\n${lines.join("\n")}\n`);
 
@@ -119,7 +128,7 @@ test.afterAll(() => {
 	if (!summary || results.length === 0) return;
 	const rows = results.map(
 		(r) =>
-			`| ${r.name} | ${Math.round(r.medianMs)} ms | ${r.budgetMs} ms | ${r.runsMs.map(Math.round).join(", ")} | ${r.machine} | ${r.medianMs <= r.budgetMs ? "ok" : "**over budget**"} |`,
+			`| ${r.name} | ${Math.round(r.medianMs)} ms | ${r.budgetMs} ms | ${r.runsMs.map(Math.round).join(", ")} | ${machineStalls(r)} | ${r.medianMs <= r.budgetMs ? "ok" : "**over budget**"} |`,
 	);
 	appendFileSync(
 		summary,

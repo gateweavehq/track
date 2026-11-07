@@ -12,8 +12,11 @@ const WRITE_EVERY_MS = 100;
 const [, , stallsFile] = process.argv;
 if (!stallsFile) throw new Error("Name the file to note stalls in");
 
-async function note(kind, ms) {
-	await appendFile(stallsFile, `${JSON.stringify({ kind, at: Date.now(), ms: Math.round(ms) })}\n`);
+// In order, and all done before this process ends, so the test can read them once it has ended.
+let notes = Promise.resolve();
+function note(kind, ms) {
+	const line = `${JSON.stringify({ kind, at: Date.now(), ms: Math.round(ms) })}\n`;
+	notes = notes.then(() => appendFile(stallsFile, line));
 }
 
 let woke = performance.now();
@@ -21,31 +24,34 @@ setInterval(() => {
 	const now = performance.now();
 	const late = now - woke - WAKE_MS;
 	woke = now;
-	if (late > STALL_MS) void note("timer", late);
+	if (late > STALL_MS) note("timer", late);
 }, WAKE_MS);
 
 const scratch = `${stallsFile}.write`;
 const file = await open(scratch, "w");
 const block = Buffer.alloc(4096);
-let writing = false;
-setInterval(() => {
+let writing = null;
+const writes = setInterval(() => {
 	// One write at a time: a slow one is what is being looked for, so they must not pile up.
 	if (writing) return;
-	writing = true;
 	const started = performance.now();
-	void file
+	writing = file
 		.write(block, 0, block.length, 0)
 		.then(() => file.sync())
 		.then(() => {
 			const took = performance.now() - started;
-			writing = false;
-			if (took > STALL_MS) return note("disk", took);
+			writing = null;
+			if (took > STALL_MS) note("disk", took);
 		});
 }, WRITE_EVERY_MS);
 
-// The pipe from the test's process closes when it ends, however it ends.
+// The pipe from the test's process closes when the test asks or when that process ends, however it
+// ends. A write under way may still be slow, so it finishes and is noted before the notes are.
 process.stdin.resume();
 process.stdin.on("close", async () => {
+	clearInterval(writes);
+	await writing;
+	await notes;
 	await file.close();
 	await rm(scratch, { force: true });
 	process.exit(0);
