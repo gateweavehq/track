@@ -221,6 +221,12 @@ export function createAuth(config: AuthConfig) {
 				},
 			},
 			user: {
+				create: {
+					// A picture is fetched by the browser of everyone in someone's workspaces, so whoever
+					// chooses its address learns who is looking and from where. The form sends none.
+					before: async (_user, context) =>
+						context?.path === "/sign-up/email" ? { data: { image: null } } : undefined,
+				},
 				update: {
 					after: async (user) => {
 						await config.onUserUpdated?.(user.id);
