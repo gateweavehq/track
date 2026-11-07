@@ -17,6 +17,7 @@ import { agentMembers } from "./agents";
 import { DELETE_ACCOUNT, deleteAccount } from "./delete-account";
 import { EndedSessions } from "./ended-sessions";
 import { type OidcProvider, oidcDatabaseHooks, oidcSignIn } from "./oidc-sign-in";
+import { passwordTries } from "./password-tries";
 
 export interface AuthConfig {
 	db: Database;
@@ -62,6 +63,8 @@ export interface AuthConfig {
 	runInBackground?: ((work: Promise<unknown>) => void) | undefined;
 	/** Where rate limits are counted. This isolate's memory without it. */
 	rateLimitStorage?: BetterAuthRateLimitOptions["customStorage"];
+	/** Whether someone signed in as this person may offer another password. Unlimited without it. */
+	allowPasswordTry?: ((userId: string) => Promise<boolean>) | undefined;
 }
 
 /**
@@ -288,6 +291,7 @@ export function createAuth(config: AuthConfig) {
 			},
 		},
 		plugins: [
+			...(config.allowPasswordTry ? [passwordTries(config.allowPasswordTry)] : []),
 			organization({
 				invitationExpiresIn: INVITATION_LIFETIME_SECONDS,
 				// Proving the invited address is what makes an invitation safe to hold: without it,
