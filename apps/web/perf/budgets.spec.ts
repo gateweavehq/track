@@ -113,7 +113,9 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
 	if (machineProbe) {
-		const ended = once(machineProbe, "exit");
+		// If it has already failed, no exit is still to come, and the numbers must print regardless.
+		const running = machineProbe.exitCode === null && machineProbe.signalCode === null;
+		const ended = running ? once(machineProbe, "exit") : undefined;
 		machineProbe.stdin?.end();
 		await ended;
 	}
