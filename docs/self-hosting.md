@@ -275,13 +275,21 @@ provider. If they have to stay on `workers.dev`, add `global_fetch_strictly_publ
 
 Without email, admins share invitation links themselves and nobody can reset a forgotten
 password for themselves. As you hold the database, you can do it for them, from the repository
-root. This makes a link that works once, for an hour, and using it signs them out everywhere.
-Whoever opens it can choose the password, so send it only to them:
+root. Find their `id` in this list. Don't paste an address someone sent you into a command, as
+it could run as part of it:
 
 ```sh
+pnpm wrangler d1 execute DB --remote --command "SELECT id, email FROM user ORDER BY email"
+```
+
+Then make a link for that `id`. It works once, for an hour, and using it signs them out
+everywhere. Whoever opens it can choose the password, so send it only to them:
+
+```sh
+PERSON=the-id-from-that-list
 TOKEN=$(openssl rand -hex 32)
 pnpm wrangler d1 execute DB --remote --command \
-  "INSERT INTO verification (id, identifier, value, expires_at) SELECT '$TOKEN', 'reset-password:$TOKEN', id, (unixepoch() + 3600) * 1000 FROM user WHERE email = 'someone@example.com'"
+  "INSERT INTO verification (id, identifier, value, expires_at) VALUES ('$TOKEN', 'reset-password:$TOKEN', '$PERSON', (unixepoch() + 3600) * 1000)"
 echo "https://your-server/reset-password?token=$TOKEN"
 ```
 
