@@ -1,4 +1,4 @@
-import { type Browser, type BrowserContext, test as base } from "@playwright/test";
+import { type Browser, type BrowserContext, test as base, expect } from "@playwright/test";
 import { Network } from "./network";
 
 /**
@@ -12,7 +12,7 @@ function clientHeaders(): Record<string, string> {
 	return { "cf-connecting-ip": `10.${octet()}.${octet()}.${1 + (octet() % 254)}` };
 }
 
-export const test = base.extend<{ network: Network }>({
+export const test = base.extend<{ network: Network; nothingRefused: undefined }>({
 	// biome-ignore lint/correctness/noEmptyPattern: Playwright needs the pattern to see that no fixture is used
 	extraHTTPHeaders: async ({}, use) => {
 		await use(clientHeaders());
@@ -20,9 +20,22 @@ export const test = base.extend<{ network: Network }>({
 	network: async ({ context }, use) => {
 		await use(await Network.attach(context));
 	},
+	// A script a page's policy blocks leaves a page that can look right and do nothing, and the Worker
+	// tests see the same HTML either way. So in every test here, a refusal is a failure.
+	nothingRefused: [
+		async ({ context }, use) => {
+			const refused: string[] = [];
+			context.on("console", (message) => {
+				if (message.text().includes("Content Security Policy")) refused.push(message.text());
+			});
+			await use(undefined);
+			expect(refused).toEqual([]);
+		},
+		{ auto: true },
+	],
 });
 
-export { expect } from "@playwright/test";
+export { expect };
 
 /** A second, separate browser: its own storage, cookies and client address. */
 export function newBrowserContext(browser: Browser): Promise<BrowserContext> {

@@ -335,6 +335,26 @@ attempts per 10 seconds and 3 password-reset requests per minute. It identifies 
 `CF-Connecting-IP`. Cloudflare sets that header and clients cannot. Counts are kept in memory,
 per isolate, so the limit slows guessing but is not a hard cap.
 
+Every answer gets `X-Content-Type-Options`, `Referrer-Policy` and, over HTTPS,
+`Strict-Transport-Security` (`apps/web/src/server/security-headers.ts`). A page also gets a
+Content-Security-Policy with a nonce made for that response, `X-Frame-Options` and
+`Cache-Control: private, no-store`:
+
+- Nothing can frame a page. A script runs only from Track's own address or with the nonce. A page
+  connects only to Track, and to the APIs of GitHub and Linear, which [an import](#imports) reads
+  from the browser.
+- A member's picture is the one thing a page shows from elsewhere, and only from GitHub or the
+  deployment's sign-in provider. Allowing every host would let a script that got in carry a
+  workspace out in an image's address. A picture from anywhere else shows the member's initials.
+- The request form and attached files keep stricter policies of their own.
+- The service worker keeps one page, the shell, with its headers and its nonce together, so a reload
+  without a connection still runs. That one nonce lasts until the next build's service worker, and
+  the shell holds nothing of anyone's.
+- Vite's dev server gets none of this, because its hot reload adds scripts without a nonce.
+
+Every browser test fails when a page's policy refuses anything (`apps/web/e2e/fixtures.ts`), since a
+blocked script can leave a page that looks right and does nothing.
+
 ### Signing in through a provider
 
 With `OIDC_ISSUER`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` set, Track is a client of an OpenID

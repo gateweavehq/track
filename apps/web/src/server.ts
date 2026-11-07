@@ -11,6 +11,7 @@ import { handleGitHubAppRequest, isGitHubAppRequest } from "./server/github-app"
 import { handleIntakeEmail } from "./server/intake-email";
 import { handleIntakeFormRequest, isIntakeFormRequest } from "./server/intake-form";
 import { handleMcpRequest, isMcpRequest } from "./server/mcp";
+import { newNonce, withSecurityHeaders } from "./server/security-headers";
 import { handleSyncRequest, isSyncRequest } from "./server/sync";
 import { handleUnsubscribeRequest, isUnsubscribeRequest } from "./server/unsubscribe";
 
@@ -37,24 +38,32 @@ function notSetUp() {
 	);
 }
 
+function route(request: Request, nonce: string): Response | Promise<Response> {
+	if (!isSetUp()) return notSetUp();
+	const url = new URL(request.url);
+	// Sync is handled before TanStack Start so WebSocket upgrade responses pass through untouched.
+	if (isSyncRequest(url)) return handleSyncRequest(request);
+	if (isMcpRequest(url)) return handleMcpRequest(request);
+	// Uploads stream to R2 as they arrive, without TanStack Start reading the body first.
+	if (isFileRequest(url)) return handleFileRequest(request);
+	// GitHub signs the raw body, so it reaches the workspace unread.
+	if (isGitHubAppRequest(url)) return handleGitHubAppRequest(request);
+	if (isGitHubRequest(url)) return handleGitHubRequest(request);
+	// Mail clients post here for one-click unsubscribe, with no session.
+	if (isUnsubscribeRequest(url)) return handleUnsubscribeRequest(request);
+	// A team's public request form: a page of its own, for people who are not signed in.
+	if (isIntakeFormRequest(url)) return handleIntakeFormRequest(request);
+	if (OAUTH_DISCOVERY.test(url.pathname)) return handleAuthRequest(request);
+	return handler.fetch(request, { context: { nonce } });
+}
+
 export default {
-	fetch(request) {
-		if (!isSetUp()) return notSetUp();
-		const url = new URL(request.url);
-		// Sync is handled before TanStack Start so WebSocket upgrade responses pass through untouched.
-		if (isSyncRequest(url)) return handleSyncRequest(request);
-		if (isMcpRequest(url)) return handleMcpRequest(request);
-		// Uploads stream to R2 as they arrive, without TanStack Start reading the body first.
-		if (isFileRequest(url)) return handleFileRequest(request);
-		// GitHub signs the raw body, so it reaches the workspace unread.
-		if (isGitHubAppRequest(url)) return handleGitHubAppRequest(request);
-		if (isGitHubRequest(url)) return handleGitHubRequest(request);
-		// Mail clients post here for one-click unsubscribe, with no session.
-		if (isUnsubscribeRequest(url)) return handleUnsubscribeRequest(request);
-		// A team's public request form: a page of its own, for people who are not signed in.
-		if (isIntakeFormRequest(url)) return handleIntakeFormRequest(request);
-		if (OAUTH_DISCOVERY.test(url.pathname)) return handleAuthRequest(request);
-		return handler.fetch(request);
+	async fetch(request) {
+		const nonce = newNonce();
+		const response = await route(request, nonce);
+		// Vite's dev server adds inline scripts of its own for hot reload, which have no nonce.
+		if (import.meta.env.DEV) return response;
+		return withSecurityHeaders(request, response, { nonce, oidcIssuer: env.OIDC_ISSUER });
 	},
 	// Email Routing sends mail for teams' intake addresses here (INTAKE_EMAIL_DOMAIN).
 	async email(message) {
