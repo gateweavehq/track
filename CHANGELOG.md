@@ -8,6 +8,21 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.28.3] - 2026-11-07
+
+A deployment with no `BETTER_AUTH_URL` now marks its cookies `Secure`. No migration.
+
+### Fixed
+
+- **Session cookies had no `Secure` on a deployment without `BETTER_AUTH_URL`.** The setting is optional, and without it
+  a browser could send the cookie over plain HTTP, such as on the first request to a custom domain. Now it can't, unless
+  this is local dev. Cookies keep their names, so nobody is signed out. Sign-in needs HTTPS on your own domain, as it
+  already did with the setting, and the guide now says so. ([#222])
+
+### Changed
+
+- **The README shows the product on its first screen,** with a recording, the demo and the Deploy button. ([#221])
+
 ## [0.28.2] - 2026-11-06
 
 Branches now build on a copy made with the Deploy button, and a deployment without its secret no longer runs. No
@@ -1089,6 +1104,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.28.3]: https://github.com/gateweavehq/track/releases/tag/v0.28.3
 [0.28.2]: https://github.com/gateweavehq/track/releases/tag/v0.28.2
 [0.28.1]: https://github.com/gateweavehq/track/releases/tag/v0.28.1
 [0.28.0]: https://github.com/gateweavehq/track/releases/tag/v0.28.0
@@ -1143,6 +1159,8 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#222]: https://github.com/gateweavehq/track/pull/222
+[#221]: https://github.com/gateweavehq/track/pull/221
 [#219]: https://github.com/gateweavehq/track/pull/219
 [#218]: https://github.com/gateweavehq/track/pull/218
 [#215]: https://github.com/gateweavehq/track/pull/215
