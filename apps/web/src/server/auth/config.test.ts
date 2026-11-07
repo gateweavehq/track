@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDb, type Database, schema } from "../db";
 import { createAuth } from "./config";
 
@@ -79,6 +79,49 @@ describe("reading a session", () => {
 		expect(found?.session.expiresAt.getTime()).toBeGreaterThan(Date.now());
 		// Not for the browser to see, joined or not.
 		expect(found?.session).not.toHaveProperty("oidcSid");
+	});
+});
+
+describe("running out of tries at a password", () => {
+	it("refuses without waiting for the email, which may never arrive", async () => {
+		const sentTo: string[] = [];
+		const auth = createAuth({
+			db,
+			secret: "a-test-secret-that-is-long-enough-for-better-auth",
+			baseURL: "http://localhost:4710",
+			mailer: {
+				send: (email) => {
+					if (email.subject.startsWith("Too many tries")) sentTo.push(email.to);
+					return new Promise(() => {});
+				},
+			},
+			runInBackground: () => {},
+			allowPasswordTry: async () => false,
+			allowSpentTriesEmail: async () => true,
+		});
+		const { headers } = await auth.api.signUpEmail({
+			body: { name: "Rae", email: "rae@example.com", password: "a-long-test-password" },
+			returnHeaders: true,
+		});
+		const cookie = headers
+			.getSetCookie()
+			.map((line) => line.split(";")[0])
+			.join("; ");
+		await db
+			.update(schema.user)
+			.set({ emailVerified: true })
+			.where(eq(schema.user.email, "rae@example.com"));
+
+		const refused = await auth.handler(
+			new Request("http://localhost:4710/api/auth/change-password", {
+				method: "POST",
+				headers: { cookie, origin: "http://localhost:4710", "content-type": "application/json" },
+				body: JSON.stringify({ currentPassword: "a-guess", newPassword: "another-long-password" }),
+			}),
+		);
+
+		expect(refused.status).toBe(429);
+		await vi.waitFor(() => expect(sentTo).toEqual(["rae@example.com"]));
 	});
 });
 
