@@ -8,6 +8,25 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.30.1] - 2026-11-07
+
+Twelve auth routes that no page uses are closed, and a test now notices when a Better Auth upgrade adds a route. There
+is no migration in this release.
+
+### Security
+
+- **Twelve routes that no page uses now answer 404.** `/link-social` added another way into an account on a session
+  alone. The other eleven manage OAuth clients and consents: `/oauth2/create-client`, `get-client`, `get-clients`,
+  `update-client`, `delete-client`, `client/rotate-keys`, `client/rotate-secret`, `get-consent`, `get-consents`,
+  `update-consent` and `delete-consent`. MCP clients go on registering themselves and signing in as before. ([#242])
+- **An upgrade can no longer open a route unnoticed.** A test lists every route that answers, and a new one fails until
+  someone decides whether it stays open. ([#242])
+
+### If you run your own
+
+- **If you call a closed route by hand, it stops working,** for example making an OAuth client with
+  `/oauth2/create-client`. Nothing in the app uses them, and agents registering themselves don't.
+
 ## [0.30.0] - 2026-11-07
 
 People can change their name and password on their account page. There is no migration in this release.
@@ -1235,6 +1254,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.30.1]: https://github.com/gateweavehq/track/releases/tag/v0.30.1
 [0.30.0]: https://github.com/gateweavehq/track/releases/tag/v0.30.0
 [0.29.5]: https://github.com/gateweavehq/track/releases/tag/v0.29.5
 [0.29.4]: https://github.com/gateweavehq/track/releases/tag/v0.29.4
@@ -1297,6 +1317,7 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#242]: https://github.com/gateweavehq/track/pull/242
 [#240]: https://github.com/gateweavehq/track/pull/240
 [#238]: https://github.com/gateweavehq/track/pull/238
 [#236]: https://github.com/gateweavehq/track/pull/236
