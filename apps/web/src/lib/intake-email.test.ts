@@ -159,6 +159,88 @@ describe("replyFromEmail", () => {
 	});
 });
 
+describe("an HTML-only email", () => {
+	const read = (html: string) => replyFromEmail({ html });
+
+	it("loses its tags, and what its scripts, styles and head hold", () => {
+		expect(
+			read(
+				'<html><HEAD><title>Not this</title></HEAD><body><style type="text/css">p{}</style><p class="a">Hello <b>there</b></p><SCRIPT>alert(1)</SCRIPT><p>Lee</p></body></html>',
+			),
+		).toBe("Hello there\nLee");
+	});
+
+	it("keeps paragraphs and line breaks, whatever their case", () => {
+		expect(
+			read("one<br>two<BR/>three<br />four</P>five</div>six</li>seven</tr>eight</H2>nine"),
+		).toBe("one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine");
+		// Only an element's end makes a new line, and only one that ends a block.
+		expect(read("<p>one</span> two <header>three</header>")).toBe("one two three");
+	});
+
+	it("reads each entity once", () => {
+		expect(read("&lt;b&gt; &quot;x&quot; &#39;y&#39; a&nbsp;b &amp;lt; &unknown;")).toBe(
+			`<b> "x" 'y' a b &lt; &unknown;`,
+		);
+		expect(read("&<b>lt;</b>")).toBe("<");
+	});
+
+	it("takes the spaces off the end of lines, and at most one line stays blank", () => {
+		expect(read("one  \t<br>two<br><br><br><br>three &nbsp;<br>   four")).toBe(
+			"one\ntwo\n\nthree\n   four",
+		);
+	});
+
+	it("keeps what only looks like a tag, since it reaches people as text", () => {
+		expect(read("1 <> 2")).toBe("1 <> 2");
+		expect(read("a < b")).toBe("a < b");
+		expect(read("<p>a &lt;script&gt;alert(1)&lt;/script&gt;</p>")).toBe(
+			"a <script>alert(1)</script>",
+		);
+		// A bracket that opens no tag doesn't take the text and tags after it along.
+		expect(read("a < b<br>c</p><p>d")).toBe("a < b\nc\nd");
+		expect(read("1<2 and 3>2")).toBe("1<2 and 3>2");
+		expect(read("<<br>")).toBe("<");
+	});
+
+	it("keeps the words of an element that never ends", () => {
+		expect(read("<script>still here<style>and here")).toBe("still hereand here");
+		expect(read("<script>one</style><script>two")).toBe("onetwo");
+	});
+
+	it("goes on after an element that does end", () => {
+		expect(read("<style>a</style>b<style>c</style>d<head>e</head>f")).toBe("bdf");
+		expect(read("<script>one</style><script>two</script>three")).toBe("three");
+	});
+
+	it("takes only those elements for hidden, not ones whose names start the same", () => {
+		expect(
+			read("<header>one</header><headline>two</headline><head-x>three</head-x><head>not</head>"),
+		).toBe("onetwothree");
+		expect(read("<style/>one</style>two")).toBe("two");
+	});
+
+	// The first five took quadratic time when this was a chain of regular expressions, on mail anyone
+	// can send: from 2 to 46 seconds at these sizes, and a mail can be many times the size.
+	it.each([
+		["opening brackets", "<".repeat(200_000)],
+		["line breaks that never close", "<br".repeat(40_000) + " ".repeat(80_000)],
+		["spaces with no line end", `${" ".repeat(200_000)}x`],
+		["scripts that never end", "<script>".repeat(30_000)],
+		["each kind that never ends", "<script><style><head>".repeat(10_000)],
+		["runs of spaces", "    x".repeat(40_000)],
+		["brackets inside a tag", `<${"a<".repeat(100_000)}>`],
+		["ampersands", "&".repeat(200_000)],
+		["line ends", "\n".repeat(200_000)],
+		["line breaks", "<br>".repeat(50_000)],
+	])("takes no time over %s", (_shape, html) => {
+		const started = performance.now();
+		requestFromEmail({ html, attachments: [] }, "sam@customer.test");
+		replyFromEmail({ html });
+		expect(performance.now() - started).toBeLessThan(1000);
+	});
+});
+
 // TRK-79: Track refuses NUL characters and lone surrogates, but mail is filed without them.
 describe("emailed text", () => {
 	it("is cleaned of NUL characters and lone surrogates, so the request is filed", () => {

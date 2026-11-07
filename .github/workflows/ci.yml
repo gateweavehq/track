@@ -9,6 +9,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Every job only reads the code, and a pull request's code must not get more than that.
+permissions:
+  contents: read
+
 jobs:
   # What a pull request changes, so the jobs it cannot affect are skipped: docs alone need only
   # lint, and the browser and performance jobs only run when the app or its dependencies change.
