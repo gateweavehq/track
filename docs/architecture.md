@@ -1546,6 +1546,9 @@ team, and optionally the agent member it sets off. The payload types and input s
   changes. URLs must be `https` (plain `http` only where the app itself runs on it, which is
   local development) and cannot point at the app's own host, which a Worker cannot fetch.
   Pausing a webhook drops what it had not delivered. A workspace has at most ten.
+- **Its own zone.** The Worker runs with `global_fetch_strictly_public`, so a webhook to another
+  host on Track's own zone goes in through Cloudflare, past that host's security settings and to
+  whatever Worker serves it, as anyone's request would, never straight to the origin.
 - **Links follow the slug.** Only the gateway knows the slug and the app's origin, so it passes
   them with every webhook change, and the organization plugin's update hook passes a new slug.
   Management is admin-only twice over: the gateway checks membership in D1, and the object
