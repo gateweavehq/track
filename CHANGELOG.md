@@ -8,6 +8,27 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.30.6] - 2026-11-09
+
+Webhooks to a host on your own zone now come in through Cloudflare. There is no migration in this release.
+
+### Security
+
+- **Webhooks reach your own zone as anyone's requests do.** A request from the Worker to another host on its own zone
+  went straight to that host's origin, past the security settings in front of it, such as Access or the WAF. A
+  webhook's URL is the choice of whoever owns a workspace, so the Worker now runs with the `global_fetch_strictly_public`
+  compatibility flag, and such a request comes in through Cloudflare like anyone's. A URL naming Track's own host with a
+  trailing dot is refused, as the host itself is. ([#263])
+
+### If you run your own
+
+- **Deploy, and keep the flag.** It is in `wrangler.jsonc`. If you keep compatibility flags of your own elsewhere, add
+  `global_fetch_strictly_public` to them. Requests to GitHub and to sign-in providers elsewhere are unaffected, and a
+  provider on your own zone served by a Worker on a Custom Domain is reached as before. One on your own zone behind
+  Access or a WAF rule now meets those rules, as a request from anywhere else would.
+- **`pnpm install` no longer pulls in a flagged version of esbuild** through drizzle-kit, which only makes migrations.
+  ([#258])
+
 ## [0.30.5] - 2026-11-07
 
 Whoever runs a server with no email can now help someone back in. There is no migration in this release.
@@ -1326,6 +1347,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.30.6]: https://github.com/gateweavehq/track/releases/tag/v0.30.6
 [0.30.5]: https://github.com/gateweavehq/track/releases/tag/v0.30.5
 [0.30.4]: https://github.com/gateweavehq/track/releases/tag/v0.30.4
 [0.30.3]: https://github.com/gateweavehq/track/releases/tag/v0.30.3
@@ -1393,6 +1415,8 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#263]: https://github.com/gateweavehq/track/pull/263
+[#258]: https://github.com/gateweavehq/track/pull/258
 [#256]: https://github.com/gateweavehq/track/pull/256
 [#255]: https://github.com/gateweavehq/track/pull/255
 [#250]: https://github.com/gateweavehq/track/pull/250
