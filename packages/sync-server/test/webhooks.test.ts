@@ -1322,6 +1322,7 @@ describe("management", () => {
 
 		await refused({ url: "http://hooks.test/track" }, "Use an https URL");
 		await refused({ url: "https://track.test/api/hook" }, "cannot point at Track itself");
+		await refused({ url: "https://track.test./api/hook" }, "cannot point at Track itself");
 		await refused({ url: "https://user:pass@hooks.test/" }, "user name and password");
 		await refused({ url: "ftp://hooks.test/" }, "http or https URL");
 		await refused({ events: [] }, "at least one event");

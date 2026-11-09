@@ -472,12 +472,18 @@ function checkUrl(url: string, link: WorkspaceLink): void {
 	if (target.protocol !== "https:" && app.protocol === "https:") {
 		throw new MutationRejected("invalid", "Use an https URL");
 	}
-	if (target.host === app.host) {
+	if (sameHost(target, app)) {
 		throw new MutationRejected("invalid", "A webhook cannot point at Track itself");
 	}
 	if (target.username || target.password) {
 		throw new MutationRejected("invalid", "Leave the user name and password out of the URL");
 	}
+}
+
+/** Whether two URLs name one host and port, as `track.example.com.` and `track.example.com` do. */
+function sameHost(one: URL, other: URL): boolean {
+	const host = (url: URL) => `${url.hostname.replace(/\.$/, "")}:${url.port}`;
+	return host(one) === host(other);
 }
 
 function checkTargets(db: Db, fields: { teamId?: string | null; agentId?: string | null }) {
