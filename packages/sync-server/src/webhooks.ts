@@ -14,7 +14,7 @@ import {
 	webhookInput,
 	webhookPatch,
 } from "@gateweave/track-protocol";
-import { and, asc, count, desc, eq, inArray, isNotNull, lt, lte, min, ne } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, lt, lte, min, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import * as schema from "./db/schema";
 import { MutationRejected } from "./rejected";
@@ -80,6 +80,7 @@ const CLAIM_MS = DELIVERY_TIMEOUT_MS + MINUTE;
 const LINK_KEY = "workspace_link";
 /** Durable Object SQLite binds at most 100 parameters per statement. */
 const LABEL_LOOKUP_CHUNK = 90;
+const ID_CHUNK = 90;
 const SECRET_PREFIX = "whsec_";
 
 // Recording, inside the mutation's transaction.
@@ -423,8 +424,9 @@ export function updateWebhook(
 		.returning()
 		.get();
 	if (!row) throw new MutationRejected("not_found", "Webhook not found");
-	// Pausing stops what was still on its way, too.
-	if (!row.active) failPending(db, row.id, "Webhook paused", now);
+	// What was still on its way goes as the webhook is now: nothing once it is paused, and only
+	// what it still listens to. A new URL takes the rest.
+	dropUnwanted(db, row, now);
 	return toWebhook(row);
 }
 
@@ -517,16 +519,65 @@ function parse<T extends z.ZodType>(schemaOf: T, value: unknown): z.output<T> {
 	return result.data;
 }
 
-function failPending(db: Db, webhookId: string, error: string, now: number): void {
-	db.update(schema.webhookDeliveries)
-		.set({ status: "failed", error, nextAttemptAt: null, updatedAt: now })
-		.where(
-			and(
-				eq(schema.webhookDeliveries.webhookId, webhookId),
-				eq(schema.webhookDeliveries.status, "pending"),
-			),
-		)
-		.run();
+/** Why a delivery that was waiting no longer goes, as settings show it. */
+const PAUSED = "Webhook paused";
+const NOT_THAT_EVENT = "The webhook no longer listens to that event";
+const NOT_THAT_TEAM = "The webhook no longer hears that team";
+const AGENTS_OWN = "The change was the webhook's agent's own";
+
+/** What a waiting delivery is about, read from the payload Track wrote for it. */
+interface Waiting {
+	event: string;
+	/** The teams whose webhooks hear it, as `Payloads.build` gave them: none for a project's. */
+	teamIds: string[];
+	/** The member who made the change, unless Track or an integration did. */
+	memberId: string | null;
+}
+
+/** Why the webhook, as it is now, wouldn't have queued the delivery; null when it would. */
+function unwanted(webhook: schema.WebhookRow, delivery: Waiting): string | null {
+	if (!webhook.active) return PAUSED;
+	// A test goes whatever the webhook listens to.
+	if (delivery.event === WEBHOOK_TEST_EVENT) return null;
+	if (!(webhook.events as readonly string[]).includes(delivery.event)) return NOT_THAT_EVENT;
+	if (webhook.teamId !== null && !delivery.teamIds.includes(webhook.teamId)) return NOT_THAT_TEAM;
+	if (webhook.agentId !== null && delivery.memberId === webhook.agentId) return AGENTS_OWN;
+	return null;
+}
+
+/** Fails what the webhook had yet to deliver and, as it is now, no longer wants. */
+function dropUnwanted(db: Db, webhook: schema.WebhookRow, now: number): void {
+	const d = schema.webhookDeliveries;
+	// Only the fields it needs, read where the payload is rather than parsed here.
+	const waiting = db
+		.select({
+			id: d.id,
+			event: d.event,
+			issueTeam: sql<string | null>`json_extract(${d.payload}, '$.data.issue.teamId')`,
+			relatedTeam: sql<string | null>`json_extract(${d.payload}, '$.data.relatedIssue.teamId')`,
+			actorId: sql<string | null>`json_extract(${d.payload}, '$.data.actor.id')`,
+			actorType: sql<string | null>`json_extract(${d.payload}, '$.data.actor.type')`,
+		})
+		.from(d)
+		.where(and(eq(d.webhookId, webhook.id), eq(d.status, "pending")))
+		.all();
+	const dropped = new Map<string, string[]>();
+	for (const row of waiting) {
+		const reason = unwanted(webhook, {
+			event: row.event,
+			teamIds: [row.issueTeam, row.relatedTeam].filter((team) => typeof team === "string"),
+			memberId: row.actorType === "system" ? null : row.actorId,
+		});
+		if (reason !== null) dropped.set(reason, [...(dropped.get(reason) ?? []), row.id]);
+	}
+	for (const [error, ids] of dropped) {
+		for (let start = 0; start < ids.length; start += ID_CHUNK) {
+			db.update(d)
+				.set({ status: "failed", error, nextAttemptAt: null, updatedAt: now })
+				.where(and(inArray(d.id, ids.slice(start, start + ID_CHUNK)), eq(d.status, "pending")))
+				.run();
+		}
+	}
 }
 
 function newSecret(): string {
@@ -564,11 +615,11 @@ export async function deliverDue(db: Db, transact: Transact): Promise<boolean> {
 		while (next < claims.length) {
 			const claim = claims[next++];
 			if (!claim) break;
-			// It may have waited behind slow receivers, and in that time its webhook can be paused or
-			// deleted, or someone it names can delete their account.
-			const payload = stillToSend(db, claim.id);
-			if (payload === undefined) continue;
-			const outcome = await attempt({ ...claim, payload });
+			// It may have waited behind slow receivers, and in that time its webhook can be paused,
+			// changed or deleted, or someone it names can delete their account. It goes as they are now.
+			const current = stillToSend(db, claim.id);
+			if (current === undefined) continue;
+			const outcome = await attempt({ ...claim, ...current });
 			transact(() => recordOutcome(db, claim, outcome, Date.now()));
 		}
 	};
@@ -634,13 +685,21 @@ function claimDue(db: Db, now: number): Claim[] {
 	return due.map((claim) => ({ ...claim, attempts: claim.attempts + 1 }));
 }
 
-/** The body a claimed delivery goes out with now, or undefined if it should no longer go. */
-function stillToSend(db: Db, id: string): string | undefined {
+/**
+ * The body a claimed delivery goes out with now, and the URL and secret its webhook has now, or
+ * undefined if it should no longer go.
+ */
+function stillToSend(db: Db, id: string): Pick<Claim, "payload" | "url" | "secret"> | undefined {
 	return db
-		.select({ payload: schema.webhookDeliveries.payload })
+		.select({
+			payload: schema.webhookDeliveries.payload,
+			url: schema.webhooks.url,
+			secret: schema.webhooks.secret,
+		})
 		.from(schema.webhookDeliveries)
+		.innerJoin(schema.webhooks, eq(schema.webhooks.id, schema.webhookDeliveries.webhookId))
 		.where(and(eq(schema.webhookDeliveries.id, id), eq(schema.webhookDeliveries.status, "pending")))
-		.get()?.payload;
+		.get();
 }
 
 async function attempt(claim: Claim): Promise<Outcome> {

@@ -1545,7 +1545,12 @@ team, and optionally the agent member it sets off. The payload types and input s
 - **No loops, and no self-calls.** A webhook made for an agent is not sent that agent's own
   changes. URLs must be `https` (plain `http` only where the app itself runs on it, which is
   local development) and cannot point at the app's own host, which a Worker cannot fetch.
-  Pausing a webhook drops what it had not delivered. A workspace has at most ten.
+  A workspace has at most ten.
+- **Changing a webhook changes what it still had to send.** Pausing it drops what it had not
+  delivered. Changing its team, events or agent drops what it would no longer have been sent,
+  read from each delivery's payload (`json_extract`), and settings say why. A test goes
+  whatever it listens to. The rest goes to its URL and with its secret as they are when sent,
+  so a new URL takes even a delivery that was already waiting for a turn.
 - **Its own zone.** The Worker runs with `global_fetch_strictly_public`, so a webhook to another
   host on Track's own zone goes in through Cloudflare, past that host's security settings and to
   whatever Worker serves it, as anyone's request would, never straight to the origin.
