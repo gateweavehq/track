@@ -252,6 +252,32 @@ describe("deliveries waiting for a turn", () => {
 		expect(sent).toHaveLength(10);
 	});
 
+	it("are not sent once their webhook no longer listens to them", async () => {
+		const workspace = await workspaceWithTeams();
+		const { hooks, sent, answer } = await deliveriesWaitingForATurn(workspace);
+
+		for (const { webhook } of hooks) {
+			ok(await workspace.updateWebhook(owner, link, webhook.id, { events: ["issue.created"] }));
+		}
+		answer();
+		await settle();
+
+		expect(sent).toHaveLength(10);
+	});
+
+	it("go to their webhook's new URL", async () => {
+		const workspace = await workspaceWithTeams();
+		const { hooks, sent, answer } = await deliveriesWaitingForATurn(workspace);
+
+		for (const [n, { webhook }] of hooks.entries()) {
+			ok(await workspace.updateWebhook(owner, link, webhook.id, { url: hookUrl(`moved-${n}`) }));
+		}
+		answer();
+
+		await vi.waitFor(() => expect(sent).toHaveLength(20), { timeout: 5000, interval: 10 });
+		expect(sent.slice(10).every((url) => url.includes("/moved-"))).toBe(true);
+	});
+
 	it("go out when nothing stopped them", async () => {
 		const workspace = await workspaceWithTeams();
 		const { sent, answer } = await deliveriesWaitingForATurn(workspace);
@@ -918,6 +944,100 @@ describe("filters", () => {
 		expect(received).toHaveLength(1);
 		expect(await deliveries(workspace)).toMatchObject([
 			{ status: "failed", error: "Webhook paused" },
+		]);
+	});
+
+	it("drops what was waiting about a team the webhook no longer hears", async () => {
+		const received = receiver((count) => (count === 1 ? 500 : 204));
+		const workspace = await workspaceWithTeams();
+		const { webhook } = await createHook(workspace, { teamId: "team-eng" });
+		await createIssue(workspace, owner, "eng-1");
+		await deliver(workspace);
+
+		ok(await workspace.updateWebhook(owner, link, webhook.id, { teamId: "team-ops" }));
+		await createIssue(workspace, owner, "ops-1", "team-ops");
+		await skipBackoff(workspace);
+		await deliver(workspace);
+
+		expect(payloads(received).map((payload) => payload.type)).toEqual([
+			"issue.created",
+			"issue.created",
+		]);
+		expect(payloadOf(received[1])).toMatchObject({ data: { issue: { id: "ops-1" } } });
+		expect(await deliveries(workspace)).toMatchObject([
+			{ status: "delivered" },
+			{ status: "failed", error: "The webhook no longer hears that team", attempts: 1 },
+		]);
+	});
+
+	it("drops what was waiting of an event the webhook no longer listens to", async () => {
+		const received = receiver(() => 500);
+		const workspace = await workspaceWithTeams();
+		const { webhook } = await createHook(workspace);
+		await createIssue(workspace, owner, "issue-1");
+		await mutate(workspace, owner, {
+			name: "comment.create",
+			args: { id: "comment-1", issueId: "issue-1", body: "Hello" },
+		});
+		await deliver(workspace);
+		expect(received).toHaveLength(2);
+
+		ok(await workspace.updateWebhook(owner, link, webhook.id, { events: ["comment.created"] }));
+		await skipBackoff(workspace);
+		await deliver(workspace);
+
+		// Only the comment is tried again.
+		expect(received.slice(2).map((request) => payloadOf(request).type)).toEqual([
+			"comment.created",
+		]);
+		const byEvent = Object.fromEntries(
+			(await deliveries(workspace)).map((delivery) => [delivery.event, delivery]),
+		);
+		expect(byEvent["issue.created"]).toMatchObject({
+			status: "failed",
+			error: "The webhook no longer listens to that event",
+		});
+		expect(byEvent["comment.created"]).toMatchObject({ status: "pending", attempts: 2 });
+	});
+
+	it("drops what was waiting of the changes its new agent made itself", async () => {
+		const received = receiver(() => 500);
+		const workspace = await workspaceWithTeams();
+		await workspace.syncMember(triage);
+		const { webhook } = await createHook(workspace);
+		await createIssue(workspace, triage, "by-agent");
+		await createIssue(workspace, alice, "by-person");
+		await deliver(workspace);
+
+		ok(await workspace.updateWebhook(owner, link, webhook.id, { agentId: triage.id }));
+		await skipBackoff(workspace);
+		await deliver(workspace);
+
+		expect(received.slice(2).map(payloadOf)).toMatchObject([{ data: { actor: { id: alice.id } } }]);
+		const failed = (await deliveries(workspace)).filter((d) => d.status === "failed");
+		expect(failed).toMatchObject([{ error: "The change was the webhook's agent's own" }]);
+	});
+
+	it("sends what still waits to a new URL, and a test whatever it listens to", async () => {
+		const received = receiver((count) => (count <= 2 ? 500 : 204));
+		const workspace = await workspaceWithTeams();
+		const { webhook } = await createHook(workspace);
+		await createIssue(workspace, owner, "issue-1");
+		ok(await workspace.testWebhook(owner, link, webhook.id));
+		await deliver(workspace);
+
+		const moved = hookUrl("moved");
+		ok(
+			await workspace.updateWebhook(owner, link, webhook.id, {
+				url: moved,
+				events: ["comment.created"],
+			}),
+		);
+		await skipBackoff(workspace);
+		await deliver(workspace);
+
+		expect(received.slice(2).map((request) => [request.url, payloadOf(request).type])).toEqual([
+			[moved, "webhook.test"],
 		]);
 	});
 });
