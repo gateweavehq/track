@@ -1,0 +1,148 @@
+{
+	"repo_notes": [
+		{
+			"content": "Gateweave Track is an open-source, realtime issue tracker that runs entirely on Cloudflare as one Worker. Each workspace lives in its own Durable Object with SQLite; browsers keep a local replica in IndexedDB and sync over WebSockets. AGENTS.md is the source of truth for how the project is built, and docs/architecture.md explains every design decision: follow them, cite them, and prefer their wording over guesses.",
+			"author": "Maintainers"
+		},
+		{
+			"content": "The invariants in AGENTS.md are load-bearing and should appear wherever they apply: the server (WorkspaceDO) is authoritative; a mutation exists in three places (protocol schema, sync-server handler, sync-client prediction); the protocol is a contract versioned by PROTOCOL_VERSION; versions are gapless and mutations idempotent; Durable Object handlers stay synchronous inside transactionSync; the Durable Object has no public route and only the gateways reach it after checking D1 membership; server code never reaches the browser bundle; migrations are append-only; admin rights come from isAdminRole.",
+			"author": "Maintainers"
+		},
+		{
+			"content": "Packages: packages/protocol (wire contract, zod schemas, no server code), packages/sync-server (WorkspaceDO, mutation handlers, oplog, fan-out), packages/sync-client (browser replica, optimistic mutations, tab leader election), apps/web (the Worker: TanStack Start UI, Better Auth, the sync, MCP, GitHub, intake and webhook gateways, D1). Generated files (routeTree.gen.ts, worker-configuration.d.ts, auth-schema.ts, drizzle/ and migrations/) should be referenced, not documented line by line.",
+			"author": "Maintainers"
+		}
+	],
+	"pages": [
+		{
+			"title": "Overview",
+			"purpose": "What Track is, what runs where (one Worker, D1, a Durable Object per workspace, IndexedDB replicas), and how to run it locally (pnpm dev, dev:seed) and self-host it (docs/self-hosting.md)."
+		},
+		{
+			"title": "Repository Layout",
+			"purpose": "The packages and apps, what each owns, how they depend on each other, and the commands in AGENTS.md (check, typecheck, test, test:e2e, test:perf, verify, deploy).",
+			"parent": "Overview"
+		},
+		{
+			"title": "Invariants",
+			"purpose": "Each invariant from AGENTS.md, why it exists, where the code enforces it, and what breaks if it is violated.",
+			"parent": "Overview"
+		},
+		{
+			"title": "Architecture",
+			"purpose": "The request flow from browser to Worker to gateway to WorkspaceDO, data ownership between D1 and Durable Objects, and the security model (Origin and session checks, membership, MEMBER_HEADER)."
+		},
+		{
+			"title": "Data Ownership: D1 and Durable Objects",
+			"purpose": "What D1 holds (accounts, sessions, workspaces, memberships, invitations) and what each WorkspaceDO's SQLite holds (teams, issues, oplog), and how deletion and erasure cross the two.",
+			"parent": "Architecture"
+		},
+		{
+			"title": "Authentication and Accounts",
+			"purpose": "Better Auth setup, sign-up modes and the server owner's list, signing in through GitHub or an OpenID Connect provider, roles and invitations, deleting an account.",
+			"parent": "Architecture"
+		},
+		{
+			"title": "Gateways",
+			"purpose": "The routes that may reach a WorkspaceDO and what each checks first: the browser sync gateway, the MCP gateway for AI agents, GitHub deliveries, the unsubscribe link, the public request form and the intake email address.",
+			"parent": "Architecture"
+		},
+		{
+			"title": "Sync Protocol",
+			"purpose": "The wire contract in packages/protocol: messages, entities, PROTOCOL_VERSION, connecting and catching up from a version, and how a breaking change discards client caches."
+		},
+		{
+			"title": "Versions and the Oplog",
+			"purpose": "Gapless workspace versions, the oplog, idempotent mutation ids, compaction, and how clients catch up.",
+			"parent": "Sync Protocol"
+		},
+		{
+			"title": "Mutations",
+			"purpose": "How a mutation is defined in three places (schema, handler, prediction), validated by the server, applied inside transactionSync, and fanned out; follow .claude/skills/add-mutation/SKILL.md.",
+			"parent": "Sync Protocol"
+		},
+		{
+			"title": "Concurrent Edits and Conflicts",
+			"purpose": "How concurrent edits resolve, fractional indexing for order, and what the server rejects.",
+			"parent": "Sync Protocol"
+		},
+		{
+			"title": "Sync Server: WorkspaceDO",
+			"purpose": "The Durable Object in packages/sync-server: storage with Drizzle's sync API, mutation handlers, realtime fan-out over WebSockets, server-side clients and alarms."
+		},
+		{
+			"title": "Client Sync Engine",
+			"purpose": "packages/sync-client: the IndexedDB replica, optimistic mutations and rebasing, one connection per browser through tab leader election, the connection lifecycle, starting offline, and the React bindings."
+		},
+		{
+			"title": "Issues and Workflow",
+			"purpose": "Issues, workflow statuses, sub-issues, relations, dates and estimates, comments and activity, proposals, archive."
+		},
+		{
+			"title": "Projects and Cycles",
+			"purpose": "Projects, project updates, cycles, and insights built from them.",
+			"parent": "Issues and Workflow"
+		},
+		{
+			"title": "Intake",
+			"purpose": "Requests from the public form (Turnstile) and the intake email address, triage, followers and notices.",
+			"parent": "Issues and Workflow"
+		},
+		{
+			"title": "Automations, Templates and Recurring Issues",
+			"purpose": "Team automations, issue templates and recurring issues, and when they run.",
+			"parent": "Issues and Workflow"
+		},
+		{
+			"title": "Search, Filters and Views",
+			"purpose": "Full-text search (the custom FTS migration), filters and layouts, saved views, and how they work on the local replica.",
+			"parent": "Issues and Workflow"
+		},
+		{
+			"title": "Inbox, Notifications and Email",
+			"purpose": "Subscriptions, the inbox, email notifications and the signed unsubscribe link.",
+			"parent": "Issues and Workflow"
+		},
+		{
+			"title": "Integrations",
+			"purpose": "How Track talks to other systems: the MCP server for AI agents, agent members, GitHub, webhooks and imports."
+		},
+		{
+			"title": "MCP Server and Agent Members",
+			"purpose": "The MCP gateway (OAuth tokens or an agent member's key, never cookies), its tools, and how agent members differ from people.",
+			"parent": "Integrations"
+		},
+		{
+			"title": "GitHub",
+			"purpose": "The GitHub App, signed deliveries checked by the Durable Object, linking pull requests to issues.",
+			"parent": "Integrations"
+		},
+		{
+			"title": "Webhooks and Imports",
+			"purpose": "Outgoing webhooks (Standard Webhooks signatures, retries, filtering), and imports from CSV (Jira included), Track's JSON export, GitHub and Linear, which run in the browser as ordinary mutations.",
+			"parent": "Integrations"
+		},
+		{
+			"title": "Markdown and Attached Files",
+			"purpose": "The editor, Markdown rendering, and files attached to descriptions and comments in R2, with quotas.",
+			"parent": "Issues and Workflow"
+		},
+		{
+			"title": "Web App",
+			"purpose": "apps/web: TanStack Start routes, server functions that import server modules dynamically, the service worker, and how the UI reads the replica."
+		},
+		{
+			"title": "Database Schema and Migrations",
+			"purpose": "D1 tables (Better Auth and Track's own), the Durable Object schema, Drizzle Kit, append-only migrations and the schema-change skill.",
+			"parent": "Architecture"
+		},
+		{
+			"title": "Testing",
+			"purpose": "The test suites and where they run: sync-server in workerd, sync-client against a local Durable Object, Worker tests through Miniflare, Playwright e2e against the production build, and the performance budgets."
+		},
+		{
+			"title": "Deployment and Self-Hosting",
+			"purpose": "The Deploy button, wrangler.jsonc at the root, secrets and optional settings, D1 migrations on deploy, environments (staging, demo), and releases."
+		}
+	]
+}
