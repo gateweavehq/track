@@ -71,6 +71,20 @@
       "when": 1794020122025,
       "tag": "0009_owner_role_lists",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1794425717524,
+      "tag": "0010_sign_up_list",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1794425722441,
+      "tag": "0011_sign_up_holds",
+      "breakpoints": true
     }
   ]
 }

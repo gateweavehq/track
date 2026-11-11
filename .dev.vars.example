@@ -47,5 +47,9 @@ BETTER_AUTH_SECRET=
 # PRIVACY_POLICY_URL=
 # TERMS_URL=
 
+# Optional: where someone can ask for an account, an https address. The sign-in page links to it
+# as "Ask for access" while the server's owner has closed sign-up. Nothing is linked when unset.
+# SIGN_UP_REQUEST_URL=
+
 # Optional: the most megabytes of attached files each workspace may keep. Unlimited when unset.
 # ATTACHMENT_QUOTA_MB=

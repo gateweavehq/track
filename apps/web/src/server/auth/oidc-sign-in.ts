@@ -18,6 +18,8 @@ export interface OidcProvider {
 	issuer: string;
 	clientId: string;
 	clientSecret: string;
+	/** What the sign-in button calls it. Shown to the server's owner too, with the setting that trusts it. */
+	name?: string | undefined;
 }
 
 /**

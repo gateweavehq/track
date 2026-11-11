@@ -15,6 +15,7 @@ import { invitationEmail, passwordResetEmail, verificationEmail } from "../email
 import { tellOfChangedPassword, validName, validRename } from "./account-changes";
 import { agentMembers } from "./agents";
 import { DELETE_ACCOUNT, deleteAccount } from "./delete-account";
+import { deploymentPlugin, isProviderSignIn, mayMakeAccount, SIGN_UP_CLOSED } from "./deployment";
 import { EndedSessions } from "./ended-sessions";
 import { type OidcProvider, oidcDatabaseHooks, oidcSignIn } from "./oidc-sign-in";
 import { passwordTries, tellOfSpentTries } from "./password-tries";
@@ -201,6 +202,12 @@ export function createAuth(config: AuthConfig) {
 				}
 				if (ctx.path === "/update-user") return { context: { body: validRename(ctx.body) } };
 				if (ctx.path === "/sign-up/email") {
+					// Before Better Auth looks the address up, so that one with an account here is refused
+					// in the same words as one without, and the answer says nothing about either.
+					const email: unknown = ctx.body?.email;
+					if (typeof email === "string" && !(await mayMakeAccount(config.db, email))) {
+						throw APIError.from("FORBIDDEN", SIGN_UP_CLOSED);
+					}
 					return { context: { body: { name: validName(ctx.body?.name) } } };
 				}
 				// Whoever knew the old password may be why it is changing, and may be the one asking.
@@ -265,8 +272,17 @@ export function createAuth(config: AuthConfig) {
 				create: {
 					// A picture is fetched by the browser of everyone in someone's workspaces, so whoever
 					// chooses its address learns who is looking and from where. The form sends none.
-					before: async (_user, context) =>
-						context?.path === "/sign-up/email" ? { data: { image: null } } : undefined,
+					//
+					// Every way of making an account comes through here, so this is where a closed server
+					// refuses one: GitHub, the provider, and whatever else is added later. Through the
+					// provider, an owner who trusts it has had it keep its own list.
+					before: async (user, context) => {
+						const allowed = await mayMakeAccount(config.db, user.email, {
+							throughProvider: isProviderSignIn(context),
+						});
+						if (!allowed) throw APIError.from("FORBIDDEN", SIGN_UP_CLOSED);
+						return context?.path === "/sign-up/email" ? { data: { image: null } } : undefined;
+					},
 				},
 				update: {
 					after: async (user) => {
@@ -383,6 +399,7 @@ export function createAuth(config: AuthConfig) {
 				},
 			}),
 			agentMembers({ db: config.db, onMembershipChange: membershipChanged }),
+			deploymentPlugin({ db: config.db, providerName: config.oidc?.name }),
 			deleteAccount({
 				db: config.db,
 				mailer: config.mailer,
@@ -442,6 +459,12 @@ export const DEMO_BLOCKED_PATHS: ReadonlySet<string> = new Set([
 	"/update-user",
 	"/delete-user",
 	DELETE_ACCOUNT,
+	// Visitors own what they make, and the first of them may own the server. Closing sign-up would
+	// leave the demo unable to make the next visitor's account.
+	"/deployment/sign-up",
+	"/deployment/trust-provider",
+	"/deployment/allow/add",
+	"/deployment/allow/remove",
 ]);
 
 /** Lets an agent act as the user in Track: read and change what the user can. */

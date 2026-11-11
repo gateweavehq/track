@@ -34,8 +34,9 @@ Workers Builds, so every push to its main branch deploys. On the form:
   migrations before the new code goes live.
 
 When the build finishes, open the Worker's address, create an account and then a workspace.
-Anyone who can reach the address can sign up and create workspaces of their own; a workspace is
-only visible to its members.
+Anyone who can reach the address can sign up and create workspaces of their own, and the first
+account is the owner of the server. A workspace is only visible to its members. To let in only
+people you choose, see [Who may sign up](#who-may-sign-up).
 
 **Preview builds.** The button turns them on: a push to any other branch builds a Preview with its
 own URL. A Preview gets none of the Worker's bindings or secrets, so its address only says that it
@@ -122,6 +123,7 @@ updating. A site key missing there means the request forms were not open.
 | `LEGAL_NOTICE_URL`          | The address of your legal notice. See below.                                  |
 | `PRIVACY_POLICY_URL`        | The address of your privacy policy.                                           |
 | `TERMS_URL`                 | The address of your terms.                                                    |
+| `SIGN_UP_REQUEST_URL`       | Where to ask for an account, shown while sign-up is closed. See below.        |
 
 ### Your legal pages
 
@@ -129,6 +131,37 @@ Track comes with no legal notice, privacy policy or terms, and never links to Ga
 runs a copy decides what applies to it. Set any of the three addresses above, and it is linked from
 the sign-in pages, the workspace menu and the public request form. With `TERMS_URL` set, the sign-in
 page also says that continuing means agreeing to them.
+
+### Who may sign up
+
+A new server is open: anyone who can reach its address can make an account, and the first account
+owns the server. An upgrade changes nothing for a server that has accounts, which stays open with
+its oldest account as the owner. If the one who runs it wants only some people, the owner opens their
+account page, where a section called "This server" is shown to them alone, and chooses **By
+invitation**. Then these may make an account, and nobody else, whether with a password, GitHub or
+the sign-in provider:
+
+- the addresses on the owner's list, and everyone at a domain on it. The list takes an address, or a
+  domain with an `@` in front such as `@example.com`, which covers that domain and not its
+  subdomains, with a note of the owner's own. It holds at most 5,000 entries.
+- anyone with a pending invitation to a workspace, since any workspace admin's invitation lets the
+  address it names in. That is how invitations always worked, so close sign-up only if your
+  workspaces' admins may invite.
+- with a sign-in provider set up (see below), people who sign in through it, if the owner turns on
+  "Trust" for it, since a provider keeps a list of its own. GitHub never counts.
+
+People who already have an account are not affected, and the first account on a server that has
+none is always let in. Every change on that page wants a sign-in from the last day. Refused people
+are told that the server takes accounts by invitation, in the same words for every address. Set
+`SIGN_UP_REQUEST_URL` to an `https` address, such as a form or a waitlist, and the sign-in page
+links to it as "Ask for access" while sign-up is closed.
+
+The list holds addresses of people who may not have an account yet, so it is personal data in
+your D1 database (the `sign_up_allow` table), and an entry outlives any account made through it.
+Remove an entry on that page if someone asks to be forgotten. While sign-up is closed, the owner's
+account stays: it cannot be deleted until sign-up is open again. To hand the server to someone else,
+change `owner_id` in the `deployment` table. `pnpm dev:seed` signs its sample people up through the
+API, so it needs sign-up open.
 
 ### Your own domain
 
@@ -248,7 +281,8 @@ and others. It adds a button to the sign-in page, and passwords keep working.
    `/.well-known/openid-configuration` is under, then `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`.
    `OIDC_PROVIDER_NAME` names the button, as in "Continue with Acme".
 
-Someone new gets an account, named as the provider names them, and can change that name in Track
+Someone new gets an account (unless sign-up is closed and the owner has not turned on "Trust" for
+the provider, see [Who may sign up](#who-may-sign-up)), named as the provider names them, and can change that name in Track
 without the provider changing it back. Someone whose address already has one links to it only when
 the provider says the address is verified and they have verified it in Track too, so anyone who could
 sign up at the provider with that address cannot take over the account. Without

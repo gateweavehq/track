@@ -56,6 +56,12 @@ declare namespace Cloudflare {
 		GITHUB_APP_CLIENT_ID?: string;
 		GITHUB_APP_CLIENT_SECRET?: string;
 		GITHUB_APP_WEBHOOK_SECRET?: string;
+		/**
+		 * Where someone can ask for an account, an https address such as
+		 * `https://example.com/waitlist`. While the server's owner has closed sign-up, the sign-in
+		 * page links to it as "Ask for access". Left out when unset or not an https address.
+		 */
+		SIGN_UP_REQUEST_URL?: string;
 		/** "1" on the public demo deployment only (the `demo` environment in wrangler.jsonc). */
 		TRACK_DEMO?: string;
 	}
