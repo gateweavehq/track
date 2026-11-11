@@ -374,6 +374,29 @@ describe("a server whose owner has closed sign-up", () => {
 		});
 		expect(trusted.location.pathname).toBe("/");
 		expect(await signedIn(track, trusted.cookie)).toBe(true);
+		// The pass the hook wrote is spent once the account exists.
+		expect(await passCount()).toBe(0);
+
+		// The database lets none through on trust alone: without a pass, or with an expired one, it
+		// refuses an address, whichever sign-in it came from.
+		const insert = (email: string) =>
+			track.db
+				.prepare("INSERT INTO user (id, name, email, email_verified) VALUES (?, 'X', ?, 1)")
+				.bind(`direct-${email}`, email)
+				.run();
+		await expect(insert("direct-1@elsewhere.test")).rejects.toThrow(/sign-up is closed here/);
+		await track.db
+			.prepare("INSERT INTO sign_up_pass (email, expires_at) VALUES (?, ?)")
+			.bind("direct-2@elsewhere.test", Date.now() - 1000)
+			.run();
+		await expect(insert("direct-2@elsewhere.test")).rejects.toThrow(/sign-up is closed here/);
+		// A pass is for one address and lets exactly that one in.
+		await track.db
+			.prepare("INSERT INTO sign_up_pass (email, expires_at) VALUES (?, ?)")
+			.bind("direct-3@elsewhere.test", Date.now() + 60_000)
+			.run();
+		await expect(insert("direct-4@elsewhere.test")).rejects.toThrow(/sign-up is closed here/);
+		await insert("direct-3@elsewhere.test");
 
 		// GitHub, a password and an unlisted address are held to the list as before.
 		const github = await signInWithGitHub(track, 803);
@@ -459,6 +482,13 @@ describe("a server whose owner has closed sign-up", () => {
 			owner = { ...owner, cookie: fresh.cookie };
 		});
 	});
+
+	async function passCount() {
+		const row = await track.db.prepare("SELECT count(*) AS n FROM sign_up_pass").first<{
+			n: number;
+		}>();
+		return row?.n ?? 0;
+	}
 
 	/** Signs in with a password, which makes a session of its own. */
 	async function signInWithCookie(email: string, password = PASSWORD) {
@@ -634,9 +664,47 @@ describe("a server whose owner has closed sign-up", () => {
 		const fresh = await signInWithCookie("owner@track.test");
 		const gone = await post(track, fresh, "/account/delete", { password: PASSWORD });
 		expect(gone.status, JSON.stringify(gone.body)).toBe(200);
-		expect((await deploymentRow(track))?.owner_id).toBeNull();
+		// The earliest account left that is a person takes over.
+		const next = await track.db
+			.prepare(
+				"SELECT id FROM user WHERE email NOT LIKE '%@agents.invalid' ORDER BY created_at, id LIMIT 1",
+			)
+			.first<{ id: string }>();
+		expect(next?.id).toBeTruthy();
+		expect((await deploymentRow(track))?.owner_id).toBe(next?.id);
 	});
 });
+
+describe("a server whose owner leaves", () => {
+	it("is left with no owner only when nobody is left, and the next account takes it", async () => {
+		const track = await startTrack(origin);
+		try {
+			const only = await signUp(track, "only@track.test");
+			// An agent is not a person, and is never next in line.
+			await track.db
+				.prepare(
+					"INSERT INTO user (id, name, email, email_verified, created_at) VALUES ('bot', 'Bot', 'bot@agents.invalid', 0, 1)",
+				)
+				.run();
+			const gone = await post(track, await signInAs(track, only.email), "/account/delete", {
+				password: PASSWORD,
+			});
+			expect(gone.status, JSON.stringify(gone.body)).toBe(200);
+			expect((await deploymentRow(track))?.owner_id).toBeNull();
+
+			const next = await signUp(track, "next@track.test");
+			expect((await deploymentRow(track))?.owner_id).toBe(next.id);
+		} finally {
+			await track.dispose();
+		}
+	});
+});
+
+async function signInAs(track: Track, email: string) {
+	const response = await authApi(track, "/sign-in/email", { body: { email, password: PASSWORD } });
+	expect(response.status).toBe(200);
+	return { cookie: cookieOf(response) };
+}
 
 describe("a server with no accounts, closed", () => {
 	let track: Track;

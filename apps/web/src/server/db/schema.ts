@@ -107,3 +107,14 @@ export const signUpAllow = sqliteTable(
 		check("sign_up_allow_note", sql`${table.note} IS NULL OR length(${table.note}) <= 200`),
 	],
 );
+
+/**
+ * A minute's leave to make one account, written by the sign-up hook just before an account is made
+ * through the provider the owner trusts, and removed once it is made. The trigger
+ * `user_needs_a_way_in` cannot see which sign-in made an account, so this is how it tells that one
+ * from GitHub and passwords while the owner trusts the provider.
+ */
+export const signUpPass = sqliteTable("sign_up_pass", {
+	email: text("email").primaryKey(),
+	expiresAt: integer("expires_at").notNull(),
+});

@@ -159,7 +159,8 @@ links to it as "Ask for access" while sign-up is closed.
 The list holds addresses of people who may not have an account yet, so it is personal data in
 your D1 database (the `sign_up_allow` table), and an entry outlives any account made through it.
 Remove an entry on that page if someone asks to be forgotten. While sign-up is closed, the owner's
-account stays: it cannot be deleted until sign-up is open again. To hand the server to someone else,
+account stays: it cannot be deleted until sign-up is open again. When it is deleted while open, the
+earliest remaining account takes over as owner. To hand the server to someone else on purpose,
 change `owner_id` in the `deployment` table. `pnpm dev:seed` signs its sample people up through the
 API, so it needs sign-up open.
 

@@ -15,7 +15,14 @@ import { invitationEmail, passwordResetEmail, verificationEmail } from "../email
 import { tellOfChangedPassword, validName, validRename } from "./account-changes";
 import { agentMembers } from "./agents";
 import { DELETE_ACCOUNT, deleteAccount } from "./delete-account";
-import { deploymentPlugin, isProviderSignIn, mayMakeAccount, SIGN_UP_CLOSED } from "./deployment";
+import {
+	deploymentPlugin,
+	dropPass,
+	grantPass,
+	isProviderSignIn,
+	mayMakeAccount,
+	SIGN_UP_CLOSED,
+} from "./deployment";
 import { EndedSessions } from "./ended-sessions";
 import { type OidcProvider, oidcDatabaseHooks, oidcSignIn } from "./oidc-sign-in";
 import { passwordTries, tellOfSpentTries } from "./password-tries";
@@ -277,11 +284,17 @@ export function createAuth(config: AuthConfig) {
 					// refuses one: GitHub, the provider, and whatever else is added later. Through the
 					// provider, an owner who trusts it has had it keep its own list.
 					before: async (user, context) => {
-						const allowed = await mayMakeAccount(config.db, user.email, {
-							throughProvider: isProviderSignIn(context),
-						});
+						const throughProvider = isProviderSignIn(context);
+						const allowed = await mayMakeAccount(config.db, user.email, { throughProvider });
 						if (!allowed) throw APIError.from("FORBIDDEN", SIGN_UP_CLOSED);
+						// The database cannot see which sign-in this is, so it is handed a pass for the one
+						// address, written only when the owner trusts the provider.
+						if (throughProvider) await grantPass(config.db, user.email);
 						return context?.path === "/sign-up/email" ? { data: { image: null } } : undefined;
+					},
+					// The pass is spent once the account exists.
+					after: async (user) => {
+						await dropPass(config.db, user.email);
 					},
 				},
 				update: {

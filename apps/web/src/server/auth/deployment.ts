@@ -1,6 +1,6 @@
 import type { BetterAuthPlugin, GenericEndpointContext } from "better-auth";
 import { APIError, createAuthEndpoint, NO_STORE_HEADERS, sessionMiddleware } from "better-auth/api";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { allowEntry, allowNote, isDomainEntry, MAX_ALLOW_ENTRIES } from "../../lib/sign-up-allow";
 import type { Database } from "../db";
@@ -48,7 +48,7 @@ export async function mayMakeAccount(
 	const row = await db.get<{ allowed: number }>(sql`
 		SELECT (
 			COALESCE((SELECT sign_up FROM deployment WHERE id = 1), 'closed') = 'open'
-			OR NOT EXISTS (SELECT 1 FROM user)
+			OR NOT EXISTS (SELECT 1 FROM user WHERE email NOT LIKE '%@agents.invalid')
 			OR EXISTS (
 				SELECT 1 FROM sign_up_allow
 				WHERE entry = ${address} OR entry = '@' || substr(${address}, instr(${address}, '@') + 1)
@@ -66,10 +66,35 @@ export async function mayMakeAccount(
 	return row?.allowed === 1;
 }
 
+/** How long a pass lasts: the time between the hook and the insert it is for. */
+const PASS_MS = 60_000;
+
+/**
+ * Leave, for a minute, to make the one account of an address that came through the provider, if the
+ * owner trusts it. The trigger `user_needs_a_way_in` asks for it, since it cannot see which sign-in
+ * made an account. Expired passes go whenever a new one is written.
+ */
+export async function grantPass(db: Database, email: string): Promise<void> {
+	const address = email.toLowerCase();
+	const now = Date.now();
+	await db.delete(schema.signUpPass).where(lt(schema.signUpPass.expiresAt, now)).run();
+	await db.run(sql`
+		INSERT INTO sign_up_pass (email, expires_at)
+		SELECT ${address}, ${now + PASS_MS}
+		WHERE COALESCE((SELECT trust_provider FROM deployment WHERE id = 1), 0) = 1
+		ON CONFLICT (email) DO UPDATE SET expires_at = excluded.expires_at
+	`);
+}
+
+/** The pass is spent once the account exists, or the account failed and nothing needs it. */
+export async function dropPass(db: Database, email: string): Promise<void> {
+	await db.delete(schema.signUpPass).where(eq(schema.signUpPass.email, email.toLowerCase())).run();
+}
+
 export async function signUpState(db: Database): Promise<SignUpState> {
 	const row = await db.get<{ signUp: string | null; hasAccounts: number }>(sql`
 		SELECT (SELECT sign_up FROM deployment WHERE id = 1) AS signUp,
-			EXISTS (SELECT 1 FROM user) AS hasAccounts
+			EXISTS (SELECT 1 FROM user WHERE email NOT LIKE '%@agents.invalid') AS hasAccounts
 	`);
 	if (row?.signUp === "open") return "open";
 	return row?.hasAccounts === 0 ? "unclaimed" : "by-invitation";

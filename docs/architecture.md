@@ -161,8 +161,11 @@ migration `0011_sign_up_holds.sql`, and the triggers there hold what it says.
   first so that the answer has words, including at the sign-in page for someone coming back from
   GitHub or the provider. The trigger `user_needs_a_way_in` holds the same rule, so a way of making
   accounts added later that forgets to ask still cannot make one. A missing row counts as closed.
-  The trigger cannot see which sign-in made an account, so while the owner trusts the provider it
-  lets every account through and leaves GitHub and passwords to the hook.
+  The trigger cannot see which sign-in made an account, so while the owner trusts the provider the
+  hook writes a pass for the one address into `sign_up_pass`, good for 60 seconds, just before an
+  account is made through the provider, and the trigger lets an insert through on trust only for an
+  address with an unexpired pass. The hook removes the pass once the account exists, and expired
+  ones go whenever a new one is written. GitHub and passwords get no pass, so both refuse them.
 - **Outside, every refused address looks like any other.** The words are the same, and an address that
   has an account is asked about before Better Auth looks it up, so the refusal says nothing about who
   has one. The sign-in page says the server takes accounts by invitation, and links to
@@ -183,8 +186,11 @@ migration `0011_sign_up_holds.sql`, and the triggers there hold what it says.
   refuses these paths over HTTP like the rest.
 - **A closed server keeps its owner.** Their account cannot be deleted while sign-up is closed, which
   would leave nobody to open it again, and the trigger `deployment_keeps_its_owner` holds it however a
-  request comes to try. Open, it can go, and the server is left with no owner. To hand a server over
-  by hand, set `deployment.owner_id` in D1.
+  request comes to try. Open, it can go, and the earliest account left that is a person takes over
+  (`created_at`, then `id`; the trigger `deployment_passes_to_next_owner`). If none is left, there
+  is no owner, and the next account to be made becomes it, as on an empty server. So a server is
+  never left without someone who can run it. To hand a server over on purpose, set
+  `deployment.owner_id` in D1.
 
 ### Deleting an account
 
