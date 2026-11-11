@@ -8,6 +8,22 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.30.7] - 2026-11-11
+
+A changed webhook stops retrying what it no longer wants. There is no migration in this release.
+
+### Fixed
+
+- **Changing a webhook drops what it no longer wants.** Pausing a webhook already failed what it had yet to deliver,
+  but changing its teams, events or agent dropped nothing: deliveries about a team taken off it, or of an event it
+  stopped listening to, kept being retried to the receiver for up to about 17 hours. Each waiting delivery is now
+  checked against the webhook as it is, and those it would no longer send fail with a reason its settings show. A
+  delivery waiting its turn goes out with the webhook's URL and secret as they are when it is sent. ([#265])
+
+### Changed
+
+- **Dependencies are up to date**, among them Better Auth 1.7.18, Vite 8.3.6 and Wrangler 4.158. ([#266])
+
 ## [0.30.6] - 2026-11-09
 
 Webhooks to a host on your own zone now come in through Cloudflare. There is no migration in this release.
@@ -1347,6 +1363,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.30.7]: https://github.com/gateweavehq/track/releases/tag/v0.30.7
 [0.30.6]: https://github.com/gateweavehq/track/releases/tag/v0.30.6
 [0.30.5]: https://github.com/gateweavehq/track/releases/tag/v0.30.5
 [0.30.4]: https://github.com/gateweavehq/track/releases/tag/v0.30.4
@@ -1415,6 +1432,8 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#266]: https://github.com/gateweavehq/track/pull/266
+[#265]: https://github.com/gateweavehq/track/pull/265
 [#263]: https://github.com/gateweavehq/track/pull/263
 [#258]: https://github.com/gateweavehq/track/pull/258
 [#256]: https://github.com/gateweavehq/track/pull/256
