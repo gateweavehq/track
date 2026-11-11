@@ -292,6 +292,13 @@ const SERVED = [
 	"POST /agents/revoke-key",
 	"POST /agents/update",
 
+	// What the one who runs the server decides. Each is a 404 to anyone else, and changes want a fresh session.
+	"GET /deployment/get",
+	"POST /deployment/allow/add",
+	"POST /deployment/allow/remove",
+	"POST /deployment/sign-up",
+	"POST /deployment/trust-provider",
+
 	// The OAuth flow that MCP clients sign in through.
 	"GET /.well-known/oauth-authorization-server",
 	"GET /.well-known/openid-configuration",

@@ -56,25 +56,27 @@ different protocol versions in production. It also gives self-hosters one thing 
 
 ## Data ownership
 
-| Data                                | Lives in     | Owner                              |
-| ----------------------------------- | ------------ | ---------------------------------- |
-| Users, sessions, OAuth accounts     | D1           | Better Auth                        |
-| Workspaces, members, invitations    | D1           | Better Auth organization plugin    |
-| OAuth clients, grants, signing keys | D1           | Better Auth MCP plugin             |
-| Agent members' keys (hashed)        | D1           | Track's agent members plugin       |
-| Teams, issues, labels, projects     | Workspace DO | `sync-server`                      |
-| Saved views                         | Workspace DO | `sync-server`                      |
-| Comments on issues                  | Workspace DO | `sync-server`                      |
-| Issue activity (history)            | Workspace DO | `sync-server`, from issue writes   |
-| Subscriptions and inbox items       | Workspace DO | `sync-server`, from issue writes   |
-| Notification settings               | Workspace DO | `sync-server`, each person's own   |
-| Due-date reminders sent             | Workspace DO | `sync-server`, from the alarm      |
-| Team automations' runs              | Workspace DO | `sync-server`, from the alarm      |
-| Webhooks, their secrets, deliveries | Workspace DO | `sync-server`, managed by admins   |
-| GitHub connections and secrets      | Workspace DO | `sync-server`, managed by admins   |
-| Pull requests that mention issues   | Workspace DO | `sync-server`, from GitHub         |
-| Member replica (name, avatar, role) | Workspace DO | Pushed from D1 by membership hooks |
-| Attached files                      | R2           | The file gateway                   |
+| Data                                 | Lives in     | Owner                              |
+| ------------------------------------ | ------------ | ---------------------------------- |
+| Users, sessions, OAuth accounts      | D1           | Better Auth                        |
+| Workspaces, members, invitations     | D1           | Better Auth organization plugin    |
+| OAuth clients, grants, signing keys  | D1           | Better Auth MCP plugin             |
+| Agent members' keys (hashed)         | D1           | Track's agent members plugin       |
+| Who runs the server, sign-up setting | D1           | Track's deployment plugin          |
+| Sign-up list (addresses, notes)      | D1           | Track's deployment plugin          |
+| Teams, issues, labels, projects      | Workspace DO | `sync-server`                      |
+| Saved views                          | Workspace DO | `sync-server`                      |
+| Comments on issues                   | Workspace DO | `sync-server`                      |
+| Issue activity (history)             | Workspace DO | `sync-server`, from issue writes   |
+| Subscriptions and inbox items        | Workspace DO | `sync-server`, from issue writes   |
+| Notification settings                | Workspace DO | `sync-server`, each person's own   |
+| Due-date reminders sent              | Workspace DO | `sync-server`, from the alarm      |
+| Team automations' runs               | Workspace DO | `sync-server`, from the alarm      |
+| Webhooks, their secrets, deliveries  | Workspace DO | `sync-server`, managed by admins   |
+| GitHub connections and secrets       | Workspace DO | `sync-server`, managed by admins   |
+| Pull requests that mention issues    | Workspace DO | `sync-server`, from GitHub         |
+| Member replica (name, avatar, role)  | Workspace DO | Pushed from D1 by membership hooks |
+| Attached files                       | R2           | The file gateway                   |
 
 Some rows in D1 have a time limit that nothing would otherwise enforce, because Better Auth removes a
 session or a verification only when something looks it up. So the Worker's daily Cron Trigger deletes
@@ -119,8 +121,8 @@ is on and the admin has verified their own address, Track emails the link (see
 [Email](#email)). Otherwise, the admin copies the link and sends it themselves. Accepting requires
 being signed in with the invited address; Better Auth checks that.
 
-Anyone can sign up with any address, so being signed in with the invited address proves
-nothing by itself. Where email is on, accepting also requires a verified address
+Where sign-up is open, which is the default, anyone can sign up with any address, so being signed
+in with the invited address proves nothing by itself. Where email is on, accepting also requires a verified address
 (`requireEmailVerificationOnInvitation`). An invitation then admits only whoever controls that
 inbox, and its id is no longer a secret worth stealing. The invite page offers to email a
 verification link that returns there. Sign-up sends one too, with the same return address.
@@ -134,6 +136,61 @@ them to any member through two endpoints, which would let a member pick up an ad
 - `get-full-organization`, which the app does not use, is disabled.
 
 The public invite page only describes pending invitations that have not expired.
+
+### Who runs this server
+
+Sign-up is open on a new server, as it always was. The one who runs a server, its owner, can close
+it, so that only people they let in may make an account. Gateweave Cloud runs closed, with a link to
+a waitlist, while Gateweave ID, which every Gateweave product signs in through, keeps its own list.
+
+One row in `deployment` (`apps/web/src/server/auth/deployment.ts`) says who the owner is, whether
+sign-up is open, and whether the owner trusts the OpenID Connect provider. The row comes from the
+migration `0011_sign_up_holds.sql`, and the triggers there hold what it says.
+
+- **The owner is the first account.** On a server that has accounts when it upgrades, it is the
+  oldest of them, and sign-up stays open, so nobody finds anything changed. On a server with none, the
+  first account to be made becomes the owner, and D1 runs writes one at a time, so there is only ever
+  one. Agents are not people, and never own a server. Until the first account exists, whoever arrives
+  first is the owner, so a new server should be claimed as soon as it is up.
+- **Closed means an address needs a way in.** It is the first account of a server with none, an entry
+  on the owner's list, a pending invitation to any workspace (an admin's invitation lets the invited
+  address in, as it did before), or, if the owner turned on "Trust" for it, an account made through the
+  OpenID Connect provider, which keeps a list of its own. GitHub is never trusted this way. Nothing
+  else lets anyone in, whichever way they come: password, GitHub or the provider.
+- **The database refuses the rest, whatever makes the account.** The hook in `auth/config.ts` asks
+  first so that the answer has words, including at the sign-in page for someone coming back from
+  GitHub or the provider. The trigger `user_needs_a_way_in` holds the same rule, so a way of making
+  accounts added later that forgets to ask still cannot make one. A missing row counts as closed.
+  The trigger cannot see which sign-in made an account, so while the owner trusts the provider the
+  hook writes a pass for the one address into `sign_up_pass`, good for 60 seconds, just before an
+  account is made through the provider, and the trigger lets an insert through on trust only for an
+  address with an unexpired pass. The hook removes the pass once the account exists, and expired
+  ones go whenever a new one is written. GitHub and passwords get no pass, so both refuse them.
+- **Outside, every refused address looks like any other.** The words are the same, and an address that
+  has an account is asked about before Better Auth looks it up, so the refusal says nothing about who
+  has one. The sign-in page says the server takes accounts by invitation, and links to
+  `SIGN_UP_REQUEST_URL`, if it is an https address, as "Ask for access". An empty server is not
+  closed to its first account, so the page does not say so there.
+- **The list holds entries of two kinds,** an address in lowercase (`ada@example.com`) or a domain
+  with a leading `@` (`@example.com`), which covers addresses at exactly that domain and not at its
+  subdomains. A note of at most 200 characters is the owner's own. There are at most 5,000 entries,
+  which the endpoint and a trigger both hold. The list holds addresses of people who may have no
+  account, so it is personal data that does not go with any account: deleting someone's account
+  leaves their entry, and an owner who is asked to erase someone has to remove it too. An account made
+  through an entry stays when the entry goes.
+- **The owner has a section, "This server", on their account page,** and its paths under
+  `/deployment/` answer everyone else with a 404, as if they were not there. Every change wants a
+  sign-in from the last day, because each lets others in or out and would outlast a stolen cookie.
+  The page shows each entry's note, when it was added and whether an account with that address, or at
+  that domain, exists yet, and finds entries by searching, since it shows 200 at a time. The public demo
+  refuses these paths over HTTP like the rest.
+- **A closed server keeps its owner.** Their account cannot be deleted while sign-up is closed, which
+  would leave nobody to open it again, and the trigger `deployment_keeps_its_owner` holds it however a
+  request comes to try. Open, it can go, and the earliest account left that is a person takes over
+  (`created_at`, then `id`; the trigger `deployment_passes_to_next_owner`). If none is left, there
+  is no owner, and the next account to be made becomes it, as on an empty server. So a server is
+  never left without someone who can run it. To hand a server over on purpose, set
+  `deployment.owner_id` in D1.
 
 ### Deleting an account
 
@@ -313,8 +370,8 @@ A shared demo account would be vandalized within minutes, so each visitor gets a
   members; they are users with no credentials, shared by every sandbox. The sample teams, labels,
   issues and comments are written through the Durable Object's `mutate` RPC, each as the right
   person, from the same steps `pnpm dev:seed` uses (`src/server/demo/sample.ts`).
-- In the demo, HTTP requests to sign up, sign in, reset or change a password or email, and
-  delete an account are refused. Only the server creates accounts. Server-side `auth.api` calls
+- In the demo, HTTP requests to sign up, sign in, reset or change a password or email, delete an
+  account, or change who may sign up are refused. Only the server creates accounts. Server-side `auth.api` calls
   carry no `Request`, which is how the hook tells them apart. Email is off.
 - A Cron Trigger runs every 10 minutes (`src/server/demo/cleanup.ts`). It deletes visitors more
   than a day old: for each of their workspaces it calls `destroy()` on the Durable Object, then

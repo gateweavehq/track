@@ -36,6 +36,7 @@ const oidc =
 				issuer: env.OIDC_ISSUER,
 				clientId: env.OIDC_CLIENT_ID,
 				clientSecret: env.OIDC_CLIENT_SECRET,
+				name: env.OIDC_PROVIDER_NAME || "single sign-on",
 			}
 		: undefined;
 
@@ -127,7 +128,7 @@ export const githubEnabled = Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_S
 export const emailEnabled = Boolean(mailer) && !demoEnabled();
 
 /** What the sign-in page calls the OpenID Connect provider, if there is one. */
-export const oidcProviderName = oidc ? env.OIDC_PROVIDER_NAME || "single sign-on" : null;
+export const oidcProviderName = oidc?.name ?? null;
 
 async function logFailure(work: Promise<unknown>, what: string) {
 	try {

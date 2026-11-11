@@ -2,10 +2,12 @@ import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-rout
 import { type FormEvent, useState } from "react";
 import { LegalLinks } from "#/components/legal-links";
 import { LiveButton } from "#/components/live-button";
+import { ServerSettings } from "#/components/settings/server-settings";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { authClient } from "#/lib/auth-client";
+import { authFailure } from "#/lib/auth-failure";
 import { forgetEverything } from "#/lib/replica";
 import { getAccount } from "#/lib/session";
 import { useDocumentTitle } from "#/lib/title";
@@ -13,15 +15,15 @@ import { useDocumentTitle } from "#/lib/title";
 // Under /settings because no workspace can be called that, so this takes no workspace's address.
 export const Route = createFileRoute("/settings/account")({
 	beforeLoad: async () => {
-		const { account, demo, legal } = await getAccount();
+		const { account, demo, legal, ownsServer } = await getAccount();
 		if (!account) throw redirect({ to: "/login" });
-		return { account, demo, legal };
+		return { account, demo, legal, ownsServer };
 	},
 	component: AccountPage,
 });
 
 function AccountPage() {
-	const { account, demo, legal } = Route.useRouteContext();
+	const { account, demo, legal, ownsServer } = Route.useRouteContext();
 	const [deleted, setDeleted] = useState(false);
 	const [signedOut, setSignedOut] = useState(false);
 	useDocumentTitle(deleted ? "Account deleted" : signedOut ? "Signed out" : "Your account");
@@ -79,6 +81,7 @@ function AccountPage() {
 				<>
 					<ChangeName name={account.name} />
 					<ChangePassword email={account.email} hasPassword={account.hasPassword} />
+					{ownsServer && <ServerSettings />}
 					<SignOutEverywhere
 						onSignedOut={async () => {
 							// Workspace replicas are cached per user; leave nothing behind on a shared device.
@@ -103,15 +106,6 @@ function AccountPage() {
 	);
 }
 
-/** What to say about a refusal, where the server's own words are not for people. */
-function failure(error: { code?: string | undefined; message?: string | undefined }) {
-	if (error.code === "SESSION_NOT_FRESH") {
-		return "You signed in a while ago. Sign out and sign in again, then try this again.";
-	}
-	if (error.code === "INVALID_PASSWORD") return "That password is not right.";
-	return error.message || "Something went wrong";
-}
-
 /** Everyone in someone's workspaces sees this name, and the server tells them as soon as it changes. */
 function ChangeName({ name }: { name: string }) {
 	const router = useRouter();
@@ -129,7 +123,7 @@ function ChangeName({ name }: { name: string }) {
 		const result = await authClient.updateUser({ name: next });
 		if (result.error) {
 			setPending(false);
-			setError(failure(result.error));
+			setError(authFailure(result.error));
 			return;
 		}
 		// The page's own heading comes from the route, which has to ask again.
@@ -212,7 +206,7 @@ function ChangePassword({ email, hasPassword }: { email: string; hasPassword: bo
 		});
 		setPending(false);
 		if (result.error) {
-			setError(failure(result.error));
+			setError(authFailure(result.error));
 			return;
 		}
 		setOpen(false);
@@ -334,7 +328,7 @@ function SignOutEverywhere({ onSignedOut }: { onSignedOut: () => Promise<void> }
 		const result = await authClient.revokeSessions();
 		if (result.error) {
 			setPending(false);
-			setError(failure(result.error));
+			setError(authFailure(result.error));
 			return;
 		}
 		await onSignedOut();
@@ -395,7 +389,7 @@ function DeleteAccount({
 		});
 		if (result.error) {
 			setPending(false);
-			setError(failure(result.error));
+			setError(authFailure(result.error));
 			return;
 		}
 		await onDeleted();

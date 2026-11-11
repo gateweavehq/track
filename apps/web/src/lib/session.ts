@@ -43,26 +43,39 @@ export const getAccount = createServerFn({ method: "GET" }).handler(async () => 
 	const legal = legalLinks();
 	const demo = demoEnabled();
 	const found = await auth.api.getSession({ headers: getRequestHeaders() });
-	if (!found) return { account: null, demo, legal };
+	if (!found) return { account: null, demo, legal, ownsServer: false };
 	const { internalAdapter } = await auth.$context;
 	const accounts = await internalAdapter.findAccounts(found.user.id);
 	const hasPassword = accounts.some(
 		({ providerId, password }) => providerId === "credential" && Boolean(password),
 	);
 	const { name, email } = found.user;
-	return { account: { name, email, hasPassword }, demo, legal };
+	// Only to the one who runs the server, and never on the demo, where visitors are not owners of anything.
+	const { db } = await import("#/server/auth");
+	const { ownsDeployment } = await import("#/server/auth/deployment");
+	const ownsServer = !demo && (await ownsDeployment(db, found.user.id));
+	return { account: { name, email, hasPassword }, demo, legal, ownsServer };
 });
 
 export const getAuthOptions = createServerFn({ method: "GET" }).handler(async () => {
-	const { emailEnabled, githubEnabled, oidcProviderName } = await import("#/server/auth");
+	const { db, emailEnabled, githubEnabled, oidcProviderName } = await import("#/server/auth");
+	const { signUpState } = await import("#/server/auth/deployment");
 	const { demoEnabled } = await import("#/server/demo/mode");
 	const { legalLinks } = await import("#/server/legal");
+	const { signUpRequestUrl } = await import("#/server/sign-up-request");
+	const demo = demoEnabled();
+	// An empty server takes its first account, so it is not closed to whoever arrives first.
+	const closed = !demo && (await signUpState(db)) === "by-invitation";
 	return {
 		github: githubEnabled,
 		oidc: oidcProviderName,
 		email: emailEnabled,
-		demo: demoEnabled(),
+		demo,
 		legal: legalLinks(),
+		/** Whether the owner has closed sign-up, which the page says plainly. */
+		signUpClosed: closed,
+		/** Where to ask for access, shown only while sign-up is closed. */
+		askForAccess: closed ? signUpRequestUrl() : null,
 	};
 });
 

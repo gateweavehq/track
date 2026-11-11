@@ -1,7 +1,8 @@
 // D1 holds identity and the workspace directory. Workspace content lives in each workspace's
 // Durable Object (see @gateweave/track-sync-server).
-import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { organization } from "./auth-schema";
+import { sql } from "drizzle-orm";
+import { check, index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { organization, user } from "./auth-schema";
 
 export * from "./auth-schema";
 
@@ -64,3 +65,56 @@ export const pendingErasure = sqliteTable(
 		index("pendingErasure_lastTriedAt_idx").on(table.lastTriedAt, table.createdAt),
 	],
 );
+
+/**
+ * "Who runs this server" in docs/architecture.md. One row: who the server's owner is, whether anyone
+ * may make an account on it, and whether the OpenID Connect provider's own list counts as the owner's.
+ * A migration makes the row, and triggers there hold what it says however an account comes to be made.
+ */
+export const deployment = sqliteTable(
+	"deployment",
+	{
+		id: integer("id").primaryKey(),
+		/** Null only until the first account on a server with none, and if the owner's account is deleted. */
+		ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
+		signUp: text("sign_up", { enum: ["closed", "open"] }).notNull(),
+		/** Whether an account made through the OpenID Connect provider needs no entry on the list. */
+		trustProvider: integer("trust_provider", { mode: "boolean" }).notNull(),
+		updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+	},
+	(table) => [
+		check("deployment_one_row", sql`${table.id} = 1`),
+		check("deployment_sign_up", sql`${table.signUp} IN ('closed', 'open')`),
+	],
+);
+
+/**
+ * The owner's list of who may make an account while sign-up is closed: a full address, or a domain
+ * with a leading `@` that covers that domain and not its subdomains. It holds addresses of people who
+ * may have no account yet, and the owner's note on each.
+ */
+export const signUpAllow = sqliteTable(
+	"sign_up_allow",
+	{
+		entry: text("entry").primaryKey(),
+		note: text("note"),
+		addedAt: integer("added_at").notNull(),
+		/** The owner's user id. Kept as text and not a reference, so it outlives the account. */
+		addedBy: text("added_by").notNull(),
+	},
+	(table) => [
+		check("sign_up_allow_lowercase", sql`${table.entry} = lower(${table.entry})`),
+		check("sign_up_allow_note", sql`${table.note} IS NULL OR length(${table.note}) <= 200`),
+	],
+);
+
+/**
+ * A minute's leave to make one account, written by the sign-up hook just before an account is made
+ * through the provider the owner trusts, and removed once it is made. The trigger
+ * `user_needs_a_way_in` cannot see which sign-in made an account, so this is how it tells that one
+ * from GitHub and passwords while the owner trusts the provider.
+ */
+export const signUpPass = sqliteTable("sign_up_pass", {
+	email: text("email").primaryKey(),
+	expiresAt: integer("expires_at").notNull(),
+});

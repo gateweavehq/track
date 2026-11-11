@@ -11,6 +11,12 @@ describe("signInRefusal", () => {
 		expect(signInRefusal("account_not_linked")).toContain("already has an account");
 	});
 
+	it("gives a closed server's words, the same for every address", () => {
+		expect(signInRefusal("SIGN_UP_CLOSED")).toBe(
+			"This server takes new accounts by invitation. Ask whoever runs it to invite you.",
+		);
+	});
+
 	it("answers anything else in its own words, whatever the link says", () => {
 		const message = signInRefusal("<script>alert(1)</script>");
 		expect(message).toContain("did not work");

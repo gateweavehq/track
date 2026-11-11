@@ -7,6 +7,7 @@ import type { Database } from "../db";
 import { schema } from "../db";
 import type { Mailer } from "../email/mailer";
 import { accountDeletedEmail } from "../email/templates";
+import { mustKeepAccount, RUNS_THE_SERVER } from "./deployment";
 
 // "Deleting an account" in docs/architecture.md.
 
@@ -66,6 +67,9 @@ export function deleteAccount({ db, mailer, onAccountDeleted }: DeleteAccountCon
 				async (ctx) => {
 					const { session, internalAdapter, password } = ctx.context;
 					const { user } = session;
+
+					// The trigger `deployment_keeps_its_owner` holds this too, but only this can say why.
+					if (await mustKeepAccount(db, user.id)) throw APIError.from("FORBIDDEN", RUNS_THE_SERVER);
 
 					const onlyTheirs = await workspacesOnlyTheyOwn(db, user.id);
 					if (onlyTheirs.length > 0) throw onlyOwnerOf(onlyTheirs);

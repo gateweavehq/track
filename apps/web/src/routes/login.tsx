@@ -193,6 +193,28 @@ function SignInForm() {
 					<p className="text-sm text-muted-foreground">Open-source, realtime issue tracking.</p>
 				</div>
 
+				{options.signUpClosed && (
+					<div
+						role="note"
+						aria-label="Sign-up is closed"
+						className="space-y-1 rounded-lg border p-3 text-center text-sm text-muted-foreground"
+					>
+						<p>This server takes new accounts by invitation. Ask whoever runs it to invite you.</p>
+						{options.askForAccess && (
+							<p>
+								<a
+									href={options.askForAccess}
+									target="_blank"
+									rel="noreferrer"
+									className="font-medium text-foreground underline underline-offset-4"
+								>
+									Ask for access
+								</a>
+							</p>
+						)}
+					</div>
+				)}
+
 				{(options.oidc || options.github) && (
 					<>
 						{options.oidc && (
