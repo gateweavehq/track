@@ -8,6 +8,41 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.31.0] - 2026-11-11
+
+The person who runs a server can now close sign-up and keep a list of who may make an account.
+This release has four migrations, and nothing changes until the owner closes sign-up.
+
+### New
+
+- **Who runs this server.** Track now knows its server's owner: the oldest account that is a person,
+  or on a new server the first account made. The owner gets a **This server** section on the account
+  page. Changing anything there asks for a recent sign-in. If the owner deletes their account while
+  sign-up is open, the next oldest person becomes the owner. ([#269])
+- **Closed sign-up and the owner's list.** The owner can close sign-up. Then an account can be made
+  only by:
+  - an address on the owner's list, or at a domain on it (`@example.com` covers that domain, not its
+    subdomains); the list has notes, a search and room for 5,000 entries, and shows whether each
+    entry has an account yet;
+  - an address with a pending invitation to a workspace, as before;
+  - if the owner turns on **Trust** for it, the OpenID Connect provider Track is set up with, such as
+    Gateweave ID, which keeps its own list. GitHub is never trusted this way.
+
+  Every way of making an account (password, GitHub, OpenID Connect, invitations) gives the same
+  refusal, and says nothing about which addresses have accounts. The database holds any other path
+  to the same rule. ([#269])
+- **Ask for access.** If `SIGN_UP_REQUEST_URL` is set to an https address, the sign-in page links to
+  it while sign-up is closed. ([#269])
+
+### If you run your own
+
+- **Nothing changes unless you close sign-up.** Deploying applies migrations `0010` to `0013` and
+  makes your oldest account the owner. Check that it's yours before you close sign-up. To hand the
+  server to someone else, change `owner_id` in the `deployment` table.
+- **The list holds addresses of people who may not have an account yet.** It is personal data in
+  your D1 database (`sign_up_allow`). Mention it in your own privacy notice. ([#269])
+- **`pnpm dev:seed` needs sign-up open**, since it signs its sample people up through the API.
+
 ## [0.30.7] - 2026-11-11
 
 A changed webhook stops retrying what it no longer wants. There is no migration in this release.
@@ -1363,6 +1398,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.31.0]: https://github.com/gateweavehq/track/releases/tag/v0.31.0
 [0.30.7]: https://github.com/gateweavehq/track/releases/tag/v0.30.7
 [0.30.6]: https://github.com/gateweavehq/track/releases/tag/v0.30.6
 [0.30.5]: https://github.com/gateweavehq/track/releases/tag/v0.30.5
@@ -1432,6 +1468,7 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#269]: https://github.com/gateweavehq/track/pull/269
 [#266]: https://github.com/gateweavehq/track/pull/266
 [#265]: https://github.com/gateweavehq/track/pull/265
 [#263]: https://github.com/gateweavehq/track/pull/263
