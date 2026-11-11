@@ -128,6 +128,7 @@ verification link that returns there. Sign-up sends one too, with the same retur
 A server without email cannot verify anyone, so there the invitation id is what protects a
 workspace: whoever holds the link can join. Only admins see invitation ids. Better Auth hands
 them to any member through two endpoints, which would let a member pick up an admin invitation:
+
 - `list-invitations` is limited to admins by a `before` hook in
   `apps/web/src/server/auth/config.ts`.
 - `get-full-organization`, which the app does not use, is disabled.
@@ -323,6 +324,7 @@ A shared demo account would be vandalized within minutes, so each visitor gets a
 
 Seeding a sandbox makes about 70 Durable Object calls in one request, so the demo needs a Workers
 Paid plan (1,000 subrequests per request).
+
 ## Request flow and security
 
 The Durable Object has **no public route**. Only the Worker can reach it, through its binding.

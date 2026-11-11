@@ -324,6 +324,7 @@ Gateweave's own demo (a private sandbox per visitor, deleted after a day) is a s
 deployment, the `demo` environment in `wrangler.jsonc`. You do not need it: it is off unless the
 `TRACK_DEMO` variable is `"1"`, which only that environment sets. See
 [the architecture notes](architecture.md#the-public-demo).
+
 ## Updating
 
 **Command line:** `git pull`, `pnpm install`, `pnpm run deploy`.
