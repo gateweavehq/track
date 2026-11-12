@@ -1,3 +1,4 @@
+export type { BackupRow } from "./backup";
 export type { GitHubDelivery } from "./github";
 export type { IntakeRequest, IntakeTarget } from "./intake";
 export type { RetentionPolicy } from "./log";

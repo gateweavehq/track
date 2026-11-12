@@ -15,6 +15,7 @@ import { newNonce, withSecurityHeaders } from "./server/security-headers";
 import { handleSyncRequest, isSyncRequest } from "./server/sync";
 import { handleUnsubscribeRequest, isUnsubscribeRequest } from "./server/unsubscribe";
 
+export { Backup } from "./server/backup";
 export { RateLimiter } from "./server/rate-limit";
 export { WorkspaceDO } from "./server/workspace-do";
 

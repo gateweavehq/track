@@ -217,6 +217,22 @@ export default class Inspector extends WorkerEntrypoint {
 }
 `;
 
+// Stands in for Gateweave Backup: a Worker with a service binding to the app's Backup entrypoint,
+// as a deployment's backup Worker has. POST /<method> calls it with the body's array as arguments,
+// and answers {result} or {error}.
+const BACKUP = `
+export default {
+	async fetch(request, env) {
+		const method = new URL(request.url).pathname.slice(1);
+		try {
+			return Response.json({ result: await env.TRACK[method](...(await request.json())) });
+		} catch (error) {
+			return Response.json({ error: String(error?.message ?? error) });
+		}
+	},
+};
+`;
+
 /** Every module of the built Worker. Its migrations are imported as text. */
 function builtModules(): V4ModuleDefinition[] {
 	const modules: V4ModuleDefinition[] = [];
@@ -374,6 +390,14 @@ export async function startTrack(
 					routes: ["outbox.test/*"],
 					compatibilityDate: config.compatibility_date,
 				},
+				{
+					name: "backup",
+					modules: true,
+					script: BACKUP,
+					routes: ["backup.test/*"],
+					compatibilityDate: config.compatibility_date,
+					serviceBindings: { TRACK: { name: names[0] as string, entrypoint: "Backup" } },
+				},
 			],
 		}),
 	);
@@ -520,6 +544,17 @@ export async function startTrack(
 			if (rejected) return { outcome: "rejected", rejectReason: rejected[1] };
 			if (response.ok) return { outcome: "ok" };
 			throw new Error(`The email handler failed: ${text}`);
+		},
+		/**
+		 * Calls the app's Backup entrypoint as Gateweave Backup's Worker would, through its service
+		 * binding: what the method returned, or the message of what it threw.
+		 */
+		async backup<T>(method: "objects" | "read", ...args: unknown[]) {
+			const response = await mf.dispatchFetch(`http://backup.test/${method}`, {
+				method: "POST",
+				body: JSON.stringify(args),
+			});
+			return (await response.json()) as { result?: T; error?: string };
 		},
 		/** The D1 database, for setting up state the app has no endpoint for. */
 		db,
