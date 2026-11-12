@@ -1,7 +1,9 @@
 // Fills a local workspace with sample people, teams and issues: `pnpm dev:seed`. It goes through
 // the same doors as the app, Better Auth over HTTP and sync mutations through the gateway, so
-// the data obeys every server rule and the run doubles as a smoke test. Local development only:
-// every account it creates shares one published password.
+// the data obeys every server rule and the run doubles as a smoke test. The one exception: with
+// email on, it marks the sample addresses verified in the local database, having no mailbox to
+// prove them with. Local development only: every account it creates shares one published password.
+import { execSync } from "node:child_process";
 import { parseArgs } from "node:util";
 import type { Snapshot } from "@gateweave/track-protocol";
 import {
@@ -86,6 +88,7 @@ async function main() {
 		name,
 		slug: args.slug,
 	});
+	let verified = false;
 	for (const key of people) {
 		const { role, email } = PEOPLE[key];
 		if (role === "owner") continue;
@@ -94,9 +97,21 @@ async function main() {
 			role,
 			organizationId: workspace.id,
 		});
-		await api("POST", "/organization/accept-invitation", sessions[key], {
-			invitationId: invitation.id,
-		});
+		const accept = () =>
+			request("POST", "/organization/accept-invitation", sessions[key].cookie, {
+				invitationId: invitation.id,
+			});
+		let response = await accept();
+		if (!verified && (await needsVerifiedEmail(response))) {
+			verifySampleAddresses();
+			verified = true;
+			response = await accept();
+		}
+		if (!response.ok) {
+			throw new Error(
+				`POST /organization/accept-invitation failed with ${response.status}: ${await response.text()}`,
+			);
+		}
 	}
 
 	const clients = {} as Record<PersonKey, SyncClient>;
@@ -166,6 +181,43 @@ async function signIn(key: PersonKey): Promise<Session> {
 	return { userId: user.id, cookie };
 }
 
+/**
+ * With email on, Better Auth lets only people who proved their address accept an invitation, and
+ * proving it takes the mailbox, which the sample addresses do not have.
+ */
+async function needsVerifiedEmail(response: Response): Promise<boolean> {
+	if (response.status !== 403) return false;
+	const body = (await response
+		.clone()
+		.json()
+		.catch(() => null)) as { code?: unknown } | null;
+	return (
+		typeof body?.code === "string" && body.code.startsWith("EMAIL_VERIFICATION_REQUIRED_BEFORE")
+	);
+}
+
+/**
+ * Marks the sample people's addresses as proven, in the local database the dev server uses (the
+ * one `pnpm dev:setup` migrates). The only write that skips the app's doors, and only to the
+ * published sample accounts on this machine.
+ */
+function verifySampleAddresses() {
+	const emails = people.map((key) => `'${PEOPLE[key].email}'`).join(", ");
+	// Where vite.config.ts keeps the dev server's state.
+	const state = process.env.TRACK_STATE_DIR ?? ".wrangler/state";
+	console.log("Email is on, so the sample people's addresses are marked as verified first.");
+	try {
+		execSync(
+			`pnpm exec wrangler d1 execute DB --local --persist-to "${state}" --command "UPDATE user SET email_verified = 1 WHERE email IN (${emails})"`,
+			{ stdio: "ignore" },
+		);
+	} catch {
+		fail(
+			"Could not mark the sample addresses as verified in the local database. Run `pnpm dev:setup`, or comment out EMAIL_FROM in .dev.vars and restart `pnpm dev`.",
+		);
+	}
+}
+
 async function api<T = unknown>(
 	method: "GET" | "POST",
 	path: string,
@@ -180,8 +232,8 @@ async function api<T = unknown>(
 }
 
 async function request(method: string, path: string, cookie?: string, body?: object) {
-	for (;;) {
-		const response = await fetch(new URL(`/api/auth${path}`, base), {
+	const send = () =>
+		fetch(new URL(`/api/auth${path}`, base), {
 			method,
 			headers: {
 				// Better Auth rejects state-changing requests without a trusted Origin.
@@ -190,6 +242,14 @@ async function request(method: string, path: string, cookie?: string, body?: obj
 				...(cookie && { Cookie: cookie }),
 			},
 			body: body && JSON.stringify(body),
+		});
+	for (;;) {
+		// The dev server drops connections left idle for a few seconds, as one is while Wrangler
+		// marks the sample addresses verified, and Node can still pick that one for the next request.
+		const response = await send().catch((error: unknown) => {
+			const cause = error instanceof TypeError ? (error.cause as { code?: unknown }) : null;
+			if (cause?.code === "ECONNRESET") return send();
+			throw error;
 		});
 		// Sign-ups are rate limited per client, a few every 10 seconds, and this signs up several.
 		if (response.status !== 429) return response;
