@@ -218,5 +218,9 @@ export async function sendWebPush(
 	await response.body?.cancel();
 	// RFC 8030: the subscription expired or was removed. Anything else may work next time.
 	if (response.status === 404 || response.status === 410) return "gone";
-	return response.ok ? "sent" : "failed";
+	if (response.ok) return "sent";
+	// The service and status tell a bad key or subject from a busy service; the device's address
+	// stays out of the logs.
+	console.error("push: refused by", new URL(target.endpoint).host, response.status);
+	return "failed";
 }
