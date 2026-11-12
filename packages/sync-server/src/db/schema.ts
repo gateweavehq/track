@@ -6,6 +6,9 @@ import {
 	type ActivityChange,
 	type ActivitySource,
 	type AgentChangeKind,
+	type AuditAction,
+	type AuditDetail,
+	type AuditTargetType,
 	type CycleSettings,
 	ENTITY_NAMES,
 	type InboxEvent,
@@ -538,6 +541,28 @@ export const webhookDeliveries = sqliteTable(
 	],
 );
 
+/**
+ * The audit log (audit.ts): who changed who belongs to the workspace and how it is set up. Rows are
+ * only added, and pruned after a year. Members are kept by id and named when the log is read, so a
+ * person who deletes their account is named as such.
+ */
+export const auditEvents = sqliteTable(
+	"audit_events",
+	{
+		id: integer("id").primaryKey(),
+		at: integer("at").notNull(),
+		/** The member who did it, or null for Track itself. */
+		actorId: text("actor_id"),
+		action: text("action").$type<AuditAction>().notNull(),
+		targetType: text("target_type").$type<AuditTargetType>().notNull(),
+		targetId: text("target_id"),
+		/** Taken at the time, for what may be gone later: a team's name, a webhook's host. */
+		targetLabel: text("target_label"),
+		detail: text("detail", { mode: "json" }).$type<AuditDetail>().notNull(),
+	},
+	(table) => [index("audit_events_at_idx").on(table.at)],
+);
+
 export type TeamRow = typeof teams.$inferSelect;
 export type StatusRow = typeof statuses.$inferSelect;
 export type IssueRow = typeof issues.$inferSelect;
@@ -559,3 +584,4 @@ export type PullRequestRow = typeof pullRequests.$inferSelect;
 export type GitHubConnectionRow = typeof githubConnections.$inferSelect;
 export type WebhookRow = typeof webhooks.$inferSelect;
 export type WebhookDeliveryRow = typeof webhookDeliveries.$inferSelect;
+export type AuditEventRow = typeof auditEvents.$inferSelect;

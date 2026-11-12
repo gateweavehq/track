@@ -1,4 +1,5 @@
 import { mcp } from "@better-auth/mcp";
+import type { GatewayAuditEvent } from "@gateweave/track-protocol";
 import type { BetterAuthRateLimitOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
@@ -14,6 +15,7 @@ import type { Mailer } from "../email/mailer";
 import { invitationEmail, passwordResetEmail, verificationEmail } from "../email/templates";
 import { tellOfChangedPassword, validName, validRename } from "./account-changes";
 import { agentMembers } from "./agents";
+import { auditEventOf, isAuditedPath, type Replaced } from "./audit";
 import { DELETE_ACCOUNT, deleteAccount } from "./delete-account";
 import {
 	deploymentPlugin,
@@ -50,6 +52,11 @@ export interface AuthConfig {
 	onWorkspaceDeleted?: (workspaceId: string) => Promise<void>;
 	/** Called after a workspace's slug changes, since webhook payloads link with it. */
 	onWorkspaceRenamed?: (workspaceId: string, slug: string) => Promise<void>;
+	/**
+	 * Called after a change to a workspace's people, invitations or agents, or to the workspace
+	 * itself, with who made it, for the workspace's audit log. In the background where it can be.
+	 */
+	onAudit?: (workspaceId: string, event: GatewayAuditEvent) => Promise<void>;
 	/** Called in the background after someone deletes their account. */
 	onAccountDeleted?: (userId: string) => Promise<void>;
 	/** Called after a user's profile changes. */
@@ -86,6 +93,9 @@ export interface AuthConfig {
 export function createAuth(config: AuthConfig) {
 	const membershipChanged = async (workspaceId: string, userId: string) =>
 		config.onMembershipChange?.(workspaceId, userId);
+	// Between a request's before and after hooks: what the change it asks for replaces, for the
+	// audit log. A request made from the server, with no Request, goes without.
+	const replacedBy = new WeakMap<Request, Replaced>();
 	// Between a user deletion's before and after hooks: the workspaces they belonged to. Better
 	// Auth hands both hooks the same user object (`deleteWithHooks`, 1.7), so it keys the note,
 	// and a delete that fails or is vetoed after the before hook leaves nothing behind once that
@@ -207,6 +217,10 @@ export function createAuth(config: AuthConfig) {
 				if (config.demo && ctx.request && DEMO_BLOCKED_PATHS.has(ctx.path)) {
 					throw new APIError("FORBIDDEN", { message: "Not available in the demo" });
 				}
+				if (ctx.request && config.onAudit) {
+					const replaced = await replacedFor(config.db, ctx.path, ctx.body);
+					if (replaced) replacedBy.set(ctx.request, replaced);
+				}
 				if (ctx.path === "/update-user") return { context: { body: validRename(ctx.body) } };
 				if (ctx.path === "/sign-up/email") {
 					// Before Better Auth looks the address up, so that one with an account here is refused
@@ -246,6 +260,20 @@ export function createAuth(config: AuthConfig) {
 			after: createAuthMiddleware(async (ctx) => {
 				// The request is over: the sessions it ended are reported together (see below).
 				endedSessions.flush(ctx.context);
+				if (config.onAudit && isAuditedPath(ctx.path)) {
+					const session = await getSessionFromCtx(ctx);
+					const audited =
+						session &&
+						auditEventOf(ctx.path, ctx.context.returned, session.user.id, {
+							body: ctx.body,
+							replaced: ctx.request && replacedBy.get(ctx.request),
+						});
+					if (audited) {
+						await ctx.context.runInBackgroundOrAwait(
+							config.onAudit(audited.workspaceId, audited.event),
+						);
+					}
+				}
 				if (ctx.path === "/change-password") {
 					await ctx.context.runInBackgroundOrAwait(
 						tellOfChangedPassword(ctx.context.returned, mailer),
@@ -411,7 +439,11 @@ export function createAuth(config: AuthConfig) {
 					},
 				},
 			}),
-			agentMembers({ db: config.db, onMembershipChange: membershipChanged }),
+			agentMembers({
+				db: config.db,
+				onMembershipChange: membershipChanged,
+				onAudit: config.onAudit,
+			}),
 			deploymentPlugin({ db: config.db, providerName: config.oidc?.name }),
 			deleteAccount({
 				db: config.db,
@@ -501,4 +533,36 @@ function appOrigin(baseURL: string | undefined, request: Request | undefined) {
 function assertSlug(slug: string) {
 	const problem = slugProblem(slug);
 	if (problem) throw new APIError("BAD_REQUEST", { message: problem });
+}
+
+/**
+ * What a change to a member's role or to a workspace replaces, read before Better Auth makes it,
+ * for the audit log. Undefined for any other path, or for a body that names nothing found.
+ */
+async function replacedFor(
+	db: Database,
+	path: string,
+	body: unknown,
+): Promise<Replaced | undefined> {
+	if (path === "/organization/update-member-role") {
+		const memberId = z.object({ memberId: z.string() }).safeParse(body);
+		if (!memberId.success) return undefined;
+		const row = await db
+			.select({ role: schema.member.role })
+			.from(schema.member)
+			.where(eq(schema.member.id, memberId.data.memberId))
+			.get();
+		return row && { role: row.role };
+	}
+	if (path === "/organization/update") {
+		const target = z.object({ organizationId: z.string() }).safeParse(body);
+		if (!target.success) return undefined;
+		const row = await db
+			.select({ name: schema.organization.name, slug: schema.organization.slug })
+			.from(schema.organization)
+			.where(eq(schema.organization.id, target.data.organizationId))
+			.get();
+		return row && { name: row.name, slug: row.slug };
+	}
+	return undefined;
 }

@@ -13,6 +13,7 @@ import {
 import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { recordActivity } from "./activity";
 import { syncArchive } from "./archive";
+import { auditMutation } from "./audit";
 import { automationsDueNow } from "./automations";
 import { scheduleCycles } from "./cycles";
 import * as schema from "./db/schema";
@@ -87,6 +88,8 @@ export function applyMutation(
 	}
 
 	const changes = new ChangeSet(db, actor.member.userId, now);
+	// Read before the change, recorded after it; a refused one throws first and records nothing.
+	const audit = auditMutation(db, actor.member.userId, mutation);
 	switch (mutation.name) {
 		case "team.create":
 			createTeam(db, changes, actor, mutation.args);
@@ -212,6 +215,7 @@ export function applyMutation(
 			updateInbox(db, changes, actor.member, mutation.args);
 			break;
 	}
+	audit?.(now);
 
 	const imported =
 		(mutation.name === "issue.create" || mutation.name === "comment.create") &&

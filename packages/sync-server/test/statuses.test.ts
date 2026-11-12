@@ -311,6 +311,7 @@ describe("statuses", () => {
 			db.run(sql`alter table teams drop column intake_followers`);
 			db.run(sql`drop index inbox_items_push_idx`);
 			db.run(sql`alter table inbox_items drop column push_at`);
+			db.run(sql`drop table audit_events`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${first.when}`);
 			await migrate(db, migrations);
 		});

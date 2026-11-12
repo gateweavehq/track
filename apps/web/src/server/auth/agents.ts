@@ -1,4 +1,4 @@
-import { isAdminRole } from "@gateweave/track-protocol";
+import { type GatewayAuditEvent, isAdminRole } from "@gateweave/track-protocol";
 import type { BetterAuthPlugin } from "better-auth";
 import {
 	APIError,
@@ -148,9 +148,11 @@ export interface AgentMembersOptions {
 	db: Database;
 	/** Called after an agent joins, changes or leaves a workspace, as for people. */
 	onMembershipChange?: (workspaceId: string, userId: string) => Promise<void>;
+	/** Called after an admin's change to an agent or its keys, for the workspace's audit log. */
+	onAudit?: ((workspaceId: string, event: GatewayAuditEvent) => Promise<void>) | undefined;
 }
 
-export function agentMembers({ db, onMembershipChange }: AgentMembersOptions) {
+export function agentMembers({ db, onMembershipChange, onAudit }: AgentMembersOptions) {
 	const { agentKey, member, user } = schema;
 
 	async function requireAdmin(organizationId: string, userId: string) {
@@ -196,6 +198,15 @@ export function agentMembers({ db, onMembershipChange }: AgentMembersOptions) {
 
 	async function changed(organizationId: string, agentId: string) {
 		await onMembershipChange?.(organizationId, agentId);
+	}
+
+	/** Tells the workspace's audit log, after the change, in the background where it can. */
+	async function audit(
+		ctx: { context: { runInBackgroundOrAwait: (work: Promise<unknown>) => unknown } },
+		organizationId: string,
+		event: GatewayAuditEvent,
+	) {
+		if (onAudit) await ctx.context.runInBackgroundOrAwait(onAudit(organizationId, event));
 	}
 
 	return {
@@ -318,6 +329,11 @@ export function agentMembers({ db, onMembershipChange }: AgentMembersOptions) {
 					]);
 					const key = await insertKey(agentId, organizationId);
 					await changed(organizationId, agentId);
+					await audit(ctx, organizationId, {
+						actorId: ctx.context.session.user.id,
+						action: "agent.created",
+						target: { type: "agent", id: agentId, label: name },
+					});
 					const agent: AgentInfo = {
 						id: agentId,
 						name,
@@ -344,6 +360,14 @@ export function agentMembers({ db, onMembershipChange }: AgentMembersOptions) {
 						.where(eq(user.id, agent.id))
 						.run();
 					await changed(agent.organizationId, agent.id);
+					if (agent.name !== ctx.body.name) {
+						await audit(ctx, agent.organizationId, {
+							actorId: ctx.context.session.user.id,
+							action: "agent.renamed",
+							target: { type: "agent", id: agent.id, label: ctx.body.name },
+							detail: { from: agent.name, to: ctx.body.name },
+						});
+					}
 					return ctx.json({ id: agent.id, name: ctx.body.name });
 				},
 			),
@@ -368,6 +392,11 @@ export function agentMembers({ db, onMembershipChange }: AgentMembersOptions) {
 						});
 					}
 					const key = await insertKey(agent.id, agent.organizationId);
+					await audit(ctx, agent.organizationId, {
+						actorId: ctx.context.session.user.id,
+						action: "agent.keyCreated",
+						target: { type: "agent", id: agent.id, label: agent.name },
+					});
 					return ctx.json({ key: key.info, secret: key.secret });
 				},
 			),
@@ -381,13 +410,22 @@ export function agentMembers({ db, onMembershipChange }: AgentMembersOptions) {
 				},
 				async (ctx) => {
 					const key = await db
-						.select({ id: agentKey.id, organizationId: agentKey.organizationId })
+						.select({
+							id: agentKey.id,
+							organizationId: agentKey.organizationId,
+							agentId: agentKey.userId,
+						})
 						.from(agentKey)
 						.where(eq(agentKey.id, ctx.body.keyId))
 						.get();
 					if (!key) throw new APIError("NOT_FOUND", { message: "That key was revoked" });
 					await requireAdmin(key.organizationId, ctx.context.session.user.id);
 					await db.delete(agentKey).where(eq(agentKey.id, key.id)).run();
+					await audit(ctx, key.organizationId, {
+						actorId: ctx.context.session.user.id,
+						action: "agent.keyRevoked",
+						target: { type: "agent", id: key.agentId, label: null },
+					});
 					return ctx.json({ id: key.id });
 				},
 			),
@@ -409,6 +447,11 @@ export function agentMembers({ db, onMembershipChange }: AgentMembersOptions) {
 						db.delete(user).where(eq(user.id, agent.id)),
 					]);
 					await changed(agent.organizationId, agent.id);
+					await audit(ctx, agent.organizationId, {
+						actorId: ctx.context.session.user.id,
+						action: "agent.deleted",
+						target: { type: "agent", id: agent.id, label: agent.name },
+					});
 					return ctx.json({ id: agent.id });
 				},
 			),

@@ -1,5 +1,6 @@
 import { MENTION_SCHEME, type ProposedChange, renameMentions } from "@gateweave/track-protocol";
 import { and, eq, isNull, lt, type SQLWrapper, sql } from "drizzle-orm";
+import { forgetInAudit } from "./audit";
 import * as schema from "./db/schema";
 import { forgetMember } from "./inbox";
 import { ChangeSet, currentVersion, type WriteResult } from "./log";
@@ -43,6 +44,8 @@ export function forgetPerson(db: Db, userId: string, now: number): WriteResult {
 		.where(eq(schema.notificationSettings.memberId, userId))
 		.run();
 	renameInRows(db, changes, person);
+	// An invitation is kept by the address it went to, which named them too.
+	forgetInAudit(db, member.email);
 
 	// Last, so that the newest op is everyone's and the log below can drop every op of theirs.
 	const forgotten: schema.MemberRow = {
