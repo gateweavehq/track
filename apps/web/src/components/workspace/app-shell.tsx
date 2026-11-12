@@ -39,6 +39,7 @@ import { Kbd } from "#/components/ui/kbd";
 import { authClient } from "#/lib/auth-client";
 import { MOD_LABEL } from "#/lib/hotkeys";
 import { legalEntries } from "#/lib/legal";
+import { keepPushOn } from "#/lib/push-device";
 import { useMembersById, useProposalCount, useSavedViews, useTeams } from "#/lib/queries";
 import { forgetEverything } from "#/lib/replica";
 import { cn } from "#/lib/utils";
@@ -55,6 +56,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 	// On small screens the sidebar is an overlay; close it once the user has gone somewhere.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs on navigation by design.
 	useEffect(() => setMenuOpen(false), [pathname]);
+
+	// Push turned on in this browser stays tied to the current session (push-device.ts).
+	useEffect(() => {
+		if (!demo) keepPushOn(userId).catch(() => {});
+	}, [demo, userId]);
 
 	return (
 		<div className="flex h-dvh flex-col overflow-hidden">

@@ -68,8 +68,11 @@ import { applyMutation } from "./mutations";
 import {
 	type InboxDigest,
 	nextDigestAt,
+	nextPushAt,
+	type PushNotice,
 	readSettings,
 	takeDueDigests,
+	takeDuePushes,
 	unsubscribe,
 	updateSettings,
 } from "./notifications";
@@ -603,6 +606,13 @@ export class WorkspaceDO extends DurableObject {
 	protected async sendInboxDigest(_digest: InboxDigest): Promise<void> {}
 
 	/**
+	 * Pushes a member's news to the devices they asked for it on, as it happens. Track's app sends
+	 * Web Push; without an app that does, nothing is sent. Called by the alarm, outside any
+	 * transaction, at most once per notice.
+	 */
+	protected async sendPush(_notice: PushNotice): Promise<void> {}
+
+	/**
 	 * Emails whoever filed a request through a form or by email the decision on it. Does nothing
 	 * here; the app's Worker overrides it, as it does `sendInboxDigest`.
 	 */
@@ -763,7 +773,7 @@ export class WorkspaceDO extends DurableObject {
 	/**
 	 * Moves teams' cycles on at their boundaries, reminds assignees of issues due today, runs teams'
 	 * automations, makes the issues of templates on a schedule, compacts the log when that is due,
-	 * and sends the webhook deliveries and the inbox digests that are.
+	 * and sends the pushes, webhook deliveries and inbox digests that are.
 	 */
 	override async alarm(): Promise<void> {
 		const now = Date.now();
@@ -784,6 +794,15 @@ export class WorkspaceDO extends DurableObject {
 					.run();
 			});
 		}
+		// First, as news is pushed as it happens: the reminders above included.
+		const pushes = this.ctx.storage.transactionSync(() => takeDuePushes(this.#db, Date.now()));
+		await Promise.all(
+			pushes.map((notice) =>
+				this.sendPush(notice).catch((error) => {
+					console.error("push: inbox news not pushed", error);
+				}),
+			),
+		);
 		const transact: Transact = (fn) => this.ctx.storage.transactionSync(fn);
 		const more = await deliverDue(this.#db, transact);
 		const digests = this.ctx.storage.transactionSync(() => takeDueDigests(this.#db, Date.now()));
@@ -814,6 +833,7 @@ export class WorkspaceDO extends DurableObject {
 					this.#compactionDue(),
 					nextDeliveryAt(this.#db) ?? Number.POSITIVE_INFINITY,
 					nextDigestAt(this.#db) ?? Number.POSITIVE_INFINITY,
+					nextPushAt(this.#db) ?? Number.POSITIVE_INFINITY,
 					soon(nextCycleChange(this.#db, Date.now())),
 					soon(nextReminderAt(this.#db, Date.now())),
 					soon(nextAutomationsAt(this.#db)),

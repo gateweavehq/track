@@ -7,6 +7,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useWorkspace } from "#/components/workspace/context";
 import { updateNotificationSettings, type WorkspaceNotifications } from "#/lib/notifications";
+import { PushSettings } from "./push-settings";
 
 const KINDS: { kind: NotificationKind; label: string; description: string }[] = [
 	{ kind: "assigned", label: "Assigned to you", description: "Someone makes you the assignee." },
@@ -110,6 +111,7 @@ export function NotificationSettings({ data }: { data: WorkspaceNotifications })
 					</li>
 				))}
 			</ul>
+			{data.push && <PushSettings publicKey={data.push} />}
 		</section>
 	);
 }

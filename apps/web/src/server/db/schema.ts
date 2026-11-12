@@ -2,7 +2,7 @@
 // Durable Object (see @gateweave/track-sync-server).
 import { sql } from "drizzle-orm";
 import { check, index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { organization, user } from "./auth-schema";
+import { organization, session, user } from "./auth-schema";
 
 export * from "./auth-schema";
 
@@ -118,3 +118,29 @@ export const signUpPass = sqliteTable("sign_up_pass", {
 	email: text("email").primaryKey(),
 	expiresAt: integer("expires_at").notNull(),
 });
+
+/**
+ * The browsers that asked for push notifications, each tied to the session it was turned on in:
+ * signing out there, or the session running out, stops it. The endpoint is the push service's
+ * address for that browser, and the keys what the message is encrypted to (RFC 8291).
+ */
+export const pushSubscription = sqliteTable(
+	"push_subscription",
+	{
+		endpoint: text("endpoint").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		sessionId: text("session_id")
+			.notNull()
+			.references(() => session.id, { onDelete: "cascade" }),
+		p256dh: text("p256dh").notNull(),
+		auth: text("auth").notNull(),
+		/** When the browser last saved it, which it does each time Track starts there. */
+		savedAt: integer("saved_at").notNull(),
+	},
+	(table) => [
+		index("pushSubscription_userId_idx").on(table.userId),
+		index("pushSubscription_sessionId_idx").on(table.sessionId),
+	],
+);

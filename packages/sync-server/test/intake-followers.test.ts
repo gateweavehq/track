@@ -172,6 +172,8 @@ describe("following a team's intake", () => {
 		await runInDurableObject(workspace, async (_, state) => {
 			const db = drizzle(state.storage, { schema });
 			db.run(sql`alter table teams drop column intake_followers`);
+			db.run(sql`drop index inbox_items_push_idx`);
+			db.run(sql`alter table inbox_items drop column push_at`);
 			db.run(sql`delete from __drizzle_migrations where created_at >= ${followed.when}`);
 			await migrate(db, migrations);
 		});

@@ -14,6 +14,7 @@ import {
 	LINK_HEADER,
 	MEMBER_HEADER,
 	type MemberProfile,
+	type PushNotice,
 	SESSION_HEADER,
 	type WorkspaceDO,
 	type WorkspaceLink,
@@ -43,7 +44,7 @@ const ISSUE_ID = "issue-1";
 
 /**
  * A workspace with a team, an issue assigned to nobody yet, and every test member in it. `sent`
- * has the digests the object sends.
+ * has the digests the object sends, and `pushed` its pushes.
  */
 async function setup({ link = true } = {}) {
 	const workspace = freshWorkspace();
@@ -62,10 +63,17 @@ async function setup({ link = true } = {}) {
 	if (link) await connect(workspace, owner, LINK);
 
 	const digests: InboxDigest[] = [];
+	const pushes: PushNotice[] = [];
 	await runInDurableObject(workspace, (instance: WorkspaceDO) => {
-		const hook = instance as unknown as { sendInboxDigest(digest: InboxDigest): Promise<void> };
+		const hook = instance as unknown as {
+			sendInboxDigest(digest: InboxDigest): Promise<void>;
+			sendPush(notice: PushNotice): Promise<void>;
+		};
 		vi.spyOn(hook, "sendInboxDigest").mockImplementation(async (digest) => {
 			digests.push(digest);
+		});
+		vi.spyOn(hook, "sendPush").mockImplementation(async (notice) => {
+			pushes.push(notice);
 		});
 	});
 
@@ -84,7 +92,12 @@ async function setup({ link = true } = {}) {
 			return digests.filter((digest) => digest.member.id === alice.id);
 		},
 	};
-	return { workspace, as, update, sent };
+	const pushed = {
+		get alice() {
+			return pushes.filter((notice) => notice.member.id === alice.id);
+		},
+	};
+	return { workspace, as, update, sent, pushed };
 }
 
 const LINK: WorkspaceLink = { id: "ws-1", slug: "acme", origin: "https://track.example.com" };
@@ -377,5 +390,68 @@ describe("inbox email", () => {
 		await alarm(workspace);
 		expect(sent.alice).toEqual([]);
 		expect(await emailAt(workspace, alice)).toBeNull();
+	});
+});
+
+describe("inbox push", () => {
+	it("pushes news a person wants by email as it happens, once, and emails it all the same", async () => {
+		const { workspace, update, pushed, sent } = await setup();
+		await update(owner, { assigneeId: alice.id });
+		await vi.waitFor(() => expect(pushed.alice).toHaveLength(1));
+		expect(pushed.alice).toEqual([
+			{
+				workspace: LINK,
+				member: { id: alice.id },
+				items: [
+					{
+						issue: { key: "ENG-1", title: "Ship email" },
+						event: { type: "assigned" },
+						actor: "Olivia Owner",
+						unread: 1,
+						updatedAt: expect.any(Number),
+						comment: null,
+						statusName: null,
+					},
+				],
+			},
+		]);
+		await alarm(workspace);
+		expect(pushed.alice).toHaveLength(1);
+		// Left unread on the phone, it is emailed as before.
+		await later(workspace, EMAIL_DELAY_MS);
+		await alarm(workspace);
+		expect(sent.alice).toHaveLength(1);
+	});
+
+	it("pushes nothing a person wants in the inbox alone, nor news they read first", async () => {
+		const { workspace, as, pushed } = await setup();
+		await workspace.updateNotificationSettings(alice, { comment: "inbox" });
+		await as(alice, { name: "issue.subscribe", args: { issueId: ISSUE_ID, subscribed: true } });
+		await as(bob, comment("comment-1"));
+		await alarm(workspace);
+		expect(pushed.alice).toEqual([]);
+
+		// Read in the same moment, before the alarm can run, the news is dealt with.
+		await workspace.updateNotificationSettings(alice, { comment: "email" });
+		await runInDurableObject(workspace, (instance: WorkspaceDO) => {
+			const write = (member: MemberProfile, id: string, mutation: MutationInput) => {
+				const result = instance.mutate(member, `client-${member.id}`, id, mutation);
+				if (!result.ok) throw new Error(result.message);
+			};
+			write(bob, "m-push-1", comment("comment-2"));
+			write(alice, "m-push-2", {
+				name: "inbox.update",
+				args: { items: [{ issueId: ISSUE_ID, seen: Date.now() + 1000 }], patch: { read: true } },
+			});
+		});
+		await alarm(workspace);
+		expect(pushed.alice).toEqual([]);
+	});
+
+	it("drops pushes when no link to the workspace was recorded", async () => {
+		const { workspace, update, pushed } = await setup({ link: false });
+		await update(owner, { assigneeId: alice.id });
+		await alarm(workspace);
+		expect(pushed.alice).toEqual([]);
 	});
 });

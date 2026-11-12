@@ -12,6 +12,8 @@ export interface WorkspaceNotifications {
 	 */
 	email: "off" | "unverified" | "on";
 	address: string;
+	/** The key browsers subscribe to push with, or null where this server sends no push. */
+	push: string | null;
 }
 
 const slug = z.string().min(1);
@@ -41,10 +43,12 @@ export const getNotificationSettings = createServerFn({ method: "GET" })
 		if (!result.ok) return null;
 		const { mailer } = await import("#/server/email");
 		const { demoEnabled } = await import("#/server/demo/mode");
+		const { pushPublicKey } = await import("#/server/push");
 		return {
 			settings: result.value,
 			email: !mailer || demoEnabled() ? "off" : found.user.emailVerified ? "on" : "unverified",
 			address: found.user.email,
+			push: await pushPublicKey(),
 		};
 	});
 

@@ -3,6 +3,9 @@
 // browser, from the device's copy of the workspace. Pages are always fetched from the network
 // first, so online, nothing changes.
 //
+// It also shows push notifications, for people who turned push on in this browser: the server
+// sends inbox news encrypted to it (src/server/push), and a click opens the issue.
+//
 // The shell is what the server renders for a workspace URL, whose route is client-only: the root
 // layout and this build's scripts, with no data. `_shell` can never be a workspace's slug, and
 // the router loads the real route for whichever URL the shell is served at.
@@ -92,4 +95,70 @@ async function download(path: string): Promise<Response> {
 	const response = await fetch(path, { cache: "no-cache" });
 	if (!response.ok) throw new Error(`${path}: ${response.status}`);
 	return response;
+}
+
+/** What the server pushes: one piece of inbox news (pushMessage in src/server/push). */
+interface PushedNews {
+	title: string;
+	body: string;
+	/** A path in the app: the issue. */
+	url: string;
+	/** Newer news on the same issue replaces the notification. */
+	tag: string;
+}
+
+worker.addEventListener("push", (event) => {
+	const news = readNews(event.data) ?? {
+		// Browsers expect every push to show something; Safari stops pushes that don't.
+		title: "Gateweave Track",
+		body: "There is news in your inbox.",
+		url: "/",
+		tag: "track",
+	};
+	event.waitUntil(
+		worker.registration.showNotification(news.title, {
+			body: news.body,
+			tag: news.tag,
+			icon: "/icon-192.png",
+			data: { url: news.url },
+		}),
+	);
+});
+
+worker.addEventListener("notificationclick", (event) => {
+	event.notification.close();
+	const { url } = (event.notification.data ?? {}) as { url?: unknown };
+	const target = new URL(typeof url === "string" ? url : "/", worker.location.origin);
+	// Only ever a page of this app.
+	if (target.origin !== worker.location.origin) return;
+	event.waitUntil(openPage(target.href));
+});
+
+function readNews(data: PushMessageData | null): PushedNews | null {
+	try {
+		const value = data?.json() as Partial<PushedNews> | undefined;
+		if (
+			typeof value?.title === "string" &&
+			typeof value.body === "string" &&
+			typeof value.url === "string" &&
+			typeof value.tag === "string"
+		) {
+			return { title: value.title, body: value.body, url: value.url, tag: value.tag };
+		}
+	} catch {
+		// Not JSON: shown as news in general.
+	}
+	return null;
+}
+
+/** Brings a window of the app forward at the page, or opens one. */
+async function openPage(url: string): Promise<void> {
+	const windows = await worker.clients.matchAll({ type: "window" });
+	const open = windows.find((client) => new URL(client.url).origin === worker.location.origin);
+	if (open) {
+		const focused = await open.focus();
+		await focused.navigate(url);
+		return;
+	}
+	await worker.clients.openWindow(url);
 }

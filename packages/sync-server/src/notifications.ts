@@ -21,6 +21,9 @@ import { readLink, type WorkspaceLink } from "./webhooks";
  * snoozing the item unmarks it. The alarm takes the marked items that are due, a member at a time,
  * and hands each member's to the object's `sendInboxDigest`, which the app implements. Items are
  * unmarked as they are taken, so a digest goes out at most once.
+ *
+ * The same news is pushed to the member's devices as it happens: marked to push now, it goes to
+ * the object's `sendPush`, which the app implements for the devices that asked for it, once.
  */
 
 /** Unread news on one issue, as an email tells it. */
@@ -48,6 +51,13 @@ export interface DigestItem {
 export interface InboxDigest {
 	workspace: WorkspaceLink;
 	member: { id: string; name: string; email: string };
+	items: DigestItem[];
+}
+
+/** One member's news from one workspace, newest first, to push to their devices. */
+export interface PushNotice {
+	workspace: WorkspaceLink;
+	member: { id: string };
 	items: DigestItem[];
 }
 
@@ -109,6 +119,51 @@ export function nextDigestAt(db: Db): number | null {
 		next = next === null ? due : Math.min(next, due);
 	}
 	return next;
+}
+
+/** When the alarm should next look for news to push, if any is waiting. */
+export function nextPushAt(db: Db): number | null {
+	return (
+		db
+			.select({ at: min(schema.inboxItems.pushAt) })
+			.from(schema.inboxItems)
+			.get()?.at ?? null
+	);
+}
+
+/**
+ * Takes the news that is to be pushed, a member at a time. Items are unmarked as they are taken,
+ * so news is pushed at most once. Without a link to the workspace a notification could open
+ * nothing, so it is dropped, as for email.
+ */
+export function takeDuePushes(db: Db, now: number): PushNotice[] {
+	const due = db.select().from(schema.inboxItems).where(lte(schema.inboxItems.pushAt, now)).all();
+	if (due.length === 0) return [];
+	db.update(schema.inboxItems)
+		.set({ pushAt: null })
+		.where(lte(schema.inboxItems.pushAt, now))
+		.run();
+	const workspace = readLink(db);
+	if (!workspace) return [];
+	const byMember = new Map<string, schema.InboxItemRow[]>();
+	for (const item of due) {
+		byMember.set(item.memberId, [...(byMember.get(item.memberId) ?? []), item]);
+	}
+	const notices: PushNotice[] = [];
+	for (const [memberId, items] of byMember) {
+		const member = db
+			.select()
+			.from(schema.members)
+			.where(eq(schema.members.userId, memberId))
+			.get();
+		if (!member || member.removedAt !== null || member.role === "agent") continue;
+		const described = items
+			.sort((a, b) => b.updatedAt - a.updatedAt)
+			.flatMap((item) => describe(db, item) ?? []);
+		if (described.length > 0)
+			notices.push({ workspace, member: { id: memberId }, items: described });
+	}
+	return notices;
 }
 
 /**

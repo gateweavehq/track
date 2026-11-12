@@ -23,12 +23,13 @@ import { isClosedStatus } from "./statuses";
  * and anyone can subscribe or unsubscribe. A mention tells the person mentioned even if they
  * unsubscribed. Agents have neither; they hear through webhooks. Each person's
  * notification settings say which kinds of news reach their inbox, and which are emailed when
- * they stay unread (`notifications.ts`).
+ * they stay unread (`notifications.ts`). News they want by email is also pushed to their devices
+ * as it happens.
  *
  * Mutation handlers say what they did in the change set's events, for webhooks; {@link notify}
  * reads the same events once the handler is done, in the same transaction, so a rolled-back
  * write tells nobody and a retried mutation id tells nobody twice. Returns whether it set an
- * email's time, which the alarm must then plan for.
+ * email's or a push's time, which the alarm must then plan for.
  */
 export function notify(db: Db, changes: ChangeSet, actorId: string, imported: boolean): boolean {
 	const inbox = new Inbox(db, changes, actorId);
@@ -231,9 +232,10 @@ export function updateInbox(
 		if (patch.snoozedUntil !== undefined && (patch.snoozedUntil === null || current)) {
 			next.snoozedUntil = patch.snoozedUntil;
 		}
-		// An item read, archived or snoozed is dealt with, so its news is not emailed.
+		// An item read, archived or snoozed is dealt with, so its news is not emailed or pushed.
 		if (next.unread === 0 || next.archivedAt !== null || next.snoozedUntil !== null) {
 			next.emailAt = null;
+			next.pushAt = null;
 		}
 		if (
 			next.unread === item.unread &&
@@ -355,8 +357,8 @@ class Inbox {
 
 	/**
 	 * Puts an event in a person's inbox, unless they caused it or turned its kind off. If they want
-	 * it by email, the item is emailed after a while unless they read it first. Returns whether
-	 * they were told.
+	 * it by email, the item is pushed to their devices now, and emailed after a while unless they
+	 * read it first. Returns whether they were told.
 	 */
 	tell(issueId: string, memberId: string, event: InboxEvent): boolean {
 		if (memberId === this.actorId || !this.#isPerson(memberId)) return false;
@@ -368,6 +370,7 @@ class Inbox {
 			this.db.select().from(schema.inboxItems).where(eq(schema.inboxItems.id, id)).get();
 		// Earlier news that is waiting keeps its time, so a busy issue is still emailed.
 		const waiting = existing?.emailAt ?? null;
+		const pushing = existing?.pushAt ?? null;
 		this.#items.set(id, {
 			id,
 			issueId,
@@ -380,6 +383,7 @@ class Inbox {
 			snoozedUntil: null,
 			archivedAt: null,
 			emailAt: level === "email" ? (waiting ?? this.changes.now + EMAIL_DELAY_MS) : waiting,
+			pushAt: level === "email" ? (pushing ?? this.changes.now) : pushing,
 		});
 		return true;
 	}
@@ -459,9 +463,9 @@ class Inbox {
 		}
 	}
 
-	/** Writes the items. Returns whether any of them is to be emailed. */
+	/** Writes the items. Returns whether any of them is to be emailed or pushed. */
 	flush(): boolean {
-		let email = false;
+		let wake = false;
 		for (const row of this.#items.values()) {
 			this.db
 				.insert(schema.inboxItems)
@@ -469,9 +473,9 @@ class Inbox {
 				.onConflictDoUpdate({ target: schema.inboxItems.id, set: row })
 				.run();
 			this.changes.put("inbox", toInboxItem(row));
-			if (row.emailAt !== null) email = true;
+			if (row.emailAt !== null || row.pushAt !== null) wake = true;
 		}
-		return email;
+		return wake;
 	}
 
 	#settingsOf(memberId: string): NotificationSettings {
