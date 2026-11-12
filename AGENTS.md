@@ -91,7 +91,11 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    its intake email address (`apps/web/src/server/intake-email.ts`) carry no member either: the
    channel's key, which the object makes, admits them after Turnstile or a rate limit, a key no
    team has gets the same 404 or refusal as a missing workspace, and they can only file a request
-   into that team's intake. Non-members get the same 404 or "not found" as a missing workspace. The verified member
+   into that team's intake. A backup Worker, such as Gateweave Backup's, reaches the objects only through
+   the named `Backup` entrypoint (`apps/web/src/server/backup.ts`), which has no route: a service
+   binding from a Worker in the same account is its access. It lists workspaces in D1 and sends
+   only reads, which the object checks and always rolls back (`packages/sync-server/src/backup.ts`).
+   Non-members get the same 404 or "not found" as a missing workspace. The verified member
    travels in `MEMBER_HEADER`, as an id only since Workers Logs records it, or as the `member`
    argument of `mutate`, which only a gateway sets.
 7. **Server code never reaches the browser bundle.** In server functions, import server modules

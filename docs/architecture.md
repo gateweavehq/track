@@ -78,6 +78,8 @@ different protocol versions in production. It also gives self-hosters one thing 
 | Member replica (name, avatar, role)  | Workspace DO | Pushed from D1 by membership hooks |
 | Attached files                       | R2           | The file gateway                   |
 
+A backup Worker reads the workspace objects through the `Backup` entrypoint ([Backups](#backups)).
+
 Some rows in D1 have a time limit that nothing would otherwise enforce, because Better Auth removes a
 session or a verification only when something looks it up. So the Worker's daily Cron Trigger deletes
 sessions, verifications, OAuth tokens and client assertions past their time, and invitations
@@ -546,6 +548,26 @@ Settings has an Agents page for it.
 - **It goes with its workspace.** Deleting an agent deletes its user, membership and keys; the
   workspace keeps its profile, marked removed, for what it did. Deleting a workspace deletes its
   agents too, as does the demo's cleanup.
+
+### Backups
+
+D1 can be backed up from outside the Worker, but a workspace's Durable Object can't: only its own
+code reads its SQLite. So the Worker exports a named entrypoint, `Backup`
+(`apps/web/src/server/backup.ts`), for a backup Worker such as Gateweave Backup's.
+
+- **No route.** A named entrypoint can't be reached from the internet. Only a Worker in the same
+  Cloudflare account with a service binding to it can call it, so that binding is the access, the
+  way the gateways' checks are for people and agents.
+- **`objects(cursor)`** lists the workspaces' ids from D1, 100 at a time. Deleted workspaces
+  aren't listed.
+- **`read(id, statements)`** runs the SELECTs of a SQLite dump in the workspace's object, after
+  checking in D1 that the workspace exists, so a backup never makes an empty object. For one that
+  doesn't, such as a workspace deleted since it was listed, it answers null. The object's
+  `backupRead` (`packages/sync-server/src/backup.ts`) takes only `SELECT` and `PRAGMA table_list`
+  or `table_info`, one statement each, and runs them together in one transaction that it always
+  rolls back. They see one moment, and nothing they run can change the workspace.
+- **Restoring** a workspace from a backup isn't built in. The backup's SQL restores into a SQLite
+  database, to read or to load by hand.
 
 ## Sync protocol
 

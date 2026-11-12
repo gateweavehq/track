@@ -40,6 +40,7 @@ import { z } from "zod";
 import migrations from "../drizzle/migrations";
 import { findArchivedIssues, findArchivedIssuesPage, findIssueDetails } from "./archive";
 import { nextAutomationsAt, runAutomations } from "./automations";
+import { type BackupRow, readForBackup } from "./backup";
 import { advanceCycles, nextCycleChange } from "./cycles";
 import * as schema from "./db/schema";
 import { forgetPerson } from "./forget";
@@ -687,6 +688,14 @@ export class WorkspaceDO extends DurableObject {
 	/** Follows a change of the workspace's slug, so webhook payloads link to the right place. */
 	relink(slug: string): void {
 		this.ctx.storage.transactionSync(() => renameLink(this.#db, z.string().min(1).parse(slug)));
+	}
+
+	/**
+	 * Reads for a backup of the workspace (backup.ts): the dump's statements run together and are
+	 * rolled back. Called by the app's backup entrypoint, which only a Worker bound to it reaches.
+	 */
+	backupRead(statements: string[]): BackupRow[][] {
+		return readForBackup(this.ctx.storage, statements);
 	}
 
 	/** Permanently deletes the workspace's data. Called after the workspace itself is deleted. */

@@ -340,6 +340,19 @@ them, emails of inbox news they leave unread. With email on, joining a workspace
 verified address. Serve Track over HTTPS (a `workers.dev` or custom domain is) so that those
 emails carry a one-click unsubscribe link: Email Service refuses one over HTTP.
 
+### Backups
+
+D1 has 30 days of Time Travel, restored in place. For copies you keep yourself, a backup Worker in
+the same account can read every workspace through the Worker's `Backup` entrypoint, which has no
+route; see Backups in [architecture.md](architecture.md#backups). Gateweave Backup binds to it
+with a service binding:
+
+```jsonc
+"services": [{ "binding": "TRACK", "service": "gateweave-track", "entrypoint": "Backup" }]
+```
+
+Your D1 database is backed up by binding it directly.
+
 ## When someone deletes their account
 
 People delete their own account on `/settings/account`, and their name, address and picture go
