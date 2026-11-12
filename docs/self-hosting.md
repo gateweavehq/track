@@ -429,3 +429,15 @@ the latest, end the third line with `node --input-type=module - --to v1.2.3`.
 
 Track is in early development. Read [CHANGELOG.md](../CHANGELOG.md) before updating, as some
 releases change how things work.
+
+### Checking a deployment
+
+The smoke tests check a live copy from outside, as a visitor's browser finds it: the sign-in page
+loads and works offline, accounts are looked up, and the sync gateway and `/mcp` turn away anyone
+without a session or a token. They sign in to nothing and change nothing, so they are safe to run
+against your production after each update. They need a checkout and a browser:
+
+```sh
+pnpm --filter @gateweave/track-web exec playwright install chromium   # once
+TRACK_SMOKE_URL=https://track.example.com pnpm test:smoke
+```

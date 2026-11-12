@@ -47,6 +47,7 @@ root unless noted.
 | `pnpm test`       | Run every test suite                                                         |
 | `pnpm test:e2e`   | Build, then run the browser tests (Playwright, Chromium) on port 4711        |
 | `pnpm test:perf`  | Build, then time a cached open and edit propagation against the budgets      |
+| `pnpm test:smoke` | Check a live deployment from outside (`TRACK_SMOKE_URL=https://…`)           |
 | `pnpm build`      | Production build                                                             |
 | `pnpm verify`     | Everything CI runs: check, typecheck, test, build                            |
 | `pnpm run deploy` | Build, apply D1 migrations, deploy (see `docs/self-hosting.md`)              |
@@ -158,6 +159,12 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
   Never loosen a budget to pass; find what got slower. `perf/machine-probe.mjs` runs beside the
   browsers and notes when the machine itself stalled, and each number says so, which tells a busy
   machine from a slower app.
+- `apps/web/smoke` holds the smoke tests, for a live deployment rather than a local build:
+  `TRACK_SMOKE_URL=https://track.example.com pnpm test:smoke`. They load the sign-in page and
+  install the service worker, and check that accounts are looked up and that the sync gateway and
+  `/mcp` turn away strangers. On the demo, they also open a sandbox and edit it live in two tabs.
+  They sign in to nothing and change nothing outside the demo. Gateweave Cloud's deploys run them
+  after staging, production and the demo; a failure on production stops the demo's deploy.
 - Every bug fix gets a test that fails without the fix. Never weaken or skip a test to make a
   change pass.
 
