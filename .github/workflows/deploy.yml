@@ -1,8 +1,8 @@
 name: Deploy
 
 # Gateweave Cloud's deploys. Every green build of main goes to staging, and publishing a release
-# deploys that tag to production, then to the public demo. Forks skip them all: they have no
-# Cloudflare credentials.
+# deploys that tag to production, then to the public demo. After each deploy, the smoke tests check
+# the live deployment from outside. Forks skip them all: they have no Cloudflare credentials.
 on:
   workflow_run:
     workflows: [CI]
@@ -45,6 +45,22 @@ jobs:
         run: pnpm --filter @gateweave/track-web db:migrate:staging
       - name: Deploy
         run: pnpm --filter @gateweave/track-web deploy:staging
+      # The deployment as a visitor finds it (apps/web/smoke). A failure here stops what comes after.
+      - name: Install Chromium
+        run: |
+          timeout 180 pnpm --filter @gateweave/track-web exec playwright install --with-deps chromium ||
+            pnpm --filter @gateweave/track-web exec playwright install chromium
+      - name: Smoke test
+        run: pnpm test:smoke
+        env:
+          TRACK_SMOKE_URL: https://track-staging.gateweave.com
+      - name: Upload the trace of a failed smoke test
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-staging
+          path: apps/web/test-results-smoke
+          retention-days: 7
 
   production:
     if: github.repository == 'gateweavehq/track' && github.event_name == 'release'
@@ -65,9 +81,25 @@ jobs:
       # `run` is needed: `pnpm deploy` is a built-in command.
       - name: Deploy
         run: pnpm --filter @gateweave/track-web run deploy
+      # The deployment as a visitor finds it (apps/web/smoke). A failure here stops what comes after.
+      - name: Install Chromium
+        run: |
+          timeout 180 pnpm --filter @gateweave/track-web exec playwright install --with-deps chromium ||
+            pnpm --filter @gateweave/track-web exec playwright install chromium
+      - name: Smoke test
+        run: pnpm test:smoke
+        env:
+          TRACK_SMOKE_URL: https://track.gateweave.com
+      - name: Upload the trace of a failed smoke test
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-production
+          path: apps/web/test-results-smoke
+          retention-days: 7
 
   # The demo follows production, so a visitor sees what a release shipped. A release that fails on
-  # production goes no further.
+  # production, in its deploy or its smoke test, goes no further.
   demo:
     if: github.repository == 'gateweavehq/track' && github.event_name == 'release'
     needs: production
@@ -89,3 +121,19 @@ jobs:
         run: pnpm --filter @gateweave/track-web db:migrate:demo
       - name: Deploy
         run: pnpm --filter @gateweave/track-web deploy:demo
+      # The deployment as a visitor finds it (apps/web/smoke). A failure here stops what comes after.
+      - name: Install Chromium
+        run: |
+          timeout 180 pnpm --filter @gateweave/track-web exec playwright install --with-deps chromium ||
+            pnpm --filter @gateweave/track-web exec playwright install chromium
+      - name: Smoke test
+        run: pnpm test:smoke
+        env:
+          TRACK_SMOKE_URL: https://track-demo.gateweave.com
+      - name: Upload the trace of a failed smoke test
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-demo
+          path: apps/web/test-results-smoke
+          retention-days: 7
