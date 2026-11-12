@@ -8,6 +8,28 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.32.0] - 2026-11-12
+
+A backup Worker in the same Cloudflare account can now back up every workspace. There is no
+migration in this release, and nothing changes until such a Worker binds to it.
+
+### New
+
+- **A way in for backups.** D1 can be backed up from outside the Worker, but a workspace's Durable
+  Object can't: only Track's own code reads its SQLite. The Worker now exports a named entrypoint,
+  `Backup`, for a backup Worker such as Gateweave Backup's. It lists the workspaces and runs a SQLite
+  dump's reads in one, inside a transaction it always rolls back, so a backup sees one moment and
+  can change nothing. It has no route: only a Worker in the same account with a service binding to
+  it can call it. A name that isn't a workspace answers null, so a backup never makes an empty
+  one. ([#272])
+
+### If you run your own
+
+- **To back up your workspaces,** bind a backup Worker to the entrypoint
+  (`"services": [{ "binding": "TRACK", "service": "<your Worker>", "entrypoint": "Backup" }]`); see
+  Backups in `docs/self-hosting.md`. The copies it makes hold your workspaces' issues and comments:
+  keep them as you keep the database.
+
 ## [0.31.0] - 2026-11-11
 
 The person who runs a server can now close sign-up and keep a list of who may make an account.
@@ -1398,6 +1420,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.32.0]: https://github.com/gateweavehq/track/releases/tag/v0.32.0
 [0.31.0]: https://github.com/gateweavehq/track/releases/tag/v0.31.0
 [0.30.7]: https://github.com/gateweavehq/track/releases/tag/v0.30.7
 [0.30.6]: https://github.com/gateweavehq/track/releases/tag/v0.30.6
@@ -1468,6 +1491,7 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#272]: https://github.com/gateweavehq/track/pull/272
 [#269]: https://github.com/gateweavehq/track/pull/269
 [#266]: https://github.com/gateweavehq/track/pull/266
 [#265]: https://github.com/gateweavehq/track/pull/265
