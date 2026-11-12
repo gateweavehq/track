@@ -561,7 +561,8 @@ code reads its SQLite. So the Worker exports a named entrypoint, `Backup`
 - **`objects(cursor)`** lists the workspaces' ids from D1, 100 at a time. Deleted workspaces
   aren't listed.
 - **`read(id, statements)`** runs the SELECTs of a SQLite dump in the workspace's object, after
-  checking in D1 that the workspace exists, so a backup never makes an empty object. The object's
+  checking in D1 that the workspace exists, so a backup never makes an empty object. For one that
+  doesn't, such as a workspace deleted since it was listed, it answers null. The object's
   `backupRead` (`packages/sync-server/src/backup.ts`) takes only `SELECT` and `PRAGMA table_list`
   or `table_info`, one statement each, and runs them together in one transaction that it always
   rolls back. They see one moment, and nothing they run can change the workspace.

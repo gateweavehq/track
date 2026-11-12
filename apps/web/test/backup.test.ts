@@ -81,7 +81,7 @@ describe("the Backup entrypoint", () => {
 		});
 	});
 
-	it("refuses a write, and a name that isn't a workspace", async () => {
+	it("refuses a write, and answers null for a name that isn't a workspace", async () => {
 		const workspace = await createWorkspace("203.0.113.171", "read-only");
 		const write = await track.backup("read", workspace.id, ["DELETE FROM teams"]);
 		expect(write.error).toMatch(/^The workspace refused the backup's read\. A backup only reads/);
@@ -90,7 +90,7 @@ describe("the Backup entrypoint", () => {
 
 		const stranger = crypto.randomUUID();
 		const missing = await track.backup("read", stranger, ["SELECT 1 AS one"]);
-		expect(missing.error).toBe("There is no workspace of that name.");
+		expect(missing).toEqual({ result: null });
 	});
 
 	it("pages through the workspaces in order", async () => {

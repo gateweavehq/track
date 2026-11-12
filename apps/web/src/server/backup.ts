@@ -15,8 +15,9 @@ const workspaceId = z.string().min(1).max(200);
  * each one's Durable Object with the SELECTs of a SQLite dump, which the object runs together and
  * rolls back. A named entrypoint has no route: only a Worker in the same account with a service
  * binding to it can call it, so that binding is the access, the way the gateways' checks are for
- * people and agents. Deleted workspaces aren't listed, and a name that isn't a workspace is refused
- * before any object is reached, so a backup never makes an empty one.
+ * people and agents. Deleted workspaces aren't listed, and a name that isn't a workspace answers null
+ * before any object is reached, so a backup never makes an empty one and can tell a workspace
+ * deleted since it was listed from a failed read.
  */
 export class Backup extends WorkerEntrypoint<Env> {
 	/** The workspaces' ids, in order, a page at a time: pass back `cursor` for the next page. */
@@ -33,15 +34,15 @@ export class Backup extends WorkerEntrypoint<Env> {
 		return rows.length > PAGE && last ? { names, cursor: last } : { names };
 	}
 
-	/** Runs a backup's reads in one workspace's Durable Object. */
-	async read(name: string, statements: string[]): Promise<BackupRow[][]> {
+	/** Runs a backup's reads in one workspace's Durable Object, or answers null if there is none. */
+	async read(name: string, statements: string[]): Promise<BackupRow[][] | null> {
 		const id = workspaceId.parse(name);
 		const found = await createDb(this.env.DB)
 			.select({ id: schema.organization.id })
 			.from(schema.organization)
 			.where(eq(schema.organization.id, id))
 			.get();
-		if (!found) throw new Error("There is no workspace of that name.");
+		if (!found) return null;
 		return workspaceStub(id).backupRead(statements);
 	}
 }
