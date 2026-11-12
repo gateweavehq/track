@@ -8,6 +8,32 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.33.0] - 2026-11-12
+
+Track can now send notifications to people's phones and computers. This release has two
+migrations, one in D1 and one in each workspace, and push stays off until the server has a key for
+it.
+
+### New
+
+- **Push notifications.** Anyone can turn on push in Settings, Notifications, on each phone or
+  computer they use Track on. News from their inbox that they get by email then also reaches those
+  devices as it happens, one notification per issue, and a click opens the issue. News read in Track
+  first is not pushed, and the email still follows ten minutes later if it stays unread. Each
+  message is encrypted so that only that browser can read it, and passes through the browser's own
+  push service: Google's for Chrome, Mozilla's for Firefox, Apple's for Safari, Microsoft's for Edge.
+  Signing out on a device turns push off there. On iPhone and iPad, push works once Track is added
+  to the Home Screen. ([#274])
+
+### If you run your own
+
+- **To turn push on,** make the key your server signs pushes with and set it in one go, so it is
+  never shown: `node apps/web/scripts/push-key.mjs | pnpm wrangler secret put PUSH_VAPID_KEY`.
+  Keep the key: a new one makes everyone turn push on again on each device. Name the browsers' push
+  services in your privacy policy; see Push notifications in `docs/self-hosting.md`.
+- `pnpm run deploy` applies the D1 migration (`0014_push_subscription`). Each workspace adds its
+  own column when it next wakes.
+
 ## [0.32.0] - 2026-11-12
 
 A backup Worker in the same Cloudflare account can now back up every workspace. There is no
@@ -1420,6 +1446,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.33.0]: https://github.com/gateweavehq/track/releases/tag/v0.33.0
 [0.32.0]: https://github.com/gateweavehq/track/releases/tag/v0.32.0
 [0.31.0]: https://github.com/gateweavehq/track/releases/tag/v0.31.0
 [0.30.7]: https://github.com/gateweavehq/track/releases/tag/v0.30.7
@@ -1491,6 +1518,7 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#274]: https://github.com/gateweavehq/track/pull/274
 [#272]: https://github.com/gateweavehq/track/pull/272
 [#269]: https://github.com/gateweavehq/track/pull/269
 [#266]: https://github.com/gateweavehq/track/pull/266
