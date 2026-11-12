@@ -3,12 +3,18 @@ import {
 	type Activity,
 	type ArchivedIssues,
 	type ArchivedIssuesPage,
+	type AuditAction,
+	type AuditDetail,
+	type AuditPage,
+	type AuditTarget,
 	archivedIssuesPageRequest,
 	archivedIssuesRequest,
+	auditPageRequest,
 	CloseCode,
 	type Comment,
 	clientMessage,
 	type GitHubConnection,
+	gatewayAuditEvent,
 	type HelloMessage,
 	type Issue,
 	type IssueDetails,
@@ -39,6 +45,16 @@ import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { z } from "zod";
 import migrations from "../drizzle/migrations";
 import { findArchivedIssues, findArchivedIssuesPage, findIssueDetails } from "./archive";
+import {
+	findGitHubRow,
+	findWebhookRow,
+	githubTarget,
+	pruneAudit,
+	readAuditPage,
+	recordAudit,
+	webhookChanges,
+	webhookTarget,
+} from "./audit";
 import { nextAutomationsAt, runAutomations } from "./automations";
 import { type BackupRow, readForBackup } from "./backup";
 import { advanceCycles, nextCycleChange } from "./cycles";
@@ -475,7 +491,10 @@ export class WorkspaceDO extends DurableObject {
 	): WebhookResult<{ webhook: Webhook; secret: string }> {
 		return this.#manage(member, () => {
 			saveLink(this.#db, link);
-			return createWebhook(this.#db, link, input, Date.now());
+			const now = Date.now();
+			const created = createWebhook(this.#db, link, input, now);
+			this.#audit(member, "webhook.created", webhookTarget(created.webhook), now);
+			return created;
 		});
 	}
 
@@ -487,19 +506,33 @@ export class WorkspaceDO extends DurableObject {
 	): WebhookResult<Webhook> {
 		return this.#manage(member, () => {
 			saveLink(this.#db, link);
-			return updateWebhook(this.#db, link, shortId.parse(id), patch, Date.now());
+			const now = Date.now();
+			const before = findWebhookRow(this.#db, shortId.parse(id));
+			const webhook = updateWebhook(this.#db, link, shortId.parse(id), patch, now);
+			for (const change of before ? webhookChanges(before, webhook) : []) {
+				this.#audit(member, "webhook.updated", webhookTarget(webhook), now, change);
+			}
+			return webhook;
 		});
 	}
 
 	deleteWebhook(member: MemberProfile, id: string): WebhookResult<null> {
 		return this.#manage(member, () => {
+			const before = findWebhookRow(this.#db, shortId.parse(id));
 			deleteWebhook(this.#db, shortId.parse(id));
+			if (before) this.#audit(member, "webhook.deleted", webhookTarget(before), Date.now());
 			return null;
 		});
 	}
 
 	rotateWebhookSecret(member: MemberProfile, id: string): WebhookResult<string> {
-		return this.#manage(member, () => rotateSecret(this.#db, shortId.parse(id), Date.now()));
+		return this.#manage(member, () => {
+			const now = Date.now();
+			const secret = rotateSecret(this.#db, shortId.parse(id), now);
+			const webhook = findWebhookRow(this.#db, shortId.parse(id));
+			if (webhook) this.#audit(member, "webhook.secretRotated", webhookTarget(webhook), now);
+			return secret;
+		});
 	}
 
 	/** Sends the webhook a `webhook.test` event. */
@@ -527,7 +560,13 @@ export class WorkspaceDO extends DurableObject {
 	): WebhookResult<{ connection: GitHubConnection; secret: string }> {
 		return this.#manage(
 			member,
-			() => createGitHubConnection(this.#db, member.id, Date.now()),
+			() => {
+				const now = Date.now();
+				const created = createGitHubConnection(this.#db, member.id, now);
+				const row = findGitHubRow(this.#db, created.connection.id);
+				if (row) this.#audit(member, "github.connected", githubTarget(row), now, { app: false });
+				return created;
+			},
 			"GitHub connections",
 		);
 	}
@@ -543,7 +582,19 @@ export class WorkspaceDO extends DurableObject {
 		const { id, account } = githubInstallation.parse(installation);
 		return this.#manage(
 			member,
-			() => connectGitHubApp(this.#db, { id, account }, member.id, Date.now()),
+			() => {
+				const now = Date.now();
+				// Connecting one that is already connected keeps it, and is no news.
+				const known = this.#db
+					.select({ id: schema.githubConnections.id })
+					.from(schema.githubConnections)
+					.where(eq(schema.githubConnections.installationId, id))
+					.get();
+				const connection = connectGitHubApp(this.#db, { id, account }, member.id, now);
+				const row = known ? undefined : findGitHubRow(this.#db, connection.id);
+				if (row) this.#audit(member, "github.connected", githubTarget(row), now, { app: true });
+				return connection;
+			},
 			"GitHub connections",
 		);
 	}
@@ -551,7 +602,12 @@ export class WorkspaceDO extends DurableObject {
 	rotateGitHubSecret(member: MemberProfile, id: string): WebhookResult<string> {
 		return this.#manage(
 			member,
-			() => rotateGitHubSecret(this.#db, shortId.parse(id)),
+			() => {
+				const secret = rotateGitHubSecret(this.#db, shortId.parse(id));
+				const row = findGitHubRow(this.#db, shortId.parse(id));
+				if (row) this.#audit(member, "github.secretRotated", githubTarget(row), Date.now());
+				return secret;
+			},
 			"GitHub connections",
 		);
 	}
@@ -560,11 +616,39 @@ export class WorkspaceDO extends DurableObject {
 		return this.#manage(
 			member,
 			() => {
+				const row = findGitHubRow(this.#db, shortId.parse(id));
 				deleteGitHubConnection(this.#db, shortId.parse(id));
+				if (row) this.#audit(member, "github.disconnected", githubTarget(row), Date.now());
 				return null;
 			},
 			"GitHub connections",
 		);
+	}
+
+	// RPC for the audit log (audit.ts). The workspace records most events itself; the gateway
+	// reports the changes made in the app's database: people, invitations, agents, the workspace.
+
+	/** Keeps an event the gateway reports, after its change was made. False for an invalid one. */
+	audit(event: unknown): boolean {
+		const parsed = gatewayAuditEvent.safeParse(event);
+		if (!parsed.success) return false;
+		this.ctx.storage.transactionSync(() => recordAudit(this.#db, parsed.data, Date.now()));
+		return true;
+	}
+
+	/** A page of the audit log, the newest first, for admins. Nothing is written. */
+	auditLog(member: MemberProfile, input: unknown): WebhookResult<AuditPage> {
+		const request = auditPageRequest.safeParse(input);
+		if (!request.success) return { ok: false, reason: "invalid", message: "Invalid page" };
+		const row = activeMember(this.#db, memberProfile.parse(member).id);
+		if (!row || !isAdminRole(row.role)) {
+			return {
+				ok: false,
+				reason: "forbidden",
+				message: "Only workspace admins can read the audit log",
+			};
+		}
+		return { ok: true, value: readAuditPage(this.#db, request.data.before) };
 	}
 
 	// RPC for a person's own notification settings. Agents have none: webhooks tell them.
@@ -786,6 +870,7 @@ export class WorkspaceDO extends DurableObject {
 			this.ctx.storage.transactionSync(() => {
 				compact(this.#db, now, RETENTION);
 				pruneDeliveries(this.#db, now);
+				pruneAudit(this.#db, now);
 				const value = String(now + COMPACTION_INTERVAL_MS);
 				this.#db
 					.insert(schema.meta)
@@ -942,6 +1027,17 @@ export class WorkspaceDO extends DurableObject {
 			return { ok: false, reason: "forbidden", message: "Agents have no notifications" };
 		}
 		return { ok: true, value: this.ctx.storage.transactionSync(() => fn(profile.id)) };
+	}
+
+	/** Records an admin's change to the workspace's integrations, inside its transaction. */
+	#audit(
+		member: MemberProfile,
+		action: AuditAction,
+		target: AuditTarget,
+		now: number,
+		detail?: AuditDetail,
+	): void {
+		recordAudit(this.#db, { actorId: member.id, action, target, ...(detail && { detail }) }, now);
 	}
 
 	/**

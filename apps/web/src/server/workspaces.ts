@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import type { MemberRole, PersonRole } from "@gateweave/track-protocol";
+import type { GatewayAuditEvent, MemberRole, PersonRole } from "@gateweave/track-protocol";
 import type { MemberProfile } from "@gateweave/track-sync-server";
 import { and, eq, gt } from "drizzle-orm";
 import type { Database } from "./db";
@@ -90,6 +90,13 @@ export async function syncMembership(db: Database, workspaceId: string, userId: 
 	const stub = workspaceStub(workspaceId);
 	if (row) await stub.syncMember(toProfile(row));
 	else await stub.removeMember(userId);
+}
+
+/** Tells a workspace of a change made in D1, for its audit log. */
+export async function reportAudit(workspaceId: string, event: GatewayAuditEvent) {
+	if (!(await workspaceStub(workspaceId).audit(event))) {
+		console.error(`audit: the workspace refused a ${event.action} event`);
+	}
 }
 
 /** Pushes a user's profile to every workspace they belong to. */

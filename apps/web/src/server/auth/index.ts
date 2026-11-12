@@ -7,6 +7,7 @@ import { allowPasswordTry, allowSpentTriesEmail, authRateLimits } from "../rate-
 import {
 	deleteWorkspaceFiles,
 	endSessionsEverywhere,
+	reportAudit,
 	syncMembership,
 	syncUserEverywhere,
 	workspaceStub,
@@ -85,6 +86,8 @@ function buildAuth() {
 			logFailure(forgetInWorkspaces(db, userId), "forgetting a deleted account"),
 		onWorkspaceRenamed: (workspaceId, slug) =>
 			logFailure(workspaceStub(workspaceId).relink(slug), "workspace rename"),
+		// The change is made; an event that does not arrive is lost, and said so in the logs.
+		onAudit: (workspaceId, event) => logFailure(reportAudit(workspaceId, event), "audit log"),
 		demo: demoEnabled(),
 		mailer: demoEnabled() ? undefined : mailer,
 		runInBackground: waitUntil,

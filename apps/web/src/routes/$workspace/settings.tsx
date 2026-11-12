@@ -12,6 +12,7 @@ const TABS = [
 	{ to: "/$workspace/settings/templates", label: "Templates" },
 	{ to: "/$workspace/settings/webhooks", label: "Webhooks" },
 	{ to: "/$workspace/settings/github", label: "GitHub" },
+	{ to: "/$workspace/settings/audit", label: "Audit log" },
 	{ to: "/$workspace/settings/import", label: "Import" },
 	{ to: "/$workspace/settings/export", label: "Export" },
 	{ to: "/$workspace/settings/notifications", label: "Notifications" },

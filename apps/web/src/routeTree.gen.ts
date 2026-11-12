@@ -28,6 +28,7 @@ import { Route as WorkspaceIssueIssueKeyRouteImport } from './routes/$workspace/
 import { Route as WorkspaceProjectProjectIdRouteImport } from './routes/$workspace/project.$projectId'
 import { Route as WorkspaceSettingsIndexRouteImport } from './routes/$workspace/settings.index'
 import { Route as WorkspaceSettingsAgentsRouteImport } from './routes/$workspace/settings.agents'
+import { Route as WorkspaceSettingsAuditRouteImport } from './routes/$workspace/settings.audit'
 import { Route as WorkspaceSettingsExportRouteImport } from './routes/$workspace/settings.export'
 import { Route as WorkspaceSettingsGithubRouteImport } from './routes/$workspace/settings.github'
 import { Route as WorkspaceSettingsImportRouteImport } from './routes/$workspace/settings.import'
@@ -140,6 +141,11 @@ const WorkspaceSettingsIndexRoute = WorkspaceSettingsIndexRouteImport.update({
 const WorkspaceSettingsAgentsRoute = WorkspaceSettingsAgentsRouteImport.update({
   id: '/agents',
   path: '/agents',
+  getParentRoute: () => WorkspaceSettingsRoute,
+} as any)
+const WorkspaceSettingsAuditRoute = WorkspaceSettingsAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
   getParentRoute: () => WorkspaceSettingsRoute,
 } as any)
 const WorkspaceSettingsExportRoute = WorkspaceSettingsExportRouteImport.update({
@@ -256,6 +262,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
   '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
+  '/$workspace/settings/audit': typeof WorkspaceSettingsAuditRoute
   '/$workspace/settings/export': typeof WorkspaceSettingsExportRoute
   '/$workspace/settings/github': typeof WorkspaceSettingsGithubRoute
   '/$workspace/settings/import': typeof WorkspaceSettingsImportRoute
@@ -292,6 +299,7 @@ export interface FileRoutesByTo {
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
   '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
+  '/$workspace/settings/audit': typeof WorkspaceSettingsAuditRoute
   '/$workspace/settings/export': typeof WorkspaceSettingsExportRoute
   '/$workspace/settings/github': typeof WorkspaceSettingsGithubRoute
   '/$workspace/settings/import': typeof WorkspaceSettingsImportRoute
@@ -331,6 +339,7 @@ export interface FileRoutesById {
   '/$workspace/issue/$issueKey': typeof WorkspaceIssueIssueKeyRoute
   '/$workspace/project/$projectId': typeof WorkspaceProjectProjectIdRoute
   '/$workspace/settings/agents': typeof WorkspaceSettingsAgentsRoute
+  '/$workspace/settings/audit': typeof WorkspaceSettingsAuditRoute
   '/$workspace/settings/export': typeof WorkspaceSettingsExportRoute
   '/$workspace/settings/github': typeof WorkspaceSettingsGithubRoute
   '/$workspace/settings/import': typeof WorkspaceSettingsImportRoute
@@ -371,6 +380,7 @@ export interface FileRouteTypes {
     | '/$workspace/issue/$issueKey'
     | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
+    | '/$workspace/settings/audit'
     | '/$workspace/settings/export'
     | '/$workspace/settings/github'
     | '/$workspace/settings/import'
@@ -407,6 +417,7 @@ export interface FileRouteTypes {
     | '/$workspace/issue/$issueKey'
     | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
+    | '/$workspace/settings/audit'
     | '/$workspace/settings/export'
     | '/$workspace/settings/github'
     | '/$workspace/settings/import'
@@ -445,6 +456,7 @@ export interface FileRouteTypes {
     | '/$workspace/issue/$issueKey'
     | '/$workspace/project/$projectId'
     | '/$workspace/settings/agents'
+    | '/$workspace/settings/audit'
     | '/$workspace/settings/export'
     | '/$workspace/settings/github'
     | '/$workspace/settings/import'
@@ -612,6 +624,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceSettingsAgentsRouteImport
       parentRoute: typeof WorkspaceSettingsRoute
     }
+    '/$workspace/settings/audit': {
+      id: '/$workspace/settings/audit'
+      path: '/audit'
+      fullPath: '/$workspace/settings/audit'
+      preLoaderRoute: typeof WorkspaceSettingsAuditRouteImport
+      parentRoute: typeof WorkspaceSettingsRoute
+    }
     '/$workspace/settings/export': {
       id: '/$workspace/settings/export'
       path: '/export'
@@ -736,6 +755,7 @@ declare module '@tanstack/react-router' {
 
 interface WorkspaceSettingsRouteChildren {
   WorkspaceSettingsAgentsRoute: typeof WorkspaceSettingsAgentsRoute
+  WorkspaceSettingsAuditRoute: typeof WorkspaceSettingsAuditRoute
   WorkspaceSettingsExportRoute: typeof WorkspaceSettingsExportRoute
   WorkspaceSettingsGithubRoute: typeof WorkspaceSettingsGithubRoute
   WorkspaceSettingsImportRoute: typeof WorkspaceSettingsImportRoute
@@ -750,6 +770,7 @@ interface WorkspaceSettingsRouteChildren {
 
 const WorkspaceSettingsRouteChildren: WorkspaceSettingsRouteChildren = {
   WorkspaceSettingsAgentsRoute: WorkspaceSettingsAgentsRoute,
+  WorkspaceSettingsAuditRoute: WorkspaceSettingsAuditRoute,
   WorkspaceSettingsExportRoute: WorkspaceSettingsExportRoute,
   WorkspaceSettingsGithubRoute: WorkspaceSettingsGithubRoute,
   WorkspaceSettingsImportRoute: WorkspaceSettingsImportRoute,

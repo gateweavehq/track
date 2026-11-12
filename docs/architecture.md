@@ -139,6 +139,34 @@ them to any member through two endpoints, which would let a member pick up an ad
 
 The public invite page only describes pending invitations that have not expired.
 
+### Audit log
+
+Admins read who changed the workspace, and when, in Settings → Audit log. It lives in the
+workspace's Durable Object, in `audit_events` (`packages/sync-server/src/audit.ts`), and the
+actions it knows are listed in `packages/protocol/src/audit.ts`. Rows are only added.
+
+- **Changes the object makes** are recorded in the same transaction: `applyMutation` reads what a
+  followed mutation will change before it runs and records what changed after, so a refused or
+  idle mutation records nothing. That covers teams (name, key, cycles, automations, request form
+  and intake email), statuses, deleted labels, projects and issues, someone else's comment deleted,
+  and what an agent must propose. The RPCs for webhooks and GitHub connections record theirs.
+- **Changes made in D1**, to people, invitations, agents and the workspace itself, are reported by
+  the app through the object's `audit` RPC, which takes only those actions. Better Auth's
+  organization hooks are told whom a change was done to but not who did it, so the global after
+  hook in `apps/web/src/server/auth/config.ts` makes the event from the session and what the path
+  answered (`apps/web/src/server/auth/audit.ts`); a before hook reads the role or name being
+  replaced. The agent members plugin reports its own. The report goes after the response; one that
+  fails is logged and lost, since the change it describes is already made.
+- **What it keeps.** Ids for members, named from the member rows when the log is read, so someone
+  who deleted their account reads as "Deleted member". A label taken at the time for things that
+  can go: a team's or status's name, an issue's key but never its title, a webhook's host but
+  never the rest of its URL, which can be its secret, and the address an invitation went to.
+  `forgetPerson` clears the addresses of invitations to someone who deleted their account.
+- **Who reads it.** Admins only: `auditLog` checks `isAdminRole` itself, a page of 50 at a time,
+  the newest first. It is not synced, so it needs no protocol version.
+- **How long.** A year, pruned with the oplog's [compaction](#compaction). It goes with the
+  workspace when it is deleted, and is in its backups.
+
 ### Who runs this server
 
 Sign-up is open on a new server, as it always was. The one who runs a server, its owner, can close
@@ -228,7 +256,8 @@ day anyway.
   - The member row stays, because the ids on what they did resolve to it, as "Deleted member" with
     no address or picture, marked removed. `upsertMember` leaves such a row alone, so a push that
     was already on its way cannot bring the name back.
-  - Their subscriptions, inbox, notification settings and intake following go.
+  - Their subscriptions, inbox, notification settings and intake following go, and the
+    [audit log](#audit-log) forgets the address they were invited at.
   - Mentions of them are renamed in descriptions, comments, project descriptions and updates,
     templates, proposals, the copies of proposals in other people's inboxes, and replies waiting
     to reach a requester. The Markdown holds the name as written, so showing the current name
@@ -1796,7 +1825,7 @@ imports, so validation, permissions and fan-out are the ordinary ones.
 The alarm compacts the oplog every six hours. Ops are dropped only when they are both older than
 30 days **and** more than 10,000 versions behind the head. The highest dropped version becomes
 the floor, and clients behind it get `reset`. Recorded mutation ids are pruned on the same
-schedule, as are finished webhook deliveries. The same alarm sends webhooks, moves cycles on and
+schedule, as are finished webhook deliveries and audit events older than a year. The same alarm sends webhooks, moves cycles on and
 runs teams' automations, so it also runs whenever a delivery is due, a team's cycle starts or ends,
 or automations are; when compaction is next due is kept in the `meta` table.
 
