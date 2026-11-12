@@ -126,15 +126,20 @@ export function auditEventOf(
 			const workspace = answers[path].safeParse(answer);
 			if (!workspace.success) return null;
 			const { id, name, slug } = workspace.data;
+			// Only what the request asked to change, as what it replaced may not be known.
+			const asked = z
+				.object({ data: z.object({ name: z.unknown(), slug: z.unknown() }).partial() })
+				.safeParse(body);
+			const data = asked.success ? asked.data.data : {};
 			const detail: Record<string, string> = {};
-			if (replaced?.name !== name) {
+			if ("name" in data && replaced?.name !== name) {
 				Object.assign(
 					detail,
 					{ name },
 					replaced?.name !== undefined && { previousName: replaced.name },
 				);
 			}
-			if (replaced?.slug !== slug) {
+			if ("slug" in data && replaced?.slug !== slug) {
 				Object.assign(
 					detail,
 					{ slug },

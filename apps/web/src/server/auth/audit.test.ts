@@ -59,8 +59,10 @@ describe("audit events from Better Auth's answers", () => {
 	it("records what a workspace was called and where it was, as it changes", () => {
 		const answer = { id: "ws-1", name: "Acme", slug: "acme-inc" };
 		const path = "/organization/update";
+		const body = { data: { name: "Acme", slug: "acme-inc" } };
 		expect(
-			auditEventOf(path, answer, "user-ola", { replaced: { name: "Acme", slug: "acme" } })?.event,
+			auditEventOf(path, answer, "user-ola", { body, replaced: { name: "Acme", slug: "acme" } })
+				?.event,
 		).toEqual({
 			actorId: "user-ola",
 			action: "workspace.updated",
@@ -68,8 +70,16 @@ describe("audit events from Better Auth's answers", () => {
 			detail: { slug: "acme-inc", previousSlug: "acme" },
 		});
 		expect(
-			auditEventOf(path, answer, "user-ola", { replaced: { name: "Acme", slug: "acme-inc" } }),
+			auditEventOf(path, answer, "user-ola", {
+				body,
+				replaced: { name: "Acme", slug: "acme-inc" },
+			}),
 		).toBeNull();
+		// What it replaced unknown, only what was asked for is said to have changed.
+		expect(
+			auditEventOf(path, answer, "user-ola", { body: { data: { slug: "acme-inc" } } })?.event
+				.detail,
+		).toEqual({ slug: "acme-inc" });
 	});
 
 	it("records nothing for a path that answered with an error", () => {
