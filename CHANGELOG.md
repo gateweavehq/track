@@ -8,6 +8,31 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.34.0] - 2026-11-13
+
+Admins can now see who changed their workspace, and when. Each workspace adds the table for it
+itself when it next wakes; there is no D1 migration in this release.
+
+### New
+
+- **Audit log.** Settings has a new Audit log page for admins. It lists who invited, removed or
+  promoted whom, who joined or left, who added, renamed or deleted an agent or made or revoked its
+  keys, who changed a team's name, key, cycles, automations, request form or intake email, who
+  changed statuses, webhooks or GitHub connections, and who deleted labels, projects, issues or
+  someone else's comment. The newest come first. The log keeps a deleted issue's key but not its
+  title, and a webhook's host but not the rest of its address. It names people as the workspace
+  knows them now, so someone who deleted their account appears as "Deleted member". Entries are
+  kept for a year. Only admins can read it. ([#277])
+
+### If you run your own
+
+- The log holds the addresses invitations went to, for a year. If your privacy policy lists what
+  Track keeps, add it; see Audit log in `docs/architecture.md`.
+- Deploys can now check themselves. `pnpm test:smoke` with `TRACK_SMOKE_URL` set opens a
+  deployment from outside and checks that sign-in, the service worker, sync and `/mcp` answer as
+  they should. Gateweave Cloud's deploys run it after each environment goes live; see Checking a
+  deployment in `docs/self-hosting.md`. ([#276])
+
 ## [0.33.0] - 2026-11-12
 
 Track can now send notifications to people's phones and computers. This release has two
@@ -1446,6 +1471,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.34.0]: https://github.com/gateweavehq/track/releases/tag/v0.34.0
 [0.33.0]: https://github.com/gateweavehq/track/releases/tag/v0.33.0
 [0.32.0]: https://github.com/gateweavehq/track/releases/tag/v0.32.0
 [0.31.0]: https://github.com/gateweavehq/track/releases/tag/v0.31.0
@@ -1518,6 +1544,8 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#277]: https://github.com/gateweavehq/track/pull/277
+[#276]: https://github.com/gateweavehq/track/pull/276
 [#274]: https://github.com/gateweavehq/track/pull/274
 [#272]: https://github.com/gateweavehq/track/pull/272
 [#269]: https://github.com/gateweavehq/track/pull/269
