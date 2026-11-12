@@ -62,6 +62,12 @@ declare namespace Cloudflare {
 		 * page links to it as "Ask for access". Left out when unset or not an https address.
 		 */
 		SIGN_UP_REQUEST_URL?: string;
+		/**
+		 * The key this server signs push notifications with (VAPID): a P-256 private key as a JWK,
+		 * which `node apps/web/scripts/push-key.mjs` makes. Push is off when unset. Changing it
+		 * makes every browser turn push on again.
+		 */
+		PUSH_VAPID_KEY?: string;
 		/** "1" on the public demo deployment only (the `demo` environment in wrangler.jsonc). */
 		TRACK_DEMO?: string;
 	}

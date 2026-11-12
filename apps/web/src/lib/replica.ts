@@ -1,5 +1,6 @@
 import { deleteIdbReplica, deleteIdbReplicas } from "@gateweave/track-sync-client";
 import { forgetAllWorkspaces, forgetKnownWorkspace } from "./offline";
+import { forgetPushHere } from "./push-device";
 import { deleteOutboxDatabase, uploadOutbox } from "./upload-outbox";
 
 /** Where this browser stores a user's copy of a workspace. Ids, so a renamed workspace keeps it. */
@@ -26,5 +27,9 @@ export async function forgetEverything(): Promise<void> {
 	await uploadOutbox()
 		.clear()
 		.catch(() => {});
-	await Promise.all([deleteIdbReplicas().catch(() => {}), deleteOutboxDatabase()]);
+	await Promise.all([
+		deleteIdbReplicas().catch(() => {}),
+		deleteOutboxDatabase(),
+		forgetPushHere().catch(() => {}),
+	]);
 }

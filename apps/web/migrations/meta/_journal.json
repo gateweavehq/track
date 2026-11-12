@@ -99,6 +99,13 @@
       "when": 1794427663280,
       "tag": "0013_sign_up_pass_and_owner",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1794516274998,
+      "tag": "0014_push_subscription",
+      "breakpoints": true
     }
   ]
 }

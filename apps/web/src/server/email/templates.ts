@@ -130,11 +130,11 @@ export function inboxDigestEmail({
 	const [only] = items;
 	const subject =
 		items.length === 1 && only
-			? summary(only, `${only.key}: ${clip(only.title, 80)}`)
+			? newsLine(only, `${only.key}: ${clip(only.title, 80)}`)
 			: `${items.length} updates in ${space}`;
 	const sections = items.map((item) => {
 		const title = `${item.key} ${clip(item.title, 120)}`;
-		const line = summary(item, item.key) + (item.unread > 1 ? ` · ${item.unread} updates` : "");
+		const line = newsLine(item, item.key) + (item.unread > 1 ? ` · ${item.unread} updates` : "");
 		const quote = item.comment === null ? null : clip(item.comment, 280);
 		const quoteHtml = quote
 			? `\n<p style="margin:8px 0 0;padding-left:12px;border-left:3px solid #e5e5e5;color:#404040">${escapeHtml(quote)}</p>`
@@ -210,7 +210,11 @@ export function requestDecisionEmail({
 	});
 }
 
-function summary(item: DigestEntry, issue: string): string {
+/** One line on what happened to an issue, as the inbox email and a push notification say it. */
+export function newsLine(
+	item: Pick<DigestEntry, "event" | "actor" | "statusName">,
+	issue: string,
+): string {
 	const actor = clip(item.actor, 60);
 	switch (item.event.type) {
 		case "assigned":
@@ -306,7 +310,8 @@ function oneLine(value: string): string {
 	return value.replace(/\s+/g, " ").trim();
 }
 
-function clip(value: string, max: number): string {
+/** The value on one line, cut to `max` characters with an ellipsis. */
+export function clip(value: string, max: number): string {
 	const line = oneLine(value);
 	return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }

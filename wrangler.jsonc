@@ -42,7 +42,7 @@
 	// Files attached to descriptions and comments. The bucket is created on first deploy; without
 	// this binding Track runs with attachments off.
 	"r2_buckets": [{ "binding": "FILES", "bucket_name": "gateweave-track-files" }],
-	// Optional: GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, BETTER_AUTH_URL, EMAIL_FROM,
+	// Optional: GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, BETTER_AUTH_URL, EMAIL_FROM, PUSH_VAPID_KEY,
 	// TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY, INTAKE_EMAIL_DOMAIN, SIGN_UP_REQUEST_URL, which
 	// the sign-in page links to as "Ask for access" while the owner has closed sign-up (see
 	// apps/web/src/server/env.d.ts).

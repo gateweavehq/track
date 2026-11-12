@@ -119,6 +119,7 @@ updating. A site key missing there means the request forms were not open.
 | `GITHUB_APP_CLIENT_SECRET`  | The GitHub App's client secret.                                               |
 | `GITHUB_APP_WEBHOOK_SECRET` | The secret that signs the GitHub App's deliveries.                            |
 | `EMAIL_FROM`                | Turns on email, such as `Gateweave Track <track@example.com>`.                |
+| `PUSH_VAPID_KEY`            | Turns on push notifications. A secret; see below.                             |
 | `ATTACHMENT_QUOTA_MB`       | Limits each workspace's attached files, such as `1024`. Unset or blank: none. |
 | `LEGAL_NOTICE_URL`          | The address of your legal notice. See below.                                  |
 | `PRIVACY_POLICY_URL`        | The address of your privacy policy.                                           |
@@ -339,6 +340,22 @@ Track then sends password resets, address verification, invitations and, to peop
 them, emails of inbox news they leave unread. With email on, joining a workspace requires a
 verified address. Serve Track over HTTPS (a `workers.dev` or custom domain is) so that those
 emails carry a one-click unsubscribe link: Email Service refuses one over HTTP.
+
+### Push notifications
+
+People can turn on push in Settings, Notifications, on each phone or computer they use Track on.
+What they get by email then also reaches that device as it happens. It needs one secret, the key
+your server signs its pushes with. Make it and set it in one go, so it is never shown:
+
+```sh
+node apps/web/scripts/push-key.mjs | pnpm wrangler secret put PUSH_VAPID_KEY
+```
+
+Keep the key: a new one makes everyone turn push on again on each device. Messages go through the
+push service of each person's browser (Google's for Chrome, Mozilla's for Firefox, Apple's for
+Safari, Microsoft's for Edge), encrypted so that only that browser can read them. Mention those
+services in your privacy policy. On iPhone and iPad, push works once Track is added to the Home
+Screen.
 
 ### Backups
 

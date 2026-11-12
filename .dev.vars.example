@@ -32,6 +32,10 @@ BETTER_AUTH_SECRET=
 # In local dev nothing is sent: each email is printed in the terminal and saved to a file.
 # EMAIL_FROM=
 
+# Optional: turns on push notifications, the key the server signs them with. Make one with
+# `node apps/web/scripts/push-key.mjs`, and keep it: a new key makes everyone turn push on again.
+# PUSH_VAPID_KEY=
+
 # Optional: turns on teams' public request forms, behind Turnstile. Cloudflare's test keys, which
 # always pass, work locally: 1x00000000000000000000AA and 1x0000000000000000000000000000000AA.
 # TURNSTILE_SITE_KEY=

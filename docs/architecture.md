@@ -1457,6 +1457,35 @@ Email is for news left unread (`packages/sync-server/src/notifications.ts`):
   connection (`LINK_HEADER`), as the alarm has no request to take an origin from. Without one,
   due items are dropped.
 
+#### Push notifications
+
+The same news reaches a person's devices as it happens, where they turned push on (TRK-126). It
+needs `PUSH_VAPID_KEY`, and is never on the public demo.
+
+- **Devices.** Settings, Notifications turns push on in the browser at hand
+  (`apps/web/src/lib/push-device.ts`): the browser subscribes with the server's public key, and
+  the app saves the subscription in D1's `push_subscription`, tied to the session it was saved in.
+  Signing out there, the session running out or the account going deletes the row (foreign keys
+  that cascade), and signing out also ends the browser's subscription, as a browser may be
+  shared. Each time Track starts, it saves the subscription again for the person who turned it
+  on, which ties it to their current session. Endpoints must be https addresses at a browser's
+  push service (`apps/web/src/lib/push-services.ts`), so a subscription can't make the server post
+  anywhere else. A person keeps at most 20 devices.
+- **What and when.** News a person wants by email also gives its inbox item a `push_at` of now,
+  which reading, archiving or snoozing it clears. The write wakes the alarm, which takes the
+  marked items in a transaction, a member at a time, and hands them to `WorkspaceDO`'s
+  `sendPush` after it, so news is pushed at most once. Email still follows after ten minutes if
+  the news is still unread.
+- **Sending** (`apps/web/src/server/push/`). The app's subclass checks D1 that the person is
+  still a member and which of their devices have a live session, then sends one message per
+  item, the newest five at most, with WebCrypto alone: encrypted for the browser (RFC 8291,
+  aes128gcm), signed with the server's key (VAPID, RFC 8292), kept a day by the push service
+  for a device that is off, with a `Topic` per issue so newer news replaces older. The message
+  holds the issue's key and title, one line on what happened as the email says it, and its
+  path; the push service sees only its size. A 404 or 410 deletes the device.
+- **On the device.** The service worker shows the notification, one per issue (`tag`), and a
+  click brings a Track window to the issue or opens one.
+
 ### Search
 
 Each workspace's database has a full-text index of its live issues: an FTS5 table

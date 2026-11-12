@@ -367,11 +367,18 @@ export const inboxItems = sqliteTable(
 		 * archiving or snoozing it clears this. Never sent to clients.
 		 */
 		emailAt: integer("email_at"),
+		/**
+		 * When the item is to be pushed to the member's devices: news they want by email is pushed
+		 * as it happens. The alarm clears it as it takes it, and so do reading, archiving or
+		 * snoozing. Never sent to clients.
+		 */
+		pushAt: integer("push_at"),
 	},
 	(table) => [
 		index("inbox_items_issue_idx").on(table.issueId),
 		index("inbox_items_member_idx").on(table.memberId),
 		index("inbox_items_email_idx").on(table.emailAt),
+		index("inbox_items_push_idx").on(table.pushAt),
 	],
 );
 

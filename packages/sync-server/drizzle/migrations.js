@@ -29,6 +29,7 @@ import m0027 from "./0027_requester_replies.sql";
 import m0028 from "./0028_github_app.sql";
 import m0029 from "./0029_comment_search.sql";
 import m0030 from "./0030_intake_followers.sql";
+import m0031 from "./0031_inbox_push.sql";
 import journal from "./meta/_journal.json";
 
 export default {
@@ -65,5 +66,6 @@ export default {
 		m0028,
 		m0029,
 		m0030,
+		m0031,
 	},
 };

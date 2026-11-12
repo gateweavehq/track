@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,7 +27,7 @@ export default defineConfig(({ command }) => ({
 			config: (config) => {
 				// The end-to-end build (e2e/build.mjs) pins the address the tests use, which is what
 				// turns /mcp on, so the tests can play an agent. It also points at their stand-in for an
-				// OpenID Connect provider (e2e/provider.mjs).
+				// OpenID Connect provider (e2e/provider.mjs), and turns push on with a key of its own.
 				const e2e = process.env.TRACK_E2E
 					? {
 							vars: {
@@ -40,6 +40,11 @@ export default defineConfig(({ command }) => ({
 								LEGAL_NOTICE_URL: "https://legal.example/notice",
 								PRIVACY_POLICY_URL: "https://legal.example/privacy",
 								TERMS_URL: "https://legal.example/terms",
+								PUSH_VAPID_KEY: JSON.stringify(
+									generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export({
+										format: "jwk",
+									}),
+								),
 							},
 						}
 					: {};
