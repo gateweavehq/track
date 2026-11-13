@@ -8,6 +8,32 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.34.1] - 2026-11-13
+
+Gateweave Cloud's Track now keeps its database and attached files in the EU. Nothing changes for
+a server you run yourself, and there is no migration in this release.
+
+### Changed
+
+- **Gateweave Cloud's database and files are in the EU.** track.gateweave.com's D1 database and
+  its bucket of attached files moved to ones created with Cloudflare's `eu` jurisdiction, which
+  guarantees where they run and store data. The old ones only had an Eastern Europe location hint,
+  which does not. Everything was copied over, files with their type and uploader, including what
+  was written while the release deployed. Workspaces live in Durable Objects, which move
+  separately. Staging moved first. ([#280], [#281])
+
+### Fixed
+
+- `pnpm dev:seed` works again when local email is on. It used to stop at the first invitation,
+  because the sample people have no mailbox to verify their address with. ([#279])
+
+### If you run your own
+
+- **Nothing to do.** The top level of `wrangler.jsonc`, which is what you deploy, is as it was;
+  Gateweave Cloud's production now deploys its own `cloud` environment.
+- If your `FILES` binding names a bucket in a jurisdiction, `pnpm run deploy` now creates a
+  missing bucket in that jurisdiction too, instead of an empty one outside it. ([#281])
+
 ## [0.34.0] - 2026-11-13
 
 Admins can now see who changed their workspace, and when. Each workspace adds the table for it
@@ -1471,6 +1497,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.34.1]: https://github.com/gateweavehq/track/releases/tag/v0.34.1
 [0.34.0]: https://github.com/gateweavehq/track/releases/tag/v0.34.0
 [0.33.0]: https://github.com/gateweavehq/track/releases/tag/v0.33.0
 [0.32.0]: https://github.com/gateweavehq/track/releases/tag/v0.32.0
@@ -1544,6 +1571,9 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#281]: https://github.com/gateweavehq/track/pull/281
+[#280]: https://github.com/gateweavehq/track/pull/280
+[#279]: https://github.com/gateweavehq/track/pull/279
 [#277]: https://github.com/gateweavehq/track/pull/277
 [#276]: https://github.com/gateweavehq/track/pull/276
 [#274]: https://github.com/gateweavehq/track/pull/274
