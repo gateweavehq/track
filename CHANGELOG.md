@@ -10,8 +10,9 @@ notes. Publishing a release deploys it to Gateweave Cloud.
 
 ## [0.35.3] - 2026-11-13
 
-An email to a team's intake address is filed once, even when it arrives twice. There is no
-migration in this release.
+An email to a team's intake address is filed once, even when it arrives twice, and a workspace
+moving to another jurisdiction stays frozen if its object restarts mid-move. There is no migration
+in this release.
 
 ### Fixed
 
@@ -22,6 +23,10 @@ migration in this release.
   it remembers applied changes, and takes it again without filing anything. A mail that arrives
   again after a delivery failed partway reuses the attachments already stored. A mail without a
   `Message-ID` can't be told apart from another, so it is filed each time, as before. ([#290])
+- **A restart in the middle of a move ended its freeze.** While a workspace's rows are copied to
+  its new place, the old object sits idle, and Cloudflare may restart it. It then took writes
+  again, which the copy would miss, or the move failed at its last check. The freeze now holds
+  until it lapses, ten minutes after it began. ([#292])
 
 ### If you run your own
 
@@ -1658,6 +1663,7 @@ The first pre-release.
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
 [#286]: https://github.com/gateweavehq/track/pull/286
+[#292]: https://github.com/gateweavehq/track/pull/292
 [#290]: https://github.com/gateweavehq/track/pull/290
 [#288]: https://github.com/gateweavehq/track/pull/288
 [#284]: https://github.com/gateweavehq/track/pull/284
