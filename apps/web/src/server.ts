@@ -11,6 +11,7 @@ import { handleGitHubAppRequest, isGitHubAppRequest } from "./server/github-app"
 import { handleIntakeEmail } from "./server/intake-email";
 import { handleIntakeFormRequest, isIntakeFormRequest } from "./server/intake-form";
 import { handleMcpRequest, isMcpRequest } from "./server/mcp";
+import { moveWorkspaces } from "./server/move";
 import { newNonce, withSecurityHeaders } from "./server/security-headers";
 import { handleSyncRequest, isSyncRequest } from "./server/sync";
 import { handleUnsubscribeRequest, isUnsubscribeRequest } from "./server/unsubscribe";
@@ -87,5 +88,7 @@ export default {
 		}
 		await retryErasures(db);
 		await pruneExpired(db);
+		// Last, as a workspace it moves is paused for a few seconds.
+		await moveWorkspaces(db);
 	},
 } satisfies ExportedHandler<Cloudflare.Env>;

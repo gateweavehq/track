@@ -18,7 +18,8 @@
 	"previews": {},
 	"observability": { "enabled": true },
 	"upload_source_maps": true,
-	// Once a day, deletes sessions and invitations past their time. Environments inherit this.
+	// Once a day, deletes sessions and invitations past their time, and moves workspaces into
+	// DURABLE_OBJECT_JURISDICTION when that is set. Environments inherit this.
 	"triggers": { "crons": ["23 3 * * *"] },
 	// Workspace directory and auth. The database is provisioned on first deploy.
 	"d1_databases": [
@@ -44,17 +45,19 @@
 	"r2_buckets": [{ "binding": "FILES", "bucket_name": "gateweave-track-files" }],
 	// Optional: GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, BETTER_AUTH_URL, EMAIL_FROM, PUSH_VAPID_KEY,
 	// TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY, INTAKE_EMAIL_DOMAIN, SIGN_UP_REQUEST_URL, which
-	// the sign-in page links to as "Ask for access" while the owner has closed sign-up (see
-	// apps/web/src/server/env.d.ts).
+	// the sign-in page links to as "Ask for access" while the owner has closed sign-up,
+	// DURABLE_OBJECT_JURISDICTION (see apps/web/src/server/env.d.ts).
 	"secrets": { "required": ["BETTER_AUTH_SECRET"] },
 	// The top level is what self-hosters deploy. Gateweave Cloud deploys the environments below:
 	// `cloud` is https://track.gateweave.com, the Worker the top level names, so its workspaces stay
 	// where they are, and `staging` a separate Worker with its own database and workspaces. Both
-	// keep their database and files in the EU: those were created with the `eu` jurisdiction.
+	// keep their database and files in the EU: those were created with the `eu` jurisdiction. Their
+	// workspaces' Durable Objects go there too, by DURABLE_OBJECT_JURISDICTION.
 	// Bindings are not inherited, so each environment repeats them.
 	"env": {
 		"cloud": {
 			"name": "gateweave-track",
+			"vars": { "DURABLE_OBJECT_JURISDICTION": "eu" },
 			"d1_databases": [
 				{
 					"binding": "DB",
@@ -77,6 +80,7 @@
 		},
 		"staging": {
 			"name": "gateweave-track-staging",
+			"vars": { "DURABLE_OBJECT_JURISDICTION": "eu" },
 			"d1_databases": [
 				{
 					"binding": "DB",
@@ -109,7 +113,7 @@
 			// Only Gateweave deploys this environment, so its address can live here. With a route,
 			// workers.dev stays off and the demo has one address.
 			"routes": [{ "pattern": "track-demo.gateweave.com", "custom_domain": true }],
-			"vars": { "TRACK_DEMO": "1" },
+			"vars": { "TRACK_DEMO": "1", "DURABLE_OBJECT_JURISDICTION": "eu" },
 			"triggers": { "crons": ["*/10 * * * *"] },
 			// Created with the `eu` jurisdiction, so visitors' sandboxes stay in the EU.
 			"d1_databases": [

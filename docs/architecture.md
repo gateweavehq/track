@@ -56,27 +56,28 @@ different protocol versions in production. It also gives self-hosters one thing 
 
 ## Data ownership
 
-| Data                                 | Lives in     | Owner                              |
-| ------------------------------------ | ------------ | ---------------------------------- |
-| Users, sessions, OAuth accounts      | D1           | Better Auth                        |
-| Workspaces, members, invitations     | D1           | Better Auth organization plugin    |
-| OAuth clients, grants, signing keys  | D1           | Better Auth MCP plugin             |
-| Agent members' keys (hashed)         | D1           | Track's agent members plugin       |
-| Who runs the server, sign-up setting | D1           | Track's deployment plugin          |
-| Sign-up list (addresses, notes)      | D1           | Track's deployment plugin          |
-| Teams, issues, labels, projects      | Workspace DO | `sync-server`                      |
-| Saved views                          | Workspace DO | `sync-server`                      |
-| Comments on issues                   | Workspace DO | `sync-server`                      |
-| Issue activity (history)             | Workspace DO | `sync-server`, from issue writes   |
-| Subscriptions and inbox items        | Workspace DO | `sync-server`, from issue writes   |
-| Notification settings                | Workspace DO | `sync-server`, each person's own   |
-| Due-date reminders sent              | Workspace DO | `sync-server`, from the alarm      |
-| Team automations' runs               | Workspace DO | `sync-server`, from the alarm      |
-| Webhooks, their secrets, deliveries  | Workspace DO | `sync-server`, managed by admins   |
-| GitHub connections and secrets       | Workspace DO | `sync-server`, managed by admins   |
-| Pull requests that mention issues    | Workspace DO | `sync-server`, from GitHub         |
-| Member replica (name, avatar, role)  | Workspace DO | Pushed from D1 by membership hooks |
-| Attached files                       | R2           | The file gateway                   |
+| Data                                 | Lives in     | Owner                                     |
+| ------------------------------------ | ------------ | ----------------------------------------- |
+| Users, sessions, OAuth accounts      | D1           | Better Auth                               |
+| Workspaces, members, invitations     | D1           | Better Auth organization plugin           |
+| OAuth clients, grants, signing keys  | D1           | Better Auth MCP plugin                    |
+| Agent members' keys (hashed)         | D1           | Track's agent members plugin              |
+| Who runs the server, sign-up setting | D1           | Track's deployment plugin                 |
+| Sign-up list (addresses, notes)      | D1           | Track's deployment plugin                 |
+| Where each workspace's object is     | D1           | Track ([below](#where-a-workspace-lives)) |
+| Teams, issues, labels, projects      | Workspace DO | `sync-server`                             |
+| Saved views                          | Workspace DO | `sync-server`                             |
+| Comments on issues                   | Workspace DO | `sync-server`                             |
+| Issue activity (history)             | Workspace DO | `sync-server`, from issue writes          |
+| Subscriptions and inbox items        | Workspace DO | `sync-server`, from issue writes          |
+| Notification settings                | Workspace DO | `sync-server`, each person's own          |
+| Due-date reminders sent              | Workspace DO | `sync-server`, from the alarm             |
+| Team automations' runs               | Workspace DO | `sync-server`, from the alarm             |
+| Webhooks, their secrets, deliveries  | Workspace DO | `sync-server`, managed by admins          |
+| GitHub connections and secrets       | Workspace DO | `sync-server`, managed by admins          |
+| Pull requests that mention issues    | Workspace DO | `sync-server`, from GitHub                |
+| Member replica (name, avatar, role)  | Workspace DO | Pushed from D1 by membership hooks        |
+| Attached files                       | R2           | The file gateway                          |
 
 A backup Worker reads the workspace objects through the `Backup` entrypoint ([Backups](#backups)).
 
@@ -597,6 +598,47 @@ code reads its SQLite. So the Worker exports a named entrypoint, `Backup`
   rolls back. They see one moment, and nothing they run can change the workspace.
 - **Restoring** a workspace from a backup isn't built in. The backup's SQL restores into a SQLite
   database, to read or to load by hand.
+
+### Where a workspace lives
+
+A Durable Object stays where it was made: near its first request, or in one of Cloudflare's
+jurisdictions (`eu`, `us`, `fedramp`) if it was made through `namespace.jurisdiction(…)`. The same
+name in another jurisdiction is another, empty object. So a deployment that keeps its data in one,
+`DURABLE_OBJECT_JURISDICTION`, notes where each workspace's object is, and moves the ones that
+aren't there yet.
+
+- **Where.** D1's `workspace_location` has a row for each workspace whose object is in a
+  jurisdiction. One with no row has its object outside any, as every workspace did before the
+  setting. Reaching a workspace takes its id and that jurisdiction (`WorkspaceRef`,
+  `apps/web/src/server/workspaces.ts`): the membership lookup the gateways make anyway joins it,
+  and a path that knows only the id looks it up first.
+- **New workspaces** get their row in the organization hook that runs once the workspace is made,
+  before its membership reaches the object, which reaching it makes. If writing it fails, the
+  object is made outside, and the next move puts it right.
+- **Moving.** The daily Cron Trigger moves up to three workspaces whose row says otherwise into
+  the deployment's jurisdiction (`apps/web/src/server/move.ts`). The objects do the copying
+  (`packages/sync-server/src/move.ts`): the old one freezes, with triggers that refuse every write
+  to its tables, its sockets closed and its alarm waiting; the new one is emptied and migrated,
+  and takes its rows a page at a time, tables others refer to first, with their rowids, since
+  history is read in rowid order. Both then count and hash their rows, each value as SQLite quotes
+  it, and the hashes must agree. Then the old object is sealed, the new one starts its alarm, and
+  D1 notes the new place. Versions travel with the oplog, so clients reconnect, as after any
+  closed socket, and carry on from their version; a mutation they sent before applies once. A
+  workspace is paused for the seconds this takes. Gateweave Cloud's backup runs six minutes before.
+- **When a move fails** before the seal, the old object thaws and the workspace stays where it
+  was, and the next day's run tries again. A freeze also lapses after ten minutes, or when the
+  object restarts, so a move that dies half way can't leave a workspace frozen. A move that dies
+  after the seal leaves it out of reach until the next run, which finds it sealed and only notes
+  the new place; its last two steps are tried five times first. An object never takes a move's
+  rows while it holds a workspace of its own.
+- **The sealed object** refuses sockets and writes and runs no alarm. It keeps what the workspace
+  held when it moved until the workspace is deleted, which destroys both. Clearing it sooner is
+  not built yet.
+- **Rate limits** are counted in the same jurisdiction. Their objects don't move: counts start
+  again there.
+
+Local runtimes have no jurisdictions (workerd says "not implemented"), so the tests move a
+workspace between two names instead: to the move, the other object is just another stub.
 
 ## Sync protocol
 

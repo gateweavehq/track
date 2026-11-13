@@ -3,7 +3,7 @@ import { db } from "./auth";
 import { readText } from "./body";
 import { schema } from "./db";
 import { webhooksEnabled } from "./webhooks";
-import { workspaceStub } from "./workspaces";
+import { findWorkspaceStub } from "./workspaces";
 
 const GITHUB_ROUTE = /^\/api\/github\/([^/]+)\/([^/]+)$/;
 
@@ -51,7 +51,8 @@ export async function handleGitHubRequest(request: Request): Promise<Response> {
 	const body = await readText(request, MAX_GITHUB_BODY);
 	if (body === null) return answer(413, "Delivery too large");
 
-	const { status } = await workspaceStub(workspace.id).github({
+	const stub = await findWorkspaceStub(db, workspace.id);
+	const { status } = await stub.github({
 		connectionId: decodeURIComponent(connectionId),
 		deliveryId,
 		event,

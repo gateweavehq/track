@@ -48,6 +48,11 @@ export interface AuthConfig {
 	mcpResource?: string | undefined;
 	/** Called after any change to who belongs to a workspace, or with which role. */
 	onMembershipChange?: (workspaceId: string, userId: string) => Promise<void>;
+	/**
+	 * Called after a workspace is made, before its membership reaches its Durable Object: where
+	 * the object goes is noted here.
+	 */
+	onWorkspaceCreated?: (workspaceId: string) => Promise<void>;
 	/** Called after a workspace is deleted. */
 	onWorkspaceDeleted?: (workspaceId: string) => Promise<void>;
 	/** Called after a workspace's slug changes, since webhook payloads link with it. */
@@ -416,8 +421,10 @@ export function createAuth(config: AuthConfig) {
 							await config.onWorkspaceRenamed?.(organization.id, organization.slug);
 						}
 					},
-					afterCreateOrganization: ({ organization, member }) =>
-						membershipChanged(organization.id, member.userId),
+					afterCreateOrganization: async ({ organization, member }) => {
+						await config.onWorkspaceCreated?.(organization.id);
+						await membershipChanged(organization.id, member.userId);
+					},
 					afterAddMember: ({ organization, member }) =>
 						membershipChanged(organization.id, member.userId),
 					afterAcceptInvitation: ({ organization, member }) =>

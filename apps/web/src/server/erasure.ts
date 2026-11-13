@@ -1,7 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import type { Database } from "./db";
 import { schema } from "./db";
-import { workspaceStub } from "./workspaces";
+import { findWorkspaceStub } from "./workspaces";
 
 // "Deleting an account" in docs/architecture.md.
 
@@ -29,7 +29,7 @@ async function forget(db: Database, erasures: Erasure[]): Promise<void> {
 				eq(schema.pendingErasure.organizationId, organizationId),
 			);
 			try {
-				await workspaceStub(organizationId).forgetPerson(userId);
+				await (await findWorkspaceStub(db, organizationId)).forgetPerson(userId);
 			} catch (error) {
 				await db.update(schema.pendingErasure).set({ lastTriedAt: Date.now() }).where(row).run();
 				throw error;

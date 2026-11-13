@@ -144,3 +144,21 @@ export const pushSubscription = sqliteTable(
 		index("pushSubscription_sessionId_idx").on(table.sessionId),
 	],
 );
+
+/**
+ * Where a workspace's Durable Object is when it is in one of Cloudflare's jurisdictions
+ * (`DURABLE_OBJECT_JURISDICTION`, "Where a workspace lives" in docs/architecture.md). A workspace
+ * with no row has its object outside any, as all did before the setting. Not a reference to the
+ * workspace: deleting one reads this to find its objects, after its row is gone.
+ */
+export const workspaceLocation = sqliteTable("workspace_location", {
+	workspaceId: text("workspace_id").primaryKey(),
+	jurisdiction: text("jurisdiction").notNull(),
+	/**
+	 * Where it was before it moved here, "" for outside any jurisdiction. The object there is
+	 * sealed and keeps what the workspace held then, until it is destroyed.
+	 */
+	movedFrom: text("moved_from"),
+	/** When it moved here, or null if it was made here. */
+	movedAt: integer("moved_at"),
+});

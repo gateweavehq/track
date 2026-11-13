@@ -45,4 +45,11 @@ describe("environment builds", () => {
 		];
 		expect(bindings(cloud)).toEqual(bindings(production));
 	});
+
+	// "Where a workspace lives" in docs/architecture.md. Self-hosters' installs, the top level,
+	// choose for themselves.
+	it.each(["cloud", "staging", "demo"])("keeps %s's workspaces in the EU", (env) => {
+		const environment = unstable_readConfig({ config, env }, { hideWarnings: true });
+		expect(environment.vars.DURABLE_OBJECT_JURISDICTION).toBe("eu");
+	});
 });

@@ -96,6 +96,8 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    the named `Backup` entrypoint (`apps/web/src/server/backup.ts`), which has no route: a service
    binding from a Worker in the same account is its access. It lists workspaces in D1 and sends
    only reads, which the object checks and always rolls back (`packages/sync-server/src/backup.ts`).
+   The Worker's daily run moves a workspace into the deployment's jurisdiction through the
+   objects' `move…` methods (`apps/web/src/server/move.ts`); nothing else calls them.
    Non-members get the same 404 or "not found" as a missing workspace. The verified member
    travels in `MEMBER_HEADER`, as an id only since Workers Logs records it, or as the `member`
    argument of `mutate`, which only a gateway sets.

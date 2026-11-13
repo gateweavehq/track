@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
-import { workspaceStub } from "./workspaces";
+import { db } from "./auth";
+import { findWorkspaceStub } from "./workspaces";
 
 /**
  * The most bytes of attached files a workspace may keep, from `ATTACHMENT_QUOTA_MB`, or
@@ -31,7 +32,7 @@ export async function reserveFileStorage(
 	bytes: number,
 ): Promise<boolean> {
 	const limit = fileQuota();
-	const stub = workspaceStub(workspaceId);
+	const stub = await findWorkspaceStub(db, workspaceId);
 	if (limit === undefined) {
 		if (!forgotten.has(workspaceId)) {
 			// Without a quota an upload never depended on the object, so a failure here must not
@@ -57,7 +58,7 @@ export async function reserveFileStorage(
 /** Gives back what `reserveFileStorage` took for a file that was not stored after all. */
 export async function releaseFileStorage(workspaceId: string, bytes: number): Promise<void> {
 	if (fileQuota() === undefined || bytes <= 0) return;
-	await workspaceStub(workspaceId).releaseFileStorage(bytes);
+	await (await findWorkspaceStub(db, workspaceId)).releaseFileStorage(bytes);
 }
 
 async function storedBytes(bucket: R2Bucket, workspaceId: string): Promise<number> {

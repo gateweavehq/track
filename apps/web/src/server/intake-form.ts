@@ -10,7 +10,7 @@ import { readText } from "./body";
 import { schema } from "./db";
 import { demoEnabled } from "./demo/mode";
 import { limitRequests } from "./rate-limit";
-import { workspaceStub } from "./workspaces";
+import { findWorkspaceStub } from "./workspaces";
 
 const FORM_ROUTE = /^\/request\/([\w-]{1,64})\/([0-9a-f]{32})$/;
 
@@ -58,7 +58,7 @@ export async function handleIntakeFormRequest(request: Request): Promise<Respons
 		.from(schema.organization)
 		.where(eq(schema.organization.id, workspaceId))
 		.get();
-	const stub = workspace && workspaceStub(workspace.id);
+	const stub = workspace && (await findWorkspaceStub(db, workspace.id));
 	const form = stub && (await stub.intakeForm(formKey));
 	if (!workspace || !stub || !form) return notFound();
 	const where = { workspace: workspace.name, team: form.teamName, siteKey };

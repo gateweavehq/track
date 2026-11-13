@@ -44,7 +44,11 @@ export const startGuidedTeam = createServerFn({ method: "POST" })
 			return { ok: false as const, message: "Only workspace admins can add teams" };
 		}
 		return startGuide(
-			{ id: membership.workspaceId, name: membership.workspaceName },
+			{
+				id: membership.workspaceId,
+				name: membership.workspaceName,
+				jurisdiction: membership.jurisdiction,
+			},
 			membership.profile,
 			mcpResource ?? null,
 		);
