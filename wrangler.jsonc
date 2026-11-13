@@ -54,9 +54,13 @@
 	// keep their database and files in the EU: those were created with the `eu` jurisdiction. Their
 	// workspaces' Durable Objects go there too, by DURABLE_OBJECT_JURISDICTION.
 	// Bindings are not inherited, so each environment repeats them.
+	// Each runs its Worker near Warsaw, where their EU databases answer (`served_by_colo` was WAW
+	// for all three on 2026-11-13). Otherwise a request from far away makes every query across an
+	// ocean, one after another (TRK-131). Static files are still served from the nearest place.
 	"env": {
 		"cloud": {
 			"name": "gateweave-track",
+			"placement": { "region": "gcp:europe-central2" },
 			"vars": { "DURABLE_OBJECT_JURISDICTION": "eu" },
 			"d1_databases": [
 				{
@@ -80,6 +84,7 @@
 		},
 		"staging": {
 			"name": "gateweave-track-staging",
+			"placement": { "region": "gcp:europe-central2" },
 			"vars": { "DURABLE_OBJECT_JURISDICTION": "eu" },
 			"d1_databases": [
 				{
@@ -113,6 +118,7 @@
 			// Only Gateweave deploys this environment, so its address can live here. With a route,
 			// workers.dev stays off and the demo has one address.
 			"routes": [{ "pattern": "track-demo.gateweave.com", "custom_domain": true }],
+			"placement": { "region": "gcp:europe-central2" },
 			"vars": { "TRACK_DEMO": "1", "DURABLE_OBJECT_JURISDICTION": "eu" },
 			"triggers": { "crons": ["*/10 * * * *"] },
 			// Created with the `eu` jurisdiction, so visitors' sandboxes stay in the EU.
