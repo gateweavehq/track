@@ -111,10 +111,12 @@
 			"routes": [{ "pattern": "track-demo.gateweave.com", "custom_domain": true }],
 			"vars": { "TRACK_DEMO": "1" },
 			"triggers": { "crons": ["*/10 * * * *"] },
+			// Created with the `eu` jurisdiction, so visitors' sandboxes stay in the EU.
 			"d1_databases": [
 				{
 					"binding": "DB",
-					"database_name": "gateweave-track-demo",
+					"database_name": "gateweave-track-demo-eu",
+					"database_id": "2edd9cc8-9674-4667-84b4-b77b6986eff3",
 					"migrations_dir": "apps/web/migrations"
 				}
 			],
