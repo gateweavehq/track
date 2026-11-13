@@ -105,6 +105,14 @@ on its own:
   seconds while it is copied. The copy each leaves behind is kept until the workspace is deleted.
   Unsetting it later moves nothing back. Rate limits are counted there too.
 
+If your team works far from the database, the Worker can run near it instead of near each
+visitor, so the queries a page makes one after another don't each cross an ocean. Find where the
+database answers with `pnpm wrangler d1 execute DB --remote --command "select 1" --json`, whose
+`served_by_colo` is an airport code, then set `"placement": { "region": "…" }` in
+`wrangler.jsonc` to a cloud region near it. Gateweave Cloud's databases answer from Warsaw, so it
+uses `gcp:europe-central2`. Static files are still served from near each visitor. See
+[Cloudflare's placement docs](https://developers.cloudflare.com/workers/configuration/placement/).
+
 ## Settings
 
 Everything except `BETTER_AUTH_SECRET` is optional. Set them in the Cloudflare dashboard
