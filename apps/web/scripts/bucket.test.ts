@@ -1,9 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { bucketCreateOutcome } from "./bucket.mjs";
+import { bucketCreateArgs, bucketCreateOutcome } from "./bucket.mjs";
 
 // What Wrangler printed in each case, as it reached the deploy script.
 const failed = (message: string) =>
 	`✘ [ERROR] A request to the Cloudflare API (/accounts/abc/r2/buckets) failed.\n\n  ${message}\n`;
+
+describe("bucketCreateArgs", () => {
+	it("creates the bucket by name", () => {
+		expect(bucketCreateArgs({ bucket_name: "gateweave-track-files" })).toEqual([
+			"r2",
+			"bucket",
+			"create",
+			"gateweave-track-files",
+		]);
+	});
+
+	it("creates a bucket with a jurisdiction in that jurisdiction", () => {
+		expect(
+			bucketCreateArgs({ bucket_name: "gateweave-track-files-eu", jurisdiction: "eu" }),
+		).toEqual(["r2", "bucket", "create", "gateweave-track-files-eu", "--jurisdiction", "eu"]);
+	});
+});
 
 describe("bucketCreateOutcome", () => {
 	it("goes on when the bucket is there", () => {
