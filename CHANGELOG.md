@@ -8,6 +8,24 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.35.2] - 2026-11-13
+
+A change kept unsent on a device for weeks no longer risks landing twice. There is no migration
+in this release.
+
+### Fixed
+
+- **A change kept offline for over four weeks could apply twice.** The server remembers which
+  changes it has applied for 30 days, so a device that sends one again after a lost confirmation
+  is recognized. A device that stayed away longer could resend a change the server had already
+  applied and forgotten, and a comment edit, a project rename or an archive would then land again
+  over newer edits. A browser now keeps an unsent change for 29 days at most: older ones are not
+  sent, and the app says they were not saved. ([#288])
+
+### If you run your own
+
+- **Nothing to do.**
+
 ## [0.35.1] - 2026-11-13
 
 Opening the demo is quick again from far away. There is no migration in this release.
@@ -1542,6 +1560,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.35.2]: https://github.com/gateweavehq/track/releases/tag/v0.35.2
 [0.35.1]: https://github.com/gateweavehq/track/releases/tag/v0.35.1
 [0.35.0]: https://github.com/gateweavehq/track/releases/tag/v0.35.0
 [0.34.1]: https://github.com/gateweavehq/track/releases/tag/v0.34.1
@@ -1619,6 +1638,7 @@ The first pre-release.
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
 [#286]: https://github.com/gateweavehq/track/pull/286
+[#288]: https://github.com/gateweavehq/track/pull/288
 [#284]: https://github.com/gateweavehq/track/pull/284
 [#283]: https://github.com/gateweavehq/track/pull/283
 [#281]: https://github.com/gateweavehq/track/pull/281
