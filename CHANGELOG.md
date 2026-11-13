@@ -8,6 +8,43 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.35.3] - 2026-11-13
+
+An email to a team's intake address is filed once, even when it arrives twice, push turned off
+stays off, and Gateweave Cloud's Worker runs near its databases in the EU. There is no migration
+in this release.
+
+### Changed
+
+- **Gateweave Cloud runs its Worker near its databases.** They are in the EU, and a page from far
+  away made its queries across an ocean, one after another: opening the demo took 11 seconds from
+  the US. The Worker now runs near Warsaw, where they answer; static files still come from the
+  nearest data center. A self-hosted copy is unchanged, and the self-hosting guide says how to do
+  the same. ([#293])
+
+### Fixed
+
+- **An email delivered twice became two requests.** Cloudflare's Email Routing delivers mail at
+  least once, so a mail it sent again after a slow or failed first try filed a second request, or a
+  second comment on one, and stored its attachments twice against the workspace's file quota. The
+  workspace now remembers each mail it filed, by its `Message-ID`, sender and date, for as long as
+  it remembers applied changes, and takes it again without filing anything. A mail that arrives
+  again after a delivery failed partway reuses the attachments already stored. A mail without a
+  `Message-ID` can't be told apart from another, so it is filed each time, as before. ([#290])
+- **A restart in the middle of a move ended its freeze.** While a workspace's rows are copied to
+  its new place, the old object sits idle, and Cloudflare may restart it. It then took writes
+  again, which the copy would miss, or the move failed at its last check. The freeze now holds
+  until it lapses, ten minutes after it began. ([#292])
+- **Push turned off could come back on.** Track saves this browser's push subscription again each
+  time it starts. Turned off while that was under way, push was saved again, and came back on then
+  or at the next start. Changes to push in a browser now run one at a time, across its tabs.
+  ([#294])
+
+### If you run your own
+
+- **Nothing to do.** If your database is far from your team, `docs/self-hosting.md` ("Keeping
+  data in one jurisdiction") now says how to run the Worker near it.
+
 ## [0.35.2] - 2026-11-13
 
 A change kept unsent on a device for weeks no longer risks landing twice. There is no migration
@@ -1560,6 +1597,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.35.3]: https://github.com/gateweavehq/track/releases/tag/v0.35.3
 [0.35.2]: https://github.com/gateweavehq/track/releases/tag/v0.35.2
 [0.35.1]: https://github.com/gateweavehq/track/releases/tag/v0.35.1
 [0.35.0]: https://github.com/gateweavehq/track/releases/tag/v0.35.0
@@ -1638,6 +1676,10 @@ The first pre-release.
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
 [#286]: https://github.com/gateweavehq/track/pull/286
+[#294]: https://github.com/gateweavehq/track/pull/294
+[#293]: https://github.com/gateweavehq/track/pull/293
+[#292]: https://github.com/gateweavehq/track/pull/292
+[#290]: https://github.com/gateweavehq/track/pull/290
 [#288]: https://github.com/gateweavehq/track/pull/288
 [#284]: https://github.com/gateweavehq/track/pull/284
 [#283]: https://github.com/gateweavehq/track/pull/283
