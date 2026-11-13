@@ -11,8 +11,8 @@ notes. Publishing a release deploys it to Gateweave Cloud.
 ## [0.35.3] - 2026-11-13
 
 An email to a team's intake address is filed once, even when it arrives twice, push turned off
-stays off, and Gateweave Cloud answers faster from far away. There is no migration in this
-release.
+stays off, and Gateweave Cloud's Worker runs near its databases in the EU. There is no migration
+in this release.
 
 ### Changed
 
