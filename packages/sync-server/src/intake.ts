@@ -7,6 +7,7 @@ import {
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import * as schema from "./db/schema";
+import { emailDeliveryId } from "./email-deliveries";
 import { notifyOfRequest } from "./inbox";
 import { ChangeSet, type WriteResult } from "./log";
 import { recordRequester } from "./requesters";
@@ -53,6 +54,8 @@ export const intakeRequest = z.object({
 		.object({ workspaceId: z.string().min(1).max(64), email: z.email().max(254) })
 		.nullable()
 		.default(null),
+	/** For email, which mail it is, so one delivered again files nothing more. */
+	deliveryId: emailDeliveryId.nullable().default(null),
 });
 export type IntakeRequest = z.infer<typeof intakeRequest>;
 

@@ -1062,6 +1062,15 @@ sends every address at the domain to the Worker's `email` handler, from one catc
 - **The address is the creator** (`INTAKE_EMAIL_ACTOR_ID`, `email`, shown as "Email"), with the
   same rules as the form: the team's first status, only its followers' inboxes, webhooks with a
   `system` actor named "Email".
+- **A mail is filed once.** Email Routing delivers at least once: a handler that fails gets the
+  sender a `421` and the mail comes back, and one cancelled after about five minutes runs again.
+  A delivery's raw bytes differ each time, so the gateway identifies a mail by a SHA-256 of its
+  sender's `Message-ID`, `From` and `Date` with the address it came to. The object files a request
+  or a reply with that id once (`email-deliveries.ts`, kept as an applied mutation `email:<id>`
+  for as long as those are), and the gateway asks first, so a mail filed already is taken with
+  nothing counted against a limit or stored again. Its attachments go under file ids made from
+  the same id, so a retry after a partial failure finds the files stored before instead of
+  storing and counting them twice. Mail without a `Message-ID` gets no id and is filed each time.
 
 Without `INTAKE_EMAIL_DOMAIN`, and on the public demo, every address is refused, and the dialog
 in the app says why. The address that mail came from hears of the decision (above).

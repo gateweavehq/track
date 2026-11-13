@@ -60,6 +60,7 @@ import { nextAutomationsAt, runAutomations } from "./automations";
 import { type BackupRow, readForBackup } from "./backup";
 import { advanceCycles, nextCycleChange } from "./cycles";
 import * as schema from "./db/schema";
+import { emailDeliveryId, recordDelivery, wasDelivered } from "./email-deliveries";
 import { forgetPerson } from "./forget";
 import {
 	applyGitHubDelivery,
@@ -789,15 +790,32 @@ export class WorkspaceDO extends DurableObject {
 		return findIntake(this.#db, "email", z.string().max(64).parse(key));
 	}
 
-	/** Files a request through a team's channel. False when it is off, or the request invalid. */
+	/**
+	 * Whether the mail the email gateway identified as `deliveryId` was filed already, as a request
+	 * or a reply. Email Routing may deliver a mail again, and the gateway asks before it counts or
+	 * stores anything. Writes nothing.
+	 */
+	intakeDelivered(deliveryId: string): boolean {
+		const parsed = emailDeliveryId.safeParse(deliveryId);
+		return parsed.success && wasDelivered(this.#db, parsed.data);
+	}
+
+	/**
+	 * Files a request through a team's channel. False when it is off, or the request invalid. A mail
+	 * filed already is taken again and files nothing.
+	 */
 	fileRequest(input: unknown): boolean {
 		const parsed = intakeRequest.safeParse(input);
 		if (!parsed.success) return false;
 		const request = parsed.data;
+		const { deliveryId } = request;
+		if (deliveryId && wasDelivered(this.#db, deliveryId)) return true;
 		let filed = false;
 		this.#write(() => {
-			const outcome = fileRequest(this.#db, request, Date.now());
+			const now = Date.now();
+			const outcome = fileRequest(this.#db, request, now);
 			filed = outcome !== null;
+			if (outcome && deliveryId) recordDelivery(this.#db, deliveryId, outcome.result.version, now);
 			return outcome?.result ?? { version: currentVersion(this.#db), ops: [] };
 		});
 		return filed;
@@ -817,16 +835,21 @@ export class WorkspaceDO extends DurableObject {
 
 	/**
 	 * Files a requester's reply to the decision on their request as a comment on it. False for a
-	 * key no request has, another sender, a deleted request, or a reply that is invalid.
+	 * key no request has, another sender, a deleted request, or a reply that is invalid. A mail
+	 * filed already is taken again and files nothing.
 	 */
 	fileReply(input: unknown): boolean {
 		const parsed = requesterReply.safeParse(input);
 		if (!parsed.success) return false;
 		const reply = parsed.data;
+		const { deliveryId } = reply;
+		if (deliveryId && wasDelivered(this.#db, deliveryId)) return true;
 		let filed = false;
 		this.#write(() => {
-			const outcome = fileReply(this.#db, reply, Date.now());
+			const now = Date.now();
+			const outcome = fileReply(this.#db, reply, now);
 			filed = outcome !== null;
+			if (outcome && deliveryId) recordDelivery(this.#db, deliveryId, outcome.version, now);
 			return outcome ?? { version: currentVersion(this.#db), ops: [] };
 		});
 		return filed;
