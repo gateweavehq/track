@@ -1,4 +1,5 @@
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import type { MutationInput } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import { MEMBER_HEADER, type MemberProfile, moveWorkspace, SESSION_HEADER } from "../src";
@@ -271,22 +272,59 @@ describe("moving a workspace", () => {
 		await from.syncMember({ ...owner, name: "Renamed" });
 	});
 
-	it("ends a freeze that lapsed, or that a restart interrupted", async () => {
+	it("ends a freeze that lapsed", async () => {
 		const from = await filledWorkspace();
 		await from.moveOut("lapsing", "eu");
-		await runInDurableObject(from, (_, state) => {
-			const freeze = state.storage.kv.get<{ until: number }>("move.freeze");
-			state.storage.kv.put("move.freeze", { ...freeze, until: Date.now() - 1 });
-		});
+		await lapse(from);
 		expect(await runDurableObjectAlarm(from)).toBe(true);
 		await from.syncMember({ ...owner, name: "After the lapse" });
-
-		await from.moveOut("restarted", "eu");
-		await runInDurableObject(from, (_, state) => {
-			expect(moveStateAtStart(state.storage)).toBeNull();
-		});
-		expect(await failure(from.moveRead("restarted", { table: 0, after: null }))).toContain(
+		expect(await failure(from.moveRead("lapsing", { table: 0, after: null }))).toContain(
 			"The move was interrupted",
 		);
 	});
+
+	// Cloudflare evicts an idle object, and the old object waits idle while the move copies its
+	// rows to the new one. Agents' registry restarted after half a minute of that on staging.
+	it("holds a freeze through a restart, until it lapses", async () => {
+		let from = await filledWorkspace();
+		await from.moveOut("restarted", "eu");
+
+		from = await restart(from);
+		// The move reads on, and nothing writes behind its back.
+		const page = await from.moveRead("restarted", { table: 0, after: null });
+		expect(page.tables.length).toBeGreaterThan(0);
+		expect(await failure(from.syncMember({ ...owner, name: "Late" }))).toContain(
+			"This workspace is moving",
+		);
+		expect((await openSocket(from)).status).toBe(503);
+		await runInDurableObject(from, (_, state) => {
+			expect(moveStateAtStart(state.storage, Date.now())).toBe("frozen");
+		});
+
+		// A freeze whose move died lapses, and the next start ends it.
+		await lapse(from);
+		from = await restart(from);
+		await from.syncMember({ ...owner, name: "After the lapse" });
+		expect(await failure(from.moveRead("restarted", { table: 0, after: null }))).toContain(
+			"The move was interrupted",
+		);
+		expect((await openSocket(from)).status).toBe(101);
+	});
 });
+
+/** Makes the workspace's freeze end in the past, as when its move died long ago. */
+async function lapse(workspace: Workspace): Promise<void> {
+	await runInDurableObject(workspace, (_, state) => {
+		const freeze = state.storage.kv.get<{ until: number }>("move.freeze");
+		if (!freeze) throw new Error("Not frozen");
+		state.storage.kv.put("move.freeze", { ...freeze, until: Date.now() - 1 });
+	});
+}
+
+/** Starts the workspace's object afresh, as an eviction does. Returns a stub of the new one. */
+async function restart(workspace: Workspace): Promise<Workspace> {
+	await runInDurableObject(workspace, (_, state) => state.abort("restart")).catch(() => {});
+	const fresh = env.WORKSPACE.get(workspace.id);
+	await fresh.lastSortOrder();
+	return fresh;
+}

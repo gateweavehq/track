@@ -8,8 +8,10 @@ import type { Db } from "./state";
  * across ({@link moveWorkspace}):
  *
  * 1. The old object freezes: triggers refuse every write to its tables, its sockets close and its
- *    alarm waits. A freeze lapses after {@link MOVE_FREEZE_MS}, or when the object restarts, so a
- *    move that dies half way leaves the workspace where it was, working.
+ *    alarm waits. A freeze lapses after {@link MOVE_FREEZE_MS}, so a move that dies half way
+ *    leaves the workspace where it was, working again by then. It holds through a restart: the
+ *    object waits idle while its rows are copied, may be evicted, and must not take writes the copy
+ *    has missed when it wakes.
  * 2. The new object is emptied and migrated, then takes the old one's rows a page at a time: tables
  *    others refer to first, and rowids too, since history is read in rowid order.
  * 3. Both count their rows and hash them, each value as SQLite quotes it, and the two must agree.
@@ -88,7 +90,7 @@ export interface MovePage {
 }
 
 /** Where a move leaves an object, as it starts up. */
-export type MoveState = "sealed" | "importing" | null;
+export type MoveState = "sealed" | "importing" | "frozen" | null;
 
 interface CopiedTable {
 	name: string;
@@ -421,13 +423,20 @@ export function endImport(storage: DurableObjectStorage, db: Db, version: number
 }
 
 /**
- * Settles where a move left the object as it starts: a freeze ends, as a move doesn't outlive
- * a restart, and a sealed or half-filled object says so.
+ * Settles where a move left the object as it starts: sealed, half filled, or frozen, as a freeze
+ * outlives a restart until it lapses. One that lapsed ends here.
  */
-export function moveStateAtStart(storage: DurableObjectStorage): MoveState {
+export function moveStateAtStart(storage: DurableObjectStorage, now: number): MoveState {
 	if (storage.kv.get(SEALED) !== undefined) return "sealed";
+	if (isFrozen(storage, now)) return "frozen";
 	thaw(storage);
 	return storage.kv.get(IMPORT) !== undefined ? "importing" : null;
+}
+
+/** Whether a move's freeze holds the workspace at `now`: there is one, and it hasn't lapsed. */
+export function isFrozen(storage: DurableObjectStorage, now: number): boolean {
+	const until = freezeEnds(storage);
+	return until !== null && until > now;
 }
 
 /**

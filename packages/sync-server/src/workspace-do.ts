@@ -299,9 +299,19 @@ export class WorkspaceDO extends DurableObject {
 		ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
 		void ctx.blockConcurrencyWhile(async () => {
 			// A sealed workspace has moved: what it holds waits to be destroyed, and nothing runs.
-			this.#move = moveStateAtStart(ctx.storage);
+			this.#move = moveStateAtStart(ctx.storage, Date.now());
 			if (this.#move === "sealed") return;
+			// A frozen workspace migrates too, so that it reads as the code expects. A migration that
+			// writes rows fails until the freeze ends, and the object with it, so the move gives up.
 			await migrate(this.#db, migrations);
+			if (this.#move === "frozen") {
+				// Its alarm waits for the move, and ends the freeze if the move died.
+				const until = freezeEnds(ctx.storage);
+				if (until !== null && (await ctx.storage.getAlarm()) === null) {
+					await ctx.storage.setAlarm(until);
+				}
+				return;
+			}
 			// A half-filled copy runs nothing either, until the move that fills it starts it.
 			if (this.#move === null && (await ctx.storage.getAlarm()) === null) {
 				await ctx.storage.setAlarm(Date.now() + COMPACTION_INTERVAL_MS);
