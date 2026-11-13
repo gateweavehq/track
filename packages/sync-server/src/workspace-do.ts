@@ -22,6 +22,7 @@ import {
 	isAdminRole,
 	issueDetailsRequest,
 	MEMBER_ROLES,
+	MUTATION_ID_RETENTION_MS,
 	mutationSchema,
 	type NotificationSettings,
 	notificationSettingsPatch,
@@ -197,7 +198,7 @@ export const LINK_HEADER = "x-track-link";
  */
 export const SESSION_HEADER = "x-track-session";
 
-export const RETENTION: RetentionPolicy = { minOps: 10_000, minAgeMs: 30 * 24 * 60 * 60 * 1000 };
+export const RETENTION: RetentionPolicy = { minOps: 10_000, minAgeMs: MUTATION_ID_RETENTION_MS };
 const COMPACTION_INTERVAL_MS = 6 * 60 * 60 * 1000;
 /** When compaction is next due. The alarm also sends webhooks, so it runs more often than that. */
 const COMPACTION_DUE_KEY = "compaction_due";
