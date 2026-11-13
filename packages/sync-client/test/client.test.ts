@@ -405,6 +405,46 @@ describe("offline", () => {
 		expect(online.snapshots).toBe(0);
 	});
 
+	it("drops an edit kept past the resend window instead of sending it", async () => {
+		const ws = setup();
+		const key = `stale-${ws.id}`;
+		const alice = await ws.live("alice");
+		const team = make.team();
+		await alice.mutate(team);
+		await alice.mutate(make.issue(team.args.id, "Plan"));
+
+		const network = ws.network("bob");
+		const bob = await ws.live("bob", { network, persistence: openIdbPersistence(key) });
+		await waitForConvergence(alice, bob);
+		network.offline();
+		await waitFor(() => bob.getStatus().connection === "offline");
+		void bob.mutate(make.update(issueBy(bob, "Plan"), { title: "Renamed weeks ago" }));
+		void bob.mutate(make.update(issueBy(bob, "Renamed weeks ago"), { priority: 2 }));
+		await bob.close();
+
+		// The device stays offline for five weeks. The server may have forgotten the first edit's id
+		// by then, so if it had landed before its ack was lost, sending it again would apply it twice.
+		const storage = await openIdbPersistence(key);
+		const [stale, fresh] = (await storage.load()).pending;
+		if (!stale || !fresh) throw new Error("expected two stored edits");
+		await storage.removePending(stale.id);
+		await storage.removePending(fresh.id);
+		const fiveWeeks = 5 * 7 * 24 * 60 * 60 * 1000;
+		await storage.addPending({ ...stale, createdAt: Date.now() - fiveWeeks }, fresh);
+		storage.close();
+
+		const onReject = vi.fn();
+		const back = await ws.live("bob", { persistence: openIdbPersistence(key), onReject });
+		await waitFor(() => back.getStatus().pending === 0);
+		await waitForConvergence(alice, back);
+
+		const plan = issueBy(alice, "Plan");
+		expect(plan.priority).toBe(2);
+		expect(issueBy(back, "Plan").priority).toBe(2);
+		expect(onReject).toHaveBeenCalledOnce();
+		expect(onReject.mock.calls[0]?.[0]).toMatchObject({ name: "MutationError", reason: "expired" });
+	});
+
 	it("tells the page when another tab deletes the replica, and not when one upgrades it", async () => {
 		const id = crypto.randomUUID();
 		const deleted = `deleted-${id}`;

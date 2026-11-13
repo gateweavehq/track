@@ -728,8 +728,11 @@ without waking a hibernated Durable Object.
   mutation the same way it learns about everyone else's.
 - A rejection is `reject { id, reason, message }` with reason `invalid`, `forbidden`,
   `not_found` or `conflict`. The client drops the mutation and its optimistic effect.
-- Mutation ids are recorded, so resending a mutation after a reconnect is safe. A repeat returns
-  the original version without writing again.
+- Mutation ids are recorded for 30 days (`MUTATION_ID_RETENTION_MS`), so resending a mutation
+  after a reconnect is safe. A repeat returns the original version without writing again. A
+  client never sends a mutation it has kept for more than 29 days: it cannot know whether an
+  earlier send landed, and the server may have forgotten the id. It drops it with the reason
+  `expired`, which only the client gives, and the app says the change was not saved.
 - A message that is not valid protocol closes the socket with `4400`. A mutation that is valid
   protocol but has an invalid body is rejected by id, and the connection stays open.
 - **Many at once.** `SyncClient.mutateAll` queues a batch, as bulk edit sends it: the replica,
@@ -1866,8 +1869,9 @@ imports, so validation, permissions and fan-out are the ordinary ones.
 
 The alarm compacts the oplog every six hours. Ops are dropped only when they are both older than
 30 days **and** more than 10,000 versions behind the head. The highest dropped version becomes
-the floor, and clients behind it get `reset`. Recorded mutation ids are pruned on the same
-schedule, as are finished webhook deliveries and audit events older than a year. The same alarm sends webhooks, moves cycles on and
+the floor, and clients behind it get `reset`. Recorded mutation ids older than 30 days are pruned
+on the same schedule (which is why a client does not resend older mutations), as are finished
+webhook deliveries and audit events older than a year. The same alarm sends webhooks, moves cycles on and
 runs teams' automations, so it also runs whenever a delivery is due, a team's cycle starts or ends,
 or automations are; when compaction is next due is kept in the `meta` table.
 

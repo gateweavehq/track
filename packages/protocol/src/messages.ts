@@ -26,6 +26,12 @@ import type { WorkflowStatus } from "./statuses";
 /** Bump on any breaking change to messages or entity shapes. */
 export const PROTOCOL_VERSION = 26;
 
+/**
+ * How long the server remembers that a mutation id was applied. A resend within this time is
+ * recognized and applies nothing; after it, the id is forgotten and the mutation would apply again.
+ */
+export const MUTATION_ID_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
 /** Plain-text keepalive. The server answers `"pong"` without waking a hibernated Durable Object. */
 export const PING = "ping";
 export const PONG = "pong";
@@ -82,7 +88,11 @@ export type Op = {
 	);
 }[EntityName];
 
-export const REJECT_REASONS = ["invalid", "forbidden", "not_found", "conflict"] as const;
+/**
+ * Why a mutation was refused. `expired` never comes from the server: the client gives it to a
+ * mutation it kept too long to send safely ({@link MUTATION_ID_RETENTION_MS}).
+ */
+export const REJECT_REASONS = ["invalid", "forbidden", "not_found", "conflict", "expired"] as const;
 export type RejectReason = (typeof REJECT_REASONS)[number];
 
 export type ServerMessage =

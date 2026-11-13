@@ -2,6 +2,7 @@ import {
 	type ClientMessage,
 	CloseCode,
 	cleanText,
+	MUTATION_ID_RETENTION_MS,
 	type Mutation,
 	type MutationInput,
 	mutationSchema,
@@ -73,6 +74,14 @@ function cleanStrings(_key: string, value: unknown): unknown {
 }
 
 const FATAL: ReadonlySet<ConnectionStatus> = new Set(["outdated", "unauthorized", "forbidden"]);
+
+/**
+ * How old an unconfirmed mutation may be and still be sent. Past this the server may have forgotten
+ * its id, and one that was applied before its ack was lost would apply again, over newer edits. A
+ * day short of the server's limit leaves room for the device's clock being changed meanwhile.
+ */
+const RESEND_WINDOW_MS = MUTATION_ID_RETENTION_MS - 24 * 60 * 60 * 1000;
+const EXPIRED = "It waited over four weeks on this device, too long to be sent safely";
 
 /**
  * Keeps a local replica of one workspace in sync with its Durable Object.
@@ -411,7 +420,7 @@ export class SyncClient {
 				this.#attempt = 0;
 				this.#setConnection("live");
 				this.#startKeepalive();
-				for (const pending of this.#replica.pending) this.#send(pending);
+				this.#resend();
 				return;
 			case "ack": {
 				const { id, version } = message;
@@ -552,6 +561,28 @@ export class SyncClient {
 			this.#pongTimer = undefined;
 			this.#reconnect();
 		}, timeout);
+	}
+
+	/**
+	 * Sends every mutation the server has not confirmed, in order. One kept past the resend window is
+	 * refused here instead, and every tab drops it as if the server had.
+	 */
+	#resend(): void {
+		const oldest = Date.now() - RESEND_WINDOW_MS;
+		for (const pending of [...this.#replica.pending]) {
+			if (pending.createdAt >= oldest) {
+				this.#send(pending);
+				continue;
+			}
+			const { id } = pending;
+			this.#write((p) => p.removePending(id), {
+				type: "reject",
+				id,
+				reason: "expired",
+				message: EXPIRED,
+			});
+			this.#rejected(id, "expired", EXPIRED);
+		}
 	}
 
 	#send(pending: PendingMutation): void {
