@@ -10,6 +10,7 @@ import {
 	currentCycleId,
 	type PersonKey,
 	SAMPLE_PEOPLE,
+	type SampleStep,
 	sampleSteps,
 	WORKSPACE_NAME,
 	withCycle,
@@ -77,23 +78,35 @@ export async function startDemoSandbox(headers: Headers): Promise<{ slug: string
 			>,
 			newId: () => crypto.randomUUID(),
 		});
-		// Cycle ids are the Durable Object's to make, so read it once a step needs it.
-		let cycleId: string | undefined;
-		for (const [index, planned] of steps.entries()) {
-			if (planned.needsCycle) cycleId ??= currentCycleId(await stub.directory());
-			const { person, mutation } =
-				planned.needsCycle && cycleId ? withCycle(planned, cycleId) : planned;
-			const result = await stub.mutate(
-				people[person],
+		// Two calls, not one a step: the workspace may be in a jurisdiction an ocean away, and its
+		// hundreds of steps took twenty seconds from there. Cycle ids are the Durable Object's to
+		// make, so the steps from the first that needs one wait for the first call's.
+		const split = steps.findIndex((step) => step.needsCycle);
+		const before = split === -1 ? steps : steps.slice(0, split);
+		const after = split === -1 ? [] : steps.slice(split);
+		const apply = async (part: SampleStep[], offset: number) => {
+			const results = await stub.mutateMany(
 				"demo-sandbox",
-				crypto.randomUUID(),
-				mutation,
+				part.map(({ person, mutation }) => ({
+					member: people[person],
+					mutationId: crypto.randomUUID(),
+					body: mutation,
+				})),
 			);
-			if (!result.ok) {
-				throw new Error(
-					`Demo seeding failed at step ${index + 1} of ${steps.length} (${mutation.name}): ${result.reason}: ${result.message}`,
-				);
-			}
+			const last = results.at(-1);
+			if (results.length === part.length && last?.ok !== false) return;
+			const index = results.length - 1;
+			throw new Error(
+				`Demo seeding failed at step ${offset + index + 1} of ${steps.length} (${part[index]?.mutation.name}): ${last?.ok === false ? `${last.reason}: ${last.message}` : "no result"}`,
+			);
+		};
+		await apply(before, 0);
+		if (after.length > 0) {
+			const cycleId = currentCycleId(await stub.directory());
+			await apply(
+				after.map((step) => withCycle(step, cycleId)),
+				before.length,
+			);
 		}
 
 		return { slug };

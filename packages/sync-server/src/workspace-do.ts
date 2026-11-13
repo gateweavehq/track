@@ -506,6 +506,27 @@ export class WorkspaceDO extends DurableObject {
 		}
 	}
 
+	/**
+	 * Applies mutations in order, each as {@link mutate} would, and stops at the first that fails,
+	 * whose result comes last. For a server writing many at once, such as a demo sandbox's sample
+	 * data: a call each would cross to the object's jurisdiction and back every time.
+	 */
+	mutateMany(
+		clientId: string,
+		steps: readonly { member: MemberProfile; mutationId: string; body: unknown }[],
+	): MutateResult[] {
+		const results: MutateResult[] = [];
+		const parsed = z
+			.array(z.object({ member: memberProfile, mutationId: shortId, body: z.unknown() }))
+			.parse(steps);
+		for (const { member, mutationId, body } of parsed) {
+			const result = this.mutate(member, clientId, mutationId, body);
+			results.push(result);
+			if (!result.ok) break;
+		}
+		return results;
+	}
+
 	// RPC for webhook settings. The gateway passes the verified member, as for `mutate`, and the
 	// workspace's current link, since only the gateway knows the slug and the app's origin.
 
