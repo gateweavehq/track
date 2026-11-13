@@ -52,10 +52,12 @@
 	"env": {
 		"staging": {
 			"name": "gateweave-track-staging",
+			// Created with the `eu` jurisdiction, so the data stays in the EU.
 			"d1_databases": [
 				{
 					"binding": "DB",
-					"database_name": "gateweave-track-staging",
+					"database_name": "gateweave-track-staging-eu",
+					"database_id": "0e575970-efa8-4071-b812-8cc97e45837b",
 					"migrations_dir": "apps/web/migrations"
 				}
 			],
