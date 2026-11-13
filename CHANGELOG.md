@@ -8,6 +8,21 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.35.1] - 2026-11-13
+
+Opening the demo is quick again from far away. There is no migration in this release.
+
+### Fixed
+
+- **The demo opened slowly outside Europe.** Since 0.35.0 each sandbox lives in the EU, and its
+  sample data went over one write at a time, so from the US opening a demo took about twenty
+  seconds. It now goes in two calls. A guided team and its issues go in one call too, which helps a
+  new workspace made far from its server's jurisdiction. ([#286])
+
+### If you run your own
+
+- **Nothing to do.**
+
 ## [0.35.0] - 2026-11-13
 
 A server can now keep its workspaces in one of Cloudflare's jurisdictions, and Gateweave Cloud's
@@ -1527,6 +1542,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.35.1]: https://github.com/gateweavehq/track/releases/tag/v0.35.1
 [0.35.0]: https://github.com/gateweavehq/track/releases/tag/v0.35.0
 [0.34.1]: https://github.com/gateweavehq/track/releases/tag/v0.34.1
 [0.34.0]: https://github.com/gateweavehq/track/releases/tag/v0.34.0
@@ -1602,6 +1618,7 @@ The first pre-release.
 [0.1.0-alpha.3]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
+[#286]: https://github.com/gateweavehq/track/pull/286
 [#284]: https://github.com/gateweavehq/track/pull/284
 [#283]: https://github.com/gateweavehq/track/pull/283
 [#281]: https://github.com/gateweavehq/track/pull/281
