@@ -31,4 +31,18 @@ describe("environment builds", () => {
 		expect(database(environment)).toBeDefined();
 		expect(database(environment)).not.toBe(database(production));
 	});
+
+	// Gateweave Cloud's production deploys the `cloud` environment (.github/workflows/deploy.yml).
+	// Durable Objects belong to a Worker, so a different name would leave every workspace behind.
+	it("deploys Cloud's production as the top-level Worker, with the same Durable Objects", () => {
+		const production = unstable_readConfig({ config }, { hideWarnings: true });
+		const cloud = unstable_readConfig({ config, env: "cloud" }, { hideWarnings: true });
+		expect(cloud.name).toBe(production.name);
+		expect(cloud.durable_objects.bindings).toEqual(production.durable_objects.bindings);
+		const bindings = ({ d1_databases, r2_buckets }: typeof production) => [
+			...d1_databases.map((d1: { binding: string }) => d1.binding),
+			...r2_buckets.map((r2: { binding: string }) => r2.binding),
+		];
+		expect(bindings(cloud)).toEqual(bindings(production));
+	});
 });

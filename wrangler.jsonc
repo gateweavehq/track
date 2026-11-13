@@ -47,12 +47,36 @@
 	// the sign-in page links to as "Ask for access" while the owner has closed sign-up (see
 	// apps/web/src/server/env.d.ts).
 	"secrets": { "required": ["BETTER_AUTH_SECRET"] },
-	// The top level is production. Staging is a separate Worker with its own database and
-	// workspaces; bindings are not inherited, so they are repeated here.
+	// The top level is what self-hosters deploy. Gateweave Cloud deploys the environments below:
+	// `cloud` is https://track.gateweave.com, the Worker the top level names, so its workspaces stay
+	// where they are, and `staging` a separate Worker with its own database and workspaces. Both
+	// keep their database and files in the EU: those were created with the `eu` jurisdiction.
+	// Bindings are not inherited, so each environment repeats them.
 	"env": {
+		"cloud": {
+			"name": "gateweave-track",
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "gateweave-track-eu",
+					"database_id": "bb35b197-846d-4e83-97b5-73a8f29e769e",
+					"migrations_dir": "apps/web/migrations"
+				}
+			],
+			"durable_objects": {
+				"bindings": [
+					{ "name": "WORKSPACE", "class_name": "WorkspaceDO" },
+					{ "name": "RATE_LIMITER", "class_name": "RateLimiter" }
+				]
+			},
+			"send_email": [{ "name": "EMAIL" }],
+			"r2_buckets": [
+				{ "binding": "FILES", "bucket_name": "gateweave-track-files-eu", "jurisdiction": "eu" }
+			],
+			"secrets": { "required": ["BETTER_AUTH_SECRET"] }
+		},
 		"staging": {
 			"name": "gateweave-track-staging",
-			// Created with the `eu` jurisdiction, so the data stays in the EU.
 			"d1_databases": [
 				{
 					"binding": "DB",
@@ -68,7 +92,13 @@
 				]
 			},
 			"send_email": [{ "name": "EMAIL" }],
-			"r2_buckets": [{ "binding": "FILES", "bucket_name": "gateweave-track-files-staging" }],
+			"r2_buckets": [
+				{
+					"binding": "FILES",
+					"bucket_name": "gateweave-track-files-staging-eu",
+					"jurisdiction": "eu"
+				}
+			],
 			"secrets": { "required": ["BETTER_AUTH_SECRET"] }
 		},
 		// Gateweave's public demo. Every visitor gets a private sandbox workspace, deleted after a

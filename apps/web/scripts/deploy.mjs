@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { unstable_readConfig } from "wrangler";
-import { bucketCreateOutcome } from "./bucket.mjs";
+import { bucketCreateArgs, bucketCreateOutcome } from "./bucket.mjs";
 
 const require = createRequire(import.meta.url);
 // Wrangler runs from the repository root: wrangler.jsonc is there, and so is the build's pointer
@@ -77,7 +77,7 @@ function ensureBucket() {
 	// Without the binding, Track runs with attachments off.
 	if (!bucket?.bucket_name) return;
 	try {
-		ask(["r2", "bucket", "create", bucket.bucket_name]);
+		ask(bucketCreateArgs(bucket));
 		console.log(`Created the R2 bucket ${bucket.bucket_name} for attached files.`);
 	} catch (error) {
 		const outcome = bucketCreateOutcome(error.stderr ?? "");
