@@ -428,4 +428,31 @@ describe("intake email", () => {
 		);
 		expect((await track.fileKeys(`${workspaceId}/`)).length - before.length).toBe(10);
 	});
+
+	// Email Routing delivers at least once, and a delivery's raw bytes differ each time, so the
+	// mail is recognized by its sender's headers (TRK-120).
+	it("files a mail delivered again once, with its attachment kept once", async () => {
+		const to = await turnOn();
+		const before = await track.fileKeys(`${workspaceId}/`);
+		const sent = replyWithFile("Noor <noor@customer.test>", to, "Totals are off by one.").replace(
+			"Subject: Re: Your request was accepted",
+			"Subject: Totals off by one",
+		);
+		const again = `Received: from relay2.customer.test\r\n${sent}`;
+		expect((await track.email("noor@customer.test", to, sent)).outcome).toBe("ok");
+		expect((await track.email("noor@customer.test", to, again)).outcome).toBe("ok");
+
+		expect((await titles()).filter((title) => title === "Totals off by one")).toHaveLength(1);
+		expect((await track.fileKeys(`${workspaceId}/`)).length - before.length).toBe(1);
+	});
+
+	it("files a reply delivered again once", async () => {
+		const { id, replyTo } = await decidedRequest("ola@customer.test", "Dark mode flicker");
+		const sent = replyWithFile("Ola <ola@customer.test>", replyTo, "It happens on reload.");
+		expect((await track.email("ola@customer.test", replyTo, sent)).outcome).toBe("ok");
+		expect((await track.email("ola@customer.test", replyTo, sent)).outcome).toBe("ok");
+
+		const comments = (await snapshot()).comments.filter((each) => each.issueId === id);
+		expect(comments).toHaveLength(1);
+	});
 });

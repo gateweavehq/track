@@ -69,17 +69,24 @@ export async function handleIntakeEmail(message: ForwardableEmailMessage): Promi
 	if (!workspace) return message.setReject("No such address");
 	const stub = await findWorkspaceStub(db, workspace.id);
 	const sender = message.from.trim().toLowerCase();
-	if (address.kind === "reply") return fileReply(message, stub, workspace.id, address.key, sender);
+	const delivery = await deliveryId(message.headers, workspace.id, address.key);
+	if (address.kind === "reply") {
+		return fileReply(message, stub, workspace.id, address.key, sender, delivery);
+	}
 	// The key is checked before anything is counted, so mail to made-up addresses costs no one's
 	// allowance and leaves no record behind.
 	if (!(await stub.intakeEmail(address.key))) return message.setReject("No such address");
+	// The same mail again, after it was filed: taken, with nothing counted or stored twice.
+	if (delivery && (await stub.intakeDelivered(delivery))) return;
 	if (!(await limitEmailedRequests(sender, address.key))) {
 		return message.setReject("Too many requests from this sender; try again later");
 	}
 
 	const email = await PostalMime.parse(message.raw, { maxPartCount: 200 });
 	const from = email.from && "address" in email.from ? email.from.address : undefined;
-	const kept = bucket ? await keepAttachments(bucket, workspace.id, email.attachments) : [];
+	const kept = bucket
+		? await keepAttachments(bucket, workspace.id, email.attachments, delivery)
+		: [];
 	const { title, description } = requestFromEmail(
 		email,
 		from || sender,
@@ -98,6 +105,7 @@ export async function handleIntakeEmail(message: ForwardableEmailMessage): Promi
 		title,
 		description,
 		sortOrder: generateKeyBetween(await stub.lastSortOrder(), null),
+		deliveryId: delivery,
 	});
 	if (filed) return;
 	// The address was turned off a moment ago: nothing links the files, so they go too.
@@ -118,6 +126,7 @@ async function fileReply(
 	workspaceId: string,
 	key: string,
 	sender: string,
+	delivery: string | null,
 ): Promise<void> {
 	// Only a key of a reply key's form gets here (parseIntakeAddress), and only one a request has
 	// gets past this.
@@ -128,18 +137,57 @@ async function fileReply(
 		.trim()
 		.toLowerCase();
 	if (from !== target.email) return message.setReject("No such address");
+	if (delivery && (await stub.intakeDelivered(delivery))) return;
 	if (!(await limitEmailedReplies(key))) {
 		return message.setReject("Too many replies to this request; try again later");
 	}
 	const text = replyFromEmail(email);
 	const bucket = env.FILES;
-	const kept = bucket ? await keepAttachments(bucket, workspaceId, email.attachments) : [];
+	const kept = bucket
+		? await keepAttachments(bucket, workspaceId, email.attachments, delivery)
+		: [];
 	const body = [text, ...kept.map((file) => file.markdown)].filter(Boolean).join("\n\n");
 	if (!body) return;
-	if (await stub.fileReply({ key, from, body })) return;
+	if (await stub.fileReply({ key, from, body, deliveryId: delivery })) return;
 	// The request was deleted a moment ago: nothing links the files, so they go too.
 	if (bucket) await dropAttachments(bucket, workspaceId, kept);
 	message.setReject("No such address");
+}
+
+/**
+ * Identifies one mail across Email Routing's deliveries of it, which are at least once: a handler
+ * that fails or runs too long gets the same mail again. Its raw bytes differ each time (MAIL-1
+ * measured three deliveries with three hashes), but the sender's own headers stay the same. Scoped
+ * to the address it came to, so a mail sent to two teams files in each. Null without a
+ * `Message-ID`: `From` and `Date` alone could match two different mails.
+ */
+async function deliveryId(
+	headers: Headers,
+	workspaceId: string,
+	key: string,
+): Promise<string | null> {
+	const messageId = headers.get("message-id")?.trim();
+	if (!messageId) return null;
+	const from = headers.get("from")?.trim() ?? "";
+	const date = headers.get("date")?.trim() ?? "";
+	return sha256([workspaceId, key, messageId, from, date].join("\n"));
+}
+
+async function sha256(text: string): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+	return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** A file id of the uuid form, the same for a mail's attachment on every delivery of the mail. */
+async function deliveredFileId(delivery: string, index: number): Promise<string> {
+	const hex = (await sha256(`${delivery}:${index}`)).slice(0, 32);
+	return [
+		hex.slice(0, 8),
+		hex.slice(8, 12),
+		hex.slice(12, 16),
+		hex.slice(16, 20),
+		hex.slice(20),
+	].join("-");
 }
 
 interface KeptFile {
@@ -162,32 +210,40 @@ async function dropAttachments(bucket: R2Bucket, workspaceId: string, kept: Kept
  * Stores an email's attachments in the bucket of attached files, as the file gateway stores what
  * members attach, so the request links them and members open them as any other attachment. Up to
  * MAX_INTAKE_ATTACHMENTS, each within the gateway's size limit; empty ones are skipped.
+ *
+ * A mail with a delivery id keeps each file under the same key on every delivery. If an earlier
+ * delivery failed partway, the files it stored are found and used, not stored and counted against
+ * the quota again.
  */
 async function keepAttachments(
 	bucket: R2Bucket,
 	workspaceId: string,
 	attachments: Attachment[],
+	delivery: string | null,
 ): Promise<KeptFile[]> {
 	const kept: KeptFile[] = [];
-	for (const attachment of attachments) {
+	for (const [index, attachment] of attachments.entries()) {
 		if (kept.length >= MAX_INTAKE_ATTACHMENTS) break;
 		const content = attachment.content;
 		const size = typeof content === "string" ? content.length : content.byteLength;
 		if (size === 0 || size > MAX_FILE_BYTES) continue;
-		const fileId = crypto.randomUUID();
+		const fileId = delivery ? await deliveredFileId(delivery, index) : crypto.randomUUID();
 		const name = attachmentName(attachment.filename ?? "attachment");
 		const type = mediaType(attachment.mimeType);
 		const key = `${workspaceId}/${fileId}/${name}`;
-		// Past the workspace's quota, the request still comes in, without the files that do not fit.
-		if (!(await reserveFileStorage(bucket, workspaceId, size))) continue;
-		try {
-			await bucket.put(key, content, {
-				httpMetadata: { contentType: type },
-				customMetadata: { uploadedBy: "email" },
-			});
-		} catch (cause) {
-			await releaseFileStorage(workspaceId, size);
-			throw cause;
+		const stored = delivery ? await bucket.head(key) : null;
+		if (!stored) {
+			// Past the workspace's quota, the request still comes in, without the files that do not fit.
+			if (!(await reserveFileStorage(bucket, workspaceId, size))) continue;
+			try {
+				await bucket.put(key, content, {
+					httpMetadata: { contentType: type },
+					customMetadata: { uploadedBy: "email" },
+				});
+			} catch (cause) {
+				await releaseFileStorage(workspaceId, size);
+				throw cause;
+			}
 		}
 		kept.push({
 			key,

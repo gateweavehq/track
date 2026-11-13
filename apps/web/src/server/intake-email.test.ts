@@ -116,6 +116,8 @@ describe("replies by email", () => {
 			key: KEY,
 			from: "sam@customer.test",
 			body: "Thanks, that helps.",
+			// Without a Message-ID the mail cannot be told from another, so nothing is recorded.
+			deliveryId: null,
 		});
 	});
 });

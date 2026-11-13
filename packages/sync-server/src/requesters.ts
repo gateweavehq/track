@@ -2,6 +2,7 @@ import { INTAKE_EMAIL_ACTOR_ID, userText, type WebhookActor } from "@gateweave/t
 import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import * as schema from "./db/schema";
+import { emailDeliveryId } from "./email-deliveries";
 import { notifyOfReply } from "./inbox";
 import { ChangeSet, type WriteResult } from "./log";
 import { indexComment } from "./search";
@@ -117,6 +118,8 @@ export const requesterReply = z.object({
 	from: z.email().max(254),
 	/** The reply's own text, quotes taken out, as Markdown. */
 	body: userText.trim().min(1).max(100_000),
+	/** Which mail it is, so one delivered again files nothing more. */
+	deliveryId: emailDeliveryId.nullable().default(null),
 });
 export type RequesterReply = z.infer<typeof requesterReply>;
 
