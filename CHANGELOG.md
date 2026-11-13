@@ -8,6 +8,25 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.35.3] - 2026-11-13
+
+An email to a team's intake address is filed once, even when it arrives twice. There is no
+migration in this release.
+
+### Fixed
+
+- **An email delivered twice became two requests.** Cloudflare's Email Routing delivers mail at
+  least once, so a mail it sent again after a slow or failed first try filed a second request, or a
+  second comment on one, and stored its attachments twice against the workspace's file quota. The
+  workspace now remembers each mail it filed, by its `Message-ID`, sender and date, for as long as
+  it remembers applied changes, and takes it again without filing anything. A mail that arrives
+  again after a delivery failed partway reuses the attachments already stored. A mail without a
+  `Message-ID` can't be told apart from another, so it is filed each time, as before. ([#290])
+
+### If you run your own
+
+- **Nothing to do.**
+
 ## [0.35.2] - 2026-11-13
 
 A change kept unsent on a device for weeks no longer risks landing twice. There is no migration
@@ -1560,6 +1579,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.35.3]: https://github.com/gateweavehq/track/releases/tag/v0.35.3
 [0.35.2]: https://github.com/gateweavehq/track/releases/tag/v0.35.2
 [0.35.1]: https://github.com/gateweavehq/track/releases/tag/v0.35.1
 [0.35.0]: https://github.com/gateweavehq/track/releases/tag/v0.35.0
@@ -1638,6 +1658,7 @@ The first pre-release.
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
 [#286]: https://github.com/gateweavehq/track/pull/286
+[#290]: https://github.com/gateweavehq/track/pull/290
 [#288]: https://github.com/gateweavehq/track/pull/288
 [#284]: https://github.com/gateweavehq/track/pull/284
 [#283]: https://github.com/gateweavehq/track/pull/283
