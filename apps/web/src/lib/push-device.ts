@@ -80,6 +80,26 @@ async function subscribe(userId: string, key: string): Promise<boolean> {
 	return saved;
 }
 
+/** Held while push changes in this browser, in any tab. */
+const LOCK = "track:push-change";
+
+/** Changes in this tab, one after another, where the browser has no Web Locks. */
+let changes: Promise<unknown> = Promise.resolve();
+
+/**
+ * Runs `change` once no other change to push is running here. Each one awaits the browser and the
+ * server several times, and another that ran in between was undone: push turned off while Track
+ * renewed it came back on (TRK-130).
+ */
+function changingPush<T>(change: () => Promise<T>): Promise<T> {
+	if (typeof navigator !== "undefined" && navigator.locks) {
+		return navigator.locks.request(LOCK, change);
+	}
+	const run = changes.then(change);
+	changes = run.catch(() => {});
+	return run;
+}
+
 /** Asks the browser's permission, then turns push on. */
 export async function turnPushOn(
 	userId: string,
@@ -87,15 +107,17 @@ export async function turnPushOn(
 ): Promise<"on" | "denied" | "refused"> {
 	const permission = await Notification.requestPermission();
 	if (permission !== "granted") return "denied";
-	return (await subscribe(userId, key)) ? "on" : "refused";
+	return changingPush(async () => ((await subscribe(userId, key)) ? "on" : "refused"));
 }
 
-export async function turnPushOff(): Promise<void> {
-	mark(null);
-	const subscription = await currentSubscription();
-	if (!subscription) return;
-	await removePushSubscription({ data: { endpoint: subscription.endpoint } }).catch(() => {});
-	await subscription.unsubscribe();
+export function turnPushOff(): Promise<void> {
+	return changingPush(async () => {
+		mark(null);
+		const subscription = await currentSubscription();
+		if (!subscription) return;
+		await removePushSubscription({ data: { endpoint: subscription.endpoint } }).catch(() => {});
+		await subscription.unsubscribe();
+	});
 }
 
 /**
@@ -104,17 +126,22 @@ export async function turnPushOff(): Promise<void> {
  */
 export async function keepPushOn(userId: string): Promise<void> {
 	if (pushSupport() !== "ready" || Notification.permission !== "granted") return;
-	if (markedFor() !== userId) return;
-	const key = await getPushKey();
-	if (key) await subscribe(userId, key);
+	await changingPush(async () => {
+		// Read on its turn: push may have been turned off while it waited.
+		if (markedFor() !== userId) return;
+		const key = await getPushKey();
+		if (key) await subscribe(userId, key);
+	});
 }
 
 /**
  * On signing out. The server's copy goes with the session; this ends the browser's subscription
  * too, as a browser may be shared.
  */
-export async function forgetPushHere(): Promise<void> {
-	mark(null);
-	if (pushSupport() !== "ready") return;
-	await (await currentSubscription())?.unsubscribe();
+export function forgetPushHere(): Promise<void> {
+	return changingPush(async () => {
+		mark(null);
+		if (pushSupport() !== "ready") return;
+		await (await currentSubscription())?.unsubscribe();
+	});
 }
