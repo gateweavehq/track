@@ -20,7 +20,7 @@ import { demoEnabled } from "./demo/mode";
 import { releaseFileStorage, reserveFileStorage } from "./file-quota";
 import { mediaType } from "./files";
 import { limitEmailedReplies, limitEmailedRequests } from "./rate-limit";
-import { workspaceStub } from "./workspaces";
+import { findWorkspaceStub } from "./workspaces";
 
 /** The largest email read where attachments are not kept: its text is all that is. */
 export const MAX_INTAKE_EMAIL = 1024 * 1024;
@@ -67,7 +67,7 @@ export async function handleIntakeEmail(message: ForwardableEmailMessage): Promi
 		.where(sql`lower(${schema.organization.id}) = ${address.workspaceId}`)
 		.get();
 	if (!workspace) return message.setReject("No such address");
-	const stub = workspaceStub(workspace.id);
+	const stub = await findWorkspaceStub(db, workspace.id);
 	const sender = message.from.trim().toLowerCase();
 	if (address.kind === "reply") return fileReply(message, stub, workspace.id, address.key, sender);
 	// The key is checked before anything is counted, so mail to made-up addresses costs no one's
@@ -114,7 +114,7 @@ export async function handleIntakeEmail(message: ForwardableEmailMessage): Promi
  */
 async function fileReply(
 	message: ForwardableEmailMessage,
-	stub: ReturnType<typeof workspaceStub>,
+	stub: Awaited<ReturnType<typeof findWorkspaceStub>>,
 	workspaceId: string,
 	key: string,
 	sender: string,

@@ -57,3 +57,8 @@ BETTER_AUTH_SECRET=
 
 # Optional: the most megabytes of attached files each workspace may keep. Unlimited when unset.
 # ATTACHMENT_QUOTA_MB=
+
+# Optional, for a deployed Worker: keeps workspaces' Durable Objects in a Cloudflare jurisdiction,
+# eu, us, fedramp or fedramp-high, and moves older ones there each day. Leave it unset here: the
+# local runtime has no jurisdictions. See "Keeping data in one jurisdiction" in docs/self-hosting.md.
+# DURABLE_OBJECT_JURISDICTION=

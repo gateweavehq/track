@@ -4,7 +4,7 @@ import { slugProblem } from "../../lib/slug";
 import { db, getAuth } from "../auth";
 import { schema } from "../db";
 import { limitDemoStarts } from "../rate-limit";
-import { workspaceStub } from "../workspaces";
+import { destroyWorkspace, findWorkspaceStub } from "../workspaces";
 import { assertDemo, VISITOR_DOMAIN } from "./mode";
 import {
 	currentCycleId,
@@ -69,7 +69,7 @@ export async function startDemoSandbox(headers: Headers): Promise<{ slug: string
 			});
 		}
 
-		const stub = workspaceStub(workspace.id);
+		const stub = await findWorkspaceStub(db, workspace.id);
 		const steps = sampleSteps({
 			userIds: Object.fromEntries(SAMPLE_PEOPLE.map(([key]) => [key, people[key].id])) as Record<
 				PersonKey,
@@ -109,7 +109,7 @@ export async function startDemoSandbox(headers: Headers): Promise<{ slug: string
 
 async function discardSandbox(userId: string, workspaceId: string | undefined) {
 	if (workspaceId) {
-		await workspaceStub(workspaceId).destroy();
+		await destroyWorkspace(db, workspaceId);
 		await db.delete(schema.organization).where(eq(schema.organization.id, workspaceId));
 	}
 	await db.delete(schema.user).where(eq(schema.user.id, userId));

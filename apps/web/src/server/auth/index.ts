@@ -6,11 +6,13 @@ import { forgetInWorkspaces } from "../erasure";
 import { allowPasswordTry, allowSpentTriesEmail, authRateLimits } from "../rate-limit";
 import {
 	deleteWorkspaceFiles,
+	destroyWorkspace,
 	endSessionsEverywhere,
+	findWorkspaceStub,
+	placeNewWorkspace,
 	reportAudit,
 	syncMembership,
 	syncUserEverywhere,
-	workspaceStub,
 } from "../workspaces";
 import { createAuth } from "./config";
 import { countedByWhoSentIt } from "./workers-address";
@@ -75,19 +77,26 @@ function buildAuth() {
 		// A socket this misses still closes when its session would have run out.
 		onSessionsEnded: (userId, sessionIds) =>
 			logFailure(endSessionsEverywhere(db, userId, sessionIds), "closing ended sessions' sockets"),
+		// Before anything reaches the new workspace's object, which reaching it makes. One missed is
+		// made outside the deployment's jurisdiction, and the daily run moves it.
+		onWorkspaceCreated: (workspaceId) =>
+			logFailure(placeNewWorkspace(db, workspaceId), "placing a new workspace"),
 		onWorkspaceDeleted: async (workspaceId) => {
 			// Nobody can reach the files once the membership is gone, so the deletion need not hold
 			// up the response, however many there are.
 			waitUntil(logFailure(deleteWorkspaceFiles(workspaceId), "deleting a workspace's files"));
-			await logFailure(workspaceStub(workspaceId).destroy(), "workspace deletion");
+			await logFailure(destroyWorkspace(db, workspaceId), "workspace deletion");
 		},
 		// What this misses stays noted, and the daily cron asks again.
 		onAccountDeleted: (userId) =>
 			logFailure(forgetInWorkspaces(db, userId), "forgetting a deleted account"),
 		onWorkspaceRenamed: (workspaceId, slug) =>
-			logFailure(workspaceStub(workspaceId).relink(slug), "workspace rename"),
+			logFailure(
+				findWorkspaceStub(db, workspaceId).then((stub) => stub.relink(slug)),
+				"workspace rename",
+			),
 		// The change is made; an event that does not arrive is lost, and said so in the logs.
-		onAudit: (workspaceId, event) => logFailure(reportAudit(workspaceId, event), "audit log"),
+		onAudit: (workspaceId, event) => logFailure(reportAudit(db, workspaceId, event), "audit log"),
 		demo: demoEnabled(),
 		mailer: demoEnabled() ? undefined : mailer,
 		runInBackground: waitUntil,

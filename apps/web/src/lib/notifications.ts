@@ -29,7 +29,7 @@ async function access(workspace: string) {
 	return {
 		user: session.user,
 		member: membership.profile,
-		stub: workspaceStub(membership.workspaceId),
+		stub: workspaceStub(membership),
 	};
 }
 

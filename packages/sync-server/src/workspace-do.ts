@@ -80,6 +80,28 @@ import {
 	type RetentionPolicy,
 	type WriteResult,
 } from "./log";
+import {
+	beginImport,
+	checkCopy,
+	digestTables,
+	endImport,
+	freezeEnds,
+	freezeForMove,
+	MOVING_MESSAGE,
+	type MoveCursor,
+	type MoveManifest,
+	type MoveOut,
+	type MovePage,
+	type MoveRows,
+	mayImport,
+	moveStateAtStart,
+	readForMove,
+	sealForMove,
+	type Thawed,
+	thaw,
+	thawAfterMove,
+	writeForMove,
+} from "./move";
 import { applyMutation } from "./mutations";
 import {
 	type InboxDigest,
@@ -263,14 +285,23 @@ interface SocketState {
 /** One instance per workspace. Owns the workspace's data and fans changes out to clients. */
 export class WorkspaceDO extends DurableObject {
 	readonly #db: Db;
+	/**
+	 * Where a move (move.ts) has the workspace: frozen while it moves out, sealed once it has, or
+	 * taking a move's rows in. Kept in storage too; this saves reading it on every message.
+	 */
+	#move: "frozen" | "sealed" | "importing" | null = null;
 
 	constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
 		super(ctx, env);
 		this.#db = drizzle(ctx.storage, { schema });
 		ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
 		void ctx.blockConcurrencyWhile(async () => {
+			// A sealed workspace has moved: what it holds waits to be destroyed, and nothing runs.
+			this.#move = moveStateAtStart(ctx.storage);
+			if (this.#move === "sealed") return;
 			await migrate(this.#db, migrations);
-			if ((await ctx.storage.getAlarm()) === null) {
+			// A half-filled copy runs nothing either, until the move that fills it starts it.
+			if (this.#move === null && (await ctx.storage.getAlarm()) === null) {
 				await ctx.storage.setAlarm(Date.now() + COMPACTION_INTERVAL_MS);
 			}
 		});
@@ -792,11 +823,91 @@ export class WorkspaceDO extends DurableObject {
 		return readForBackup(this.ctx.storage, statements);
 	}
 
+	// RPC for moving the workspace to another object (move.ts), which the app worker does from its
+	// daily run when the deployment keeps workspaces in a jurisdiction. Nothing else calls these.
+
+	/**
+	 * Freezes the workspace for a move to `to` and says what it holds, or that it moved before. Its
+	 * sockets close, and clients reconnect, to wherever the app sends them by then.
+	 */
+	async moveOut(token: string, to: string): Promise<MoveOut> {
+		const out = freezeForMove(this.ctx.storage, this.#db, token, to, Date.now());
+		if (!out.frozen) return out;
+		this.#move = "frozen";
+		for (const ws of this.ctx.getWebSockets()) {
+			try {
+				ws.close(1012, "Workspace moving");
+			} catch {
+				// Already closing.
+			}
+		}
+		// The alarm's work waits for the move. If the move dies, the alarm ends the freeze.
+		const until = freezeEnds(this.ctx.storage);
+		if (until !== null) await this.ctx.storage.setAlarm(until);
+		return out;
+	}
+
+	/** The next page of the frozen workspace's rows, about `chars` of them at most. */
+	moveRead(token: string, cursor: MoveCursor, chars?: number): MovePage {
+		return readForMove(this.ctx.storage, token, cursor, Date.now(), chars);
+	}
+
+	/** Seals the workspace once its copy is checked: it refuses everything from then on. */
+	async moveSeal(token: string): Promise<void> {
+		sealForMove(this.ctx.storage, token, Date.now());
+		this.#move = "sealed";
+		await this.ctx.storage.deleteAlarm();
+	}
+
+	/** Ends the freeze of a move that gave up, so the workspace works where it is. */
+	moveThaw(token: string): Thawed {
+		const thawed = thawAfterMove(this.ctx.storage, token);
+		if (thawed === "thawed") {
+			this.#move = null;
+			this.#alarmSoon();
+		}
+		return thawed;
+	}
+
+	/** Empties this object, if it holds no live workspace, to take the rows of a move. */
+	async moveIn(token: string, manifest: MoveManifest): Promise<void> {
+		if (!mayImport(this.ctx.storage, this.#db)) {
+			throw new Error("This object holds a workspace, so it can't take another's rows.");
+		}
+		await this.ctx.storage.deleteAll();
+		await migrate(this.#db, migrations);
+		beginImport(this.ctx.storage, token, manifest);
+		this.#move = "importing";
+	}
+
+	/** Writes a page of the moving workspace's rows. */
+	moveWrite(token: string, page: MoveRows[]): void {
+		writeForMove(this.ctx.storage, token, page);
+	}
+
+	/** Checks the copied rows against what the workspace held. */
+	moveCheck(token: string, manifest: MoveManifest): void {
+		checkCopy(this.ctx.storage, this.#db, token, manifest);
+	}
+
+	/** A hash of each table's rows, for the two ends of a move to compare. */
+	moveDigest(): Promise<Record<string, string>> {
+		return digestTables(this.ctx.storage);
+	}
+
+	/** Ends a move into this object, which holds the workspace from now on, and runs its alarm. */
+	async moveStart(version: number): Promise<void> {
+		endImport(this.ctx.storage, this.#db, version);
+		this.#move = null;
+		await this.ctx.storage.setAlarm(Date.now());
+	}
+
 	/** Permanently deletes the workspace's data. Called after the workspace itself is deleted. */
 	async destroy(): Promise<void> {
 		for (const ws of this.ctx.getWebSockets()) ws.close(CloseCode.Forbidden, "Workspace deleted");
 		await this.ctx.storage.deleteAlarm();
 		await this.ctx.storage.deleteAll();
+		this.#move = null;
 	}
 
 	// WebSocket lifecycle
@@ -806,6 +917,8 @@ export class WorkspaceDO extends DurableObject {
 		if (url.pathname !== "/socket" || request.headers.get("Upgrade") !== "websocket") {
 			return new Response("Not found", { status: 404 });
 		}
+		// The client tries again shortly, by when the app sends it to where the workspace is.
+		if (this.#away()) return new Response(MOVING_MESSAGE, { status: 503 });
 		const userId = request.headers.get(MEMBER_HEADER);
 		if (!userId || !activeMember(this.#db, userId)) {
 			return new Response("Missing member", { status: 400 });
@@ -831,6 +944,10 @@ export class WorkspaceDO extends DurableObject {
 
 	override webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): void {
 		if (closeIfExpired(ws, socketState(ws))) return;
+		if (this.#away()) {
+			ws.close(1012, "Workspace moving");
+			return;
+		}
 		const message = typeof raw === "string" ? clientMessage.safeParse(parseJson(raw)) : null;
 		if (!message?.success) {
 			ws.close(CloseCode.InvalidMessage, "Invalid message");
@@ -860,6 +977,17 @@ export class WorkspaceDO extends DurableObject {
 	 * and sends the pushes, webhook deliveries and inbox digests that are.
 	 */
 	override async alarm(): Promise<void> {
+		if (this.#move === "sealed" || this.#move === "importing") return;
+		if (this.#move === "frozen") {
+			// A move under way: its work waits. One that died lets the freeze lapse, and work resumes.
+			const until = freezeEnds(this.ctx.storage);
+			if (until !== null && until > Date.now()) {
+				await this.ctx.storage.setAlarm(until);
+				return;
+			}
+			thaw(this.ctx.storage);
+			this.#move = null;
+		}
 		const now = Date.now();
 		// Deliveries this queues go out below, in this same run.
 		this.#broadcast(this.ctx.storage.transactionSync(() => advanceCycles(this.#db, now)));
@@ -1038,6 +1166,21 @@ export class WorkspaceDO extends DurableObject {
 		detail?: AuditDetail,
 	): void {
 		recordAudit(this.#db, { actorId: member.id, action, target, ...(detail && { detail }) }, now);
+	}
+
+	/**
+	 * Whether the workspace is moving out or has moved, so sockets get nowhere here. A freeze that
+	 * has lapsed ends here, if the alarm hasn't ended it yet.
+	 */
+	#away(): boolean {
+		if (this.#move === "sealed") return true;
+		if (this.#move !== "frozen") return false;
+		const until = freezeEnds(this.ctx.storage);
+		if (until !== null && until > Date.now()) return true;
+		thaw(this.ctx.storage);
+		this.#move = null;
+		this.#alarmSoon();
+		return false;
 	}
 
 	/**

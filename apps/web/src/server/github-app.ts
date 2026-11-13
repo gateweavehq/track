@@ -7,7 +7,7 @@ import { readText } from "./body";
 import { schema } from "./db";
 import { answer, MAX_GITHUB_BODY } from "./github";
 import { webhooksEnabled } from "./webhooks";
-import { findMembershipById, workspaceStub } from "./workspaces";
+import { findMembershipById, findWorkspaceStub, workspaceStub } from "./workspaces";
 
 /**
  * The deployment's GitHub App (TRK-58): admins install it on their repositories instead of adding
@@ -155,7 +155,7 @@ async function callback(
 		);
 	}
 
-	const stub = workspaceStub(state.workspaceId);
+	const stub = workspaceStub(membership);
 	const connected = await stub.connectGitHubApp(membership.profile, {
 		id: installationId,
 		account: controlled.account,
@@ -342,7 +342,8 @@ async function deliver(request: Request): Promise<Response> {
 	// An installation no workspace has connected yet, such as one being set up.
 	if (!found) return answer(202, "No workspace has connected this installation");
 
-	const { status } = await workspaceStub(found.organizationId).github({
+	const stub = await findWorkspaceStub(db, found.organizationId);
+	const { status } = await stub.github({
 		connectionId: found.connectionId,
 		deliveryId,
 		event,

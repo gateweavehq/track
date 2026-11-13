@@ -3,7 +3,7 @@ import type { BackupRow } from "@gateweave/track-sync-server";
 import { asc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 import { createDb, schema } from "./db";
-import { workspaceStub } from "./workspaces";
+import { findWorkspaceStub } from "./workspaces";
 
 /** How many workspaces a page of `objects` holds. */
 const PAGE = 100;
@@ -37,12 +37,13 @@ export class Backup extends WorkerEntrypoint<Env> {
 	/** Runs a backup's reads in one workspace's Durable Object, or answers null if there is none. */
 	async read(name: string, statements: string[]): Promise<BackupRow[][] | null> {
 		const id = workspaceId.parse(name);
-		const found = await createDb(this.env.DB)
+		const db = createDb(this.env.DB);
+		const found = await db
 			.select({ id: schema.organization.id })
 			.from(schema.organization)
 			.where(eq(schema.organization.id, id))
 			.get();
 		if (!found) return null;
-		return workspaceStub(id).backupRead(statements);
+		return (await findWorkspaceStub(db, id)).backupRead(statements);
 	}
 }

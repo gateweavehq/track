@@ -10,11 +10,11 @@ export type GuideOutcome = { ok: true; teamKey: string } | { ok: false; message:
  * that `owner` may create teams.
  */
 export async function startGuide(
-	workspace: { id: string; name: string },
+	workspace: { id: string; name: string; jurisdiction: string | null },
 	owner: MemberProfile,
 	mcpUrl: string | null,
 ): Promise<GuideOutcome> {
-	const stub = workspaceStub(workspace.id);
+	const stub = workspaceStub({ workspaceId: workspace.id, jurisdiction: workspace.jurisdiction });
 	const { teamKey, mutations } = guideSteps({
 		workspace,
 		ownerId: owner.id,

@@ -140,7 +140,7 @@ function accessFor(
 		async workspace(slug) {
 			const membership = await findMembership(db, slug, userId);
 			if (!membership || (only && membership.workspaceId !== only.workspaceId)) return null;
-			const stub = workspaceStub(membership.workspaceId);
+			const stub = workspaceStub(membership);
 			const access: WorkspaceAccess = {
 				slug,
 				me: membership.profile,

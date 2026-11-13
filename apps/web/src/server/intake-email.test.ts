@@ -36,7 +36,7 @@ vi.mock("./rate-limit", () => ({
 	limitEmailedReplies: () => limitEmailedReplies(),
 	limitEmailedRequests: vi.fn(async () => true),
 }));
-vi.mock("./workspaces", () => ({ workspaceStub: () => stub }));
+vi.mock("./workspaces", () => ({ findWorkspaceStub: async () => stub }));
 
 function reply(from: string, to: string) {
 	const raw = [

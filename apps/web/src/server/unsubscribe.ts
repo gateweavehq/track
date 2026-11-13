@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { db } from "./auth";
 import { schema } from "./db";
-import { workspaceStub } from "./workspaces";
+import { findWorkspaceStub } from "./workspaces";
 
 const UNSUBSCRIBE_ROUTE = /^\/api\/unsubscribe\/([^/]+)$/;
 const ID = /^[\w-]{1,64}$/;
@@ -41,7 +41,8 @@ export async function handleUnsubscribeRequest(request: Request): Promise<Respon
 		.from(schema.organization)
 		.where(eq(schema.organization.id, target.workspaceId))
 		.get();
-	if (workspace && (await workspaceStub(workspace.id).unsubscribe(target.memberId))) {
+	const stub = workspace && (await findWorkspaceStub(db, workspace.id));
+	if (stub && (await stub.unsubscribe(target.memberId))) {
 		return page(
 			200,
 			"Inbox emails are off",

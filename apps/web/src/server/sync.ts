@@ -52,7 +52,7 @@ export async function handleSyncRequest(request: Request): Promise<Response> {
 	if (!membership) return error(404, "Workspace not found");
 	if (isProbe) return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
 
-	const stub = workspaceStub(membership.workspaceId);
+	const stub = workspaceStub(membership);
 	if (endpoint === "snapshot") return json(await stub.snapshot(membership.profile));
 	// Reads of what replicas leave out. The object checks the member again, and the input.
 	if (endpoint === "issue") {

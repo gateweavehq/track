@@ -68,6 +68,13 @@ declare namespace Cloudflare {
 		 * makes every browser turn push on again.
 		 */
 		PUSH_VAPID_KEY?: string;
+		/**
+		 * One of Cloudflare's jurisdictions, such as `eu`, to keep each workspace's Durable Object
+		 * in. New workspaces are made there, and the daily run moves existing ones there, each one
+		 * paused for a few seconds. Unset, new workspaces go wherever Cloudflare puts them and none
+		 * move. Local runtimes have no jurisdictions. See docs/self-hosting.md.
+		 */
+		DURABLE_OBJECT_JURISDICTION?: string;
 		/** "1" on the public demo deployment only (the `demo` environment in wrangler.jsonc). */
 		TRACK_DEMO?: string;
 	}

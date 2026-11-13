@@ -25,6 +25,8 @@ export const OPTIONAL_SECRETS = [
 	"GITHUB_APP_CLIENT_SECRET",
 	"GITHUB_APP_WEBHOOK_SECRET",
 	"PUSH_VAPID_KEY",
+	// Local workerd has no jurisdictions: set, every workspace fails to open.
+	"DURABLE_OBJECT_JURISDICTION",
 	"TRACK_DEMO",
 ] as const;
 

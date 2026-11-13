@@ -17,7 +17,7 @@ export async function webhookAccess(slug: string, request: Request) {
 		member: membership.profile,
 		admin: isAdminRole(membership.profile.role),
 		link,
-		stub: workspaceStub(membership.workspaceId),
+		stub: workspaceStub(membership),
 	};
 }
 

@@ -2,7 +2,7 @@ import { and, inArray, like, lt } from "drizzle-orm";
 import { db } from "../auth";
 import { deleteOrphanedAgents } from "../auth/agents";
 import { schema } from "../db";
-import { workspaceStub } from "../workspaces";
+import { destroyWorkspace } from "../workspaces";
 import { assertDemo, SANDBOX_LIFETIME_MS, VISITOR_DOMAIN } from "./mode";
 
 /**
@@ -59,7 +59,7 @@ export async function cleanUpDemo(now = Date.now()): Promise<CleanupResult> {
 		try {
 			// Its data first: were the row deleted first and this to fail, nothing would point at
 			// the Durable Object any more.
-			await workspaceStub(workspaceId).destroy();
+			await destroyWorkspace(db, workspaceId);
 			await db.delete(schema.organization).where(inArray(schema.organization.id, [workspaceId]));
 			deleted.add(workspaceId);
 			result.workspaces++;
