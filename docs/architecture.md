@@ -626,8 +626,11 @@ aren't there yet.
   closed socket, and carry on from their version; a mutation they sent before applies once. A
   workspace is paused for the seconds this takes. Gateweave Cloud's backup runs six minutes before.
 - **When a move fails** before the seal, the old object thaws and the workspace stays where it
-  was, and the next day's run tries again. A freeze also lapses after ten minutes, or when the
-  object restarts, so a move that dies half way can't leave a workspace frozen. A move that dies
+  was, and the next day's run tries again. A freeze also lapses after ten minutes, so a move that
+  dies half way leaves a workspace frozen for ten minutes at most. It holds through a restart:
+  Cloudflare evicts an idle object, as the old one is while its rows are copied, and on waking it
+  must not take writes the copy has missed (TRK-132; Agents' registry restarted so on staging).
+  A move that dies
   after the seal leaves it out of reach until the next run, which finds it sealed and only notes
   the new place; its last two steps are tried five times first. An object never takes a move's
   rows while it holds a workspace of its own.
