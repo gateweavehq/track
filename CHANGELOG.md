@@ -8,6 +8,36 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.39.0] - 2026-11-15
+
+Another server, such as Gateweave Agents, can add an agent to a workspace in one step: an owner
+or admin approves it on a page in Track, and no key or secret is copied by hand. There is no
+migration in this release.
+
+### Added
+
+- **Connect an agent in one step.** Setting up an agent by hand took seven steps across two
+  products, with a key and a webhook secret copied between tabs. A server can now send an owner
+  or admin to Track's new page at `/connect/agent`, which shows in large type which address is
+  asking and, in words, what Allow makes: an agent member and a webhook to that address, for one
+  team or all. Allow makes both or neither, and Cancel makes nothing. The asking server then
+  fetches the key and the secret itself, for a one-time code that is good for a minute and a
+  proof that it is the server that started, so neither is ever in a page, an address or a
+  clipboard. It can also take back what was made if its own setup fails. Only an owner or admin
+  can allow, the audit log records who asked, and the manual way under Settings stays.
+  ([#306])
+
+### Changed
+
+- **The roadmap lists feature flags under Done.** ([#305])
+
+### If you run your own
+
+- **Nothing to do** beyond updating: no migration, and the page works without any setting. To
+  have it show your own Agents server as known rather than with a warning, set `CONNECT_ORIGINS`
+  to its origin, such as `https://agents.example.com`; see "Connecting agents from another server" in
+  `docs/self-hosting.md`. A workspace whose address is `connect` cannot be made any more.
+
 ## [0.38.0] - 2026-11-14
 
 A server can turn a feature on for some workspaces before everyone gets it. Nothing changes
@@ -1689,6 +1719,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.39.0]: https://github.com/gateweavehq/track/releases/tag/v0.39.0
 [0.38.0]: https://github.com/gateweavehq/track/releases/tag/v0.38.0
 [0.37.0]: https://github.com/gateweavehq/track/releases/tag/v0.37.0
 [0.36.0]: https://github.com/gateweavehq/track/releases/tag/v0.36.0
@@ -1776,6 +1807,8 @@ The first pre-release.
 [#300]: https://github.com/gateweavehq/track/pull/300
 [#302]: https://github.com/gateweavehq/track/pull/302
 [#303]: https://github.com/gateweavehq/track/pull/303
+[#305]: https://github.com/gateweavehq/track/pull/305
+[#306]: https://github.com/gateweavehq/track/pull/306
 [#295]: https://github.com/gateweavehq/track/pull/295
 [#294]: https://github.com/gateweavehq/track/pull/294
 [#293]: https://github.com/gateweavehq/track/pull/293
