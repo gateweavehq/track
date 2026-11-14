@@ -52,6 +52,13 @@ describe("audit events in words", () => {
 		).toBe("changed Mo's role from member to admin");
 		expect(
 			say({
+				action: "agent.connected",
+				target: { type: "agent", id: "agent-bot", label: "Triage bot" },
+				detail: { origin: "https://agents.example.com", webhook: "w-1" },
+			}),
+		).toBe("approved a connection from https://agents.example.com that added the agent Triage bot");
+		expect(
+			say({
 				action: "agent.updated",
 				target: { type: "agent", id: "agent-bot", label: "Triage bot" },
 				detail: { from: [], to: ["title", "status", "close"] },

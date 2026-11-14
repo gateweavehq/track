@@ -75,6 +75,12 @@ declare namespace Cloudflare {
 		 * move. Local runtimes have no jurisdictions. See docs/self-hosting.md.
 		 */
 		DURABLE_OBJECT_JURISDICTION?: string;
+		/**
+		 * Origins, comma-separated, such as `https://agents.example.com`, that the page where an
+		 * admin approves connecting an agent (`/connect/agent`) shows as known. Any other origin is
+		 * still allowed, with a warning. See docs/self-hosting.md.
+		 */
+		CONNECT_ORIGINS?: string;
 		/** "1" on the public demo deployment only (the `demo` environment in wrangler.jsonc). */
 		TRACK_DEMO?: string;
 	}

@@ -24,6 +24,8 @@ export const GATEWAY_AUDIT_ACTIONS = [
 	/** `from` and `to`. `from` is missing where it could not be known. */
 	"member.roleChanged",
 	"agent.created",
+	/** An agent and its webhook made through a connection another server asked for: `origin`, `webhook`. */
+	"agent.connected",
 	/** `from` and `to`. */
 	"agent.renamed",
 	"agent.deleted",

@@ -125,6 +125,43 @@ export async function deleteOrphanedAgents(db: Database): Promise<void> {
 		.run();
 }
 
+/** Deletes an agent's account with its membership and keys. */
+function deleteAgentRows(db: Database, agentId: string) {
+	return db.batch([
+		db.delete(schema.agentKey).where(eq(schema.agentKey.userId, agentId)),
+		db.delete(schema.member).where(eq(schema.member.userId, agentId)),
+		db.delete(schema.user).where(eq(schema.user.id, agentId)),
+	]);
+}
+
+/**
+ * Deletes an agent member of that workspace, for the one who made it through a connection and
+ * asks to undo it. Not an admin's change, so no session is involved: whoever calls this has
+ * checked the signed token. The agent goes only if it still is an agent of that workspace, and
+ * the answer is its name, or null when there was nothing to delete.
+ */
+export async function removeAgentOf(
+	db: Database,
+	workspaceId: string,
+	agentId: string,
+): Promise<string | null> {
+	const found = await db
+		.select({ name: schema.user.name })
+		.from(schema.member)
+		.innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
+		.where(
+			and(
+				eq(schema.member.organizationId, workspaceId),
+				eq(schema.member.userId, agentId),
+				eq(schema.member.role, AGENT_ROLE),
+			),
+		)
+		.get();
+	if (!found) return null;
+	await deleteAgentRows(db, agentId);
+	return found.name;
+}
+
 export interface AgentKeyInfo {
 	id: string;
 	/** The key's first characters, as shown in settings. */
@@ -441,11 +478,7 @@ export function agentMembers({ db, onMembershipChange, onAudit }: AgentMembersOp
 					const agent = await agentForAdmin(ctx.body.agentId, ctx.context.session.user.id);
 					// The workspace keeps the agent's name for what it did, as it does for people who
 					// leave; the account itself goes, with its membership and keys.
-					await db.batch([
-						db.delete(agentKey).where(eq(agentKey.userId, agent.id)),
-						db.delete(member).where(eq(member.userId, agent.id)),
-						db.delete(user).where(eq(user.id, agent.id)),
-					]);
+					await deleteAgentRows(db, agent.id);
 					await changed(agent.organizationId, agent.id);
 					await audit(ctx, agent.organizationId, {
 						actorId: ctx.context.session.user.id,

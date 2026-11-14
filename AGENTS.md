@@ -92,7 +92,16 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    its intake email address (`apps/web/src/server/intake-email.ts`) carry no member either: the
    channel's key, which the object makes, admits them after Turnstile or a rate limit, a key no
    team has gets the same 404 or refusal as a missing workspace, and they can only file a request
-   into that team's intake. A backup Worker, such as Gateweave Backup's, reaches the objects only through
+   into that team's intake. Another server's request to connect an agent has three entries, all
+   in `apps/web/src/server/connect.ts`: the page `/connect/agent` and its server functions admit
+   only a session whose person D1 says is an owner or admin of the workspace chosen, from Track's
+   own origin, and make an agent member and a webhook both or neither; `POST
+   /api/connect/exchange` carries no session and honours no cookies: a one-time code (32 random
+   bytes, a minute, used once, which the delete of its `verification` row decides) with the
+   verifier whose hash the request began with admits it, and it hands over only what that
+   approval made; `POST /api/connect/undo` carries no session either: a token signed with
+   `BETTER_AUTH_SECRET` under its own purpose names one workspace, agent and webhook and removes
+   only those. Both are counted per client address. A backup Worker, such as Gateweave Backup's, reaches the objects only through
    the named `Backup` entrypoint (`apps/web/src/server/backup.ts`), which has no route: a service
    binding from a Worker in the same account is its access. It lists workspaces in D1 and sends
    only reads, which the object checks and always rolls back (`packages/sync-server/src/backup.ts`).

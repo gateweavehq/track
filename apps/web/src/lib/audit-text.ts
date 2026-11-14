@@ -59,6 +59,8 @@ export function auditSentence(event: AuditEvent, people: People): string {
 				: `changed ${named}'s role from ${roleName(detail.from)} to ${roleName(detail.to)}`;
 		case "agent.created":
 			return `added the agent ${named === "someone" ? label : named}`;
+		case "agent.connected":
+			return `approved a connection from ${text("origin") || "another server"} that added the agent ${named === "someone" ? label : named}`;
 		case "agent.renamed":
 			return `renamed the agent ${text("from")} to ${text("to")}`;
 		case "agent.deleted":

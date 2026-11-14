@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import handler from "@tanstack/react-start/server-entry";
 import { isAutomated } from "./lib/intake-email";
 import { db, handleAuthRequest } from "./server/auth";
+import { handleConnectRequest, isConnectRequest } from "./server/connect";
 import { pruneExpired } from "./server/db/prune";
 import { demoEnabled } from "./server/demo/mode";
 import { retryErasures } from "./server/erasure";
@@ -54,6 +55,8 @@ function route(request: Request, nonce: string): Response | Promise<Response> {
 	if (isUnsubscribeRequest(url)) return handleUnsubscribeRequest(request);
 	// A team's public request form: a page of its own, for people who are not signed in.
 	if (isIntakeFormRequest(url)) return handleIntakeFormRequest(request);
+	// Another server finishing, or taking back, a connection it asked an admin to approve.
+	if (isConnectRequest(url)) return handleConnectRequest(request);
 	if (OAUTH_DISCOVERY.test(url.pathname)) return handleAuthRequest(request);
 	return handler.fetch(request, { context: { nonce } });
 }

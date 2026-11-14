@@ -55,6 +55,10 @@ BETTER_AUTH_SECRET=
 # as "Ask for access" while the server's owner has closed sign-up. Nothing is linked when unset.
 # SIGN_UP_REQUEST_URL=
 
+# Optional: origins (comma-separated) shown as known on the page where an admin approves connecting
+# an agent from another server, such as https://agents.example.com. Other origins are still allowed.
+# CONNECT_ORIGINS=
+
 # Optional: the most megabytes of attached files each workspace may keep. Unlimited when unset.
 # ATTACHMENT_QUOTA_MB=
 

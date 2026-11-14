@@ -589,6 +589,25 @@ export class WorkspaceDO extends DurableObject {
 		});
 	}
 
+	/**
+	 * Removes the webhook a connection made, when its undo token asks for it: the gateway has
+	 * checked the token, so no member is named. It goes only while it is still the webhook of that
+	 * agent; false when it is gone already, or has since been given to another.
+	 */
+	removeConnectedWebhook(id: string, agentId: string): boolean {
+		return this.ctx.storage.transactionSync(() => {
+			const before = findWebhookRow(this.#db, shortId.parse(id));
+			if (!before || before.agentId !== agentId) return false;
+			deleteWebhook(this.#db, before.id);
+			recordAudit(
+				this.#db,
+				{ actorId: null, action: "webhook.deleted", target: webhookTarget(before) },
+				Date.now(),
+			);
+			return true;
+		});
+	}
+
 	rotateWebhookSecret(member: MemberProfile, id: string): WebhookResult<string> {
 		return this.#manage(member, () => {
 			const now = Date.now();

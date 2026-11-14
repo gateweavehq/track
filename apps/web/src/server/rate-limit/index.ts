@@ -133,6 +133,43 @@ export async function allowSpentTriesEmail(userId: string): Promise<boolean> {
 	return allowed;
 }
 
+/**
+ * Calls one client address can make to the connection endpoints (`/api/connect/exchange` and
+ * `/api/connect/undo`), whatever they answer: 20 at once, refilling over an hour, within 100 that
+ * refill over a day. A server finishing a connection makes one or two; the rest is someone
+ * guessing codes, who gets nowhere in 32 random bytes but should not be left to try.
+ */
+export const CONNECT_CALLS_PER_ADDRESS: Rule[] = [
+	{ window: 60 * 60, max: 20 },
+	{ window: 24 * 60 * 60, max: 100 },
+];
+
+/**
+ * Counts one call to a connection endpoint against a client address, per /64 for IPv6. A Worker's
+ * address is its zone's (`countedByWhoSentIt`), which the caller has made of the request already.
+ */
+export function limitConnectCalls(address: string): Promise<Decision> {
+	return consumeDurably(
+		`connect:${normalizeIP(address, { ipv6Subnet: 64 })}`,
+		CONNECT_CALLS_PER_ADDRESS,
+	);
+}
+
+/**
+ * Connections one person can approve: 10 at once, refilling over an hour, within 30 a day. Each
+ * makes an agent member and a webhook, which Better Auth's own limit on making agents does not
+ * count when the page makes them.
+ */
+export const CONNECT_APPROVALS_PER_PERSON: Rule[] = [
+	{ window: 60 * 60, max: 10 },
+	{ window: 24 * 60 * 60, max: 30 },
+];
+
+/** Counts one approval against the person who gives it. */
+export async function allowConnectApproval(userId: string): Promise<boolean> {
+	return (await consumeDurably(`connect-approval:${userId}`, CONNECT_APPROVALS_PER_PERSON)).allowed;
+}
+
 const local = new LocalLimiter();
 
 /**

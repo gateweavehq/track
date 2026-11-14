@@ -639,6 +639,94 @@ Settings has an Agents page for it.
   workspace keeps its profile, marked removed, for what it did. Deleting a workspace deletes its
   agents too, as does the demo's cleanup.
 
+### Connecting an agent in one step
+
+Setting up an agent by hand takes seven steps across two products and two secrets copied between
+tabs. Another server, such as Gateweave Agents, can instead send an admin's browser to Track and
+have both made at once. The asking server fetches the two secrets itself, so neither is ever in a
+page, an address or a clipboard. The code is `apps/web/src/server/connect.ts`; the page is
+`routes/connect.agent.tsx` with its server functions in `lib/connect.ts`; the checks on a request
+are `lib/connect-request.ts`. The setting `CONNECT_ORIGINS` (see `docs/self-hosting.md`) is the
+only configuration. The manual way, under Settings, stays.
+
+1. **The asking server** makes a random `verifier` and keeps it, then sends the browser to
+   `/connect/agent?purpose=work|triage&name=…&webhook=<url>&events=<comma list>&return=<url>&state=…&challenge=<base64url SHA-256 of the verifier>`.
+2. **The page** sends someone who is signed out to sign in and back to the same address, query
+   included. It refuses, with a plain page and no redirect, when `webhook` or `return` is not https
+   (http only where Track itself is on http, as for webhooks), has a user name or password, or
+   when the two are not on one origin; when either is Track's own address; when `events` holds
+   one Track does not send; when `purpose`, `state` (1 to 200 URL-safe characters), `challenge`
+   (43) or `name` (over 80 characters) are malformed or a name is given twice; on a server with no
+   webhooks (the demo); and for someone who is an owner or admin of no workspace. Otherwise it
+   shows the asking origin in large type, a warning unless `CONNECT_ORIGINS` lists it, and in
+   words what Allow makes: an agent member (name editable), a webhook to that address for those
+   events, for one team or all, and what an agent member can and cannot do. The workspaces on offer
+   are those where D1 says the person is an owner or admin (`isAdminRole`), and the teams are read
+   from the workspace's directory through the gateway after the same check, as ids, keys and names
+   only. Allow and Cancel are a server function call followed by a navigation, because the
+   Content-Security-Policy's `form-action 'self'` would block a form that redirects away. The
+   router reads the query raw, as the server function does: parsing it as JSON would turn a state
+   such as `1e5` into another string.
+3. **Allow** (`approveAgentConnection`) is a change like any other. It needs the same origin
+   (Start's CSRF check, and the function's own, which also wants an `Origin`), a session, and an
+   owner or admin in D1, and it checks every parameter again from the query: nothing the page sent
+   back is trusted but the choices of workspace, team and name, which are validated too. It counts
+   against a limit of 10 an hour per person. It makes the agent through Better Auth's
+   `createAgent`, with the person's own headers, so the plugin's checks and its 50 agents apply
+   and the membership reaches the workspace's object before it returns. It then makes the webhook
+   through the workspace's `createWebhook`, as the person, "for" that agent, so the limit of 10
+   webhooks, the URL checks and the audit event are the manual ones. If the webhook cannot be made
+   (or the code below cannot be kept), the agent is deleted again, as the person, and the page says
+   why. If the object had not heard of the agent, its membership is pushed once more first.
+4. **The one-time code** is 32 random bytes, base64url. For 60 seconds a row in `verification`
+   holds, under the identifier `track-connect:` plus the SHA-256 of the code (never the code): the
+   challenge in the clear, and the rest sealed with AES-256-GCM: the agent's key, the webhook's
+   secret, the ids and names the exchange returns, the return origin and the undo token. The key
+   is HKDF-SHA-256 of `BETTER_AUTH_SECRET`, salted with the code, under its own purpose string
+   (`track-connect-code-v1`), and the row's identifier and that string are the cipher's additional
+   data. A copy of the table without the code opens nothing, and the code without the table's
+   secret opens nothing. The page answers `return?code=<code>&state=<state>`, added to any query
+   the return address has. Cancel answers `return?error=denied&state=<state>` and makes nothing.
+   The audit log has what it has for an agent and a webhook, and an `agent.connected` event naming
+   the asking origin.
+5. **`POST /api/connect/exchange`** takes `{ code, verifier }` and no session; cookies are never
+   read. It deletes the row by its identifier, returning it, **before** looking at anything else:
+   the delete is what decides, so of two exchanges at once exactly one gets a row, and a code
+   that fails any check below is spent all the same. It then checks the row has not expired, that
+   `base64url(SHA-256(verifier))` equals the challenge, in constant time, and that the seal opens.
+   Answers `{ agentKey, webhookSecret, agent: { id, memberId, name }, workspace: { id, slug, name }, webhook: { id }, undo }`.
+   Every way of failing, including a body of the wrong shape, is the same `400 {"error":"invalid_code"}`.
+6. **`POST /api/connect/undo`** takes `{ undo }`, a token the exchange returned: the workspace,
+   agent and webhook ids and an expiry ten minutes on, signed with HMAC-SHA-256 under a key derived
+   from `BETTER_AUTH_SECRET` with its own purpose string (`track-connect-undo-v1`). It deletes the
+   webhook first, only while it still belongs to that agent, then the agent. It is safe to call
+   twice and answers `200 {"ok":true}` whether or not they were still there; a forged, altered or
+   late token is `400 {"error":"invalid_undo"}` and does nothing. The removals are audit events
+   by Track itself.
+
+Both routes count calls per client address in a `RateLimiter` Durable Object (20 at once,
+refilling over an hour, within 100 a day, shared by the two), by the zone a Worker comes from
+(`countedByWhoSentIt`, as in [Rate limits](#rate-limits)); over it they answer `429` with
+`Retry-After`. Responses carry `cache-control: no-store`.
+
+**Threat model.** The code is a bearer secret for 60 seconds, but it opens nothing without the
+verifier, which only the server that started the flow holds and never sends through the browser:
+a code read from a log, a referrer or the address bar is of no use to anyone else. The webhook and
+the return address must be one origin so that what the admin approves, the secrets and the
+deliveries alike, goes only to the origin they were shown, and Track's own origin is refused so a
+page cannot point the flow back at itself. The weak point is the one every consent page has: an
+admin approving an address they should not trust, hence the origin in large type and the warning
+for those not in `CONNECT_ORIGINS`. Someone who controls the asking origin and gets an admin to
+click Allow gets exactly what Allow says: an agent member's key in that one workspace, which reads
+the workspace and changes issues as a member (never manages it, see [Agent members](#agent-members)),
+and the webhook's secret, with the issues of the chosen team or all of them. They get nothing
+without that click: not a session, not the person's access, not any other workspace, and not a
+second agent, as each approval is one click. They can also ask for any name and any events, which
+the person sees and edits. Someone who does not control it but sees an address with a code in it
+cannot use it, and one who guesses has 2^256 to try against a limit of 20 an hour and a minute's
+life. A connection can be undone from Track at any time in the workspace's settings, and by the
+asking server for ten minutes with the token it was given.
+
 ### Backups
 
 D1 can be backed up from outside the Worker, but a workspace's Durable Object can't: only its own

@@ -1,0 +1,827 @@
+import { createHash, createHmac, hkdfSync } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import type { AuditPage } from "@gateweave/track-protocol";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { RECEIVER_HOST, type ReceivedWebhook, startTrack } from "./track-worker";
+
+// Connecting an agent in one step (TRK-138), through the built Worker: the page's server functions,
+// the one-time code's exchange, and the undo, against real accounts, a real workspace object and
+// real agent keys.
+
+const origin = "https://track.test";
+const asker = `https://${RECEIVER_HOST}`;
+const webhookUrl = `${asker}/api/triggers/w1/t1`;
+const returnUrl = `${asker}/api/track/connected`;
+const PASSWORD = "a-long-test-password";
+
+let track: Awaited<ReturnType<typeof startTrack>>;
+
+beforeAll(async () => {
+	track = await startTrack(origin, { vars: { CONNECT_ORIGINS: "https://known.test" } });
+});
+
+afterAll(async () => {
+	await track?.dispose();
+});
+
+let calls = 0;
+/** A client address of its own for each call, so no limit on one address gets in the way. */
+const freshAddress = () => `198.51.100.${(++calls % 250) + 1}`;
+
+async function authApi(path: string, cookie: string | null, body: object) {
+	const response = await track.fetch(`${origin}/api/auth${path}`, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			origin,
+			"cf-connecting-ip": freshAddress(),
+			...(cookie && { cookie }),
+		},
+		body: JSON.stringify(body),
+	});
+	if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
+	return response;
+}
+
+interface Person {
+	id: string;
+	name: string;
+	email: string;
+	cookie: string;
+}
+
+async function signUp(name: string): Promise<Person> {
+	const email = `${name.toLowerCase().replace(/\W+/g, "-")}@connect.test`;
+	const response = await authApi("/sign-up/email", null, { name, email, password: PASSWORD });
+	const { user } = (await response.json()) as { user: { id: string } };
+	const cookie = response.headers
+		.getSetCookie()
+		.map((each) => each.split(";")[0])
+		.join("; ");
+	return { id: user.id, name, email, cookie };
+}
+
+async function workspaceOf(owner: Person, slug: string): Promise<string> {
+	const response = await authApi("/organization/create", owner.cookie, { name: slug, slug });
+	return ((await response.json()) as { id: string }).id;
+}
+
+function profile(person: Person, role: string) {
+	return { id: person.id, name: person.name, email: person.email, image: null, role };
+}
+
+async function addMember(workspaceId: string, person: Person, role: string) {
+	await track.db
+		.prepare(
+			"INSERT INTO member (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)",
+		)
+		.bind(crypto.randomUUID(), workspaceId, person.id, role, Date.now())
+		.run();
+}
+
+/** A workspace with an owner and a team, and the owner's address in the object. */
+async function setUp(slug: string) {
+	const owner = await signUp(`Owner of ${slug}`);
+	const workspaceId = await workspaceOf(owner, slug);
+	const team = await track.mutate(workspaceId, profile(owner, "owner"), {
+		name: "team.create",
+		args: { id: `team-${slug}`, key: "ENG", name: "Engineering" },
+	});
+	expect(team.ok).toBe(true);
+	return { owner, workspaceId, slug, teamId: `team-${slug}` };
+}
+
+// Server functions, called as the browser does.
+
+const assets = join(resolve(import.meta.dirname, ".."), "dist/server/assets");
+function serverFnUrl(name: string) {
+	const resolver = readdirSync(assets).find((file) =>
+		/^__23tanstack-start-server-fn-resolver-.*\.js$/.test(file),
+	);
+	const source = resolver ? readFileSync(join(assets, resolver), "utf8") : "";
+	const id = new RegExp(
+		`"([0-9a-f]{64})": \\{\\s*functionName: "${name}_createServerFn_handler"`,
+	).exec(source)?.[1];
+	if (!id) throw new Error(`No server function ${name} in the build`);
+	return `${origin}/_serverFn/${id}`;
+}
+
+let nodes = 0;
+/** A value as Seroval's JSON, for strings, null, booleans, numbers and plain objects. */
+function encode(value: unknown): unknown {
+	if (value === null) return { t: 2, s: 0 };
+	if (typeof value === "string") return { t: 1, s: value };
+	if (typeof value === "number") return { t: 0, s: value };
+	if (typeof value === "boolean") return { t: 2, s: value ? 2 : 3 };
+	const entries = Object.entries(value as object);
+	return {
+		t: 10,
+		i: ++nodes,
+		p: { k: entries.map(([key]) => key), v: entries.map(([, each]) => encode(each)) },
+		o: 0,
+	};
+}
+
+/** Reads the plain values of Seroval's JSON. */
+function decode(node: unknown): unknown {
+	const { t, s, a, p } = node as {
+		t: number;
+		s?: unknown;
+		a?: unknown[];
+		p?: { k: string[]; v: unknown[] };
+	};
+	switch (t) {
+		case 0:
+		case 1:
+			return s;
+		case 2:
+			return [null, undefined, true, false][s as number];
+		case 9:
+			return (a ?? []).map(decode);
+		case 10:
+			return Object.fromEntries((p?.k ?? []).map((key, i) => [key, decode(p?.v[i])]));
+		default:
+			throw new Error(`Unexpected node type ${t}`);
+	}
+}
+
+async function serverFn<T>(
+	name: string,
+	method: "GET" | "POST",
+	data: unknown,
+	{ cookie, from = origin }: { cookie?: string; from?: string | null } = {},
+): Promise<{ text: string; result: T; status: number }> {
+	const body = JSON.stringify({ t: encode({ data }), f: 0, m: [] });
+	const url =
+		method === "GET"
+			? `${serverFnUrl(name)}?payload=${encodeURIComponent(body)}`
+			: serverFnUrl(name);
+	const response = await track.fetch(url, {
+		method,
+		headers: {
+			"x-tsr-serverFn": "true",
+			accept: "application/json",
+			"cf-connecting-ip": freshAddress(),
+			...(from && { origin: from }),
+			...(cookie && { cookie }),
+			...(method === "POST" && { "content-type": "application/json" }),
+		},
+		...(method === "POST" && { body }),
+	});
+	const text = await response.text();
+	const json = response.headers.get("content-type")?.includes("json");
+	const { result } = (json ? decode(JSON.parse(text)) : { result: undefined }) as { result: T };
+	return { text, result, status: response.status };
+}
+
+// What another server does.
+
+const base64url = (bytes: Buffer) => bytes.toString("base64url");
+const newVerifier = () => base64url(Buffer.from(crypto.getRandomValues(new Uint8Array(32))));
+const challengeOf = (verifier: string) => base64url(createHash("sha256").update(verifier).digest());
+
+function connectQuery(verifier: string, overrides: Record<string, string | undefined> = {}) {
+	const params = new URLSearchParams({
+		purpose: "work",
+		name: "Coder",
+		webhook: webhookUrl,
+		events: "issue.created,comment.created",
+		return: returnUrl,
+		state: "state-123_abc",
+		challenge: challengeOf(verifier),
+	});
+	for (const [key, value] of Object.entries(overrides)) {
+		if (value === undefined) params.delete(key);
+		else params.set(key, value);
+	}
+	return `?${params}`;
+}
+
+interface Approval {
+	ok: boolean;
+	redirect?: string;
+	message?: string;
+}
+
+function approve(
+	person: Person | null,
+	query: string,
+	choice: {
+		workspace: string;
+		teamId?: string | null;
+		name?: string;
+		decision?: "allow" | "cancel";
+	},
+	options: { from?: string | null } = {},
+) {
+	return serverFn<Approval>(
+		"approveAgentConnection",
+		"POST",
+		{
+			query,
+			decision: choice.decision ?? "allow",
+			workspace: choice.workspace,
+			teamId: choice.teamId ?? null,
+			name: choice.name ?? "Coder",
+		},
+		{ ...(person && { cookie: person.cookie }), ...options },
+	);
+}
+
+/** Allows a connection and returns what the other server was sent: its code and state. */
+async function allow(person: Person, workspace: string, verifier: string, teamId?: string | null) {
+	const { result } = await approve(person, connectQuery(verifier), { workspace, teamId });
+	expect(result.ok, result.message).toBe(true);
+	const url = new URL(result.redirect ?? "");
+	return { code: url.searchParams.get("code") ?? "", state: url.searchParams.get("state"), url };
+}
+
+interface Exchanged {
+	agentKey: string;
+	webhookSecret: string;
+	agent: { id: string; memberId: string; name: string };
+	workspace: { id: string; slug: string; name: string };
+	webhook: { id: string };
+	undo: string;
+}
+
+function post(
+	path: string,
+	body: unknown,
+	{ cookie, client }: { cookie?: string; client?: string } = {},
+) {
+	return track.fetch(`${origin}${path}`, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			"cf-connecting-ip": client ?? freshAddress(),
+			...(cookie && { cookie }),
+		},
+		body: JSON.stringify(body),
+	});
+}
+
+const exchange = (code: string, verifier: string, options?: { cookie?: string; client?: string }) =>
+	post("/api/connect/exchange", { code, verifier }, options);
+const undo = (token: string, options?: { cookie?: string; client?: string }) =>
+	post("/api/connect/undo", { undo: token }, options);
+
+async function exchanged(code: string, verifier: string): Promise<Exchanged> {
+	const response = await exchange(code, verifier);
+	expect(response.status, await response.clone().text()).toBe(200);
+	return (await response.json()) as Exchanged;
+}
+
+// What is in Track.
+
+async function agentCount(workspaceId: string) {
+	const row = await track.db
+		.prepare("SELECT count(*) AS n FROM member WHERE organization_id = ? AND role = 'agent'")
+		.bind(workspaceId)
+		.first<{ n: number }>();
+	return row?.n ?? 0;
+}
+
+async function codeRows() {
+	const { results } = await track.db
+		.prepare(
+			"SELECT identifier, value, expires_at FROM verification WHERE identifier LIKE 'track-connect:%'",
+		)
+		.all<{ identifier: string; value: string; expires_at: number }>();
+	return results;
+}
+
+const webhooksOf = async (workspaceId: string, owner: Person) =>
+	(
+		await track.rpc<{ ok: true; value: { webhooks: { id: string; agentId: string | null }[] } }>(
+			workspaceId,
+			"webhooks",
+			profile(owner, "owner"),
+		)
+	).value.webhooks;
+
+async function auditOf(workspaceId: string, owner: Person) {
+	const page = await track.rpc<{ ok: true; value: AuditPage }>(
+		workspaceId,
+		"auditLog",
+		profile(owner, "owner"),
+		{},
+	);
+	return page.value.events;
+}
+
+/** Checks a Standard Webhooks signature, as a receiver would. */
+function verified(request: ReceivedWebhook, secret: string): unknown {
+	const id = request.headers["webhook-id"];
+	const timestamp = request.headers["webhook-timestamp"];
+	const key = Buffer.from(secret.slice("whsec_".length), "base64");
+	const expected = createHmac("sha256", key).update(`${id}.${timestamp}.${request.body}`);
+	expect(request.headers["webhook-signature"]).toBe(`v1,${expected.digest("base64")}`);
+	return JSON.parse(request.body);
+}
+
+async function mcpAs(key: string) {
+	const client = new Client({ name: "coder", version: "1.0.0" });
+	await client.connect(
+		new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
+			fetch: track.fetch,
+			requestInit: { headers: { authorization: `Bearer ${key}` } },
+		}),
+	);
+	return client;
+}
+
+const NO_CODE = { error: "invalid_code" };
+
+describe("connecting an agent", () => {
+	it("makes an agent and a webhook for an admin, and hands their secrets to the asking server once", async () => {
+		const { owner, workspaceId, slug, teamId } = await setUp("hq");
+		const verifier = newVerifier();
+
+		// What the page shows an admin.
+		const offer = await serverFn<{
+			ok: boolean;
+			asker: string;
+			known: boolean;
+			suggestedName: string;
+			events: string[];
+			workspaces: { slug: string; name: string }[];
+		}>("getConnectOffer", "GET", connectQuery(verifier), { cookie: owner.cookie });
+		expect(offer.result).toMatchObject({
+			ok: true,
+			asker,
+			known: false,
+			suggestedName: "Coder",
+			events: ["issue.created", "comment.created"],
+			workspaces: [{ slug, name: slug }],
+		});
+		const teams = await serverFn<unknown>("getConnectTeams", "GET", slug, { cookie: owner.cookie });
+		// Only what the choice needs: a team also holds the secret parts of its intake links.
+		expect(teams.result).toEqual([{ id: teamId, key: "ENG", name: "Engineering" }]);
+
+		const { code, state, url } = await allow(owner, slug, verifier, teamId);
+		expect(state).toBe("state-123_abc");
+		expect(url.origin + url.pathname).toBe(returnUrl);
+		expect(code).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+		// Nothing secret is kept in the clear, and the code itself is not kept at all.
+		const [row] = await codeRows();
+		expect(await codeRows()).toHaveLength(1);
+		expect(row?.identifier).not.toContain(code);
+		expect(row?.expires_at).toBeGreaterThan(Date.now());
+		expect(row?.expires_at).toBeLessThanOrEqual(Date.now() + 61_000);
+
+		const response = await exchange(code, verifier);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("cache-control")).toBe("no-store");
+		expect(response.headers.get("set-cookie")).toBeNull();
+		const secrets = (await response.json()) as Exchanged;
+		expect(secrets).toMatchObject({
+			agent: { name: "Coder" },
+			workspace: { id: workspaceId, slug, name: slug },
+		});
+		expect(secrets.agent.id).toMatch(/\S/);
+		expect(secrets.agent.memberId).toMatch(/\S/);
+		expect(secrets.agentKey).toMatch(/^gwt_[A-Za-z0-9_-]{43}$/);
+		expect(secrets.webhookSecret).toMatch(/^whsec_/);
+		expect(secrets.undo).toMatch(/\S/);
+		expect(await codeRows()).toHaveLength(0);
+
+		// The key works against /mcp as that agent member.
+		const mcp = await mcpAs(secrets.agentKey);
+		const workspaces = await mcp.callTool({ name: "list_workspaces", arguments: {} });
+		await mcp.close();
+		expect(workspaces.structuredContent).toEqual({
+			workspaces: [{ slug, name: slug, role: "agent" }],
+		});
+
+		// The webhook is for that agent and that team, and its secret signs what it delivers.
+		const [webhook] = await webhooksOf(workspaceId, owner);
+		expect(webhook).toMatchObject({ id: secrets.webhook.id, agentId: secrets.agent.id });
+		const made = await track.mutate(workspaceId, profile(owner, "owner"), {
+			name: "issue.create",
+			args: { id: "issue-1", teamId, title: "First", sortOrder: "a0" },
+		});
+		expect(made.ok).toBe(true);
+		await vi.waitFor(() => expect(track.received).toHaveLength(1), { timeout: 5000 });
+		const delivery = track.received[0] as ReceivedWebhook;
+		expect(delivery.url).toBe(webhookUrl);
+		expect(verified(delivery, secrets.webhookSecret)).toMatchObject({ type: "issue.created" });
+
+		// The log says who connected what, and holds none of the secrets.
+		const events = await auditOf(workspaceId, owner);
+		expect(events.map((each) => each.action)).toEqual(
+			expect.arrayContaining(["agent.created", "webhook.created", "agent.connected"]),
+		);
+		expect(events.find((each) => each.action === "agent.connected")).toMatchObject({
+			actorId: owner.id,
+			target: { type: "agent", id: secrets.agent.id, label: "Coder" },
+			detail: { origin: asker, webhook: secrets.webhook.id },
+		});
+		const logged = JSON.stringify(events);
+		for (const secret of [secrets.agentKey, secrets.webhookSecret, code, verifier, secrets.undo]) {
+			expect(logged).not.toContain(secret);
+		}
+		// Nor does the page's data or the approval's answer: a key never goes to the browser.
+		expect(offer.text).not.toContain(secrets.agentKey);
+	});
+
+	it("refuses an approval that is not an admin's, and one for another workspace's", async () => {
+		const mine = await setUp("mine");
+		const theirs = await setUp("theirs");
+		const member = await signUp("Plain Member");
+		await addMember(mine.workspaceId, member, "member");
+		const verifier = newVerifier();
+		const query = connectQuery(verifier);
+
+		// A member of one workspace and no admin: nothing to choose, and no way to approve.
+		const offer = await serverFn<{ ok: boolean; problem?: string }>(
+			"getConnectOffer",
+			"GET",
+			query,
+			{
+				cookie: member.cookie,
+			},
+		);
+		expect(offer.result.ok).toBe(false);
+		expect(offer.result.problem).toMatch(/owner or admin/);
+		const refused = await approve(member, query, { workspace: mine.slug });
+		expect(refused.result).toMatchObject({ ok: false });
+		expect(refused.result.redirect).toBeUndefined();
+		const teams = await serverFn<unknown>("getConnectTeams", "GET", mine.slug, {
+			cookie: member.cookie,
+		});
+		expect(teams.result).toBeNull();
+
+		// Another workspace's admin cannot make anything in this one, which they are not in.
+		const other = await approve(theirs.owner, query, { workspace: mine.slug });
+		expect(other.result).toMatchObject({ ok: false });
+		expect(other.result.message).toBe(refused.result.message);
+		expect(
+			(
+				await serverFn<unknown>("getConnectTeams", "GET", mine.slug, {
+					cookie: theirs.owner.cookie,
+				})
+			).result,
+		).toBeNull();
+
+		// A workspace that is not there answers the same, and nobody signed in is refused.
+		expect((await approve(member, query, { workspace: "no-such" })).result.message).toBe(
+			refused.result.message,
+		);
+		expect((await approve(null, query, { workspace: mine.slug })).result.ok).toBe(false);
+		expect((await serverFn<{ ok: boolean }>("getConnectOffer", "GET", query)).result.ok).toBe(
+			false,
+		);
+
+		expect(await agentCount(mine.workspaceId)).toBe(0);
+		expect(await webhooksOf(mine.workspaceId, mine.owner)).toEqual([]);
+		expect(await codeRows()).toEqual([]);
+	});
+
+	it("lists only the workspaces a person is an admin of", async () => {
+		const first = await setUp("listed-a");
+		const second = await setUp("listed-b");
+		await addMember(second.workspaceId, first.owner, "member");
+		const offer = await serverFn<{ ok: boolean; workspaces: { slug: string }[] }>(
+			"getConnectOffer",
+			"GET",
+			connectQuery(newVerifier()),
+			{ cookie: first.owner.cookie },
+		);
+		expect(offer.result.workspaces.map((each) => each.slug)).toEqual(["listed-a"]);
+		// As a member of the second, they cannot add an agent to it either.
+		const answer = await approve(first.owner, connectQuery(newVerifier()), {
+			workspace: "listed-b",
+		});
+		expect(answer.result.ok).toBe(false);
+		expect(await agentCount(second.workspaceId)).toBe(0);
+	});
+
+	it("shows an origin listed in CONNECT_ORIGINS as known", async () => {
+		const { owner } = await setUp("known");
+		const query = connectQuery(newVerifier(), {
+			webhook: "https://known.test/hook",
+			return: "https://known.test/back",
+		});
+		const offer = await serverFn<{ ok: boolean; known: boolean; asker: string }>(
+			"getConnectOffer",
+			"GET",
+			query,
+			{ cookie: owner.cookie },
+		);
+		expect(offer.result).toMatchObject({ ok: true, known: true, asker: "https://known.test" });
+	});
+
+	it("refuses every malformed or mismatched request, with no address to go to", async () => {
+		const { owner, workspaceId, slug } = await setUp("strict");
+		const verifier = newVerifier();
+		const bad: Record<string, string | undefined>[] = [
+			{ webhook: "http://hooks.test/hook", return: "http://hooks.test/back" },
+			{ return: "https://other.test/back" },
+			{ webhook: "https://user:pw@hooks.test/hook" },
+			{ return: "https://user@hooks.test/back" },
+			{ events: "issue.created,issue.exploded" },
+			{ webhook: "https://track.test/hook", return: "https://track.test/back" },
+			{ purpose: "rule" },
+			{ state: "not url safe" },
+			{ challenge: "short" },
+			{ name: "n".repeat(81) },
+		];
+		for (const overrides of bad) {
+			const query = connectQuery(verifier, overrides);
+			const offer = await serverFn<{ ok: boolean }>("getConnectOffer", "GET", query, {
+				cookie: owner.cookie,
+			});
+			expect(offer.result.ok, query).toBe(false);
+			const answer = await approve(owner, query, { workspace: slug });
+			expect(answer.result.ok, query).toBe(false);
+			expect(answer.result.redirect, query).toBeUndefined();
+			const denied = await approve(owner, query, { workspace: slug, decision: "cancel" });
+			expect(denied.result.redirect, query).toBeUndefined();
+		}
+		// What the page sends back for the name is checked too.
+		const named = await approve(owner, connectQuery(verifier), { workspace: slug, name: "   " });
+		expect(named.result.ok).toBe(false);
+		const long = await approve(owner, connectQuery(verifier), {
+			workspace: slug,
+			name: "x".repeat(81),
+		});
+		expect(long.result.ok).toBe(false);
+		expect(await agentCount(workspaceId)).toBe(0);
+		expect(await webhooksOf(workspaceId, owner)).toEqual([]);
+	});
+
+	it("makes nothing on Cancel, and goes back with the denial", async () => {
+		const { owner, workspaceId, slug } = await setUp("cancel");
+		const query = connectQuery(newVerifier(), { return: `${returnUrl}?keep=1` });
+		const { result } = await approve(owner, query, { workspace: slug, decision: "cancel" });
+		expect(result.ok).toBe(true);
+		const url = new URL(result.redirect ?? "");
+		expect(url.origin + url.pathname).toBe(returnUrl);
+		expect([...url.searchParams]).toEqual([
+			["keep", "1"],
+			["error", "denied"],
+			["state", "state-123_abc"],
+		]);
+		expect(await agentCount(workspaceId)).toBe(0);
+		expect(await webhooksOf(workspaceId, owner)).toEqual([]);
+		expect(await codeRows()).toEqual([]);
+	});
+
+	it("refuses an approval that does not come from Track's own page", async () => {
+		const { owner, workspaceId, slug } = await setUp("sameorigin");
+		const query = connectQuery(newVerifier());
+		for (const from of ["https://evil.test", null, "https://track.test.evil.test"]) {
+			const { result, status } = await approve(owner, query, { workspace: slug }, { from });
+			// Start's own CSRF check turns these away before the function runs; the function checks again.
+			expect(status === 403 || result?.ok === false, String(from)).toBe(true);
+		}
+		expect(await agentCount(workspaceId)).toBe(0);
+		expect(await webhooksOf(workspaceId, owner)).toEqual([]);
+	});
+
+	it("takes a code once, in a minute, with its verifier, and says the same whatever is wrong", async () => {
+		const { owner, slug } = await setUp("codes");
+
+		// Once.
+		const v1 = newVerifier();
+		const first = await allow(owner, slug, v1);
+		await exchanged(first.code, v1);
+		const again = await exchange(first.code, v1);
+		expect(again.status).toBe(400);
+		const used = await again.text();
+		expect(JSON.parse(used)).toEqual(NO_CODE);
+
+		// A wrong verifier, which spends the code all the same.
+		const v2 = newVerifier();
+		const second = await allow(owner, slug, v2);
+		const wrong = await exchange(second.code, newVerifier());
+		expect(wrong.status).toBe(400);
+		expect(await wrong.text()).toBe(used);
+		expect((await exchange(second.code, v2)).status).toBe(400);
+
+		// Late: the minute is past.
+		const v3 = newVerifier();
+		const third = await allow(owner, slug, v3);
+		await track.db
+			.prepare("UPDATE verification SET expires_at = ? WHERE identifier LIKE 'track-connect:%'")
+			.bind(Date.now() - 1000)
+			.run();
+		const late = await exchange(third.code, v3);
+		expect(late.status).toBe(400);
+		expect(await late.text()).toBe(used);
+		expect(await codeRows()).toEqual([]);
+
+		// A code nobody made, and answers that are not even shaped like one.
+		const unknown = await exchange(base64url(Buffer.alloc(32, 7)), v1);
+		expect(unknown.status).toBe(400);
+		expect(await unknown.text()).toBe(used);
+		for (const body of [{}, { code: 1 }, { code: first.code }, "nope"]) {
+			const odd = await post("/api/connect/exchange", body);
+			expect(odd.status).toBe(400);
+			expect(await odd.text()).toBe(used);
+		}
+		// With the wrong method it is not an exchange at all.
+		expect((await track.fetch(`${origin}/api/connect/exchange`)).status).toBe(405);
+	});
+
+	it("lets exactly one of two simultaneous exchanges win", async () => {
+		const { owner, slug } = await setUp("race");
+		for (let round = 0; round < 3; round++) {
+			const verifier = newVerifier();
+			const { code } = await allow(owner, slug, verifier);
+			const answers = await Promise.all(Array.from({ length: 4 }, () => exchange(code, verifier)));
+			expect(answers.map((each) => each.status).sort()).toEqual([200, 400, 400, 400]);
+		}
+	});
+
+	it("leaves no agent behind when the webhook cannot be made", async () => {
+		const { owner, workspaceId, slug } = await setUp("full");
+		const admin = profile(owner, "owner");
+		const link = { id: workspaceId, slug, origin };
+		for (let i = 0; i < 10; i++) {
+			const made = await track.rpc<{ ok: boolean }>(workspaceId, "createWebhook", admin, link, {
+				url: `https://${RECEIVER_HOST}/filler/${i}`,
+				events: ["issue.created"],
+				teamId: null,
+				agentId: null,
+			});
+			expect(made.ok).toBe(true);
+		}
+		const { result } = await approve(owner, connectQuery(newVerifier()), { workspace: slug });
+		expect(result.ok).toBe(false);
+		expect(result.message).toMatch(/at most 10 webhooks/);
+		expect(result.message).toMatch(/Nothing was made/);
+		expect(await agentCount(workspaceId)).toBe(0);
+		expect(await webhooksOf(workspaceId, owner)).toHaveLength(10);
+		expect(await codeRows()).toEqual([]);
+		// The agent's account is gone from the workspace's object too.
+		const members = await track.directory(workspaceId);
+		expect(
+			(members.members as { role: string; removedAt?: number }[]).filter(
+				(each) => each.role === "agent" && !each.removedAt,
+			),
+		).toEqual([]);
+	});
+});
+
+describe("undoing a connection", () => {
+	/** Re-signs a token's parts, as Track does, to make ones it never gave out. */
+	function signedUndo(parts: string[], expires: number) {
+		const key = hkdfSync(
+			"sha256",
+			Buffer.from(track.authSecret),
+			Buffer.alloc(0),
+			"track-connect-undo-v1",
+			64,
+		);
+		const mac = createHmac("sha256", Buffer.from(key))
+			.update(`track-connect-undo-v1:${parts.join(":")}:${expires}`)
+			.digest();
+		return [...parts, expires, base64url(mac)].join(".");
+	}
+
+	it("removes exactly the agent and the webhook, as often as asked", async () => {
+		const { owner, workspaceId, slug } = await setUp("undone");
+		// Another agent and webhook of the workspace, which must stay.
+		const bystander = await (
+			await authApi("/agents/create", owner.cookie, {
+				organizationId: workspaceId,
+				name: "Bystander",
+			})
+		).json();
+		const bystanderId = (bystander as { agent: { id: string } }).agent.id;
+		const kept = await track.rpc<{ ok: boolean; value: { webhook: { id: string } } }>(
+			workspaceId,
+			"createWebhook",
+			profile(owner, "owner"),
+			{ id: workspaceId, slug, origin },
+			{
+				url: `https://${RECEIVER_HOST}/kept`,
+				events: ["issue.created"],
+				teamId: null,
+				agentId: bystanderId,
+			},
+		);
+		expect(kept.ok).toBe(true);
+
+		const verifier = newVerifier();
+		const { code } = await allow(owner, slug, verifier);
+		const secrets = await exchanged(code, verifier);
+		expect(await agentCount(workspaceId)).toBe(2);
+
+		// A token for something else, or altered, or without its signature, does nothing.
+		const [ws = "", agent = "", webhook = "", expires = "", signature = ""] =
+			secrets.undo.split(".");
+		for (const token of [
+			`${ws}.${agent}.${kept.value.webhook.id}.${expires}.${signature}`,
+			`${ws}.${bystanderId}.${webhook}.${expires}.${signature}`,
+			`${ws}.${agent}.${webhook}.${Number(expires) + 600}.${signature}`,
+			`${ws}.${agent}.${webhook}.${expires}.${"A".repeat(43)}`,
+			`${ws}.${agent}.${webhook}.${expires}`,
+			"garbage",
+			"",
+		]) {
+			const refused = await undo(token);
+			expect(refused.status, token).toBe(400);
+			expect(await refused.json()).toEqual({ error: "invalid_undo" });
+		}
+		// Signed rightly but late.
+		const late = await undo(signedUndo([ws, agent, webhook], Math.floor(Date.now() / 1000) - 1));
+		expect(late.status).toBe(400);
+		expect(await agentCount(workspaceId)).toBe(2);
+		expect(await webhooksOf(workspaceId, owner)).toHaveLength(2);
+
+		const done = await undo(secrets.undo);
+		expect(done.status).toBe(200);
+		expect(done.headers.get("cache-control")).toBe("no-store");
+		expect(await done.json()).toEqual({ ok: true });
+		expect(await agentCount(workspaceId)).toBe(1);
+		expect(await webhooksOf(workspaceId, owner)).toEqual([
+			expect.objectContaining({ id: kept.value.webhook.id, agentId: bystanderId }),
+		]);
+		// The key is dead, and the answer is the same the second time.
+		const key = await track.fetch(`${origin}/mcp`, {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${secrets.agentKey}`,
+				"content-type": "application/json",
+				accept: "application/json, text/event-stream",
+			},
+			body: "{}",
+		});
+		expect(key.status).toBe(401);
+		const twice = await undo(secrets.undo);
+		expect(twice.status).toBe(200);
+		expect(await twice.json()).toEqual({ ok: true });
+		expect(await agentCount(workspaceId)).toBe(1);
+		// The log has the removals, by Track itself.
+		const actions = (await auditOf(workspaceId, owner)).filter((each) => each.actorId === null);
+		expect(actions.map((each) => each.action).sort()).toEqual(["agent.deleted", "webhook.deleted"]);
+	});
+
+	it("does not remove a webhook that belongs to another agent than the token names", async () => {
+		const { owner, workspaceId, slug } = await setUp("regiven");
+		const verifier = newVerifier();
+		const { code } = await allow(owner, slug, verifier);
+		const secrets = await exchanged(code, verifier);
+		const [ws = "", , webhook = ""] = secrets.undo.split(".");
+		// A token signed for this webhook but another agent's id removes neither.
+		const stranger = await (
+			await authApi("/agents/create", owner.cookie, {
+				organizationId: workspaceId,
+				name: "Stranger",
+			})
+		).json();
+		const strangerId = (stranger as { agent: { id: string } }).agent.id;
+		const token = signedUndo([ws, strangerId, webhook], Math.floor(Date.now() / 1000) + 300);
+		expect((await undo(token)).status).toBe(200);
+		expect(await webhooksOf(workspaceId, owner)).toHaveLength(1);
+	});
+});
+
+describe("the endpoints for servers", () => {
+	it("ignore cookies, and count their callers", async () => {
+		const { owner } = await setUp("cookies");
+		// A signed-in admin's cookie opens nothing here.
+		const code = base64url(Buffer.alloc(32, 9));
+		const withCookie = await exchange(code, newVerifier(), { cookie: owner.cookie });
+		expect(withCookie.status).toBe(400);
+		expect(await withCookie.json()).toEqual(NO_CODE);
+		expect((await undo("garbage", { cookie: owner.cookie })).status).toBe(400);
+		expect(withCookie.headers.get("set-cookie")).toBeNull();
+
+		// Past the limit, one address is turned away; another is not, and undo shares the count.
+		const client = "203.0.113.250";
+		const statuses: number[] = [];
+		for (let i = 0; i < 24; i++)
+			statuses.push((await exchange(code, newVerifier(), { client })).status);
+		expect(statuses.slice(0, 20)).toEqual(Array(20).fill(400));
+		expect(statuses.slice(20)).toEqual([429, 429, 429, 429]);
+		const limited = await exchange(code, newVerifier(), { client });
+		expect(limited.headers.get("retry-after")).toMatch(/^\d+$/);
+		expect(limited.headers.get("cache-control")).toBe("no-store");
+		expect((await undo("garbage", { client })).status).toBe(429);
+		expect((await exchange(code, newVerifier(), { client: "203.0.113.251" })).status).toBe(400);
+	});
+
+	it("count a Worker by its zone, as other Workers' requests share one address", async () => {
+		const workersAddress = "2a06:98c0:3600::103";
+		const call = (zone: string) =>
+			track.fetch(`${origin}/api/connect/exchange`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"cf-connecting-ip": workersAddress,
+					"cf-worker": zone,
+				},
+				body: JSON.stringify({ code: base64url(Buffer.alloc(32, 3)), verifier: "v" }),
+			});
+		for (let i = 0; i < 21; i++) await call("busy.example.com");
+		expect((await call("busy.example.com")).status).toBe(429);
+		expect((await call("quiet.example.com")).status).toBe(400);
+	});
+});
