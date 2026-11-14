@@ -22,7 +22,11 @@ export const getWorkspace = createServerFn({ method: "GET" })
 			name: membership.workspaceName,
 			userId: session.user.id,
 			role: membership.profile.role,
-			...(demoEnabled() && { demo: true }),
+			// A sandbox is deleted a day after its visitor was made (server/demo/cleanup.ts).
+			...(demoEnabled() && {
+				demo: true,
+				demoCreatedAt: new Date(session.user.createdAt).getTime(),
+			}),
 			...(legal && { legal }),
 		};
 	});

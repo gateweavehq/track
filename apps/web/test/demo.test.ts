@@ -15,11 +15,12 @@ type Track = Awaited<ReturnType<typeof startTrack>>;
 
 /**
  * The URL of the `startDemo` server function. TanStack Start names server functions by a hash
- * that only the built client knows, so read it from the one POST function in the login chunk.
+ * that only the built client knows, so read it from the one POST function in the chunk of
+ * `lib/demo.ts`, which the opening screen loads when a visitor presses the button.
  */
 function startDemoUrl() {
 	const assets = join(resolve(import.meta.dirname, ".."), "dist/client/assets");
-	for (const file of readdirSync(assets).filter((name) => /^login-.*\.js$/.test(name))) {
+	for (const file of readdirSync(assets).filter((name) => /^demo-.*\.js$/.test(name))) {
 		const match = /method:`POST`\}\)\.handler\(\w+\(`([0-9a-f]{64})`\)\)/.exec(
 			readFileSync(join(assets, file), "utf8"),
 		);

@@ -15,8 +15,14 @@ test("a visitor opens a demo workspace and edits it live in two tabs", async ({
 	test.skip(!(await start.isVisible()), "Not the demo: it has no sandbox to open.");
 
 	await start.click();
+	// The opening screen covers the page while the sandbox is made, then hands over to the app.
+	await expect(page.getByRole("list", { name: "Progress" })).toBeVisible();
 	await expect(page).toHaveURL(/\/acme-[a-z0-9]+/);
 	await expect(syncBadge(page)).toHaveText("Live");
+	// The welcome card shows once per sandbox; the demo bar stays.
+	await page.getByRole("button", { name: "Start exploring" }).click();
+	await expect(page.getByRole("link", { name: "Gateweave Cloud" })).toBeVisible();
+	await expect(page.getByRole("link", { name: "Deploy your own" })).toBeVisible();
 	const workspace = new URL(page.url()).pathname;
 
 	const second = await context.newPage();

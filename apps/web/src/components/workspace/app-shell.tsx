@@ -44,13 +44,15 @@ import { useMembersById, useProposalCount, useSavedViews, useTeams } from "#/lib
 import { forgetEverything } from "#/lib/replica";
 import { cn } from "#/lib/utils";
 import { isAdmin, useMyRole, useWorkspace, useWorkspaceActions } from "./context";
-import { DemoBanner } from "./demo-banner";
+import { DemoBar, useDemoBar } from "./demo-bar";
+import { DemoWelcome } from "./demo-welcome";
 import { SyncBadge } from "./sync-status";
 import { UploadOutboxDrain } from "./upload-outbox";
 
 export function AppShell({ children }: { children: ReactNode }) {
 	const { name, demo, userId } = useWorkspace();
 	const [menuOpen, setMenuOpen] = useState(false);
+	const demoBar = useDemoBar(demo);
 	const pathname = useRouterState({ select: (state) => state.location.pathname });
 
 	// On small screens the sidebar is an overlay; close it once the user has gone somewhere.
@@ -64,7 +66,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
 	return (
 		<div className="flex h-dvh flex-col overflow-hidden">
-			{demo && <DemoBanner />}
 			{/* The demo keeps no files, so nothing ever waits to upload there. */}
 			{!demo && <UploadOutboxDrain userId={userId} />}
 			<div className="flex min-h-0 flex-1">
@@ -96,9 +97,19 @@ export function AppShell({ children }: { children: ReactNode }) {
 						</Button>
 						<span className="truncate text-sm font-medium">{name}</span>
 					</div>
-					<main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+					{/* Room under the demo bar, so it never covers a last row or a button. */}
+					<main
+						className={cn(
+							"min-h-0 flex-1 overflow-y-auto",
+							demoBar.visible && "pb-[calc(4.5rem+env(safe-area-inset-bottom))]",
+						)}
+					>
+						{children}
+					</main>
 				</div>
 			</div>
+			{demo && <DemoBar bar={demoBar} />}
+			{demo && <DemoWelcome />}
 		</div>
 	);
 }

@@ -2,7 +2,12 @@ import type { Issue, IssueDisplay } from "@gateweave/track-protocol";
 import { ChevronRight, Plus } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
-import { type IssueDefaults, useWorkspaceActions } from "#/components/workspace/context";
+import {
+	type IssueDefaults,
+	useWorkspace,
+	useWorkspaceActions,
+} from "#/components/workspace/context";
+import { noteIssueListShown } from "#/lib/demo-opening";
 import { groupByOf, orderByOf, shownProperties } from "#/lib/display";
 import { groupFields, groupIssues, type IssueGroup } from "#/lib/grouping";
 import { useHotkeys } from "#/lib/hotkeys";
@@ -64,6 +69,7 @@ export function IssueList({
 	/** Shown when there are no issues at all. */
 	empty: ReactNode;
 }) {
+	const { slug } = useWorkspace();
 	const teams = useTeamsById();
 	const members = useMembersById();
 	const subIssues = useSubIssueProgress();
@@ -95,8 +101,10 @@ export function IssueList({
 
 	const shown = groups.length > 0;
 	useEffect(() => {
-		if (shown) markIssueListShown(issues.length);
-	}, [shown, issues.length]);
+		if (!shown) return;
+		markIssueListShown(issues.length);
+		noteIssueListShown(slug);
+	}, [shown, issues.length, slug]);
 
 	const visible = groups.flatMap((group) => (collapsed.has(group.key) ? [] : group.issues));
 	const entries = useMemo<ListEntry[]>(
