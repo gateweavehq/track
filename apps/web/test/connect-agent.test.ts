@@ -783,6 +783,174 @@ describe("undoing a connection", () => {
 	});
 });
 
+/** A token Track never gave out but that its key signs, as a test-only way to make odd ones. */
+function signToken(parts: string[], expires: number) {
+	const key = hkdfSync(
+		"sha256",
+		Buffer.from(track.authSecret),
+		Buffer.alloc(0),
+		"track-connect-undo-v1",
+		64,
+	);
+	const mac = createHmac("sha256", Buffer.from(key))
+		.update(`track-connect-undo-v1:${parts.join(":")}:${expires}`)
+		.digest();
+	return [...parts, expires, base64url(mac)].join(".");
+}
+
+/** Makes D1 refuse what the trigger names, for as long as `during` runs. */
+async function breaking<T>(table: string, when: string, during: () => Promise<T>): Promise<T> {
+	await track.db
+		.prepare(
+			`CREATE TRIGGER test_break BEFORE INSERT ON ${table} WHEN ${when} BEGIN SELECT RAISE(ABORT, 'broken for a test'); END`,
+		)
+		.run();
+	try {
+		return await during();
+	} finally {
+		await track.db.prepare("DROP TRIGGER test_break").run();
+	}
+}
+
+async function directoryAgent(workspaceId: string, agentId: string) {
+	const { members } = await track.directory(workspaceId);
+	return (members as { id: string; removedAt?: number }[]).find((each) => each.id === agentId);
+}
+
+describe("hardening", () => {
+	it("undoes again after a first undo deleted the rows but could not tell the object", async () => {
+		const { owner, workspaceId, slug } = await setUp("ghost");
+		const verifier = newVerifier();
+		const { code } = await allow(owner, slug, verifier);
+		const secrets = await exchanged(code, verifier);
+		expect((await directoryAgent(workspaceId, secrets.agent.id))?.removedAt ?? null).toBeNull();
+
+		// What a first undo leaves when its sync fails: the rows are gone, the object still has the
+		// member. The sync cannot be made to fail from here, so its aftermath is made directly.
+		for (const sql of [
+			"DELETE FROM agent_key WHERE user_id = ?",
+			"DELETE FROM member WHERE user_id = ?",
+			"DELETE FROM user WHERE id = ?",
+		]) {
+			await track.db.prepare(sql).bind(secrets.agent.id).run();
+		}
+		expect((await directoryAgent(workspaceId, secrets.agent.id))?.removedAt ?? null).toBeNull();
+
+		expect((await undo(secrets.undo)).status).toBe(200);
+		expect((await directoryAgent(workspaceId, secrets.agent.id))?.removedAt).toBeGreaterThan(0);
+		expect(await webhooksOf(workspaceId, owner)).toEqual([]);
+	});
+
+	it("takes only a verifier shaped like PKCE's, and does not spend the code on any other", async () => {
+		const { owner, slug } = await setUp("shapes");
+		const verifier = newVerifier();
+		const { code } = await allow(owner, slug, verifier);
+		for (const odd of [
+			"short",
+			"a".repeat(42),
+			"a".repeat(129),
+			`${"a".repeat(42)}!`,
+			`${verifier} `,
+		]) {
+			const answer = await exchange(code, odd);
+			expect(answer.status, odd).toBe(400);
+			expect(await answer.json()).toEqual(NO_CODE);
+		}
+		// Still there for the right one. A well-formed wrong verifier spends it.
+		expect(await codeRows()).toHaveLength(1);
+		expect((await exchange(code, newVerifier())).status).toBe(400);
+		expect(await codeRows()).toHaveLength(0);
+		expect((await exchange(code, verifier)).status).toBe(400);
+	});
+
+	it("does not open a row whose challenge was changed", async () => {
+		const { owner, slug } = await setUp("swapped");
+		const verifier = newVerifier();
+		const attacker = newVerifier();
+		const { code } = await allow(owner, slug, verifier);
+		const [row] = await codeRows();
+		const value = JSON.parse(row?.value ?? "{}") as { challenge: string };
+		value.challenge = challengeOf(attacker);
+		await track.db
+			.prepare("UPDATE verification SET value = ? WHERE identifier = ?")
+			.bind(JSON.stringify(value), row?.identifier)
+			.run();
+		const answer = await exchange(code, attacker);
+		expect(answer.status).toBe(400);
+		expect(await answer.json()).toEqual(NO_CODE);
+	});
+
+	it("keeps the app's referrer policy, and forbids framing the page", async () => {
+		const { owner } = await setUp("framing");
+		const page = await track.fetch(`${origin}/connect/agent${connectQuery(newVerifier())}`, {
+			headers: { cookie: owner.cookie, "cf-connecting-ip": freshAddress() },
+		});
+		expect(page.status).toBe(200);
+		expect(page.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+		expect(page.headers.get("x-frame-options")).toBe("DENY");
+		// The app's own policy for every response; it sends only the origin across sites.
+		expect(page.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
+		const answer = await exchange("x", "y");
+		expect(answer.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
+	});
+
+	it("refuses an approval from an opaque origin", async () => {
+		const { owner, workspaceId, slug } = await setUp("opaque");
+		const { result, status } = await approve(
+			owner,
+			connectQuery(newVerifier()),
+			{ workspace: slug },
+			{ from: "null" },
+		);
+		expect(status === 403 || result?.ok === false).toBe(true);
+		expect(await agentCount(workspaceId)).toBe(0);
+	});
+
+	it("leaves neither the agent nor the webhook when the code cannot be kept", async () => {
+		const { owner, workspaceId, slug } = await setUp("unkept");
+		const { result } = await breaking("verification", "NEW.identifier LIKE 'track-connect:%'", () =>
+			approve(owner, connectQuery(newVerifier()), { workspace: slug }),
+		);
+		expect(result.ok).toBe(false);
+		expect(result.message).toMatch(/Nothing was made/);
+		expect(await agentCount(workspaceId)).toBe(0);
+		expect(await webhooksOf(workspaceId, owner)).toEqual([]);
+		expect(await codeRows()).toEqual([]);
+	});
+
+	it("deletes the agent it made when Better Auth fails after making the member", async () => {
+		const { owner, workspaceId, slug } = await setUp("keyless");
+		const accounts = () =>
+			track.db
+				.prepare("SELECT count(*) AS n FROM user WHERE email LIKE '%@agents.invalid'")
+				.first<{ n: number }>();
+		const before = (await accounts())?.n;
+		// The key is inserted after the member, so refusing it fails createAgent halfway.
+		const { result } = await breaking("agent_key", "1", () =>
+			approve(owner, connectQuery(newVerifier()), { workspace: slug }),
+		);
+		expect(result.ok).toBe(false);
+		expect(await agentCount(workspaceId)).toBe(0);
+		expect((await accounts())?.n).toBe(before);
+		expect(await webhooksOf(workspaceId, owner)).toEqual([]);
+	});
+
+	it("answers a token that verifies but names something malformed with the usual 400", async () => {
+		const { workspaceId } = await setUp("malformed");
+		const soon = Math.floor(Date.now() / 1000) + 300;
+		for (const parts of [
+			[workspaceId, "a".repeat(65), "w"],
+			[workspaceId, "agent", "w".repeat(65)],
+			[workspaceId, "agént", "w"],
+			["", "agent", "w"],
+		]) {
+			const answer = await undo(signToken(parts, soon));
+			expect(answer.status, parts.join("/")).toBe(400);
+			expect(await answer.json()).toEqual({ error: "invalid_undo" });
+		}
+	});
+});
+
 describe("the endpoints for servers", () => {
 	it("ignore cookies, and count their callers", async () => {
 		const { owner } = await setUp("cookies");

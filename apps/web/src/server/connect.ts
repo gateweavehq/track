@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { isAdminRole } from "@gateweave/track-protocol";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
 	type ConnectPurpose,
@@ -88,7 +88,8 @@ export async function handleConnectRequest(request: Request): Promise<Response> 
 
 const exchangeBody = z.object({
 	code: z.string().regex(CODE),
-	verifier: z.string().min(1).max(256),
+	// As PKCE has it. A body that is not shaped like one opens nothing and spends nothing.
+	verifier: z.string().regex(/^[A-Za-z0-9._~-]{43,128}$/),
 });
 
 /** What the code's row seals: the secrets, and what the exchange answers besides them. */
@@ -169,8 +170,11 @@ async function undo(body: unknown): Promise<Response> {
 			// The webhook first: with it gone, nothing is sent to an agent that no longer exists.
 			const stub = await findWorkspaceStub(db, workspaceId);
 			await stub.removeConnectedWebhook(webhookId, agentId);
-			if ((await removeAgentOf(db, workspaceId, agentId)) !== null) {
-				await syncMembership(db, workspaceId, agentId);
+			const removed = await removeAgentOf(db, workspaceId, agentId);
+			// Whether or not this call removed it: an earlier one may have deleted the rows and then
+			// failed to tell the object, and a retry would otherwise never tell it.
+			await syncMembership(db, workspaceId, agentId);
+			if (removed !== null) {
 				await reportAudit(db, workspaceId, {
 					actorId: null,
 					action: "agent.deleted",
@@ -292,12 +296,18 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 	const headers = request.headers;
 	// The agent first. It awaits the new member's sync to the workspace's object.
 	let made: { agent: { id: string }; key: string };
+	const before = await agentIdsOf(workspaceId);
 	try {
 		made = await auth.api.createAgent({
 			headers,
 			body: { organizationId: workspaceId, name: name.data },
 		});
 	} catch (error) {
+		// Better Auth makes the member before its key and the sync. Failing after that leaves an
+		// agent with no key anyone was shown, so the one that is new goes, when it is plain which.
+		const fresh = [...(await agentIdsOf(workspaceId))].filter((id) => !before.has(id));
+		const [only] = fresh;
+		if (fresh.length === 1 && only) await removeAgentAgain(headers, only);
 		return refused(messageOf(error, "The agent member could not be made."));
 	}
 	const agentId = made.agent.id;
@@ -359,7 +369,7 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 				value: JSON.stringify({
 					v: 1,
 					challenge: asked.challenge,
-					...(await seal(code, identifier, JSON.stringify(sealed))),
+					...(await seal(code, identifier, asked.challenge, JSON.stringify(sealed))),
 				}),
 				expiresAt: new Date(now + CODE_TTL_MS),
 			})
@@ -383,6 +393,15 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 	}).catch((error) => console.error("connect: audit log", error));
 
 	return { ok: true, redirect: returnAddress(asked.returnTo, { code, state: asked.state }) };
+}
+
+async function agentIdsOf(workspaceId: string): Promise<Set<string>> {
+	const rows = await db
+		.select({ id: schema.member.userId })
+		.from(schema.member)
+		.where(and(eq(schema.member.organizationId, workspaceId), eq(schema.member.role, "agent")))
+		.all();
+	return new Set(rows.map((row) => row.id));
 }
 
 async function removeAgentAgain(headers: Headers, agentId: string): Promise<boolean> {
@@ -439,27 +458,34 @@ async function sealKey(code: string, usage: "encrypt" | "decrypt") {
 	);
 }
 
-/** Binds a seal to its row's identifier and its purpose, so it opens nowhere else. */
-function bound(identifier: string) {
-	return new TextEncoder().encode(`${SEAL_PURPOSE}:${identifier}`);
+/**
+ * Binds a seal to its row's identifier, its purpose and its challenge, so it opens nowhere else,
+ * and not under a challenge that someone able to write to the table put in its place.
+ */
+function bound(identifier: string, challenge: string) {
+	return new TextEncoder().encode(`${SEAL_PURPOSE}:${identifier}:${challenge}`);
 }
 
-async function seal(code: string, identifier: string, plaintext: string) {
+async function seal(code: string, identifier: string, challenge: string, plaintext: string) {
 	const iv = crypto.getRandomValues(new Uint8Array(12));
 	const ct = await crypto.subtle.encrypt(
-		{ name: "AES-GCM", iv, additionalData: bound(identifier) },
+		{ name: "AES-GCM", iv, additionalData: bound(identifier, challenge) },
 		await sealKey(code, "encrypt"),
 		new TextEncoder().encode(plaintext),
 	);
 	return { iv: toBase64Url(iv), ct: toBase64Url(new Uint8Array(ct)) };
 }
 
-async function open(code: string, identifier: string, keep: { iv: string; ct: string }) {
+async function open(
+	code: string,
+	identifier: string,
+	keep: { iv: string; ct: string; challenge: string },
+) {
 	const iv = fromBase64Url(keep.iv);
 	const ct = fromBase64Url(keep.ct);
 	if (!iv || !ct) throw new Error("malformed");
 	const plain = await crypto.subtle.decrypt(
-		{ name: "AES-GCM", iv, additionalData: bound(identifier) },
+		{ name: "AES-GCM", iv, additionalData: bound(identifier, keep.challenge) },
 		await sealKey(code, "decrypt"),
 		ct,
 	);

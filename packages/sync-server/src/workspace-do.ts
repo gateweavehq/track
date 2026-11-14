@@ -595,8 +595,10 @@ export class WorkspaceDO extends DurableObject {
 	 * agent; false when it is gone already, or has since been given to another.
 	 */
 	removeConnectedWebhook(id: string, agentId: string): boolean {
+		const parsed = shortId.safeParse(id);
+		if (!parsed.success) return false;
 		return this.ctx.storage.transactionSync(() => {
-			const before = findWebhookRow(this.#db, shortId.parse(id));
+			const before = findWebhookRow(this.#db, parsed.data);
 			if (!before || before.agentId !== agentId) return false;
 			deleteWebhook(this.#db, before.id);
 			recordAudit(

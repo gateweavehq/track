@@ -727,6 +727,11 @@ cannot use it, and one who guesses has 2^256 to try against a limit of 20 an hou
 life. A connection can be undone from Track at any time in the workspace's settings, and by the
 asking server for ten minutes with the token it was given.
 
+Two limits are worth knowing. An admin who closes the tab after Allow leaves an agent member and a
+webhook whose secrets are lost once the code's minute is up: both are visible in Settings and can
+be removed there. And every caller that arrives from one Worker zone shares the exchange's rate
+limit, since that zone is the address it is counted by.
+
 ### Backups
 
 D1 can be backed up from outside the Worker, but a workspace's Durable Object can't: only its own
