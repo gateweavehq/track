@@ -14,8 +14,10 @@ export interface WorkspaceInfo {
 	name: string;
 	userId: string;
 	role: MemberRole;
-	/** True on the public demo, which shows a banner. */
+	/** True on the public demo, which shows its bar. */
 	demo?: boolean;
+	/** On the demo, when the visitor was made (ms), which is what cleanup counts a day from. */
+	demoCreatedAt?: number;
 	/** The deployment's legal pages, for the workspace menu. */
 	legal?: LegalLinks;
 }

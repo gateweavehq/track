@@ -397,6 +397,13 @@ A shared demo account would be vandalized within minutes, so each visitor gets a
   a day (an IPv4 address, or an IPv6 /64 as Better Auth counts it; generous because of
   carrier-grade NAT), creates a visitor account with Better Auth's server API (a random address under
   `visitors.example.com`, a password nobody sees), and signs the visitor in.
+- While it runs, the browser shows an opening screen (`src/components/demo-opening.tsx`, state in
+  `src/lib/demo-opening.ts`, held in the root so it survives the move to the workspace). Its
+  steps follow the server's real phases: two on timers, the third only when the server answers,
+  the fourth when the workspace's issue list has shown. Inside a sandbox, a bar at the bottom
+  (`demo-bar.tsx`) counts down to cleanup from the visitor's creation time, which `getWorkspace`
+  returns as `demoCreatedAt`, and points to Gateweave Cloud and the repository
+  (`src/lib/demo-links.ts`); a welcome card shows once per sandbox.
 - It then creates a workspace named "Acme" through the server API, so the organization hooks
   sync membership as usual. The visitor owns it. Four sample people (Maya, Sam, Lena, Diego) are
   members; they are users with no credentials, shared by every sandbox. The sample teams, labels,

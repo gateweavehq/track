@@ -8,11 +8,11 @@ import { LiveButton } from "#/components/live-button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { authClient, inAuthorizationFlow } from "#/lib/auth-client";
-import { startDemo } from "#/lib/demo";
 import type { LegalLinks as LegalLinksType } from "#/lib/legal";
 import { safeRedirect } from "#/lib/redirect";
 import { getAuthOptions, getSession } from "#/lib/session";
 import { signInRefusal } from "#/lib/sign-in-refusal";
+import { useOpenDemo } from "#/lib/use-open-demo";
 
 // Loose, so the parameters of an agent's authorization request stay in the URL. The OAuth client
 // plugin reads them from there when signing in.
@@ -47,22 +47,7 @@ function LoginPage() {
 
 /** The public demo has no accounts to sign in to: each visitor gets a private sandbox. */
 function DemoLogin({ legal }: { legal: LegalLinksType | undefined }) {
-	const router = useRouter();
-	const [error, setError] = useState<string | null>(null);
-	const [pending, setPending] = useState(false);
-
-	async function open() {
-		setPending(true);
-		setError(null);
-		try {
-			const { slug } = await startDemo();
-			await router.invalidate();
-			await router.navigate({ to: "/$workspace", params: { workspace: slug } });
-		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : "Could not open a demo workspace");
-			setPending(false);
-		}
-	}
+	const open = useOpenDemo();
 
 	return (
 		<AuthPage
@@ -74,13 +59,8 @@ function DemoLogin({ legal }: { legal: LegalLinksType | undefined }) {
 				You get a private sample workspace with teams, issues and comments. Nobody else can see it,
 				and it is deleted a day after you open it. Open it in a second tab to see changes sync live.
 			</p>
-			{error && (
-				<p role="alert" className="text-sm text-destructive">
-					{error}
-				</p>
-			)}
-			<LiveButton className="w-full" disabled={pending} onClick={open}>
-				{pending ? "Opening your workspace\u2026" : "Open a demo workspace"}
+			<LiveButton className="w-full" onClick={open}>
+				Open a demo workspace
 			</LiveButton>
 		</AuthPage>
 	);
