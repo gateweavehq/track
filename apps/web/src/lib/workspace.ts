@@ -17,6 +17,8 @@ export const getWorkspace = createServerFn({ method: "GET" })
 		const membership = await findMembership(db, slug, session.user.id);
 		if (!membership) return null;
 		const legal = legalLinks();
+		const { workspaceFlags } = await import("#/server/flags");
+		const flags = await workspaceFlags(membership.workspaceId);
 		return {
 			id: membership.workspaceId,
 			name: membership.workspaceName,
@@ -28,6 +30,8 @@ export const getWorkspace = createServerFn({ method: "GET" })
 				demoCreatedAt: new Date(session.user.createdAt).getTime(),
 			}),
 			...(legal && { legal }),
+			// Only what this server turned on, so one with no flag store adds nothing here.
+			...(flags && { flags }),
 		};
 	});
 

@@ -40,10 +40,16 @@ import { authClient } from "#/lib/auth-client";
 import { MOD_LABEL } from "#/lib/hotkeys";
 import { legalEntries } from "#/lib/legal";
 import { keepPushOn } from "#/lib/push-device";
-import { useMembersById, useProposalCount, useSavedViews, useTeams } from "#/lib/queries";
+import {
+	useMembersById,
+	useOpenAssignedCount,
+	useProposalCount,
+	useSavedViews,
+	useTeams,
+} from "#/lib/queries";
 import { forgetEverything } from "#/lib/replica";
 import { cn } from "#/lib/utils";
-import { isAdmin, useMyRole, useWorkspace, useWorkspaceActions } from "./context";
+import { isAdmin, useFlag, useMyRole, useWorkspace, useWorkspaceActions } from "./context";
 import { DemoBar, useDemoBar } from "./demo-bar";
 import { DemoWelcome } from "./demo-welcome";
 import { SyncBadge } from "./sync-status";
@@ -127,6 +133,7 @@ function Sidebar() {
 	const unread = useUnreadInboxCount();
 	const me = useMembersById().get(userId);
 	const admin = isAdmin(useMyRole());
+	const myIssuesCount = useFlag("my-issues-count");
 
 	return (
 		<>
@@ -178,6 +185,7 @@ function Sidebar() {
 				>
 					<CircleUserRound className="size-4" />
 					My issues
+					{myIssuesCount && <OpenAssignedCount userId={userId} />}
 				</Link>
 				<Link
 					to="/$workspace/projects"
@@ -309,6 +317,22 @@ function Sidebar() {
 				</Button>
 			</div>
 		</>
+	);
+}
+
+/**
+ * How many open issues are assigned to you, beside "My issues". Quieter than the inbox's count:
+ * it says how much there is, not that something is new. Behind the `my-issues-count` flag, and
+ * its own component so that nothing is counted while the flag is off.
+ */
+function OpenAssignedCount({ userId }: { userId: string }) {
+	const count = useOpenAssignedCount(userId);
+	if (count === 0) return null;
+	return (
+		<span className="ml-auto text-xs text-muted-foreground tabular-nums">
+			<span aria-hidden="true">{count}</span>
+			<span className="sr-only">({count} open)</span>
+		</span>
 	);
 }
 

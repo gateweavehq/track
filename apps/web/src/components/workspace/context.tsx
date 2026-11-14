@@ -5,6 +5,7 @@ import {
 	type MemberRole,
 } from "@gateweave/track-protocol";
 import { createContext, type ReactNode, useContext } from "react";
+import { type FlagKey, type FlagValues, flagValue } from "#/lib/flags";
 import type { LegalLinks } from "#/lib/legal";
 import { useMembersById } from "#/lib/queries";
 
@@ -20,6 +21,8 @@ export interface WorkspaceInfo {
 	demoCreatedAt?: number;
 	/** The deployment's legal pages, for the workspace menu. */
 	legal?: LegalLinks;
+	/** The flags this server turned on for the workspace, as of its last answer (lib/flags.ts). */
+	flags?: FlagValues;
 }
 
 const WorkspaceContext = createContext<WorkspaceInfo | null>(null);
@@ -38,6 +41,14 @@ export function useWorkspace(): WorkspaceInfo {
 	const workspace = useContext(WorkspaceContext);
 	if (!workspace) throw new Error("useWorkspace must be used inside <WorkspaceProvider>");
 	return workspace;
+}
+
+/**
+ * Whether a feature behind a flag is on for this workspace. It is what the server said when the
+ * workspace was last loaded, which the device remembers, so it stays put without a connection.
+ */
+export function useFlag(key: FlagKey): boolean {
+	return flagValue(useWorkspace().flags, key);
 }
 
 /**

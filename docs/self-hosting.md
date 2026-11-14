@@ -393,6 +393,23 @@ with a service binding:
 
 Your D1 database is backed up by binding it directly.
 
+### Feature flags
+
+Nothing to set up. Some features are merged behind a flag before they are ready for everyone, and
+your copy serves each flag's default, which is what the release notes describe. It asks no
+outside service about them.
+
+If you want to turn one on early for your own workspaces, bind a
+[Cloudflare Flagship](https://developers.cloudflare.com/flagship/) app as `FLAGS` and make the
+flag there under the key listed in `apps/web/src/lib/flags.ts`:
+
+```jsonc
+"flagship": [{ "binding": "FLAGS", "app_id": "<your app's id>" }]
+```
+
+The only thing sent to it is each workspace's id. See Feature flags in
+[architecture.md](architecture.md#feature-flags).
+
 ## When someone deletes their account
 
 People delete their own account on `/settings/account`, and their name, address and picture go

@@ -29,7 +29,7 @@ import { compareLabels } from "./labels";
 import { compareProjects, type ProjectProgress, projectProgress } from "./projects";
 import { blockedIssueIds } from "./relations";
 import { compareViews, isViewVisible } from "./saved-views";
-import { type StatusMap, statusOf, teamStatuses } from "./statuses";
+import { isIssueClosed, type StatusMap, statusOf, teamStatuses } from "./statuses";
 import { compareTemplates } from "./templates";
 
 // Selectors over the synced state. Each hook keeps its selector stable for the inputs it
@@ -505,6 +505,23 @@ export function useAssignedIssues(userId: string): ActiveIssue[] {
 	return useIssues(
 		useCallback((issue: ActiveIssue) => issue.assigneeId === userId, [userId]),
 		{ listed: true },
+	);
+}
+
+/** How many of the issues on someone's list are still open. */
+export function useOpenAssignedCount(userId: string): number {
+	return useQuery(
+		useCallback(
+			(state: SyncState) => {
+				let count = 0;
+				for (const issue of state.activeIssues.values()) {
+					if (issue.assigneeId !== userId || !isListed(issue)) continue;
+					if (!isIssueClosed(state.statuses, issue)) count += 1;
+				}
+				return count;
+			},
+			[userId],
+		),
 	);
 }
 

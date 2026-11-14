@@ -421,6 +421,38 @@ A shared demo account would be vandalized within minutes, so each visitor gets a
 Seeding a sandbox makes about 70 Durable Object calls in one request, so the demo needs a Workers
 Paid plan (1,000 subrequests per request).
 
+### Feature flags
+
+A feature can be merged before it is ready for everyone and turned on for some workspaces first.
+`apps/web/src/lib/flags.ts` lists every flag with its default, and that list is the only place a
+key lives: the server asks its flag store for those keys and no others.
+
+- **The store is optional.** It is a [Cloudflare Flagship](https://developers.cloudflare.com/flagship/)
+  app, bound as `FLAGS` (`flagship` in `wrangler.jsonc`). Only Gateweave's `staging` environment
+  has one. A deployment without the binding, which is every self-hosted copy unless it adds one,
+  asks nothing and serves each flag's default, so a flag's default must be what a server that has
+  never heard of flags should do.
+- **Decided per workspace, on the server.** `getWorkspace` evaluates the list when a workspace
+  opens (`src/server/flags/`) and returns only the flags that differ from their default, as
+  `flags`. Everyone in a workspace gets the same answer: the workspace's id is the targeting key,
+  which is what a percentage rollout is counted by.
+- **Only that id leaves the server.** Flagship keeps the context of evaluations for about a
+  month, readable by anyone who may read the account's analytics. So the context is the
+  workspace's id and nothing else: no person, name, address or slug.
+- **The device remembers.** The answer travels with the workspace's details into what the browser
+  keeps for an offline start (`src/lib/offline.ts`), so a workspace opened without a connection
+  shows what it showed last. Pages read it with `useFlag(key)`.
+- **A failing store changes nothing.** A flag that cannot be evaluated is its default, and the
+  workspace opens.
+- **It is not a switch for emergencies.** A change in Flagship took about 45 seconds to reach a
+  Worker when measured, and a tab picks it up the next time it loads the workspace.
+
+A flag is meant to go. Once its feature is on for everyone, delete the key from the list and the
+checks around it, and keep the feature. To try one locally, add the `flagship` binding to the top
+level of `wrangler.jsonc` for the moment (not in a commit) and turn the flag on in the local
+store, which starts empty:
+`pnpm wrangler flagship flags create <app id> <key> --default on --local`.
+
 ## Request flow and security
 
 The Durable Object has **no public route**. Only the Worker can reach it, through its binding.
