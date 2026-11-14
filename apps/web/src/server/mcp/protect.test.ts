@@ -41,6 +41,7 @@ function request(authorization?: string): Request {
 
 describe("protectResource", () => {
 	let loadKeys: ProtectedResourceOptions["jwks"];
+	let granted: Set<string>;
 	let seen: JWTPayload[];
 	let handle: (request: Request) => Promise<Response>;
 
@@ -50,6 +51,7 @@ describe("protectResource", () => {
 		vi.stubGlobal("fetch", () => Promise.reject(new Error("unexpected network request")));
 		loadKeys = vi.fn(async () => jwks);
 		seen = [];
+		granted = new Set(["client-1"]);
 		handle = protectResource(
 			{
 				issuer,
@@ -58,6 +60,7 @@ describe("protectResource", () => {
 				challengeScopes: ["track", "offline_access"],
 				jwks: loadKeys,
 				dpopReplayStore: createInMemoryDpopReplayStore(),
+				stillGranted: async ({ azp }) => typeof azp === "string" && granted.has(azp),
 			},
 			async (_request, claims) => {
 				seen.push(claims);
@@ -121,6 +124,19 @@ describe("protectResource", () => {
 		expect(await response.json()).toMatchObject({ error: { message: "token expired" } });
 	});
 
+	it("turns away a signed, unexpired token whose grant was taken back, as any invalid token", async () => {
+		const live = await token();
+		granted.delete("client-1");
+
+		const response = await handle(request(`Bearer ${live}`));
+		const invalid = await handle(request("Bearer not.a.token"));
+
+		expect(response.status).toBe(401);
+		expect(response.headers.get("www-authenticate")).toBe(invalid.headers.get("www-authenticate"));
+		expect(response.headers.get("www-authenticate")).toContain("resource_metadata=");
+		expect(seen).toEqual([]);
+	});
+
 	it("answers a token without the required scope with an insufficient_scope 403", async () => {
 		const response = await handle(request(`Bearer ${await token({ scope: "openid" })}`));
 
@@ -152,6 +168,7 @@ describe("protectResource", () => {
 				challengeScopes: ["track"],
 				jwks: loadKeys,
 				dpopReplayStore: createInMemoryDpopReplayStore(),
+				stillGranted: async () => true,
 			},
 			async () => new Response("ok"),
 		);

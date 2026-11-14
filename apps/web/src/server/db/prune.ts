@@ -1,4 +1,4 @@
-import { type Column, inArray, lt } from "drizzle-orm";
+import { type Column, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { Database } from "./index";
 import { schema } from "./index";
 
@@ -40,4 +40,31 @@ export async function pruneExpired(db: Database): Promise<void> {
 	await pruneOlder(db, schema.oauthAccessToken, schema.oauthAccessToken.expiresAt, now);
 	await pruneOlder(db, schema.oauthClientAssertion, schema.oauthClientAssertion.expiresAt, now);
 	await pruneOlder(db, schema.invitation, schema.invitation.expiresAt, now);
+	await pruneClients(db, now);
+}
+
+const DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Anyone can register an OAuth client (dynamic registration), and most never get past the consent
+ * page. Those with no owner, a day old, that nobody allows and that hold no refresh token that
+ * still works are deleted; the cascade takes their tokens and resources. A client someone allows
+ * is never touched.
+ */
+async function pruneClients(db: Database, now: Date) {
+	const { oauthClient, oauthConsent, oauthRefreshToken } = schema;
+	const unused = db
+		.select({ id: oauthClient.id })
+		.from(oauthClient)
+		.where(
+			sql`${isNull(oauthClient.userId)}
+				AND ${lt(oauthClient.createdAt, new Date(now.getTime() - DAY))}
+				AND NOT EXISTS (SELECT 1 FROM ${oauthConsent} WHERE ${oauthConsent.clientId} = ${oauthClient.clientId})
+				AND NOT EXISTS (SELECT 1 FROM ${oauthRefreshToken} WHERE ${oauthRefreshToken.clientId} = ${oauthClient.clientId} AND ${oauthRefreshToken.expiresAt} >= ${now.getTime()})`,
+		)
+		.limit(BATCH);
+	for (;;) {
+		const { meta } = await db.delete(oauthClient).where(inArray(oauthClient.id, unused)).run();
+		if (meta.changes < BATCH) return;
+	}
 }

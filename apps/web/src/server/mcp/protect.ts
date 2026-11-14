@@ -22,6 +22,12 @@ export interface ProtectedResourceOptions {
 	/** The issuer's public signing keys. */
 	jwks: () => Promise<JSONWebKeySet>;
 	dpopReplayStore: DpopReplayStore;
+	/**
+	 * Whether the person still allows this token's client. A token is a signed JWT that outlives
+	 * its grant, so taking a grant back only works if every call asks. False answers as an invalid
+	 * token, which sends the client to ask the person again.
+	 */
+	stillGranted: (claims: JWTPayload) => Promise<boolean>;
 }
 
 export type ProtectedHandler = (request: Request, claims: JWTPayload) => Promise<Response>;
@@ -84,6 +90,9 @@ export function protectResource(
 			if (isDpopBindingError(error)) throw unauthorized(error.message, error.code);
 			throw error;
 		}
+
+		if (!(await options.stillGranted(payload)))
+			throw unauthorized("access was taken back", "invalid_token");
 		return payload;
 	}
 

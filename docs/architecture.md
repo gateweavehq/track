@@ -540,6 +540,27 @@ that agents sign in to, through Better Auth's MCP plugin:
    never accepted there, so a web page cannot make a signed-in browser call it, and no Origin
    check is needed.
 
+**Taking an assistant's access back.** Under Settings, Account, "Assistants you allowed" lists the
+OAuth clients the person has a consent for (`apps/web/src/server/auth/grants.ts`): the name the app
+gave itself (marked as such, since any app can call itself anything), where it goes (the same
+words as the consent page: a loopback address is "an app on this computer"), when it was allowed,
+and when it last traded a refresh token, the only use the database sees. "Take back" deletes that
+person's refresh tokens, access tokens and consent for the client in one D1 batch. Another person's
+grant to the same client stays, and a client the person never allowed is answered as not found.
+Better Auth's own grant routes stay closed in `disabledPaths`.
+
+An access token is a JWT that `/mcp` verifies without the database, so deleting rows alone would
+leave it working until it expires, up to an hour. After the signature checks, `protect.ts` asks
+`stillGranted`, which reads the person's consent rows for the token's client (`oauthConsent_userId_idx`,
+a handful of rows) and wants one whose scopes include `track`. That is one D1 read per call, on
+OAuth tokens only. A missing grant is answered as an invalid token, so the client asks the person
+again, and the refresh token is gone with the rest. Agent members' keys are served before any of
+this and are revoked in the workspace's settings; a person's take-back never touches them.
+
+The daily cron also deletes clients that were registered without a user (dynamic registration),
+are over a day old, and have no consent and no refresh token still valid, because anyone can
+register one (`db/prune.ts`).
+
 Each tool call resolves the workspace slug to the caller's membership in D1, as the sync gateway
 does, and then reads or mutates through the Durable Object's RPC (see
 [Server-side clients](#server-side-clients)). A workspace the caller does not belong to is

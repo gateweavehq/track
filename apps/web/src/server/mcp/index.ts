@@ -7,6 +7,7 @@ import type { JWTPayload } from "jose";
 import { db, getAuth, mcpResource } from "../auth";
 import { findAgentByKey, isAgentKey } from "../auth/agents";
 import { MCP_SCOPE } from "../auth/config";
+import { hasGrant } from "../auth/grants";
 import { findMembership, listWorkspaces, workspaceStub } from "../workspaces";
 import { protectResource } from "./protect";
 import { createTrackServer, type TrackAccess, type WorkspaceAccess } from "./tools";
@@ -106,6 +107,11 @@ function protect(resource: string) {
 					challengeScopes: [MCP_SCOPE, "offline_access"],
 					jwks: () => getAuth().api.getJwks(),
 					dpopReplayStore: createDpopReplayStore(internalAdapter),
+					// Agent keys never get here: they are served above and revoked in workspace settings.
+					stillGranted: ({ sub, azp }) =>
+						typeof sub === "string" && typeof azp === "string"
+							? hasGrant(db, sub, azp, MCP_SCOPE)
+							: Promise.resolve(false),
 				},
 				serve,
 			);

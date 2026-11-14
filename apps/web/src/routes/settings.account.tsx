@@ -2,12 +2,14 @@ import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-rout
 import { type FormEvent, useState } from "react";
 import { LegalLinks } from "#/components/legal-links";
 import { LiveButton } from "#/components/live-button";
+import { Assistants } from "#/components/settings/assistants";
 import { ServerSettings } from "#/components/settings/server-settings";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { authClient } from "#/lib/auth-client";
 import { authFailure } from "#/lib/auth-failure";
+import { getAssistantGrants } from "#/lib/oauth";
 import { forgetEverything } from "#/lib/replica";
 import { getAccount } from "#/lib/session";
 import { useDocumentTitle } from "#/lib/title";
@@ -19,11 +21,13 @@ export const Route = createFileRoute("/settings/account")({
 		if (!account) throw redirect({ to: "/login" });
 		return { account, demo, legal, ownsServer };
 	},
+	loader: () => getAssistantGrants(),
 	component: AccountPage,
 });
 
 function AccountPage() {
 	const { account, demo, legal, ownsServer } = Route.useRouteContext();
+	const grants = Route.useLoaderData();
 	const [deleted, setDeleted] = useState(false);
 	const [signedOut, setSignedOut] = useState(false);
 	useDocumentTitle(deleted ? "Account deleted" : signedOut ? "Signed out" : "Your account");
@@ -81,6 +85,7 @@ function AccountPage() {
 				<>
 					<ChangeName name={account.name} />
 					<ChangePassword email={account.email} hasPassword={account.hasPassword} />
+					<Assistants grants={grants} />
 					{ownsServer && <ServerSettings />}
 					<SignOutEverywhere
 						onSignedOut={async () => {
