@@ -8,6 +8,34 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.38.0] - 2026-11-14
+
+A server can turn a feature on for some workspaces before everyone gets it. Nothing changes
+unless a server sets that up: without it, every feature behind a flag stays as it is. There is no
+migration in this release.
+
+### Added
+
+- **Feature flags, for a server that wants them.** A feature can now be merged before it is ready
+  for everyone. `apps/web/src/lib/flags.ts` lists each flag with its default, and a server with
+  a [Cloudflare Flagship](https://developers.cloudflare.com/flagship/) app bound as `FLAGS`
+  decides them per workspace when the workspace opens. The answer is kept with what the browser
+  remembers of the workspace, so opening it without a connection shows what it showed last. Only
+  the workspace's id is sent to the flag store, and a store that fails leaves each flag at its
+  default. ([#302])
+- **A count beside "My issues"**, the first feature behind a flag (`my-issues-count`, off by
+  default): how many open issues are assigned to you, in the sidebar. ([#302])
+
+### Changed
+
+- **The ecosystem document links Gateweave Guard's repository**, which is public now. ([#303])
+
+### If you run your own
+
+- **Nothing to do** beyond updating: no migration and no new setting. Your copy asks no outside
+  service about flags and serves each default. To turn a flag on early for your own workspaces,
+  see Feature flags in `docs/self-hosting.md`.
+
 ## [0.37.0] - 2026-11-14
 
 A person can see the AI assistants they allowed to act as them through `/mcp`, and take one
@@ -1661,6 +1689,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.38.0]: https://github.com/gateweavehq/track/releases/tag/v0.38.0
 [0.37.0]: https://github.com/gateweavehq/track/releases/tag/v0.37.0
 [0.36.0]: https://github.com/gateweavehq/track/releases/tag/v0.36.0
 [0.35.4]: https://github.com/gateweavehq/track/releases/tag/v0.35.4
@@ -1745,6 +1774,8 @@ The first pre-release.
 [#286]: https://github.com/gateweavehq/track/pull/286
 [#297]: https://github.com/gateweavehq/track/pull/297
 [#300]: https://github.com/gateweavehq/track/pull/300
+[#302]: https://github.com/gateweavehq/track/pull/302
+[#303]: https://github.com/gateweavehq/track/pull/303
 [#295]: https://github.com/gateweavehq/track/pull/295
 [#294]: https://github.com/gateweavehq/track/pull/294
 [#293]: https://github.com/gateweavehq/track/pull/293
