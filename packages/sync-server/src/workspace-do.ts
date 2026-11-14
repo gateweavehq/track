@@ -49,6 +49,7 @@ import { findArchivedIssues, findArchivedIssuesPage, findIssueDetails } from "./
 import {
 	findGitHubRow,
 	findWebhookRow,
+	findWebhookRowsOf,
 	githubTarget,
 	pruneAudit,
 	readAuditPage,
@@ -590,23 +591,25 @@ export class WorkspaceDO extends DurableObject {
 	}
 
 	/**
-	 * Removes the webhook a connection made, when its undo token asks for it: the gateway has
-	 * checked the token, so no member is named. It goes only while it is still the webhook of that
-	 * agent; false when it is gone already, or has since been given to another.
+	 * Removes every webhook that sets off one agent, for the gateway taking back a connection it
+	 * made (its rollback, or its undo token, which it has checked): no member is named. Only
+	 * the gateway calls this. A webhook made for an agent in a connection is the only kind that
+	 * names an agent the connection's own request has just made. Answers how many went.
 	 */
-	removeConnectedWebhook(id: string, agentId: string): boolean {
-		const parsed = shortId.safeParse(id);
-		if (!parsed.success) return false;
+	removeConnectedWebhooksOf(agentId: string): number {
+		const parsed = shortId.safeParse(agentId);
+		if (!parsed.success) return 0;
 		return this.ctx.storage.transactionSync(() => {
-			const before = findWebhookRow(this.#db, parsed.data);
-			if (!before || before.agentId !== agentId) return false;
-			deleteWebhook(this.#db, before.id);
-			recordAudit(
-				this.#db,
-				{ actorId: null, action: "webhook.deleted", target: webhookTarget(before) },
-				Date.now(),
-			);
-			return true;
+			const rows = findWebhookRowsOf(this.#db, parsed.data);
+			for (const row of rows) {
+				deleteWebhook(this.#db, row.id);
+				recordAudit(
+					this.#db,
+					{ actorId: null, action: "webhook.deleted", target: webhookTarget(row) },
+					Date.now(),
+				);
+			}
+			return rows.length;
 		});
 	}
 

@@ -6,6 +6,7 @@ import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { approveAgentConnection, getConnectOffer, getConnectTeams } from "#/lib/connect";
+import { approvalFailureMessage } from "#/lib/connect-request";
 import { getLegalLinks, getSession } from "#/lib/session";
 import { useDocumentTitle } from "#/lib/title";
 
@@ -92,20 +93,31 @@ function Offer({ offer, query }: { offer: OkOffer; query: string }) {
 	async function decide(decision: "allow" | "cancel") {
 		setPending(true);
 		setProblem(null);
+		let answer: Awaited<ReturnType<typeof approveAgentConnection>>;
 		try {
-			const answer = await approveAgentConnection({
+			answer = await approveAgentConnection({
 				data: { query, decision, workspace, teamId: teamId || null, name },
 			});
-			// A fetch and then a navigation: a form that redirects away is blocked by the page's CSP.
-			if (answer.ok) window.location.assign(answer.redirect);
-			else {
-				setPending(false);
-				setProblem(answer.message);
-			}
 		} catch {
-			setPending(false);
-			setProblem("Something went wrong. Nothing was made. Try again.");
+			if (decision === "allow") {
+				// No answer: the server may have made both. The buttons stay off, so nothing is tried
+				// again on the person's behalf, and they are sent to look.
+				setProblem(approvalFailureMessage(null));
+			} else {
+				// Cancel makes nothing, so there is nothing to wonder about.
+				setPending(false);
+				setProblem("Something went wrong. Try again.");
+			}
+			return;
 		}
+		// A fetch and then a navigation: a form that redirects away is blocked by the page's CSP.
+		if (answer.ok) {
+			window.location.assign(answer.redirect);
+			return;
+		}
+		// An answer of `ok: false` has been rolled back, and says why.
+		setPending(false);
+		setProblem(approvalFailureMessage(answer));
 	}
 
 	const events = offer.events.map((event) => EVENT_WORDS[event] ?? event);

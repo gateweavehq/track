@@ -1506,3 +1506,32 @@ describe("management", () => {
 		});
 	});
 });
+
+describe("taking back a connection", () => {
+	it("removes every webhook of one agent and no one else's, and says so in the log", async () => {
+		receiver();
+		const workspace = await workspaceWithTeams();
+		await workspace.syncMember(triage);
+		const other: MemberProfile = { ...triage, id: "agent-other", email: "other@agents.invalid" };
+		await workspace.syncMember(other);
+		const first = await createHook(workspace, { agentId: triage.id });
+		const second = await createHook(workspace, { url: hookUrl("second"), agentId: triage.id });
+		const others = await createHook(workspace, { url: hookUrl("other"), agentId: other.id });
+		const everyone = await createHook(workspace, { url: hookUrl("everyone") });
+
+		expect(await workspace.removeConnectedWebhooksOf(triage.id)).toBe(2);
+		const left = ok(await workspace.webhooks(owner)).webhooks.map((hook) => hook.id);
+		expect(left.sort()).toEqual([others.webhook.id, everyone.webhook.id].sort());
+		expect(left).not.toContain(first.webhook.id);
+		expect(left).not.toContain(second.webhook.id);
+		// Safe to repeat, and a malformed id removes nothing.
+		expect(await workspace.removeConnectedWebhooksOf(triage.id)).toBe(0);
+		expect(await workspace.removeConnectedWebhooksOf("")).toBe(0);
+
+		const log = ok(await workspace.auditLog(owner, {})).events.filter(
+			(event) => event.action === "webhook.deleted",
+		);
+		expect(log).toHaveLength(2);
+		expect(log.every((event) => event.actorId === null)).toBe(true);
+	});
+});

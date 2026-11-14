@@ -101,7 +101,9 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    verifier whose hash the request began with admits it, and it hands over only what that
    approval made; `POST /api/connect/undo` carries no session either: a token signed with
    `BETTER_AUTH_SECRET` under its own purpose names one workspace, agent and webhook and removes
-   only those. Both are counted per client address. A backup Worker, such as Gateweave Backup's, reaches the objects only through
+   only those, through the object's gateway-only `removeConnectedWebhooksOf(agentId)`, which
+   names no member and which only `connect.ts` calls: its rollback after an approval fails, and
+   that undo, after checking the token. Both POST routes are counted per client address. A backup Worker, such as Gateweave Backup's, reaches the objects only through
    the named `Backup` entrypoint (`apps/web/src/server/backup.ts`), which has no route: a service
    binding from a Worker in the same account is its access. It lists workspaces in D1 and sends
    only reads, which the object checks and always rolls back (`packages/sync-server/src/backup.ts`).

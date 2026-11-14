@@ -918,21 +918,78 @@ describe("hardening", () => {
 		expect(await codeRows()).toEqual([]);
 	});
 
-	it("deletes the agent it made when Better Auth fails after making the member", async () => {
+	it("has the agents plugin remove exactly the rows of an agent whose creation fails, whatever else is made at once", async () => {
 		const { owner, workspaceId, slug } = await setUp("keyless");
-		const accounts = () =>
+		const named = (name: string) =>
 			track.db
-				.prepare("SELECT count(*) AS n FROM user WHERE email LIKE '%@agents.invalid'")
-				.first<{ n: number }>();
-		const before = (await accounts())?.n;
-		// The key is inserted after the member, so refusing it fails createAgent halfway.
-		const { result } = await breaking("agent_key", "1", () =>
-			approve(owner, connectQuery(newVerifier()), { workspace: slug }),
+				.prepare(
+					"SELECT (SELECT count(*) FROM user WHERE name = ?1 AND email LIKE '%@agents.invalid') AS users, (SELECT count(*) FROM member m JOIN user u ON u.id = m.user_id WHERE u.name = ?1 AND m.organization_id = ?2) AS members, (SELECT count(*) FROM agent_key k JOIN user u ON u.id = k.user_id WHERE u.name = ?1) AS keys",
+				)
+				.bind(name, workspaceId)
+				.first<{ users: number; members: number; keys: number }>();
+		// The key is inserted after the member, so refusing the key of "Doomed" fails its creation
+		// halfway, while the creation of "Survivor" at the same moment is not touched.
+		const [doomed, survivor] = await breaking(
+			"agent_key",
+			"(SELECT name FROM user WHERE id = NEW.user_id) = 'Doomed'",
+			() =>
+				Promise.all([
+					approve(owner, connectQuery(newVerifier()), { workspace: slug, name: "Doomed" }),
+					authApi("/agents/create", owner.cookie, {
+						organizationId: workspaceId,
+						name: "Survivor",
+					}),
+				]),
 		);
-		expect(result.ok).toBe(false);
-		expect(await agentCount(workspaceId)).toBe(0);
-		expect((await accounts())?.n).toBe(before);
+		expect(doomed.result.ok).toBe(false);
+		expect(survivor.ok).toBe(true);
+		expect(await named("Doomed")).toEqual({ users: 0, members: 0, keys: 0 });
+		expect(await named("Survivor")).toEqual({ users: 1, members: 1, keys: 1 });
 		expect(await webhooksOf(workspaceId, owner)).toEqual([]);
+
+		// The same through Settings, which uses the same plugin: an error, and nothing left over.
+		const settings = await breaking(
+			"agent_key",
+			"(SELECT name FROM user WHERE id = NEW.user_id) = 'Doomed'",
+			() =>
+				track.fetch(`${origin}/api/auth/agents/create`, {
+					method: "POST",
+					headers: {
+						"content-type": "application/json",
+						origin,
+						"cf-connecting-ip": freshAddress(),
+						cookie: owner.cookie,
+					},
+					body: JSON.stringify({ organizationId: workspaceId, name: "Doomed" }),
+				}),
+		);
+		expect(settings.ok).toBe(false);
+		expect(await named("Doomed")).toEqual({ users: 0, members: 0, keys: 0 });
+	});
+
+	it("clears a webhook of the agent that its token does not know of", async () => {
+		const { owner, workspaceId, slug } = await setUp("unknownhook");
+		const verifier = newVerifier();
+		const { code } = await allow(owner, slug, verifier);
+		const secrets = await exchanged(code, verifier);
+		// As when the answer about the webhook was lost: another one naming this agent.
+		const extra = await track.rpc<{ ok: boolean }>(
+			workspaceId,
+			"createWebhook",
+			profile(owner, "owner"),
+			{ id: workspaceId, slug, origin },
+			{
+				url: `https://${RECEIVER_HOST}/extra`,
+				events: ["issue.created"],
+				teamId: null,
+				agentId: secrets.agent.id,
+			},
+		);
+		expect(extra.ok).toBe(true);
+		expect(await webhooksOf(workspaceId, owner)).toHaveLength(2);
+		expect((await undo(secrets.undo)).status).toBe(200);
+		expect(await webhooksOf(workspaceId, owner)).toEqual([]);
+		expect(await agentCount(workspaceId)).toBe(0);
 	});
 
 	it("answers a token that verifies but names something malformed with the usual 400", async () => {

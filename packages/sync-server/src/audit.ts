@@ -331,6 +331,11 @@ export function findWebhookRow(db: Db, id: string): schema.WebhookRow | undefine
 	return db.select().from(schema.webhooks).where(eq(schema.webhooks.id, id)).get();
 }
 
+/** Every webhook that sets an agent off. */
+export function findWebhookRowsOf(db: Db, agentId: string): schema.WebhookRow[] {
+	return db.select().from(schema.webhooks).where(eq(schema.webhooks.agentId, agentId)).all();
+}
+
 /** What changed in a webhook, one event each. */
 export function webhookChanges(before: schema.WebhookRow, after: Webhook): AuditDetail[] {
 	const changes: AuditDetail[] = [];

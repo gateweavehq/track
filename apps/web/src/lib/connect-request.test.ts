@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { checkConnectRequest, parseConnectOrigins, returnAddress } from "./connect-request";
+import {
+	approvalFailureMessage,
+	checkConnectRequest,
+	parseConnectOrigins,
+	returnAddress,
+	UNKNOWN_RESULT_MESSAGE,
+} from "./connect-request";
 import { safeRedirect } from "./redirect";
 
 const TRACK = "https://track.example.com";
@@ -129,6 +135,17 @@ describe("returnAddress", () => {
 		expect(url.searchParams.get("error")).toBe("denied");
 		// A code the address already had is not touched by an answer that has none.
 		expect(url.searchParams.get("code")).toBe("old");
+	});
+});
+
+describe("approvalFailureMessage", () => {
+	it("shows the server's message when it answered, and says the result is unknown when it did not", () => {
+		expect(
+			approvalFailureMessage({ ok: false, message: "A workspace can have at most 10 webhooks" }),
+		).toBe("A workspace can have at most 10 webhooks");
+		expect(approvalFailureMessage(null)).toBe(UNKNOWN_RESULT_MESSAGE);
+		expect(UNKNOWN_RESULT_MESSAGE).toMatch(/couldn't tell whether this went through/);
+		expect(UNKNOWN_RESULT_MESSAGE).not.toMatch(/Nothing was made/);
 	});
 });
 

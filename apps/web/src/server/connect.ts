@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { isAdminRole } from "@gateweave/track-protocol";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import {
 	type ConnectPurpose,
@@ -157,7 +157,7 @@ async function undo(body: unknown): Promise<Response> {
 	const token = z.object({ undo: z.string().max(512) }).safeParse(body);
 	const target = token.success ? await readUndoToken(token.data.undo) : null;
 	if (!target) return json(NO_UNDO, 400);
-	const { workspaceId, agentId, webhookId } = target;
+	const { workspaceId, agentId } = target;
 
 	// The workspace must still exist in D1 before its object is reached, which reaching it makes.
 	const workspace = await db
@@ -169,7 +169,9 @@ async function undo(body: unknown): Promise<Response> {
 		try {
 			// The webhook first: with it gone, nothing is sent to an agent that no longer exists.
 			const stub = await findWorkspaceStub(db, workspaceId);
-			await stub.removeConnectedWebhook(webhookId, agentId);
+			// Every webhook that names the agent, which can only be one made for it: it covers one this
+			// token does not know of.
+			await stub.removeConnectedWebhooksOf(agentId);
 			const removed = await removeAgentOf(db, workspaceId, agentId);
 			// Whether or not this call removed it: an earlier one may have deleted the rows and then
 			// failed to tell the object, and a retry would otherwise never tell it.
@@ -296,27 +298,33 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 	const headers = request.headers;
 	// The agent first. It awaits the new member's sync to the workspace's object.
 	let made: { agent: { id: string }; key: string };
-	const before = await agentIdsOf(workspaceId);
 	try {
+		// A failure after its member is made is cleaned up by the plugin itself, which knows the id.
 		made = await auth.api.createAgent({
 			headers,
 			body: { organizationId: workspaceId, name: name.data },
 		});
 	} catch (error) {
-		// Better Auth makes the member before its key and the sync. Failing after that leaves an
-		// agent with no key anyone was shown, so the one that is new goes, when it is plain which.
-		const fresh = [...(await agentIdsOf(workspaceId))].filter((id) => !before.has(id));
-		const [only] = fresh;
-		if (fresh.length === 1 && only) await removeAgentAgain(headers, only);
 		return refused(messageOf(error, "The agent member could not be made."));
 	}
 	const agentId = made.agent.id;
+	const stub = workspaceStub(membership);
+	// Takes both back: the webhooks that name this agent first (this request made the agent, so
+	// they are its own, whether or not an answer about one arrived), then the agent.
 	const undone = async (why: string): Promise<Approval> => {
-		const removed = await removeAgentAgain(headers, agentId);
+		let hooksGone = true;
+		try {
+			await stub.removeConnectedWebhooksOf(agentId);
+		} catch (error) {
+			hooksGone = false;
+			console.error("connect: could not remove the webhook again", error);
+		}
+		// With a webhook that may still be there, the agent stays, so it never points at nothing.
+		const removed = hooksGone && (await removeAgentAgain(headers, agentId));
 		return refused(
 			removed
 				? `${why} Nothing was made.`
-				: `${why} The agent member ${name.data} was made and could not be removed again: delete it in Settings, Agents.`,
+				: `${why} The agent member ${name.data} was made and could not be removed again: delete it, and any webhook for it, in Settings.`,
 		);
 	};
 
@@ -327,7 +335,6 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 		agentId,
 	};
 	const link = { id: workspaceId, slug: input.workspace, origin: appOrigin(request) };
-	const stub = workspaceStub(membership);
 	let created: Awaited<ReturnType<typeof stub.createWebhook>>;
 	try {
 		created = await stub.createWebhook(membership.profile, link, webhookInput);
@@ -377,11 +384,6 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 	} catch (error) {
 		console.error("connect: could not keep the one-time code", error);
 		// Neither is of use to anyone without it: take both back.
-		try {
-			await stub.removeConnectedWebhook(webhookId, agentId);
-		} catch (again) {
-			console.error("connect: could not remove the webhook again", again);
-		}
 		return undone("Track could not prepare the connection.");
 	}
 
@@ -393,15 +395,6 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 	}).catch((error) => console.error("connect: audit log", error));
 
 	return { ok: true, redirect: returnAddress(asked.returnTo, { code, state: asked.state }) };
-}
-
-async function agentIdsOf(workspaceId: string): Promise<Set<string>> {
-	const rows = await db
-		.select({ id: schema.member.userId })
-		.from(schema.member)
-		.where(and(eq(schema.member.organizationId, workspaceId), eq(schema.member.role, "agent")))
-		.all();
-	return new Set(rows.map((row) => row.id));
 }
 
 async function removeAgentAgain(headers: Headers, agentId: string): Promise<boolean> {

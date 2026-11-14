@@ -364,8 +364,22 @@ export function agentMembers({ db, onMembershipChange, onAudit }: AgentMembersOp
 							createdAt: now,
 						}),
 					]);
-					const key = await insertKey(agentId, organizationId);
-					await changed(organizationId, agentId);
+					let key: Awaited<ReturnType<typeof insertKey>>;
+					try {
+						key = await insertKey(agentId, organizationId);
+						await changed(organizationId, agentId);
+					} catch (error) {
+						// The member is there but nobody was shown a key for it: take back exactly the rows
+						// this call wrote, whose id is known here, and let the original error through.
+						try {
+							await deleteAgentRows(db, agentId);
+							await changed(organizationId, agentId);
+						} catch {
+							// Never over the original error, and nothing secret is in this line.
+							console.error("agents: could not remove an agent whose creation failed");
+						}
+						throw error;
+					}
 					await audit(ctx, organizationId, {
 						actorId: ctx.context.session.user.id,
 						action: "agent.created",

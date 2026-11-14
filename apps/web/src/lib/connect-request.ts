@@ -95,6 +95,18 @@ export function checkConnectRequest(query: string, trackOrigin: string): Connect
 	};
 }
 
+/** What the page says when the call to approve got no answer: the server may have made both. */
+export const UNKNOWN_RESULT_MESSAGE =
+	"We couldn't tell whether this went through. Look in the workspace's settings under Agents and Webhooks before trying again.";
+
+/**
+ * What to tell the person when allowing did not end in an address to go to. An answer of `ok:
+ * false` has been rolled back and says why, so its message is shown. No answer at all is unknown.
+ */
+export function approvalFailureMessage(answer: { ok: false; message: string } | null): string {
+	return answer ? answer.message : UNKNOWN_RESULT_MESSAGE;
+}
+
 /** The address the person goes to next: `returnTo` with what happened added to its query. */
 export function returnAddress(returnTo: string, outcome: Record<string, string>): string {
 	const url = new URL(returnTo);
