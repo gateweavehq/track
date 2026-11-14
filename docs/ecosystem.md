@@ -30,6 +30,7 @@ Every product follows the same principles as Track:
 | **Track**  | Issues, projects and planning for product teams                   | Early access                                                               |
 | **Agents** | Coding agents' setups, and agents and teams that run on their own | Early access ([gateweavehq/agents](https://github.com/gateweavehq/agents)) |
 | **ID**     | Single sign-on, passkeys and access to internal apps              | Early access ([gateweavehq/id](https://github.com/gateweavehq/id))         |
+| **Guard**  | Security in one place for teams on Cloudflare; it only reads      | Early access on Gateweave Cloud; its code will be published                |
 | **Mail**   | Mailboxes for people and agents, aliases and transactional email  | Next, being designed; email-to-issue and inbox email ship in Track         |
 | **CRM**    | Contacts, companies and deals                                     | Proposed                                                                   |
 | **ERP**    | Invoicing, inventory and orders, one module at a time             | Later                                                                      |
@@ -146,9 +147,12 @@ same time as the sync engine. Every product gets the same keyboard-first command
    Track and Agents as its first clients, then for any app.
 4. **Mail, starting with agents:** mailboxes for agents, with what each may touch and what a
    person can see of it. Then sending and templates, mailboxes for people, and aliases.
-5. **CRM:** the second full product. Starting it triggers extracting `@gateweave/sync` and
+5. **Guard:** security in one place for teams on Cloudflare: what is wrong in an account and its
+   repositories, what protects each zone and what got blocked. It only reads, and turns a finding
+   into a Track issue that Agents can fix.
+6. **CRM:** the second full product. Starting it triggers extracting `@gateweave/sync` and
    `@gateweave/ui`.
-6. **ERP:** last, one module at a time (invoicing first). It is the largest and most regulated
+7. **ERP:** last, one module at a time (invoicing first). It is the largest and most regulated
    area: accounting rules and e-invoicing differ by country. Each module should earn its place
    against integrating with an existing system.
 
