@@ -8,6 +8,29 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.37.0] - 2026-11-14
+
+A person can see the AI assistants they allowed to act as them through `/mcp`, and take one
+back, effective at once. There is no migration in this release.
+
+### Added
+
+- **Assistants you allowed.** Your account page lists each app you let act as you: the name it
+  gave itself, where it goes ("an app on this computer" for one on your own machine), when you
+  allowed it and when it was last used. "Take back" ends its access at once: its tokens and your
+  consent go, and `/mcp` checks the consent on every call, so even an access token that hasn't
+  expired is refused, and the app has to ask you again. Agent members' keys are not affected;
+  they are revoked in workspace settings as before. ([#300])
+
+### Changed
+
+- **The daily clean-up also deletes OAuth clients** that registered themselves more than a day
+  ago and that nobody allowed. ([#300])
+
+### If you run your own
+
+- **Nothing to do** beyond updating: no migration and no new setting.
+
 ## [0.36.0] - 2026-11-14
 
 The public demo shows what it is doing while it makes a visitor's workspace, and points to
@@ -1638,6 +1661,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.37.0]: https://github.com/gateweavehq/track/releases/tag/v0.37.0
 [0.36.0]: https://github.com/gateweavehq/track/releases/tag/v0.36.0
 [0.35.4]: https://github.com/gateweavehq/track/releases/tag/v0.35.4
 [0.35.3]: https://github.com/gateweavehq/track/releases/tag/v0.35.3
@@ -1720,6 +1744,7 @@ The first pre-release.
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
 [#286]: https://github.com/gateweavehq/track/pull/286
 [#297]: https://github.com/gateweavehq/track/pull/297
+[#300]: https://github.com/gateweavehq/track/pull/300
 [#295]: https://github.com/gateweavehq/track/pull/295
 [#294]: https://github.com/gateweavehq/track/pull/294
 [#293]: https://github.com/gateweavehq/track/pull/293
