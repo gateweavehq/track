@@ -8,6 +8,29 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.36.0] - 2026-11-14
+
+The public demo shows what it is doing while it makes a visitor's workspace, and points to
+Gateweave Cloud and self-hosting from a bar at the bottom. Only the demo changes. There is no
+migration in this release.
+
+### Changed
+
+- **The demo opens with a progress screen.** Making a sandbox takes a few seconds, during which
+  the button only said "Opening your workspace…". A screen now shows the server's real steps in
+  order: the private account, Acme's people and teams, the issues, projects and cycle, and opening
+  it on this device. The last step finishes when the issue list is on screen. If something
+  fails, the screen says so and offers to try again. ([#297])
+- **A bar at the bottom replaces the demo's banner.** It shows how long the sandbox has before it
+  is deleted, and lets the visitor start over with a new sandbox. It links to Gateweave Cloud and
+  to the repository and the self-hosting guide, and can be hidden for the tab. ([#297])
+- **A welcome card on the first visit** suggests two things to try: opening the workspace in a
+  second tab to watch changes arrive live, and editing offline. ([#297])
+
+### If you run your own
+
+- **Nothing to do** beyond updating. All of this appears only when `TRACK_DEMO` is `"1"`.
+
 ## [0.35.4] - 2026-11-14
 
 Track reads email with postal-mime 4.2.1, a security release of the parser. There is no migration
@@ -1615,6 +1638,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.36.0]: https://github.com/gateweavehq/track/releases/tag/v0.36.0
 [0.35.4]: https://github.com/gateweavehq/track/releases/tag/v0.35.4
 [0.35.3]: https://github.com/gateweavehq/track/releases/tag/v0.35.3
 [0.35.2]: https://github.com/gateweavehq/track/releases/tag/v0.35.2
@@ -1695,6 +1719,7 @@ The first pre-release.
 [0.1.0-alpha.2]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/gateweavehq/track/releases/tag/v0.1.0-alpha.1
 [#286]: https://github.com/gateweavehq/track/pull/286
+[#297]: https://github.com/gateweavehq/track/pull/297
 [#295]: https://github.com/gateweavehq/track/pull/295
 [#294]: https://github.com/gateweavehq/track/pull/294
 [#293]: https://github.com/gateweavehq/track/pull/293
