@@ -66,6 +66,10 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - **Inbox.** People hear of assignments, comments, status changes and agents' proposals on the
   issues they follow, in an inbox of their own with read, snooze and archive that works offline.
   Shipped in v0.9.0.
+- **Feature flags.** A feature can be merged before it is ready for everyone and turned on for some
+  workspaces first; the flags are listed in `apps/web/src/lib/flags.ts`. A server decides them
+  through an optional Cloudflare Flagship binding, and a server without one serves each flag's
+  default. Shipped in v0.38.0.
 
 ## Next: launch
 
