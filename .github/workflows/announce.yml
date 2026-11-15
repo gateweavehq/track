@@ -1,0 +1,47 @@
+name: Announce
+
+# Gateweave's own: a published release is handed to the tool that drafts its announcement. A person
+# reads and approves the draft there before anything is posted. It is apart from the deploys, so a
+# failure here holds nothing back, and a fork without the secret skips it.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  draft:
+    if: github.repository == 'gateweavehq/track'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Send the release's CHANGELOG entry
+        env:
+          HOOK: ${{ secrets.OCOYA_RELEASE_HOOK }}
+          TAG: ${{ github.event.release.tag_name }}
+          URL: ${{ github.event.release.html_url }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "No address to send to; skipping."
+            exit 0
+          fi
+          version="${TAG#v}"
+          awk -v v="$version" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md | head -c 2000 > entry.md
+          if [ -z "$(tr -d '[:space:]' < entry.md)" ]; then
+            echo "CHANGELOG.md has no entry for $version; nothing to announce."
+            exit 0
+          fi
+          jq -n --arg product "Gateweave Track" --arg version "$TAG" --arg url "$URL" \
+            --arg image "https://gateweave.com/og/track.png" --rawfile entry entry.md \
+            '{product: $product, version: $version, url: $url, image: $image,
+              summary: ($product + " " + $version + "\n\n" + $entry)}' > body.json
+          # The address is a password, so curl must not echo it: no -v, and errors without the URL.
+          status="$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' \
+            --data @body.json "$HOOK" 2>/dev/null || true)"
+          echo "The drafting tool answered $status."
+          case "$status" in 2*) ;; *) exit 1 ;; esac
