@@ -8,6 +8,23 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.39.3] - 2026-11-15
+
+An invitation's buttons no longer do nothing when pressed early. There is no migration in this
+release.
+
+### Fixed
+
+- **Joining by an invitation on a slow connection.** Join, Decline and Switch account on the
+  invitation page, and "Email me a link", work only once the page's script has run, but they
+  looked ready before that. Pressed then, they did nothing and said nothing, and the person
+  stayed on the invitation. They are now disabled until the page is ready, as the buttons on the
+  sign-in page already were. ([#316])
+
+### If you run your own
+
+- **Nothing to do.**
+
 ## [0.39.2] - 2026-11-15
 
 The public demo shows what an agent member's work looks like. There is no migration in this
@@ -1769,6 +1786,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.39.3]: https://github.com/gateweavehq/track/releases/tag/v0.39.3
 [0.39.2]: https://github.com/gateweavehq/track/releases/tag/v0.39.2
 [0.39.1]: https://github.com/gateweavehq/track/releases/tag/v0.39.1
 [0.39.0]: https://github.com/gateweavehq/track/releases/tag/v0.39.0
@@ -1867,6 +1885,7 @@ The first pre-release.
 [#311]: https://github.com/gateweavehq/track/pull/311
 [#313]: https://github.com/gateweavehq/track/pull/313
 [#314]: https://github.com/gateweavehq/track/pull/314
+[#316]: https://github.com/gateweavehq/track/pull/316
 [#295]: https://github.com/gateweavehq/track/pull/295
 [#294]: https://github.com/gateweavehq/track/pull/294
 [#293]: https://github.com/gateweavehq/track/pull/293
