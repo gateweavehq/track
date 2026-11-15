@@ -8,6 +8,25 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.39.2] - 2026-11-15
+
+The public demo shows what an agent member's work looks like. There is no migration in this
+release, and nothing changes outside the demo.
+
+### Changed
+
+- **The demo has an agent member and one issue that shows its work.** A sandbox now comes with
+  an agent member, Coder, and a sample issue it was assigned: its two comments, the status it
+  moved, and one change it proposed, which the visitor can accept or dismiss. No agent runs in
+  the demo, and the issue says so itself and links the recording of a real run. The welcome card
+  points to it. ([#314])
+- **The README links the questions page and GitHub Discussions.** ([#313])
+
+### If you run your own
+
+- **Nothing to do.** Your copy is not a demo unless you set `TRACK_DEMO`, and `pnpm dev:seed`
+  adds the same example only where `/mcp` is on.
+
 ## [0.39.1] - 2026-11-15
 
 A connection to an agent that was started and not finished no longer leaves an agent member and
@@ -1750,6 +1769,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.39.2]: https://github.com/gateweavehq/track/releases/tag/v0.39.2
 [0.39.1]: https://github.com/gateweavehq/track/releases/tag/v0.39.1
 [0.39.0]: https://github.com/gateweavehq/track/releases/tag/v0.39.0
 [0.38.0]: https://github.com/gateweavehq/track/releases/tag/v0.38.0
@@ -1845,6 +1865,8 @@ The first pre-release.
 [#309]: https://github.com/gateweavehq/track/pull/309
 [#310]: https://github.com/gateweavehq/track/pull/310
 [#311]: https://github.com/gateweavehq/track/pull/311
+[#313]: https://github.com/gateweavehq/track/pull/313
+[#314]: https://github.com/gateweavehq/track/pull/314
 [#295]: https://github.com/gateweavehq/track/pull/295
 [#294]: https://github.com/gateweavehq/track/pull/294
 [#293]: https://github.com/gateweavehq/track/pull/293
