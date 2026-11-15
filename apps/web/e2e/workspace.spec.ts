@@ -5,6 +5,7 @@ import {
 	createWorkspace,
 	issueRow,
 	joinByInvitation,
+	newPerson,
 	signUp,
 	startWorkspace,
 	syncBadge,
@@ -111,6 +112,48 @@ test("leaving a workspace goes back to the person's workspaces, and takes their 
 		await guestPage.waitForTimeout(1_500);
 		expect(reloads).toBe(0);
 	} finally {
+		await guestContext.close();
+	}
+});
+
+test("an invitation cannot be answered before its page's script has run", async ({
+	page,
+	browser,
+}) => {
+	const workspace = await startWorkspace(page);
+	// No service worker in the guest's browser, so the page's scripts come over the network, where
+	// this test can hold them back.
+	const guestContext = await newBrowserContext(browser, { serviceWorkers: "block" });
+	let release = () => {};
+	try {
+		const guestPage = await guestContext.newPage();
+		const guest = await signUp(guestPage, newPerson("guest"));
+		await page.goto(`/${workspace.slug}/settings/members`);
+		await page.getByLabel("Email address").fill(guest.email);
+		await page.getByRole("button", { name: "Create invite link" }).click();
+		const link = await page.getByLabel("Invite link").inputValue();
+
+		// A slow connection: the page is there to read and press well before its script is. Pressed
+		// then, a button that looked ready did nothing, and the guest stayed on the invitation.
+		const arrived = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await guestPage.route(/\/assets\/[^/]+\.js$/, async (route) => {
+			await arrived;
+			await route.continue();
+		});
+		await guestPage.goto(link, { waitUntil: "commit" });
+		const join = guestPage.getByRole("button", { name: `Join ${workspace.name}` });
+		await expect(join).toBeDisabled();
+		await expect(guestPage.getByRole("button", { name: "Decline" })).toBeDisabled();
+
+		release();
+		await join.click();
+		await expect(guestPage).toHaveURL(new RegExp(`/${workspace.slug}(/team/ENG)?$`));
+	} finally {
+		release();
+		// Scripts still on their way must not fail the test as the browser closes under them.
+		await guestContext.unrouteAll({ behavior: "ignoreErrors" });
 		await guestContext.close();
 	}
 });

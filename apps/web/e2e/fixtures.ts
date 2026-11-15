@@ -1,4 +1,10 @@
-import { type Browser, type BrowserContext, test as base, expect } from "@playwright/test";
+import {
+	type Browser,
+	type BrowserContext,
+	type BrowserContextOptions,
+	test as base,
+	expect,
+} from "@playwright/test";
 import { Network } from "./network";
 
 /**
@@ -38,6 +44,9 @@ export const test = base.extend<{ network: Network; nothingRefused: undefined }>
 export { expect };
 
 /** A second, separate browser: its own storage, cookies and client address. */
-export function newBrowserContext(browser: Browser): Promise<BrowserContext> {
-	return browser.newContext({ extraHTTPHeaders: clientHeaders() });
+export function newBrowserContext(
+	browser: Browser,
+	options: BrowserContextOptions = {},
+): Promise<BrowserContext> {
+	return browser.newContext({ ...options, extraHTTPHeaders: clientHeaders() });
 }
