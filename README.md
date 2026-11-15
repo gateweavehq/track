@@ -216,8 +216,8 @@ each release changed.
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) and our
 [Code of Conduct](CODE_OF_CONDUCT.md). If you work with an AI coding agent, point it at
-[AGENTS.md](AGENTS.md). Report security issues privately, as described in
-[SECURITY.md](SECURITY.md).
+[AGENTS.md](AGENTS.md). Questions and ideas go to [GitHub Discussions](https://github.com/gateweavehq/track/discussions).
+Report security issues privately, as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
