@@ -56,6 +56,9 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 - **Proposals.** An admin chooses which kinds of change each agent member only proposes, such as
   closing issues or assigning them, and people accept or dismiss them on the issue. Shipped in
   v0.4.0; v0.5.0 added a workspace-wide list of open proposals, and webhook events for them.
+- **Connecting an agent in one step.** Another server, such as Gateweave Agents, sends an owner or admin
+  to an approval page (`/connect/agent`); Allow makes the agent member and its webhook together, and the
+  server fetches the key and the secret itself, so nothing is copied by hand. Shipped in v0.39.0.
 - **Projects.** Groups of issues across teams toward a goal, with a lead, a status, a target date
   and progress. They have a page, a list, a picker on every issue and a place in the command
   palette, and agents set them over MCP. Shipped in v0.5.0.
