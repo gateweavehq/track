@@ -1050,3 +1050,206 @@ describe("the endpoints for servers", () => {
 		expect((await call("quiet.example.com")).status).toBe(400);
 	});
 });
+
+describe("taking back a connection whose code is not used", () => {
+	/** Makes every code row past its time, as if its minute were over. */
+	const expireCodes = () =>
+		track.db
+			.prepare("UPDATE verification SET expires_at = ? WHERE identifier LIKE 'track-connect:%'")
+			.bind(Date.now() - 1000)
+			.run();
+
+	async function takenBackBy(workspaceId: string, owner: Person) {
+		return (await auditOf(workspaceId, owner)).filter(
+			(each) => each.action === "agent.deleted" && each.actorId === null,
+		);
+	}
+
+	it("takes back the agent and the webhook when a code is refused, and answers as ever", async () => {
+		const { owner, workspaceId, slug } = await setUp("refused");
+
+		// A wrong verifier.
+		const v1 = newVerifier();
+		const first = await allow(owner, slug, v1);
+		expect(await agentCount(workspaceId)).toBe(1);
+		const wrong = await exchange(first.code, newVerifier());
+		expect(wrong.status).toBe(400);
+		const answer = await wrong.text();
+		expect(JSON.parse(answer)).toEqual(NO_CODE);
+		expect(await agentCount(workspaceId)).toBe(0);
+		expect(await webhooksOf(workspaceId, owner)).toEqual([]);
+		expect(await codeRows()).toEqual([]);
+
+		// A seal that does not open.
+		const v2 = newVerifier();
+		const second = await allow(owner, slug, v2);
+		const [row] = await codeRows();
+		const value = JSON.parse(row?.value ?? "{}") as { ct: string };
+		value.ct = `${value.ct.slice(0, -2)}AA`;
+		await track.db
+			.prepare("UPDATE verification SET value = ? WHERE identifier = ?")
+			.bind(JSON.stringify(value), row?.identifier)
+			.run();
+		const broken = await exchange(second.code, v2);
+		expect(broken.status).toBe(400);
+		expect(await broken.text()).toBe(answer);
+		expect(await agentCount(workspaceId)).toBe(0);
+		expect(await webhooksOf(workspaceId, owner)).toEqual([]);
+
+		// Late.
+		const v3 = newVerifier();
+		const third = await allow(owner, slug, v3);
+		await expireCodes();
+		const late = await exchange(third.code, v3);
+		expect(late.status).toBe(400);
+		expect(await late.text()).toBe(answer);
+		expect(await agentCount(workspaceId)).toBe(0);
+		expect(await webhooksOf(workspaceId, owner)).toEqual([]);
+
+		// Each is in the log, by Track itself, with who asked and no secret.
+		const events = await takenBackBy(workspaceId, owner);
+		expect(events).toHaveLength(3);
+		for (const event of events) expect(event.detail).toMatchObject({ origin: asker });
+		expect(JSON.stringify(events)).not.toContain(first.code);
+	});
+
+	it("takes back only what the refused code made", async () => {
+		const { owner, workspaceId, slug } = await setUp("only-its-own");
+		const refusedOne = await allow(owner, slug, newVerifier());
+		const verifier = newVerifier();
+		const made = await allow(owner, slug, verifier);
+		const keptSecrets = await exchanged(made.code, verifier);
+		expect(await agentCount(workspaceId)).toBe(2);
+		expect((await exchange(refusedOne.code, newVerifier())).status).toBe(400);
+		expect(await agentCount(workspaceId)).toBe(1);
+		const [webhook] = await webhooksOf(workspaceId, owner);
+		expect(webhook).toMatchObject({ id: keptSecrets.webhook.id, agentId: keptSecrets.agent.id });
+	});
+
+	it("sweeps a code nobody traded when the next connection is approved", async () => {
+		const { owner, workspaceId, slug } = await setUp("swept-by-allow");
+		await allow(owner, slug, newVerifier());
+		expect(await agentCount(workspaceId)).toBe(1);
+		await expireCodes();
+
+		const verifier = newVerifier();
+		const { code } = await allow(owner, slug, verifier);
+		// Only the new one is left, and it still works.
+		expect(await agentCount(workspaceId)).toBe(1);
+		expect(await webhooksOf(workspaceId, owner)).toHaveLength(1);
+		expect(await codeRows()).toHaveLength(1);
+		const secrets = await exchanged(code, verifier);
+		expect((await webhooksOf(workspaceId, owner))[0]).toMatchObject({ agentId: secrets.agent.id });
+		expect(await takenBackBy(workspaceId, owner)).toHaveLength(1);
+	});
+
+	it("sweeps a handful at a time on Allow, and the rest on the daily run", async () => {
+		const { owner, workspaceId, slug } = await setUp("swept-in-bounds");
+		for (let i = 0; i < 8; i++) await allow(owner, slug, newVerifier());
+		expect(await agentCount(workspaceId)).toBe(8);
+		await expireCodes();
+		await allow(owner, slug, newVerifier());
+		const left = await agentCount(workspaceId);
+		expect(left).toBeGreaterThan(1);
+		expect(left).toBeLessThan(9);
+		await track.runScheduled();
+		expect(await agentCount(workspaceId)).toBe(1);
+		expect(await codeRows()).toHaveLength(1);
+	});
+
+	it("sweeps a code nobody traded on the daily run", async () => {
+		const { owner, workspaceId, slug } = await setUp("swept-by-cron");
+		await allow(owner, slug, newVerifier());
+		expect(await agentCount(workspaceId)).toBe(1);
+		await expireCodes();
+		await track.runScheduled();
+		expect(await agentCount(workspaceId)).toBe(0);
+		expect(await webhooksOf(workspaceId, owner)).toEqual([]);
+		expect(await codeRows()).toEqual([]);
+		const [event] = await takenBackBy(workspaceId, owner);
+		expect(event?.detail).toMatchObject({ origin: asker });
+	});
+
+	it("leaves an agent whose code was traded, and one made by hand, to a sweep", async () => {
+		const { owner, workspaceId, slug } = await setUp("sweep-spares");
+		const byHand = await (
+			await authApi("/agents/create", owner.cookie, {
+				organizationId: workspaceId,
+				name: "By hand",
+			})
+		).json();
+		const verifier = newVerifier();
+		const { code } = await allow(owner, slug, verifier);
+		const secrets = await exchanged(code, verifier);
+		await allow(owner, slug, newVerifier());
+		await expireCodes();
+		await track.runScheduled();
+		// The traded one and the one by hand; the untraded one is gone.
+		expect(await agentCount(workspaceId)).toBe(2);
+		const hooks = await webhooksOf(workspaceId, owner);
+		expect(hooks.map((each) => each.agentId)).toEqual([secrets.agent.id]);
+		const ids = new Set(
+			((await track.directory(workspaceId)).members as { id: string; removedAt?: number }[])
+				.filter((each) => !each.removedAt)
+				.map((each) => each.id),
+		);
+		expect(ids.has(secrets.agent.id)).toBe(true);
+		expect(ids.has((byHand as { agent: { id: string } }).agent.id)).toBe(true);
+		// Its key still opens /mcp.
+		const mcp = await mcpAs(secrets.agentKey);
+		await mcp.close();
+	});
+
+	it("takes nothing back, and spends nothing, for a body of the wrong shape", async () => {
+		const { owner, workspaceId, slug } = await setUp("shapeless");
+		const verifier = newVerifier();
+		const { code } = await allow(owner, slug, verifier);
+		for (const body of [
+			{ code, verifier: "short" },
+			{ code },
+			{ verifier },
+			{ code: 1, verifier },
+		]) {
+			const answer = await post("/api/connect/exchange", body);
+			expect(answer.status).toBe(400);
+			expect(await answer.json()).toEqual(NO_CODE);
+		}
+		expect(await agentCount(workspaceId)).toBe(1);
+		expect(await webhooksOf(workspaceId, owner)).toHaveLength(1);
+		expect(await codeRows()).toHaveLength(1);
+		await exchanged(code, verifier);
+	});
+
+	it("deletes a row written before the ids were readable, without an error", async () => {
+		const { owner, workspaceId, slug } = await setUp("legacy");
+		const strip = async () => {
+			const [row] = await codeRows();
+			const value = JSON.parse(row?.value ?? "{}") as Record<string, unknown>;
+			// What Track 0.39.0 wrote: the challenge and the seal, nothing more.
+			for (const key of Object.keys(value)) {
+				if (!["v", "challenge", "iv", "ct"].includes(key)) delete value[key];
+			}
+			await track.db
+				.prepare("UPDATE verification SET value = ? WHERE identifier = ?")
+				.bind(JSON.stringify(value), row?.identifier)
+				.run();
+		};
+
+		// Swept on the daily run: the row goes, and there is nothing to take back.
+		await allow(owner, slug, newVerifier());
+		await strip();
+		await expireCodes();
+		await track.runScheduled();
+		expect(await codeRows()).toEqual([]);
+		expect(await agentCount(workspaceId)).toBe(1);
+
+		// Refused: the same answer, and the row goes.
+		const { code } = await allow(owner, slug, newVerifier());
+		await strip();
+		const refused = await exchange(code, newVerifier());
+		expect(refused.status).toBe(400);
+		expect(await refused.json()).toEqual(NO_CODE);
+		expect(await codeRows()).toEqual([]);
+		expect(await agentCount(workspaceId)).toBe(2);
+	});
+});

@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import handler from "@tanstack/react-start/server-entry";
 import { isAutomated } from "./lib/intake-email";
 import { db, handleAuthRequest } from "./server/auth";
-import { handleConnectRequest, isConnectRequest } from "./server/connect";
+import { handleConnectRequest, isConnectRequest, sweepAllConnections } from "./server/connect";
 import { pruneExpired } from "./server/db/prune";
 import { demoEnabled } from "./server/demo/mode";
 import { retryErasures } from "./server/erasure";
@@ -90,6 +90,8 @@ export default {
 			await cleanUpDemo();
 		}
 		await retryErasures(db);
+		// Before the prune, which would delete these rows without taking back what they made.
+		await sweepAllConnections();
 		await pruneExpired(db);
 		// Last, as a workspace it moves is paused for a few seconds.
 		await moveWorkspaces(db);
