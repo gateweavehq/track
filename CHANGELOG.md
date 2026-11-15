@@ -8,6 +8,36 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.39.1] - 2026-11-15
+
+A connection to an agent that was started and not finished no longer leaves an agent member and
+a webhook behind. There is no migration in this release.
+
+### Fixed
+
+- **An unfinished agent connection is taken back.** Allowing a connection on `/connect/agent`
+  makes the agent member and its webhook at once, and the asking server then fetches their key
+  and secret with a one-time code. When that never happened (the tab was closed, the server was
+  down) or the code was refused, both stayed in the workspace for an admin to find and remove.
+  Track now removes them itself: at once when a code is refused, and otherwise when the next
+  connection is approved or on the daily run. An agent that someone has taken over by hand in
+  the meantime, by giving it another key or using its key, is left alone. The audit log says
+  why an agent went. ([#310])
+
+### Changed
+
+- **The README opens with an agent taking an issue**: the tagline says that agents are members,
+  and a frame of one real run links to its 45-second recording. ([#309], [#311])
+- **The roadmap lists connecting an agent in one step under Done.** That line was written by
+  the agent in the recording. ([#308])
+
+### If you run your own
+
+- **Nothing to do** beyond updating. If you ever go back to v0.39.0 after running this version,
+  delete the rows of `verification` whose identifier starts with `track-connect:` first: this
+  version keeps them for three days, and v0.39.0 would read that as how long a code is good
+  for.
+
 ## [0.39.0] - 2026-11-15
 
 Another server, such as Gateweave Agents, can add an agent to a workspace in one step: an owner
@@ -1719,6 +1749,7 @@ The first pre-release.
 - An MCP server at `/mcp`: AI agents sign in with your approval, then search, read, create and
   update issues. ([#15])
 
+[0.39.1]: https://github.com/gateweavehq/track/releases/tag/v0.39.1
 [0.39.0]: https://github.com/gateweavehq/track/releases/tag/v0.39.0
 [0.38.0]: https://github.com/gateweavehq/track/releases/tag/v0.38.0
 [0.37.0]: https://github.com/gateweavehq/track/releases/tag/v0.37.0
@@ -1809,6 +1840,10 @@ The first pre-release.
 [#303]: https://github.com/gateweavehq/track/pull/303
 [#305]: https://github.com/gateweavehq/track/pull/305
 [#306]: https://github.com/gateweavehq/track/pull/306
+[#308]: https://github.com/gateweavehq/track/pull/308
+[#309]: https://github.com/gateweavehq/track/pull/309
+[#310]: https://github.com/gateweavehq/track/pull/310
+[#311]: https://github.com/gateweavehq/track/pull/311
 [#295]: https://github.com/gateweavehq/track/pull/295
 [#294]: https://github.com/gateweavehq/track/pull/294
 [#293]: https://github.com/gateweavehq/track/pull/293
