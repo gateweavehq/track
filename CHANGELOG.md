@@ -36,7 +36,8 @@ a webhook behind. There is no migration in this release.
 - **Nothing to do** beyond updating. If you ever go back to v0.39.0 after running this version,
   delete the rows of `verification` whose identifier starts with `track-connect:` first: this
   version keeps them for three days, and v0.39.0 would read that as how long a code is good
-  for.
+  for. A connection that was unfinished at that moment then keeps its agent member and webhook:
+  remove those under Settings, Agents and Settings, Webhooks.
 
 ## [0.39.0] - 2026-11-15
 
