@@ -497,14 +497,17 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 	const agentId = made.agent.id;
 	// The key just made, the agent's only one, read before anything else is awaited: how a later
 	// take-back tells that nobody has taken the agent over since.
-	const [firstKey] = await db
+	// A read that fails must not leave the agent behind with nothing to take it back: without the
+	// id, a take-back goes by the count of keys alone.
+	const keyId = await db
 		.select({ id: schema.agentKey.id })
 		.from(schema.agentKey)
 		.where(
 			and(eq(schema.agentKey.userId, agentId), eq(schema.agentKey.organizationId, workspaceId)),
 		)
-		.all();
-	const keyId = firstKey?.id;
+		.all()
+		.then(([first]) => first?.id)
+		.catch(() => undefined);
 	const stub = workspaceStub(membership);
 	// Takes both back: the webhooks that name this agent first (this request made the agent, so
 	// they are its own, whether or not an answer about one arrived), then the agent.
