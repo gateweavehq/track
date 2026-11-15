@@ -370,8 +370,13 @@ describe("connecting an agent", () => {
 		const [row] = await codeRows();
 		expect(await codeRows()).toHaveLength(1);
 		expect(row?.identifier).not.toContain(code);
-		expect(row?.expires_at).toBeGreaterThan(Date.now());
-		expect(row?.expires_at).toBeLessThanOrEqual(Date.now() + 61_000);
+		// The code is good for a minute. The row itself is kept for days, so that it is still there
+		// to take back what it was made for if nobody trades the code.
+		const { goodUntil, sweepAt } = JSON.parse(row?.value ?? "{}") as Record<string, number>;
+		expect(goodUntil).toBeGreaterThan(Date.now());
+		expect(goodUntil).toBeLessThanOrEqual(Date.now() + 61_000);
+		expect(sweepAt).toBe(goodUntil);
+		expect(row?.expires_at).toBeGreaterThan(Date.now() + 2 * 24 * 60 * 60 * 1000);
 
 		const response = await exchange(code, verifier);
 		expect(response.status).toBe(200);
@@ -607,7 +612,9 @@ describe("connecting an agent", () => {
 		const v3 = newVerifier();
 		const third = await allow(owner, slug, v3);
 		await track.db
-			.prepare("UPDATE verification SET expires_at = ? WHERE identifier LIKE 'track-connect:%'")
+			.prepare(
+				"UPDATE verification SET value = json_set(value, '$.goodUntil', ?1, '$.sweepAt', ?1) WHERE identifier LIKE 'track-connect:%'",
+			)
 			.bind(Date.now() - 1000)
 			.run();
 		const late = await exchange(third.code, v3);
@@ -1052,8 +1059,16 @@ describe("the endpoints for servers", () => {
 });
 
 describe("taking back a connection whose code is not used", () => {
-	/** Makes every code row past its time, as if its minute were over. */
+	/** Makes every code past its minute. The rows stay, as they do for days. */
 	const expireCodes = () =>
+		track.db
+			.prepare(
+				"UPDATE verification SET value = json_set(value, '$.goodUntil', ?1, '$.sweepAt', ?1) WHERE identifier LIKE 'track-connect:%'",
+			)
+			.bind(Date.now() - 1000)
+			.run();
+	/** Makes every code row past its `expires_at`, which is all a row from Track 0.39.0 has. */
+	const expireRows = () =>
 		track.db
 			.prepare("UPDATE verification SET expires_at = ? WHERE identifier LIKE 'track-connect:%'")
 			.bind(Date.now() - 1000)
@@ -1170,6 +1185,61 @@ describe("taking back a connection whose code is not used", () => {
 		expect(event?.detail).toMatchObject({ origin: asker });
 	});
 
+	it("still takes back after a sign-in elsewhere cleared the table of what had run out", async () => {
+		const { owner, workspaceId, slug } = await setUp("kept-past-cleanup");
+		await allow(owner, slug, newVerifier());
+		await expireCodes();
+		// What Better Auth runs whenever it looks a verification up, a sign-in for one: every row
+		// past its `expires_at` goes. Here as it would two minutes on, when the code's minute is
+		// over; a code's row is not past its `expires_at` for days.
+		await track.db
+			.prepare("DELETE FROM verification WHERE expires_at < ?")
+			.bind(Date.now() + 2 * 60_000)
+			.run();
+		expect(await codeRows()).toHaveLength(1);
+		await track.runScheduled();
+		expect(await agentCount(workspaceId)).toBe(0);
+		expect(await webhooksOf(workspaceId, owner)).toEqual([]);
+		expect(await codeRows()).toEqual([]);
+	});
+
+	it("tries again later when taking back failed, and the code opens nothing meanwhile", async () => {
+		const { owner, workspaceId, slug } = await setUp("taken-back-later");
+		const verifier = newVerifier();
+		const { code } = await allow(owner, slug, verifier);
+		await expireCodes();
+
+		// The agent's rows cannot be deleted for now, so taking it back fails part of the way.
+		await track.db
+			.prepare(
+				"CREATE TRIGGER test_keep_member BEFORE DELETE ON member BEGIN SELECT RAISE(ABORT, 'broken for a test'); END",
+			)
+			.run();
+		try {
+			await track.runScheduled();
+		} finally {
+			await track.db.prepare("DROP TRIGGER test_keep_member").run();
+		}
+		expect(await agentCount(workspaceId)).toBe(1);
+
+		// The row is back, for later: nothing of the seal in it, and no code opens it.
+		const [kept] = await codeRows();
+		const value = JSON.parse(kept?.value ?? "{}") as Record<string, unknown>;
+		expect(value).toMatchObject({ workspaceId, tries: 1, goodUntil: 0 });
+		expect(value.sweepAt).toBeGreaterThan(Date.now() + 30 * 60_000);
+		expect(Object.keys(value)).not.toContain("ct");
+		// Not due yet, so a run now leaves it.
+		await track.runScheduled();
+		expect(await agentCount(workspaceId)).toBe(1);
+
+		// When it is due, the agent goes.
+		await expireCodes();
+		await track.runScheduled();
+		expect(await agentCount(workspaceId)).toBe(0);
+		expect(await codeRows()).toEqual([]);
+		expect((await exchange(code, verifier)).status).toBe(400);
+	});
+
 	it("leaves an agent whose code was traded, and one made by hand, to a sweep", async () => {
 		const { owner, workspaceId, slug } = await setUp("sweep-spares");
 		const byHand = await (
@@ -1229,16 +1299,18 @@ describe("taking back a connection whose code is not used", () => {
 			for (const key of Object.keys(value)) {
 				if (!["v", "challenge", "iv", "ct"].includes(key)) delete value[key];
 			}
+			// And a row that ran out with its code, a minute on.
 			await track.db
-				.prepare("UPDATE verification SET value = ? WHERE identifier = ?")
-				.bind(JSON.stringify(value), row?.identifier)
+				.prepare("UPDATE verification SET value = ?, expires_at = ? WHERE identifier = ?")
+				.bind(JSON.stringify(value), Date.now() + 60_000, row?.identifier)
 				.run();
 		};
 
-		// Swept on the daily run: the row goes, and there is nothing to take back.
+		// The daily run: the row goes with everything else past its time, and there is nothing to
+		// take back.
 		await allow(owner, slug, newVerifier());
 		await strip();
-		await expireCodes();
+		await expireRows();
 		await track.runScheduled();
 		expect(await codeRows()).toEqual([]);
 		expect(await agentCount(workspaceId)).toBe(1);

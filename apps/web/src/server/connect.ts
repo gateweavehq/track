@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { isAdminRole } from "@gateweave/track-protocol";
-import { and, eq, inArray, like, lt } from "drizzle-orm";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
 	type ConnectPurpose,
@@ -42,6 +42,17 @@ import {
  */
 
 const CODE_TTL_MS = 60 * 1000;
+/**
+ * How long a code's row stays in the table after the code itself has run out. Better Auth deletes
+ * every row of `verification` past its `expiresAt` whenever it looks one up, and so does the daily
+ * prune, so a row whose `expiresAt` were the code's own minute would usually be gone before anyone
+ * could take back what it was made for. The code's minute is `goodUntil` inside the row instead,
+ * and `expiresAt` is this much later: long enough for a daily run that was missed twice.
+ */
+const ROW_KEPT_MS = 3 * 24 * 60 * 60 * 1000;
+/** A take-back that failed is tried again this much later, at most this many times. */
+const TAKE_BACK_AGAIN_MS = 60 * 60 * 1000;
+const TAKE_BACK_TRIES = 3;
 const UNDO_TTL_SECONDS = 10 * 60;
 /** A code row's `identifier`, so no other use of the `verification` table can be mistaken for one. */
 const IDENTIFIER_PREFIX = "track-connect:";
@@ -125,6 +136,8 @@ const madeFor = z.object({
 	workspaceId: z.string().regex(ID),
 	agentId: z.string().regex(ID),
 	origin: z.string().max(200).optional(),
+	/** How often taking it back has failed so far. */
+	tries: z.number().int().min(0).max(TAKE_BACK_TRIES).optional(),
 });
 type MadeFor = z.infer<typeof madeFor>;
 
@@ -169,8 +182,28 @@ async function takeBack(workspaceId: string, agentId: string, detail: Record<str
 	}
 }
 
-/** Takes back what a deleted row was made for, and only logs (no secret) when that fails. */
-async function takeBackFor(row: { value: string }, reason: string): Promise<void> {
+/**
+ * When a row's code stops being good, in milliseconds: `goodUntil` in the row, or for a row
+ * written before that was kept (v0.39.0), its `expiresAt`.
+ */
+function goodUntilOf(row: { value: string; expiresAt: Date }): number {
+	try {
+		const { goodUntil } = JSON.parse(row.value) as { goodUntil?: unknown };
+		if (typeof goodUntil === "number") return goodUntil;
+	} catch {
+		// Not a row this wrote: its own time stands.
+	}
+	return row.expiresAt.getTime();
+}
+
+type CodeRow = { identifier: string; value: string; expiresAt: Date };
+
+/**
+ * Takes back what a deleted row was made for. When that fails, which a workspace's object being
+ * restarted is enough for, the row goes back in as one whose code opens nothing any more
+ * (`goodUntil: 0`) and that the sweep tries again later, a few times. Only logs, with no secret.
+ */
+async function takeBackFor(row: CodeRow, reason: string): Promise<void> {
 	const made = readMadeFor(row.value);
 	if (!made) return;
 	try {
@@ -180,6 +213,27 @@ async function takeBackFor(row: { value: string }, reason: string): Promise<void
 		});
 	} catch (error) {
 		console.error("connect: could not take back a connection whose code was not used", error);
+		const tries = (made.tries ?? 0) + 1;
+		if (tries >= TAKE_BACK_TRIES) return;
+		try {
+			await db
+				.insert(schema.verification)
+				.values({
+					id: crypto.randomUUID(),
+					identifier: row.identifier,
+					// Only what taking it back needs: the sealed part is of no use to anyone now.
+					value: JSON.stringify({
+						...made,
+						tries,
+						goodUntil: 0,
+						sweepAt: Date.now() + TAKE_BACK_AGAIN_MS,
+					}),
+					expiresAt: new Date(Date.now() + ROW_KEPT_MS),
+				})
+				.run();
+		} catch (again) {
+			console.error("connect: could not keep a connection to take back later", again);
+		}
 	}
 }
 
@@ -191,9 +245,11 @@ async function takeBackFor(row: { value: string }, reason: string): Promise<void
  */
 export async function sweepConnections(max: number): Promise<number> {
 	try {
+		// By `sweepAt` in the row, not `expiresAt`, which is days later (see ROW_KEPT_MS). A row
+		// without one (v0.39.0) names nothing to take back and is left to the prune.
 		const due = and(
 			like(schema.verification.identifier, `${IDENTIFIER_PREFIX}%`),
-			lt(schema.verification.expiresAt, new Date()),
+			sql`json_extract(${schema.verification.value}, '$.sweepAt') < ${Date.now()}`,
 		);
 		const rows = await db
 			.delete(schema.verification)
@@ -247,7 +303,7 @@ async function exchange(body: unknown): Promise<Response> {
 		await takeBackFor(row, "code refused");
 		return json(NO_CODE, 400);
 	};
-	if (row.expiresAt.getTime() <= Date.now()) return refuse();
+	if (goodUntilOf(row) <= Date.now()) return refuse();
 
 	let keep: z.infer<typeof stored>;
 	try {
@@ -482,9 +538,13 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 					workspaceId,
 					agentId,
 					origin: asked.origin,
+					// The code's own minute, and when the sweep may take back what nobody traded for.
+					goodUntil: now + CODE_TTL_MS,
+					sweepAt: now + CODE_TTL_MS,
 					...(await seal(code, identifier, asked.challenge, JSON.stringify(sealed))),
 				}),
-				expiresAt: new Date(now + CODE_TTL_MS),
+				// Kept past the code's minute, so the row is still there to be swept.
+				expiresAt: new Date(now + CODE_TTL_MS + ROW_KEPT_MS),
 			})
 			.run();
 	} catch (error) {
