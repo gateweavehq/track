@@ -20,7 +20,8 @@
   <a href="https://track-demo.gateweave.com"><strong>Try the demo</strong></a> ·
   <a href="https://gateweave.com/watch/issue-to-pull-request.mp4"><strong>Watch an agent take an issue (45 s)</strong></a> ·
   <a href="#deploying"><strong>Deploy your own</strong></a> ·
-  <a href="https://gateweave.com/blog/one-cloudflare-worker">What it measures and costs</a>
+  <a href="https://gateweave.com/blog/one-cloudflare-worker">What it measures and costs</a> ·
+  <a href="https://gateweave.com/questions">Questions people ask</a>
 </p>
 
 <picture>
