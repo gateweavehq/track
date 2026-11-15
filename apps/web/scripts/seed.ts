@@ -203,11 +203,20 @@ async function addAgent(owner: Session, organizationId: string): Promise<SeedAge
 	const keyId = agent.keys[0]?.id;
 	if (!keyId) throw new Error("The new agent came back without a key");
 	const mcp = new Client({ name: "track-seed", version: "1.0.0" });
-	await mcp.connect(
-		new StreamableHTTPClientTransport(endpoint, {
-			requestInit: { headers: { Authorization: `Bearer ${key}` } },
-		}),
-	);
+	try {
+		await mcp.connect(
+			new StreamableHTTPClientTransport(endpoint, {
+				requestInit: { headers: { Authorization: `Bearer ${key}` } },
+			}),
+		);
+	} catch (error) {
+		// The caller revokes the key when it is done, and it never got one to revoke.
+		await mcp.close().catch(() => {});
+		await api("POST", "/agents/revoke-key", owner, { keyId }).catch(() =>
+			console.error(`Could not revoke ${AGENT.name}'s key. Revoke it in Settings, Agents.`),
+		);
+		throw error;
+	}
 	return { id: agent.id, keyId, mcp };
 }
 
