@@ -41,7 +41,7 @@ jobs:
             '{product: $product, version: $version, url: $url, image: $image,
               summary: ($product + " " + $version + "\n\n" + $entry)}' > body.json
           # The address is a password, so curl must not echo it: no -v, and errors without the URL.
-          status="$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' \
+          status="$(curl -sS --proto '=https' -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' \
             --data @body.json "$HOOK" 2>/dev/null || true)"
           echo "The drafting tool answered $status."
           case "$status" in 2*) ;; *) exit 1 ;; esac
