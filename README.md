@@ -142,9 +142,9 @@ claude mcp add --transport http track https://track.gateweave.com/mcp \
 To have it react to new issues, add a webhook under Settings, Webhooks that points at its
 trigger and names it as the agent, so its own changes are not sent back to it.
 
-[Gateweave Agents](https://github.com/gateweavehq/agents) does both for you: press Connect Track
-there, approve it on a page in Track, and the agent member and its webhook are made together, with
-no key or secret to copy. Assign an issue to that agent and it works on it in a sandbox and opens a
+[Gateweave Agents](https://github.com/gateweavehq/agents) does both for you, from Track 0.39.0 and
+Agents 0.26.0 on: press Connect Track there, approve it on a page in Track, and the agent member
+and its webhook are made together, with no key or secret to copy. Assign an issue to that agent and it works on it in a sandbox and opens a
 pull request. [Watch one real run, 45 seconds](https://gateweave.com/watch/issue-to-pull-request.mp4):
 an issue assigned, answered 26 seconds later, and a pull request open after 3 minutes 45 seconds.
 
