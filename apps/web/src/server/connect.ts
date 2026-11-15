@@ -495,6 +495,16 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 		return refused(messageOf(error, "The agent member could not be made."));
 	}
 	const agentId = made.agent.id;
+	// The key just made, the agent's only one, read before anything else is awaited: how a later
+	// take-back tells that nobody has taken the agent over since.
+	const [firstKey] = await db
+		.select({ id: schema.agentKey.id })
+		.from(schema.agentKey)
+		.where(
+			and(eq(schema.agentKey.userId, agentId), eq(schema.agentKey.organizationId, workspaceId)),
+		)
+		.all();
+	const keyId = firstKey?.id;
 	const stub = workspaceStub(membership);
 	// Takes both back: the webhooks that name this agent first (this request made the agent, so
 	// they are its own, whether or not an answer about one arrived), then the agent.
@@ -555,16 +565,6 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 			returnOrigin: asked.origin,
 		};
 		const now = Date.now();
-		// The key just made, the agent's only one: how a later take-back tells that nobody has
-		// taken the agent over since.
-		const [firstKey] = await db
-			.select({ id: schema.agentKey.id })
-			.from(schema.agentKey)
-			.where(
-				and(eq(schema.agentKey.userId, agentId), eq(schema.agentKey.organizationId, workspaceId)),
-			)
-			.all();
-		const keyId = firstKey?.id;
 		await db
 			.insert(schema.verification)
 			.values({
