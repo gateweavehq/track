@@ -1100,7 +1100,8 @@ describe("taking back a connection whose code is not used", () => {
 		const second = await allow(owner, slug, v2);
 		const [row] = await codeRows();
 		const value = JSON.parse(row?.value ?? "{}") as { ct: string };
-		value.ct = `${value.ct.slice(0, -2)}AA`;
+		// A change whatever it ended with.
+		value.ct = `${value.ct.slice(0, -2)}${value.ct.endsWith("AA") ? "BB" : "AA"}`;
 		await track.db
 			.prepare("UPDATE verification SET value = ? WHERE identifier = ?")
 			.bind(JSON.stringify(value), row?.identifier)
@@ -1228,6 +1229,12 @@ describe("taking back a connection whose code is not used", () => {
 		expect(value).toMatchObject({ workspaceId, tries: 1, goodUntil: 0 });
 		expect(value.sweepAt).toBeGreaterThan(Date.now() + 30 * 60_000);
 		expect(Object.keys(value)).not.toContain("ct");
+		// Under a name no code hashes to: an exchange with the code finds nothing, so an asking
+		// server that tries again cannot use the tries up in seconds.
+		expect(kept?.identifier).toMatch(/^track-connect:retry\./);
+		expect((await exchange(code, verifier)).status).toBe(400);
+		expect(await codeRows()).toHaveLength(1);
+		expect(JSON.parse((await codeRows())[0]?.value ?? "{}")).toMatchObject({ tries: 1 });
 		// Not due yet, so a run now leaves it.
 		await track.runScheduled();
 		expect(await agentCount(workspaceId)).toBe(1);
@@ -1238,6 +1245,56 @@ describe("taking back a connection whose code is not used", () => {
 		expect(await agentCount(workspaceId)).toBe(0);
 		expect(await codeRows()).toEqual([]);
 		expect((await exchange(code, verifier)).status).toBe(400);
+	});
+
+	it("sweeps beside rows of Better Auth's whose values are not JSON, and matches its own prefix exactly", async () => {
+		const { owner, workspaceId, slug } = await setUp("beside-others");
+		await allow(owner, slug, newVerifier());
+		await expireCodes();
+		// What Better Auth keeps for a password reset: a bare id. And a row named like ours but for
+		// the case, which is not ours.
+		const insert =
+			"INSERT INTO verification (id, identifier, value, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)";
+		const later = Date.now() + 60 * 60_000;
+		await track.db
+			.prepare(insert)
+			.bind("test-plain", "reset-password:abc", "not json at all", later, Date.now(), Date.now())
+			.run();
+		await track.db
+			.prepare(insert)
+			.bind("test-case", "TRACK-CONNECT:abc", "also not json", later, Date.now(), Date.now())
+			.run();
+		try {
+			await track.runScheduled();
+			expect(await agentCount(workspaceId)).toBe(0);
+			// Ours is gone. The helper's LIKE ignores case, so it still lists the one that is not ours.
+			expect((await codeRows()).map((each: { identifier: string }) => each.identifier)).toEqual([
+				"TRACK-CONNECT:abc",
+			]);
+			const { results } = await track.db
+				.prepare("SELECT id FROM verification WHERE id IN ('test-plain', 'test-case') ORDER BY id")
+				.all<{ id: string }>();
+			expect(results.map((each: { id: string }) => each.id)).toEqual(["test-case", "test-plain"]);
+		} finally {
+			await track.db
+				.prepare("DELETE FROM verification WHERE id IN ('test-plain', 'test-case')")
+				.run();
+		}
+	});
+
+	it("leaves an agent that someone took over by hand before its code ran out", async () => {
+		const { owner, workspaceId, slug } = await setUp("taken-over");
+		await allow(owner, slug, newVerifier());
+		// An admin found it in Settings and used it: its key has been used.
+		await track.db
+			.prepare("UPDATE agent_key SET last_used_at = ? WHERE organization_id = ?")
+			.bind(Date.now(), workspaceId)
+			.run();
+		await expireCodes();
+		await track.runScheduled();
+		expect(await agentCount(workspaceId)).toBe(1);
+		expect(await webhooksOf(workspaceId, owner)).toHaveLength(1);
+		expect(await codeRows()).toEqual([]);
 	});
 
 	it("leaves an agent whose code was traded, and one made by hand, to a sweep", async () => {

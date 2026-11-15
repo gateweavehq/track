@@ -733,7 +733,15 @@ only configuration. The manual way, under Settings, stays.
    Worker's daily run, before the general prune of expired `verification` rows. When taking back
    fails, which a workspace's object being restarted is enough for, the row goes back in with
    only the ids, `goodUntil: 0` so that no code opens it, and a `sweepAt` an hour on; it is tried
-   three times in all, then left to the log.
+   three times in all, then left to the log. That row's identifier is `track-connect:retry.` and
+   a random id, which no code hashes to, so an asking server that exchanges again cannot spend
+   the tries in seconds. The table is Better Auth's as well, and not every value in it is JSON:
+   the sweep reads `sweepAt` only from a value that is (`json_valid`), and compares the prefix
+   exactly. An agent that someone took over by hand in the meantime, by giving it a second key
+   or by using its key, is left alone: it is theirs now. After a rollback to v0.39.0, which
+   judges a code by `expiresAt`, delete the `track-connect:` rows: a row this version wrote
+   would otherwise be good there for three days instead of a minute (it still needs the code
+   and its verifier).
 
 Both routes count calls per client address in a `RateLimiter` Durable Object (20 at once,
 refilling over an hour, within 100 a day, shared by the two), by the zone a Worker comes from

@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { isAdminRole } from "@gateweave/track-protocol";
-import { and, eq, inArray, like, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
 	type ConnectPurpose,
@@ -135,7 +135,9 @@ const stored = z.object({
 const madeFor = z.object({
 	workspaceId: z.string().regex(ID),
 	agentId: z.string().regex(ID),
-	origin: z.string().max(200).optional(),
+	// As long as an address the page takes may be (`MAX_URL_LENGTH` in connect-request.ts): a row
+	// this could not read would name nothing to take back.
+	origin: z.string().max(2048).optional(),
 	/** How often taking it back has failed so far. */
 	tries: z.number().int().min(0).max(TAKE_BACK_TRIES).optional(),
 });
@@ -207,6 +209,19 @@ async function takeBackFor(row: CodeRow, reason: string): Promise<void> {
 	const made = readMadeFor(row.value);
 	if (!made) return;
 	try {
+		// An admin who found the agent in Settings and gave it a key of their own, or whose key was
+		// used, has taken it over: it is theirs now, and stays.
+		const keys = await db
+			.select({ lastUsedAt: schema.agentKey.lastUsedAt })
+			.from(schema.agentKey)
+			.where(
+				and(
+					eq(schema.agentKey.userId, made.agentId),
+					eq(schema.agentKey.organizationId, made.workspaceId),
+				),
+			)
+			.all();
+		if (keys.length > 1 || keys.some((key) => key.lastUsedAt !== null)) return;
 		await takeBack(made.workspaceId, made.agentId, {
 			reason,
 			...(made.origin && { origin: made.origin }),
@@ -220,7 +235,9 @@ async function takeBackFor(row: CodeRow, reason: string): Promise<void> {
 				.insert(schema.verification)
 				.values({
 					id: crypto.randomUUID(),
-					identifier: row.identifier,
+					// Not the code's identifier, which an exchange could name again and so spend the
+					// tries in seconds: one no code hashes to (a dot is not in base64url).
+					identifier: `${IDENTIFIER_PREFIX}retry.${crypto.randomUUID()}`,
 					// Only what taking it back needs: the sealed part is of no use to anyone now.
 					value: JSON.stringify({
 						...made,
@@ -247,10 +264,12 @@ export async function sweepConnections(max: number): Promise<number> {
 	try {
 		// By `sweepAt` in the row, not `expiresAt`, which is days later (see ROW_KEPT_MS). A row
 		// without one (v0.39.0) names nothing to take back and is left to the prune.
-		const due = and(
-			like(schema.verification.identifier, `${IDENTIFIER_PREFIX}%`),
-			sql`json_extract(${schema.verification.value}, '$.sweepAt') < ${Date.now()}`,
-		);
+		// The table is Better Auth's too, and not every value in it is JSON, which `json_extract`
+		// raises on. SQLite does not promise the order of an AND, so the guard is in the expression:
+		// only a value that is JSON is read. The prefix is compared exactly; LIKE ignores case.
+		const due = sql`substr(${schema.verification.identifier}, 1, ${IDENTIFIER_PREFIX.length}) = ${IDENTIFIER_PREFIX}
+			AND CASE WHEN json_valid(${schema.verification.value})
+				THEN json_extract(${schema.verification.value}, '$.sweepAt') END < ${Date.now()}`;
 		const rows = await db
 			.delete(schema.verification)
 			.where(
