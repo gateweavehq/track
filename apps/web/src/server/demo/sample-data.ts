@@ -1,7 +1,8 @@
 // Sample content for `pnpm dev:seed` and for the public demo's sandboxes: a small product
-// company with a few people, teams and issues in every state. Names and addresses are fictional;
-// example.com never receives mail. Pure data, no Node or Worker APIs (see sample.ts).
+// company with a few people, an agent, teams and issues in every state. Names and addresses are
+// fictional; example.com never receives mail. Pure data, no Node or Worker APIs (see sample.ts).
 import type {
+	AgentChangeKind,
 	IssuePriority,
 	IssueStatus,
 	PersonRole,
@@ -25,6 +26,22 @@ export const PEOPLE: Record<PersonKey, Person> = {
 	lena: { name: "Lena Fischer", email: "lena@example.com", role: "member" },
 	diego: { name: "Diego Ramos", email: "diego@example.com", role: "member" },
 };
+
+/**
+ * The sample's agent member, there to show what an agent's work looks like. No agent runs behind
+ * it: whoever makes it gives nobody a key to act as it with (see start.ts and the seed script).
+ */
+export const AGENT_KEY = "coder";
+export type AgentKey = typeof AGENT_KEY;
+
+export const AGENT: { name: string; proposes: AgentChangeKind[] } = {
+	name: "Coder",
+	// As an admin would set it: closing an issue stays a person's decision.
+	proposes: ["close"],
+};
+
+/** Who wrote or changed something in the sample: one of the people, or the agent. */
+export type AuthorKey = PersonKey | AgentKey;
 
 export type TeamKey = "ENG" | "DES" | "GRO";
 
@@ -488,6 +505,78 @@ export const ISSUES: SampleIssue[] = [
 		by: "sam",
 	},
 ];
+
+/** Something done to the example issue once it is filed: who did it, and what. */
+export type ExampleStep = { by: AuthorKey } & (
+	| { assign: AgentKey }
+	| { comment: string }
+	| { status: IssueStatus }
+	| { project: ProjectKey }
+);
+
+/**
+ * The one issue that shows an agent member's work, start to finish. A person files it and assigns
+ * it to the agent, which says it is on it and starts; later the agent reports its pull request
+ * and moves the issue on. Its last change closes the issue, which the agent only proposes (see
+ * `AGENT`), so that one waits on the issue for whoever opens the workspace to accept or dismiss.
+ */
+export interface AgentExample {
+	/** As its author files it, before it is assigned. It is made after `ISSUES`, last in its team. */
+	issue: SampleIssue;
+	/** What follows at once. */
+	start: ExampleStep[];
+	/**
+	 * What follows a while later. Its author's change comes between the agent's two moves of the
+	 * status because the history joins one member's changes to a field made within minutes into
+	 * one entry, and the sample is written in a moment: with another change in between, both show.
+	 */
+	finish: ExampleStep[];
+}
+
+export const AGENT_EXAMPLE: AgentExample = {
+	issue: {
+		team: "DES",
+		title: "Use sentence case for button labels",
+		labels: ["improvement"],
+		status: "todo",
+		priority: 4,
+		assignee: null,
+		by: "diego",
+		// First thing, in italics: nobody should take the agent's part of this for a live run.
+		description:
+			"*This issue shows what an agent member does in Track. No agent runs here: what Coder " +
+			"wrote and did on it is sample data, modelled on a real run on Gateweave's own board, " +
+			"which you can watch in [this 45-second recording]" +
+			"(https://gateweave.com/watch/issue-to-pull-request.mp4). Its proposal is yours to " +
+			"accept or dismiss.*\n\n" +
+			'Buttons and menus mix two styles: "Create Issue" next to "Create issue". The style ' +
+			"guide says sentence case, so only the first word and names get a capital.\n\n" +
+			"Find the labels in title case and change them. The wording stays as it is.",
+	},
+	start: [
+		{ by: "diego", assign: AGENT_KEY },
+		{
+			by: AGENT_KEY,
+			comment:
+				"I'm on it. I'll go through the button and menu labels and change the ones in title " +
+				"case to sentence case, leaving the wording as it is.",
+		},
+		{ by: AGENT_KEY, status: "in_progress" },
+	],
+	finish: [
+		{ by: "diego", project: "polish" },
+		{
+			by: AGENT_KEY,
+			// No link and no number: there is no pull request behind the sample.
+			comment:
+				"The pull request is ready for review. It changes 14 labels in 9 files to sentence " +
+				"case and nothing else, and the checks pass. I can only propose closing an issue, so " +
+				"the move to Done waits for one of you to accept it once the change is merged.",
+		},
+		{ by: AGENT_KEY, status: "in_review" },
+		{ by: AGENT_KEY, status: "done" },
+	],
+};
 
 const VERBS = ["Fix", "Improve", "Refactor", "Document", "Test", "Speed up", "Clean up", "Review"];
 const AREAS = [

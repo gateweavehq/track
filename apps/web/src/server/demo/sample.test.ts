@@ -1,6 +1,10 @@
 import { mutationSchema } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
+import { AGENT_EXAMPLE_ISSUE_KEY } from "../../lib/demo-links";
 import {
+	AGENT,
+	AGENT_EXAMPLE,
+	AGENT_KEY,
 	currentCycleId,
 	ISSUES,
 	PEOPLE,
@@ -16,15 +20,22 @@ const userIds = Object.fromEntries(people.map((key) => [key, `user-${key}`])) as
 	PersonKey,
 	string
 >;
+const agentId = "user-coder";
 
 function steps(extraIssues = 0) {
 	let next = 0;
 	return sampleSteps({ userIds, newId: () => `id-${++next}`, extraIssues });
 }
 
+/** The steps for a workspace that has the sample's agent as a member. */
+function stepsWithAgent(extraIssues = 0) {
+	let next = 0;
+	return sampleSteps({ userIds, agentId, newId: () => `id-${++next}`, extraIssues });
+}
+
 describe("sampleSteps", () => {
 	it("builds only mutations the protocol accepts", () => {
-		for (const { mutation } of steps(5)) {
+		for (const { mutation } of [...steps(5), ...stepsWithAgent(5)]) {
 			expect(mutationSchema.safeParse(mutation).success, JSON.stringify(mutation)).toBe(true);
 		}
 	});
@@ -33,7 +44,7 @@ describe("sampleSteps", () => {
 		const all = steps();
 		const firstIssue = all.findIndex((step) => step.mutation.name === "issue.create");
 		const before = all.slice(0, firstIssue);
-		expect(before.every((step) => step.person === "maya")).toBe(true);
+		expect(before.every((step) => step.by === "maya")).toBe(true);
 		expect(before.map((step) => step.mutation.name)).toEqual([
 			...Array(3).fill("team.create"),
 			"team.update",
@@ -198,5 +209,140 @@ describe("sampleSteps", () => {
 		expect(unordered).toHaveLength(12);
 		expect(all.slice(-12)).toEqual(unordered);
 		expect(steps().some((step) => step.parallel)).toBe(false);
+
+		const withAgent = stepsWithAgent(12);
+		expect(withAgent.slice(-12).every((step) => step.parallel)).toBe(true);
+		expect(withAgent.slice(0, -12).some((step) => step.parallel)).toBe(false);
+	});
+});
+
+describe("the agent's example", () => {
+	/** The example issue's id, and every step that is about it or its agent, in order. */
+	function example(all: SampleStep[]) {
+		const created = all.find(
+			({ mutation }) =>
+				mutation.name === "issue.create" && mutation.args.title === AGENT_EXAMPLE.issue.title,
+		);
+		const id = created?.mutation.name === "issue.create" ? created.mutation.args.id : undefined;
+		const story = all.filter(({ mutation }) => {
+			if (mutation.name === "agent.update") return true;
+			if (mutation.name === "issue.create" || mutation.name === "issue.update") {
+				return mutation.args.id === id;
+			}
+			return mutation.name === "comment.create" && mutation.args.issueId === id;
+		});
+		return { id, story };
+	}
+
+	it("is left out of a workspace without the agent, whose steps are all the people's", () => {
+		const all = steps(3);
+		expect(example(all)).toEqual({ id: undefined, story: [] });
+		expect(all.every((step) => step.by !== AGENT_KEY)).toBe(true);
+		expect(JSON.stringify(all)).not.toContain(AGENT.name);
+	});
+
+	it("adds its steps without changing any other", () => {
+		const withAgent = stepsWithAgent(3);
+		const { story } = example(withAgent);
+		const others = withAgent.filter((step) => !story.includes(step));
+		const outline = (list: SampleStep[]) =>
+			list.map((step) => `${step.by} ${step.mutation.name}${step.parallel ? " parallel" : ""}`);
+		expect(outline(others)).toEqual(outline(steps(3)));
+	});
+
+	it("is filed last in its team, under the key the welcome card names", () => {
+		const all = stepsWithAgent();
+		const { id } = example(all);
+		const team = all.flatMap(({ mutation }) =>
+			mutation.name === "team.create" && mutation.args.key === AGENT_EXAMPLE.issue.team
+				? [mutation.args]
+				: [],
+		)[0];
+		// Issues are numbered per team, in the order they are created.
+		const inTeam = all.flatMap(({ mutation }) =>
+			mutation.name === "issue.create" && mutation.args.teamId === team?.id ? [mutation.args] : [],
+		);
+		expect(inTeam.at(-1)?.id).toBe(id);
+		expect(`${team?.key}-${inTeam.length}`).toBe(AGENT_EXAMPLE_ISSUE_KEY);
+		// Last in the manual order too, so no issue above it moves.
+		const orders = inTeam.map((issue) => issue.sortOrder);
+		expect([...orders].sort()).toEqual(orders);
+	});
+
+	it("tells what happened in order, each step by whoever made it", () => {
+		const all = stepsWithAgent();
+		const { id, story } = example(all);
+		const project = all.flatMap(({ mutation }) =>
+			mutation.name === "project.create" && mutation.args.name === PROJECTS.polish.name
+				? [mutation.args.id]
+				: [],
+		)[0];
+		const told = story.map(({ by, mutation }) => {
+			if (mutation.name === "issue.create") {
+				const { status, assigneeId, projectId } = mutation.args;
+				return { by, filed: { status, assigneeId, projectId } };
+			}
+			if (mutation.name === "agent.update") return { by, agent: mutation.args };
+			if (mutation.name === "issue.update") return { by, change: mutation.args.patch };
+			return { by, comment: mutation.name === "comment.create" ? mutation.args.body : null };
+		});
+		expect(id).toBeDefined();
+		expect(project).toBeDefined();
+		expect(told).toEqual([
+			{ by: "diego", filed: { status: "todo", assigneeId: null, projectId: null } },
+			// An admin's setting, before the agent touches anything: it only proposes closing.
+			{ by: "maya", agent: { id: agentId, patch: { proposes: ["close"] } } },
+			{ by: "diego", change: { assigneeId: agentId } },
+			{ by: AGENT_KEY, comment: expect.stringMatching(/^I'm on it\. /) },
+			{ by: AGENT_KEY, change: { status: "in_progress" } },
+			// A person's change between the agent's two moves, so the history keeps both.
+			{ by: "diego", change: { projectId: project } },
+			{ by: AGENT_KEY, comment: expect.stringMatching(/^The pull request is ready for review\. /) },
+			{ by: AGENT_KEY, change: { status: "in_review" } },
+			// Closing, which the workspace turns into a proposal.
+			{ by: AGENT_KEY, change: { status: "done" } },
+		]);
+	});
+
+	it("starts before the steps that wait for a cycle and finishes after them", () => {
+		// The demo sends the steps in two calls, split at the first that waits for a cycle. Steps of
+		// one call can share a time, so the example's two halves must not be in the same one.
+		const all = stepsWithAgent();
+		const { story } = example(all);
+		const split = all.findIndex((step) => step.needsCycle);
+		const half = (steps: SampleStep[]) =>
+			steps.flatMap(({ by, mutation }) =>
+				mutation.name === "comment.create" || mutation.name === "issue.update"
+					? [`${by} ${mutation.name}`]
+					: [],
+			);
+		expect(split).toBeGreaterThan(0);
+		expect(half(story.filter((step) => all.indexOf(step) < split))).toEqual([
+			"diego issue.update",
+			`${AGENT_KEY} comment.create`,
+			`${AGENT_KEY} issue.update`,
+		]);
+		expect(half(story.filter((step) => all.indexOf(step) > split))).toEqual([
+			"diego issue.update",
+			`${AGENT_KEY} comment.create`,
+			`${AGENT_KEY} issue.update`,
+			`${AGENT_KEY} issue.update`,
+		]);
+	});
+
+	it("says first that it is sample data, and links to nothing but the recording", () => {
+		const { description } = AGENT_EXAMPLE.issue;
+		expect(description).toMatch(
+			/^\*This issue shows what an agent member does in Track\. No agent runs here: .+\*\n\n/,
+		);
+		expect(description?.match(/https?:\/\/[^\s)]+/g)).toEqual([
+			"https://gateweave.com/watch/issue-to-pull-request.mp4",
+		]);
+		// The agent's comments speak of a pull request that does not exist, so they point nowhere.
+		const comments = [...AGENT_EXAMPLE.start, ...AGENT_EXAMPLE.finish].flatMap((step) =>
+			"comment" in step ? [step] : [],
+		);
+		expect(comments.map((comment) => comment.by)).toEqual([AGENT_KEY, AGENT_KEY]);
+		for (const { comment } of comments) expect(comment).not.toMatch(/https?:|www\.|#\d/);
 	});
 });

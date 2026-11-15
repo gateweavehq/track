@@ -1,9 +1,13 @@
 // Turns the sample data into the mutations that fill a workspace. `pnpm dev:seed` sends them
-// through the sync gateway; the demo sends them to the Durable Object directly. Pure: no Node or
-// Worker APIs, so both can use it.
+// through the sync gateway, and the agent's as tool calls over MCP; the demo sends them to the
+// Durable Object directly. Pure: no Node or Worker APIs, so both can use it.
 import { type Cycle, cycleState, type MutationInput, type Team } from "@gateweave/track-protocol";
 import { generateNKeysBetween } from "fractional-indexing";
 import {
+	AGENT,
+	AGENT_EXAMPLE,
+	type AuthorKey,
+	type ExampleStep,
 	generatedIssues,
 	ISSUES,
 	LABELS,
@@ -20,9 +24,9 @@ import {
 
 export * from "./sample-data";
 
-/** One write, made as one of the sample people. */
+/** One write, made as one of the sample people or as the sample's agent. */
 export interface SampleStep {
-	person: PersonKey;
+	by: AuthorKey;
 	mutation: MutationInput;
 	/** True when order does not matter, so a caller may send such steps at once. */
 	parallel?: true;
@@ -41,7 +45,7 @@ export function withCycle(step: SampleStep, cycleId: string): SampleStep {
 	const { mutation } = step;
 	if (!step.needsCycle || mutation.name !== "issue.update") return step;
 	return {
-		person: step.person,
+		by: step.by,
 		mutation: { ...mutation, args: { ...mutation.args, patch: { cycleId } } },
 	};
 }
@@ -69,6 +73,11 @@ const CYCLE_TEAM: TeamKey = "ENG";
 export interface SampleOptions {
 	/** The user id of each sample person, which issues are assigned to and projects are led by. */
 	userIds: Record<PersonKey, string>;
+	/**
+	 * The member id of the sample's agent, already an agent member of the workspace. Without it
+	 * the agent's example is left out, and the steps are all the sample people's.
+	 */
+	agentId?: string | undefined;
 	/** A fresh entity id. */
 	newId: () => string;
 	/** Extra generated issues after the sample ones, for load testing. */
@@ -81,10 +90,12 @@ export interface SampleOptions {
  * Every write that builds the sample workspace, in an order that is valid: teams and labels
  * first (only admins create them, and turn on Engineering's two-week cycles), then the projects, then the issues in listed order so they
  * are numbered that way, then their comments, then the projects' updates, then any generated
- * filler.
+ * filler. With an agent, its example issue is filed after the listed ones and worked on in two
+ * halves, around the comments.
  */
 export function sampleSteps({
 	userIds,
+	agentId,
 	newId,
 	extraIssues = 0,
 	now = new Date(),
@@ -96,14 +107,14 @@ export function sampleSteps({
 	for (const [key, name] of Object.entries(TEAMS) as [TeamKey, string][]) {
 		teamIds[key] = newId();
 		steps.push({
-			person: maya,
+			by: maya,
 			mutation: { name: "team.create", args: { id: teamIds[key], key, name } },
 		});
 	}
 
 	// Its first cycle started this week, so the demo has one running.
 	steps.push({
-		person: maya,
+		by: maya,
 		mutation: {
 			name: "team.update",
 			args: {
@@ -115,7 +126,7 @@ export function sampleSteps({
 
 	// Engineering tests its work before it ships, so the sample shows a team's own status too.
 	steps.push({
-		person: maya,
+		by: maya,
 		mutation: {
 			name: "status.create",
 			args: {
@@ -133,7 +144,7 @@ export function sampleSteps({
 	for (const [key, label] of Object.entries(LABELS) as [LabelKey, (typeof LABELS)[LabelKey]][]) {
 		labelIds[key] = newId();
 		steps.push({
-			person: maya,
+			by: maya,
 			mutation: { name: "label.create", args: { id: labelIds[key], ...label } },
 		});
 	}
@@ -142,7 +153,7 @@ export function sampleSteps({
 	for (const [key, project] of Object.entries(PROJECTS) as [ProjectKey, SampleProject][]) {
 		projectIds[key] = newId();
 		steps.push({
-			person: maya,
+			by: maya,
 			mutation: {
 				name: "project.create",
 				args: {
@@ -157,7 +168,10 @@ export function sampleSteps({
 		});
 	}
 
-	const issues = [...ISSUES, ...generatedIssues(extraIssues)];
+	// The agent's example is filed after the listed issues, so those keep their numbers and it
+	// comes last in its team.
+	const listed = agentId === undefined ? ISSUES : [...ISSUES, AGENT_EXAMPLE.issue];
+	const issues = [...listed, ...generatedIssues(extraIssues)];
 	// Each team's issues are ordered as listed, with fractional sort keys like the app's own.
 	const sortKeys = new Map<TeamKey, string[]>();
 	for (const team of Object.keys(TEAMS) as TeamKey[]) {
@@ -170,21 +184,67 @@ export function sampleSteps({
 		if (!sortOrder) throw new Error("Ran out of sort keys");
 		const id = newId();
 		const step: SampleStep = {
-			person: issue.by,
+			by: issue.by,
 			mutation: issueCreate(issue, id, sortOrder, teamIds, labelIds, projectIds, userIds),
-			...(index >= ISSUES.length && { parallel: true as const }),
+			...(index >= listed.length && { parallel: true as const }),
 		};
 		return { id, issue, step };
 	});
 
-	const sample = created.slice(0, ISSUES.length);
+	const sample = created.slice(0, listed.length);
 	steps.push(...sample.map(({ step }) => step));
+
+	// The agent's example, in the order it happened. An admin first has the agent propose closing
+	// an issue rather than do it, so its last change stays on the issue as a proposal. Each field
+	// is only ever changed by one author, whose own writes never conflict, so the base version
+	// stays 0. It starts here and finishes after the comments below, with the steps that wait for
+	// a cycle in between: a caller that sends those apart, as the demo does, then gives the two
+	// halves different times. Steps sent in one call can share a time, and the history lists
+	// changes before comments of the same moment.
+	const example = agentId === undefined ? undefined : sample.at(-1);
+	const told = (step: ExampleStep): SampleStep[] => {
+		if (agentId === undefined || !example) return [];
+		if ("comment" in step) {
+			return [
+				{
+					by: step.by,
+					mutation: {
+						name: "comment.create",
+						args: { id: newId(), issueId: example.id, body: step.comment },
+					},
+				},
+			];
+		}
+		const patch =
+			"assign" in step
+				? { assigneeId: agentId }
+				: "project" in step
+					? { projectId: projectIds[step.project] }
+					: { status: step.status };
+		return [
+			{
+				by: step.by,
+				mutation: { name: "issue.update", args: { id: example.id, baseVersion: 0, patch } },
+			},
+		];
+	};
+	if (agentId !== undefined) {
+		steps.push({
+			by: maya,
+			mutation: {
+				name: "agent.update",
+				args: { id: agentId, patch: { proposes: AGENT.proposes } },
+			},
+		});
+	}
+	steps.push(...AGENT_EXAMPLE.start.flatMap(told));
+
 	// Planned after creation, once the cycle is known. The creator makes the edit, so it never
 	// conflicts with the issue's own fields.
 	for (const { id, issue } of sample) {
 		if (issue.cycle !== "current") continue;
 		steps.push({
-			person: issue.by,
+			by: issue.by,
 			needsCycle: true,
 			mutation: {
 				name: "issue.update",
@@ -196,7 +256,7 @@ export function sampleSteps({
 	for (const { id, issue } of sample) {
 		for (const comment of issue.comments ?? []) {
 			steps.push({
-				person: comment.by,
+				by: comment.by,
 				mutation: {
 					name: "comment.create",
 					args: { id: newId(), issueId: id, body: comment.body },
@@ -204,11 +264,12 @@ export function sampleSteps({
 			});
 		}
 	}
+	steps.push(...AGENT_EXAMPLE.finish.flatMap(told));
 	// Last of the sample, so the latest update of each project is the one listed last.
 	for (const [key, project] of Object.entries(PROJECTS) as [ProjectKey, SampleProject][]) {
 		for (const update of project.updates ?? []) {
 			steps.push({
-				person: update.by,
+				by: update.by,
 				mutation: {
 					name: "projectUpdate.create",
 					args: {
@@ -221,7 +282,7 @@ export function sampleSteps({
 			});
 		}
 	}
-	steps.push(...created.slice(ISSUES.length).map(({ step }) => step));
+	steps.push(...created.slice(listed.length).map(({ step }) => step));
 	return steps;
 }
 

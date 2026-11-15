@@ -75,7 +75,7 @@ export async function cleanUpDemo(now = Date.now()): Promise<CleanupResult> {
 	if (removable.length > 0) {
 		await db.delete(schema.user).where(inArray(schema.user.id, removable));
 	}
-	// Agents a visitor made belonged to the sandbox alone.
+	// The sample's agent, and any agent a visitor made, belonged to the sandbox alone.
 	await deleteOrphanedAgents(db);
 	result.visitors = removable.length;
 

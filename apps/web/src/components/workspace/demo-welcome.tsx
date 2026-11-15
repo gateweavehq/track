@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { ExternalLink, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
@@ -8,7 +9,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "#/components/ui/dialog";
-import { CLOUD_URL, REPOSITORY_URL } from "#/lib/demo-links";
+import { AGENT_EXAMPLE_ISSUE_KEY, CLOUD_URL, REPOSITORY_URL } from "#/lib/demo-links";
 import { useOpening } from "#/lib/demo-opening";
 import { useWorkspace } from "./context";
 
@@ -20,7 +21,7 @@ const link = "font-medium text-foreground underline underline-offset-4";
  * second tab does not bring it back.
  */
 export function DemoWelcome() {
-	const { id } = useWorkspace();
+	const { id, slug } = useWorkspace();
 	const opening = useOpening();
 	const [open, setOpen] = useState(false);
 	const waiting = opening.status !== "idle";
@@ -70,6 +71,18 @@ export function DemoWelcome() {
 						</p>
 					</li>
 				</ul>
+				<p className="text-sm">
+					AI agents can be members too: open{" "}
+					<Link
+						to="/$workspace/issue/$issueKey"
+						params={{ workspace: slug, issueKey: AGENT_EXAMPLE_ISSUE_KEY }}
+						className={link}
+						onClick={() => setOpen(false)}
+					>
+						{AGENT_EXAMPLE_ISSUE_KEY}
+					</Link>{" "}
+					to see what one's work looks like, and accept or dismiss the change it proposed.
+				</p>
 				<p className="text-sm text-muted-foreground">
 					Like it?{" "}
 					<a href={CLOUD_URL} className={link} target="_blank" rel="noreferrer">

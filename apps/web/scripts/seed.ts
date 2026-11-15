@@ -2,10 +2,12 @@
 // the same doors as the app, Better Auth over HTTP and sync mutations through the gateway, so
 // the data obeys every server rule and the run doubles as a smoke test. The one exception: with
 // email on, it marks the sample addresses verified in the local database, having no mailbox to
-// prove them with. Local development only: every account it creates shares one published password.
+// prove them with. The sample's agent has one door only, MCP with a key, so it and the issue it
+// worked on are seeded where that endpoint is on (BETTER_AUTH_URL is set) and left out elsewhere.
+// Local development only: every account it creates shares one published password.
 import { execSync } from "node:child_process";
 import { parseArgs } from "node:util";
-import type { Snapshot } from "@gateweave/track-protocol";
+import type { MutationInput, Snapshot } from "@gateweave/track-protocol";
 import {
 	HttpError,
 	SyncClient,
@@ -13,7 +15,10 @@ import {
 	type Transport,
 	uuidv7,
 } from "@gateweave/track-sync-client";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import {
+	AGENT,
+	AGENT_KEY,
 	currentCycleId,
 	PASSWORD,
 	PEOPLE,
@@ -51,6 +56,13 @@ if (!Number.isInteger(extra) || extra < 0) fail("--issues must be a whole number
 interface Session {
 	userId: string;
 	cookie: string;
+}
+
+/** The sample's agent while it is being seeded: its member id, its one key and its MCP session. */
+interface SeedAgent {
+	id: string;
+	keyId: string;
+	mcp: Client;
 }
 
 const people = Object.keys(PEOPLE) as PersonKey[];
@@ -120,12 +132,14 @@ async function main() {
 		clients[key] = new SyncClient({ userId, transport: gatewayTransport(args.slug, cookie) });
 	}
 
+	const agent = await addAgent(owner, workspace.id);
 	try {
 		const steps = sampleSteps({
 			userIds: Object.fromEntries(people.map((key) => [key, sessions[key].userId])) as Record<
 				PersonKey,
 				string
 			>,
+			agentId: agent?.id,
 			newId: uuidv7,
 			extraIssues: extra,
 		});
@@ -140,23 +154,95 @@ async function main() {
 				const state = clients.maya.getState();
 				cycleId ??= currentCycleId({ teams: state.teams.values(), cycles: state.cycles.values() });
 			}
-			const { person, mutation } = step.needsCycle && cycleId ? withCycle(step, cycleId) : step;
-			await clients[person].mutate(mutation);
+			const { by, mutation } = step.needsCycle && cycleId ? withCycle(step, cycleId) : step;
+			if (by !== AGENT_KEY) await clients[by].mutate(mutation);
+			else if (agent) await actAsAgent(agent, mutation, clients.maya);
 		}
 		await Promise.all(
-			steps
-				.filter((step) => step.parallel)
-				.map(({ person, mutation }) => clients[person].mutate(mutation)),
+			steps.flatMap(({ by, mutation, parallel }) =>
+				parallel && by !== AGENT_KEY ? [clients[by].mutate(mutation)] : [],
+			),
 		);
 		const count = (name: string) => steps.filter((step) => step.mutation.name === name).length;
 		console.log(
 			`Created ${name} with ${count("team.create")} teams, ${count("label.create")} labels, ${count("project.create")} projects, ${count("issue.create")} issues and ${count("comment.create")} comments.`,
 		);
+		console.log(
+			agent
+				? `${AGENT.name}, the sample's agent, worked on one of the issues and left a proposal on it.`
+				: `Left out ${AGENT.name}, the sample's agent, and its issue: an agent acts over MCP, which is off here. Set BETTER_AUTH_URL in .dev.vars to seed them too.`,
+		);
 	} finally {
 		await Promise.all(people.map((key) => clients[key].close()));
+		if (agent) {
+			await agent.mcp.close().catch(() => {});
+			// The key was for these steps alone and nothing kept it, so the agent ends with none, as
+			// in the demo. Not thrown: it would hide what failed above.
+			await api("POST", "/agents/revoke-key", owner, { keyId: agent.keyId }).catch(() =>
+				console.error(`Could not revoke ${AGENT.name}'s key. Revoke it in Settings, Agents.`),
+			);
+		}
 	}
 	printAccounts();
 }
+
+/**
+ * Makes the sample's agent as an admin does in Settings, and connects as it over MCP, the one
+ * door an agent has. Null where this server has no MCP endpoint, which needs BETTER_AUTH_URL.
+ */
+async function addAgent(owner: Session, organizationId: string): Promise<SeedAgent | null> {
+	const endpoint = new URL("/mcp", base);
+	// Without credentials it answers 401 where it is on, and 404 where it is off.
+	if ((await fetch(endpoint, { method: "POST" })).status === 404) return null;
+	const { agent, key } = await api<{ agent: { id: string; keys: { id: string }[] }; key: string }>(
+		"POST",
+		"/agents/create",
+		owner,
+		{ organizationId, name: AGENT.name },
+	);
+	const keyId = agent.keys[0]?.id;
+	if (!keyId) throw new Error("The new agent came back without a key");
+	const mcp = new Client({ name: "track-seed", version: "1.0.0" });
+	await mcp.connect(
+		new StreamableHTTPClientTransport(endpoint, {
+			requestInit: { headers: { Authorization: `Bearer ${key}` } },
+		}),
+	);
+	return { id: agent.id, keyId, mcp };
+}
+
+/**
+ * Sends one of the agent's steps as an agent would: a tool call, which names the issue by its
+ * key. `replica` is any person's copy of the workspace, to read that key from.
+ */
+async function actAsAgent(agent: SeedAgent, mutation: MutationInput, replica: SyncClient) {
+	const state = replica.getState();
+	const on = (issueId: string) => {
+		const issue = state.issues.get(issueId);
+		const team = issue && state.teams.get(issue.teamId);
+		if (!issue || !team) throw new Error(`Issue ${issueId} has not reached the seed's replica`);
+		return { workspace: args.slug, key: `${team.key}-${issue.number}` };
+	};
+	let call: { name: string; arguments: Record<string, unknown> };
+	if (mutation.name === "comment.create") {
+		call = {
+			name: "add_comment",
+			arguments: { ...on(mutation.args.issueId), body: mutation.args.body },
+		};
+	} else if (mutation.name === "issue.update" && mutation.args.patch.status !== undefined) {
+		call = {
+			name: "update_issue",
+			arguments: { ...on(mutation.args.id), status: mutation.args.patch.status },
+		};
+	} else {
+		throw new Error(`The seed cannot send ${mutation.name} as an agent`);
+	}
+	const result = await agent.mcp.callTool(call);
+	if (result.isError) {
+		throw new Error(`The agent's ${call.name} failed: ${JSON.stringify(result.content)}`);
+	}
+}
+
 /** Signs up, or signs in when the account is left over from an earlier run. */
 async function signIn(key: PersonKey): Promise<Session> {
 	const { name, email } = PEOPLE[key];

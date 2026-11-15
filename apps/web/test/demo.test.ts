@@ -1,8 +1,23 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { cycleState, isActiveIssue, type Snapshot } from "@gateweave/track-protocol";
+import {
+	cycleState,
+	isActiveIssue,
+	type MutationInput,
+	PROTOCOL_VERSION,
+	type ServerMessage,
+	type Snapshot,
+} from "@gateweave/track-protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ISSUES, LABELS, PEOPLE, PROJECTS, TEAMS } from "../src/server/demo/sample-data";
+import {
+	AGENT,
+	AGENT_EXAMPLE,
+	ISSUES,
+	LABELS,
+	PEOPLE,
+	PROJECTS,
+	TEAMS,
+} from "../src/server/demo/sample-data";
 import { startTrack } from "./track-worker";
 
 // The public demo (TRK-11): every visitor gets a private sandbox that cleanup deletes after a
@@ -74,6 +89,63 @@ async function count(track: Track, table: string) {
 	return row?.n ?? 0;
 }
 
+async function read(track: Track, slug: string, cookie: string) {
+	const response = await snapshot(track, slug, cookie);
+	expect(response.status).toBe(200);
+	return (await response.json()) as Snapshot;
+}
+
+/** The sample's agent in a sandbox, the issue it worked on, and the proposals open on that issue. */
+function agentExample(data: Snapshot) {
+	const agent = data.members.find((member) => member.role === "agent");
+	const issue = data.issues.find((issue) => issue.title === AGENT_EXAMPLE.issue.title);
+	if (!agent || !issue) throw new Error("The sandbox has no agent, or no issue it worked on");
+	return {
+		agent,
+		issue,
+		proposals: data.proposals.filter((proposal) => proposal.issueId === issue.id),
+	};
+}
+
+/** The user ids of a workspace's agent members, as D1 has them. */
+async function agentIds(track: Track, organizationId: string) {
+	const { results } = await track.db
+		.prepare(`select user_id from "member" where organization_id = ? and role = 'agent'`)
+		.bind(organizationId)
+		.all();
+	return (results as { user_id: string }[]).map((row) => row.user_id);
+}
+
+/**
+ * Sends one mutation as the visitor's browser does, over the sync socket their cookie opens, and
+ * waits for the server's answer to it.
+ */
+async function mutate(track: Track, slug: string, cookie: string, mutation: MutationInput) {
+	const { status, ws } = await track.socket(`${origin}/api/sync/${slug}/socket`, {
+		origin,
+		cookie,
+	});
+	expect(status).toBe(101);
+	if (!ws) throw new Error("No socket");
+	const id = crypto.randomUUID();
+	const answered = new Promise<ServerMessage>((resolve) => {
+		ws.addEventListener("message", (event) => {
+			if (typeof event.data !== "string" || !event.data.startsWith("{")) return;
+			const message = JSON.parse(event.data) as ServerMessage;
+			if ((message.type === "ack" || message.type === "reject") && message.id === id) {
+				resolve(message);
+			}
+		});
+	});
+	ws.send(
+		JSON.stringify({ type: "hello", protocol: PROTOCOL_VERSION, clientId: "tab-1", since: 0 }),
+	);
+	ws.send(JSON.stringify({ type: "mutate", id, mutation }));
+	const answer = await answered;
+	ws.close(1000);
+	return answer;
+}
+
 describe("on the demo deployment", () => {
 	let track: Track;
 
@@ -96,7 +168,8 @@ describe("on the demo deployment", () => {
 		const data = (await response.json()) as Snapshot;
 		expect(data.teams.map((team) => team.key).sort()).toEqual(Object.keys(TEAMS).sort());
 		expect(data.labels).toHaveLength(Object.keys(LABELS).length);
-		expect(data.issues).toHaveLength(ISSUES.length);
+		// The listed issues, and the one the sample's agent worked on.
+		expect(data.issues).toHaveLength(ISSUES.length + 1);
 		expect(data.projects.map((project) => project.name).sort()).toEqual(
 			Object.values(PROJECTS)
 				.map((project) => project.name)
@@ -104,14 +177,180 @@ describe("on the demo deployment", () => {
 		);
 		expect(data.issues.some((issue) => issue.projectId !== null)).toBe(true);
 		expect(data.comments.length).toBeGreaterThan(0);
-		// The visitor and the four sample people.
-		expect(data.members.map((member) => member.email).sort()).toEqual(
+		// The visitor and the four sample people. The sample's agent is the only other member.
+		const persons = data.members.filter((member) => member.role !== "agent");
+		expect(persons.map((member) => member.email).sort()).toEqual(
 			[visitor?.user.email, ...Object.values(PEOPLE).map((person) => person.email)].sort(),
 		);
+		expect(data.members).toHaveLength(persons.length + 1);
 		const maya = data.members.find((member) => member.email === PEOPLE.maya.email);
 		expect(data.issues.some((issue) => isActiveIssue(issue) && issue.assigneeId === maya?.id)).toBe(
 			true,
 		);
+	});
+
+	it("has the sample's agent as a member, with nothing to act as it with", async () => {
+		const { slug, cookie } = await startVisitor(track, "203.0.113.20");
+		const data = await read(track, slug, cookie);
+
+		const agents = data.members.filter((member) => member.role === "agent");
+		expect(agents).toHaveLength(1);
+		const { agent } = agentExample(data);
+		expect(agent).toMatchObject({
+			name: AGENT.name,
+			email: `${agent.id}@agents.invalid`,
+			image: null,
+			// What an admin set it to propose rather than do.
+			proposes: AGENT.proposes,
+			removedAt: null,
+		});
+
+		// In D1 it is an agent of this sandbox and of no other workspace, and has no key, no
+		// password or other account, and no session: an agent acts with a key and nothing else.
+		const organizationId = await workspaceId(track, slug);
+		const memberships = await track.db
+			.prepare('select organization_id, role from "member" where user_id = ?')
+			.bind(agent.id)
+			.all();
+		expect(memberships.results).toEqual([{ organization_id: organizationId, role: "agent" }]);
+		for (const table of ["agent_key", "account", "session"]) {
+			expect(await count(track, `"${table}" where user_id = '${agent.id}'`), table).toBe(0);
+		}
+		expect(await count(track, `"agent_key" where organization_id = '${organizationId}'`)).toBe(0);
+		// Settings says the same to the visitor, who is the sandbox's admin: one agent, no keys.
+		const listed = await track.fetch(
+			`${origin}/api/auth/agents/list?organizationId=${organizationId}`,
+			{ headers: { origin, cookie } },
+		);
+		expect(await listed.json()).toEqual([
+			expect.objectContaining({ id: agent.id, name: AGENT.name, keys: [] }),
+		]);
+	});
+
+	it("shows the agent's work on one sample issue: assigned to it, two comments, in review", async () => {
+		const { slug, cookie } = await startVisitor(track, "203.0.113.21");
+		const data = await read(track, slug, cookie);
+		const { agent, issue } = agentExample(data);
+		const diego = data.members.find((member) => member.email === PEOPLE.diego.email);
+		const design = data.teams.find((team) => team.key === AGENT_EXAMPLE.issue.team);
+
+		expect(issue).toMatchObject({
+			teamId: design?.id,
+			status: "in_review",
+			assigneeId: agent.id,
+			creatorId: diego?.id,
+			description: AGENT_EXAMPLE.issue.description,
+			archivedAt: null,
+		});
+
+		const comments = data.comments
+			.filter((comment) => comment.issueId === issue.id)
+			.sort((a, b) => a.createdAt - b.createdAt);
+		expect(comments.map((comment) => comment.authorId)).toEqual([agent.id, agent.id]);
+		expect(comments.map((comment) => comment.body)).toEqual(
+			[...AGENT_EXAMPLE.start, ...AGENT_EXAMPLE.finish].flatMap((step) =>
+				"comment" in step ? [step.comment] : [],
+			),
+		);
+
+		// Its history names who did what, oldest first: the author assigned it and later put it in
+		// a project, and the agent moved it along, each move an entry of its own.
+		const polish = data.projects.find((project) => project.name === PROJECTS.polish.name);
+		const history = data.activities
+			.filter((activity) => activity.issueId === issue.id)
+			.sort((a, b) => a.createdAt - b.createdAt)
+			.map(({ actorId, change, proposedBy }) => ({ actorId, change, proposedBy }));
+		expect(history).toEqual([
+			{
+				actorId: diego?.id,
+				change: { type: "assignee", from: null, to: agent.id },
+				proposedBy: null,
+			},
+			{
+				actorId: agent.id,
+				change: { type: "status", from: "todo", to: "in_progress" },
+				proposedBy: null,
+			},
+			{
+				actorId: diego?.id,
+				change: { type: "project", from: null, to: polish?.id },
+				proposedBy: null,
+			},
+			{
+				actorId: agent.id,
+				change: { type: "status", from: "in_progress", to: "in_review" },
+				proposedBy: null,
+			},
+		]);
+	});
+
+	it("leaves one open proposal on that issue, the agent's, to move it to Done", async () => {
+		const { slug, cookie } = await startVisitor(track, "203.0.113.22");
+		const data = await read(track, slug, cookie);
+		const { agent, issue, proposals } = agentExample(data);
+
+		expect(proposals).toHaveLength(1);
+		expect(proposals[0]).toMatchObject({
+			issueId: issue.id,
+			agentId: agent.id,
+			change: { type: "status", to: "done" },
+		});
+		// It is the sandbox's only one, so the sidebar counts one.
+		expect(data.proposals).toHaveLength(1);
+	});
+
+	it("lets the visitor accept the proposal, which moves the issue to Done as them", async () => {
+		const { slug, cookie } = await startVisitor(track, "203.0.113.23");
+		const visitor = await session(track, cookie);
+		const before = agentExample(await read(track, slug, cookie));
+		const proposal = before.proposals[0];
+		if (!proposal) throw new Error("No proposal to accept");
+
+		const answer = await mutate(track, slug, cookie, {
+			name: "proposal.accept",
+			args: { id: proposal.id },
+		});
+		expect(answer.type).toBe("ack");
+
+		const data = await read(track, slug, cookie);
+		const after = agentExample(data);
+		expect(after.issue).toMatchObject({ status: "done", assigneeId: before.agent.id });
+		expect(data.proposals).toEqual([]);
+		// The change is the visitor's, and the history says whose idea it was.
+		expect(
+			data.activities
+				.filter((activity) => activity.issueId === after.issue.id)
+				.map(({ actorId, change, proposedBy }) => ({ actorId, change, proposedBy })),
+		).toContainEqual({
+			actorId: visitor?.user.id,
+			change: { type: "status", from: "in_review", to: "done" },
+			proposedBy: before.agent.id,
+		});
+	});
+
+	it("lets the visitor dismiss the proposal, which leaves the issue as it was", async () => {
+		const { slug, cookie } = await startVisitor(track, "203.0.113.24");
+		const before = await read(track, slug, cookie);
+		const proposal = agentExample(before).proposals[0];
+		if (!proposal) throw new Error("No proposal to dismiss");
+
+		const answer = await mutate(track, slug, cookie, {
+			name: "proposal.dismiss",
+			args: { id: proposal.id },
+		});
+		expect(answer.type).toBe("ack");
+
+		const after = await read(track, slug, cookie);
+		expect(after.proposals).toEqual([]);
+		// Not a field of the issue changed, and nothing was added to its thread or history.
+		const { issue } = agentExample(after);
+		expect(issue).toEqual(agentExample(before).issue);
+		expect(issue.status).toBe("in_review");
+		const about = (data: Snapshot) => ({
+			comments: data.comments.filter((comment) => comment.issueId === issue.id),
+			activities: data.activities.filter((activity) => activity.issueId === issue.id),
+		});
+		expect(about(after)).toEqual(about(before));
 	});
 
 	it("plans sample issues into Engineering's current cycle, some of them done", async () => {
@@ -251,6 +490,17 @@ describe("on the demo deployment", () => {
 			expect(response.status).toBe(200);
 			return ((await response.json()) as { agent: { id: string } }).agent.id;
 		};
+		// The sample's agent is each sandbox's only one, until the visitor makes another.
+		const [oldSample, laggingSample, freshSample] = await Promise.all(
+			[oldOrg, laggingOrg, freshOrg].map(async (organizationId) => {
+				const ids = await agentIds(track, organizationId);
+				expect(ids).toHaveLength(1);
+				return ids[0];
+			}),
+		);
+		expect((await track.directory(oldOrg)).members).toContainEqual(
+			expect.objectContaining({ id: oldSample, role: "agent", removedAt: null }),
+		);
 		const oldAgent = await makeAgent(old.cookie, oldOrg);
 		const freshAgent = await makeAgent(fresh.cookie, freshOrg);
 
@@ -281,6 +531,24 @@ describe("on the demo deployment", () => {
 		expect(await count(track, "\"user\" where id like 'sample-%'")).toBe(4);
 		expect(await count(track, `"user" where id = '${oldAgent}'`)).toBe(0);
 		expect(await count(track, `"user" where id = '${freshAgent}'`)).toBe(1);
+		// Nothing is left of the sample's agent either: no user, membership, key, account or session.
+		for (const gone of [oldSample, laggingSample]) {
+			expect(await count(track, `"user" where id = '${gone}'`)).toBe(0);
+			for (const table of ["member", "agent_key", "account", "session"]) {
+				expect(await count(track, `"${table}" where user_id = '${gone}'`), table).toBe(0);
+			}
+		}
+		expect(await count(track, `"user" where id = '${freshSample}'`)).toBe(1);
+		expect(await agentIds(track, freshOrg)).toEqual(
+			expect.arrayContaining([freshSample, freshAgent]),
+		);
+		// No agent is left without a workspace, whichever sandbox it was made for.
+		expect(
+			await count(
+				track,
+				`"user" where email like '%@agents.invalid' and id not in (select user_id from "member")`,
+			),
+		).toBe(0);
 		// The Durable Objects were emptied, not just forgotten.
 		expect((await track.directory(oldOrg)).teams).toEqual([]);
 		expect((await track.directory(laggingOrg)).members).toEqual([]);
@@ -391,7 +659,8 @@ describe("on a demo whose database already has the sample people", () => {
 	});
 
 	it("takes back a sandbox it could not finish", async () => {
-		// Make adding the sample members fail partway, after the visitor and workspace exist.
+		// Make adding the sample members fail partway, after the visitor, the workspace and its
+		// sample agent exist.
 		await track.db
 			.prepare(
 				"create trigger refuse_members before insert on member when new.role = 'member' begin select raise(abort, 'refused for the test'); end",
@@ -399,11 +668,13 @@ describe("on a demo whose database already has the sample people", () => {
 			.run();
 		const visitors = await count(track, `"user" where email like '%@visitors.example.com'`);
 		const workspaces = await count(track, '"organization"');
+		const agents = await count(track, `"user" where email like '%@agents.invalid'`);
 		try {
 			const { failed, cookie } = await openDemo(track, "203.0.113.61");
 			expect(failed).toBe(true);
 			expect(await count(track, `"user" where email like '%@visitors.example.com'`)).toBe(visitors);
 			expect(await count(track, '"organization"')).toBe(workspaces);
+			expect(await count(track, `"user" where email like '%@agents.invalid'`)).toBe(agents);
 			expect(await session(track, cookie)).toBeNull();
 		} finally {
 			await track.db.prepare("drop trigger refuse_members").run();

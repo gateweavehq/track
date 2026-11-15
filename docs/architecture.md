@@ -409,6 +409,26 @@ A shared demo account would be vandalized within minutes, so each visitor gets a
   members; they are users with no credentials, shared by every sandbox. The sample teams, labels,
   issues and comments are written through the Durable Object's `mutate` RPC, each as the right
   person, from the same steps `pnpm dev:seed` uses (`src/server/demo/sample.ts`).
+- The sample also has an [agent member](#agent-members), Coder, and one issue that shows an
+  agent's work from start to finish (`AGENT` and `AGENT_EXAMPLE` in `sample-data.ts`). No agent
+  can run in the demo, which has no model, sends no webhooks and has nothing for an agent to work
+  in, so this is sample data and the issue's description says so first, with a link to a
+  recording of a real run. Each sandbox gets its own Coder, since an agent belongs to one
+  workspace: a user under `agents.invalid` with the `agent` role, as the agent members plugin
+  makes one, but with no key, so nothing can act as it. (The visitor is an admin of their own
+  sandbox and can give it a key in Settings, as for an agent they make themselves.) The issue's
+  author assigns it to Coder; Coder's two comments and two status changes are written as Coder;
+  and its last change, to Done, is a real [proposal](#proposals) that the visitor can accept or
+  dismiss, because an admin's `agent.update` first has Coder propose closing. Two things in the
+  steps are there for the history. The author adds the issue to a project between Coder's two
+  status changes, since one member's changes to a field within five minutes are otherwise joined
+  into one entry. And the example is written in two halves, either side of the steps that wait
+  for a cycle, which the demo sends in separate calls: steps of one call can share a time, and
+  an issue's timeline lists changes before comments of the same moment. The welcome card points
+  to the issue by its key (`AGENT_EXAMPLE_ISSUE_KEY` in `src/lib/demo-links.ts`). `pnpm dev:seed`
+  seeds the same agent and issue where `/mcp` is on: it makes the agent as an admin does, sends
+  the agent's steps as tool calls with its key, and revokes the key when it is done. Where
+  `/mcp` is off, an agent has no way in, and the seed leaves both out.
 - In the demo, HTTP requests to sign up, sign in, reset or change a password or email, delete an
   account, or change who may sign up are refused. Only the server creates accounts. Server-side `auth.api` calls
   carry no `Request`, which is how the hook tells them apart. Email is off.
@@ -416,7 +436,8 @@ A shared demo account would be vandalized within minutes, so each visitor gets a
   than a day old: for each of their workspaces it calls `destroy()` on the Durable Object, then
   deletes the organization row, then the user (sessions, accounts and memberships cascade). The
   sample people are never selected. Visitors are found by their address, so a failed run leaves
-  what it did not delete for the next one.
+  what it did not delete for the next one. Agents left without a workspace go last: the sandbox's
+  Coder, and any the visitor made.
 
 Seeding a sandbox makes about 70 Durable Object calls in one request, so the demo needs a Workers
 Paid plan (1,000 subrequests per request).
