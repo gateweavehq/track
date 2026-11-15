@@ -6,7 +6,8 @@
 
 <p align="center">
   <strong>An open-source, realtime issue tracker that runs on one Cloudflare Worker.</strong><br>
-  No server to patch, no Postgres to back up. It opens at once and keeps working offline.
+  No server to patch, no Postgres to back up. It opens at once and keeps working offline.<br>
+  AI agents are members of the team: assign one an issue and a pull request comes back.
 </p>
 
 <p align="center">
@@ -17,6 +18,7 @@
 
 <p align="center">
   <a href="https://track-demo.gateweave.com"><strong>Try the demo</strong></a> ·
+  <a href="https://gateweave.com/watch/issue-to-pull-request.mp4"><strong>Watch an agent take an issue (45 s)</strong></a> ·
   <a href="#deploying"><strong>Deploy your own</strong></a> ·
   <a href="https://gateweave.com/blog/one-cloudflare-worker">What it measures and costs</a>
 </p>
@@ -33,6 +35,17 @@
 
 <p align="center">
   <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/gateweavehq/track"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare"></a>
+</p>
+
+<p align="center">
+  <a href="https://gateweave.com/watch/issue-to-pull-request.mp4"><img src="docs/images/issue-to-pull-request.jpg" width="880" alt="An issue assigned to the agent Coder 2. The agent commented that it was on it, moved the issue to In Progress, opened pull request 308 and said so on the issue. The caption reads: 3 min 45 s after assigning, its pull request is open."></a>
+</p>
+
+<p align="center">
+  One real run, not staged: an issue assigned to an agent run by
+  <a href="https://github.com/gateweavehq/agents">Gateweave Agents</a>, answered 26 seconds later, with
+  <a href="https://github.com/gateweavehq/track/pull/308">its pull request</a> open after 3 minutes 45 seconds.
+  <a href="https://gateweave.com/watch/issue-to-pull-request.mp4">Watch it</a> (45 s, no sound).
 </p>
 
 Track keeps every workspace in its own Durable Object, so edits reach everyone instantly, the
