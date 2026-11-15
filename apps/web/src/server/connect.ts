@@ -138,6 +138,8 @@ const madeFor = z.object({
 	// As long as an address the page takes may be (`MAX_URL_LENGTH` in connect-request.ts): a row
 	// this could not read would name nothing to take back.
 	origin: z.string().max(2048).optional(),
+	/** The key the connection made for the agent: while it is its only key and unused, nobody took the agent over. */
+	keyId: z.string().regex(ID).optional(),
 	/** How often taking it back has failed so far. */
 	tries: z.number().int().min(0).max(TAKE_BACK_TRIES).optional(),
 });
@@ -212,7 +214,7 @@ async function takeBackFor(row: CodeRow, reason: string): Promise<void> {
 		// An admin who found the agent in Settings and gave it a key of their own, or whose key was
 		// used, has taken it over: it is theirs now, and stays.
 		const keys = await db
-			.select({ lastUsedAt: schema.agentKey.lastUsedAt })
+			.select({ id: schema.agentKey.id, lastUsedAt: schema.agentKey.lastUsedAt })
 			.from(schema.agentKey)
 			.where(
 				and(
@@ -221,7 +223,15 @@ async function takeBackFor(row: CodeRow, reason: string): Promise<void> {
 				),
 			)
 			.all();
-		if (keys.length > 1 || keys.some((key) => key.lastUsedAt !== null)) return;
+		// Told by the connection's own key: another key, a used key, or that key revoked (with or
+		// without a new one in its place) all mean someone has been managing the agent.
+		const [only] = keys;
+		const untouched =
+			keys.length === 1 &&
+			only !== undefined &&
+			only.lastUsedAt === null &&
+			(made.keyId === undefined || only.id === made.keyId);
+		if (!untouched) return;
 		await takeBack(made.workspaceId, made.agentId, {
 			reason,
 			...(made.origin && { origin: made.origin }),
@@ -545,6 +555,16 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 			returnOrigin: asked.origin,
 		};
 		const now = Date.now();
+		// The key just made, the agent's only one: how a later take-back tells that nobody has
+		// taken the agent over since.
+		const [firstKey] = await db
+			.select({ id: schema.agentKey.id })
+			.from(schema.agentKey)
+			.where(
+				and(eq(schema.agentKey.userId, agentId), eq(schema.agentKey.organizationId, workspaceId)),
+			)
+			.all();
+		const keyId = firstKey?.id;
 		await db
 			.insert(schema.verification)
 			.values({
@@ -556,6 +576,7 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 					// Not secret: what a refused or untraded code takes back, without opening the seal.
 					workspaceId,
 					agentId,
+					...(keyId && { keyId }),
 					origin: asked.origin,
 					// The code's own minute, and when the sweep may take back what nobody traded for.
 					goodUntil: now + CODE_TTL_MS,

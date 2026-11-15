@@ -1297,6 +1297,21 @@ describe("taking back a connection whose code is not used", () => {
 		expect(await codeRows()).toEqual([]);
 	});
 
+	it("leaves an agent whose first key was replaced by hand, though it has one unused key again", async () => {
+		const { owner, workspaceId, slug } = await setUp("key-replaced");
+		await allow(owner, slug, newVerifier());
+		// An admin gave it a key of their own and revoked the connection's: one key, never used,
+		// which only its id tells from the first.
+		await track.db
+			.prepare("UPDATE agent_key SET id = 'replaced-by-hand' WHERE organization_id = ?")
+			.bind(workspaceId)
+			.run();
+		await expireCodes();
+		await track.runScheduled();
+		expect(await agentCount(workspaceId)).toBe(1);
+		expect(await webhooksOf(workspaceId, owner)).toHaveLength(1);
+	});
+
 	it("leaves an agent whose code was traded, and one made by hand, to a sweep", async () => {
 		const { owner, workspaceId, slug } = await setUp("sweep-spares");
 		const byHand = await (

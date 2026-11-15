@@ -737,8 +737,9 @@ only configuration. The manual way, under Settings, stays.
    a random id, which no code hashes to, so an asking server that exchanges again cannot spend
    the tries in seconds. The table is Better Auth's as well, and not every value in it is JSON:
    the sweep reads `sweepAt` only from a value that is (`json_valid`), and compares the prefix
-   exactly. An agent that someone took over by hand in the meantime, by giving it a second key
-   or by using its key, is left alone: it is theirs now. After a rollback to v0.39.0, which
+   exactly. An agent that someone took over by hand in the meantime is left alone: the row names the key
+   the connection made, and only while that is the agent's one key, never used, is the agent
+   taken back. After a rollback to v0.39.0, which
    judges a code by `expiresAt`, delete the `track-connect:` rows: a row this version wrote
    would otherwise be good there for three days instead of a minute (it still needs the code
    and its verifier).
