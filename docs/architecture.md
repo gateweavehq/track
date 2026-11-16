@@ -169,9 +169,14 @@ same database, between the object's transactions and never inside one.
   offline keeps its own notice. The workspace's pages are rendered in the browser only, so their
   reads fail as a server function's error, of which only the message crosses. One whose reference
   is in a cause, as Better Auth's `Failed to get session` is, leaves with the reference added to
-  its message (`apps/web/src/start.ts`). A dialog or a toast still shows the message of what a
-  server function threw, which for a failed query is that sentence. The gateways answer 500, and
-  the `Backup` entrypoint's caller gets the sentence.
+  its message (`apps/web/src/start.ts`). That file exports a start instance for it, and a start
+  instance replaces the request middleware the framework adds by default, which is its CSRF guard
+  on server functions. So the file lists the guard too, as the framework has it: a server
+  function's request that the browser does not call same-origin (`Sec-Fetch-Site`, or else
+  `Origin`, or else `Referer`, and one with none of them) is answered 403 before a handler runs.
+  The gateways are not server functions, and it leaves them alone. A dialog or a toast still
+  shows the message of what a server function threw, which for a failed query is that sentence.
+  The gateways answer 500, and the `Backup` entrypoint's caller gets the sentence.
 
 None of what `query-failure.ts` reaches for is in Drizzle's public types. With a session it does
 not know, `createDb` throws as the Worker starts, and with a prepared query sent some other way,
