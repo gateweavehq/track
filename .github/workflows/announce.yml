@@ -27,6 +27,12 @@ jobs:
             exit 0
           fi
           version="${TAG#v}"
+          # A patch release (x.y.1 and up) is a fix, and a row of drafts about fixes is noise for the
+          # person who reads them: only a release that ends in .0 is announced.
+          case "$version" in
+            *.0) ;;
+            *) echo "$version is a patch release; not announced."; exit 0 ;;
+          esac
           awk -v v="$version" '
             index($0, "## [" v "]") == 1 { found = 1; next }
             found && /^## \[/ { exit }
