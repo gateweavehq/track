@@ -185,6 +185,34 @@ without a database (a branch's Preview) is left as Drizzle made it, so it starts
 503. The schema generator's configuration (`auth/cli.ts`) asks nothing, and makes its database
 without `createDb`, which refuses a stand-in that is no binding.
 
+### When a guard cannot read the session
+
+Two rules are held in hooks in front of an endpoint of Better Auth's or of a plugin, and decide
+by the session the request came with: who sees a workspace's invitations ("Roles and
+invitations"), and the tries at a password that one person's sessions share ("Changing a name or
+password"), in front of changing a password and deleting an account. Each leaves a request with
+no session to the endpoint, which answers 401 by itself. So each steps aside only when it is
+known that nobody is signed in, and reads the session through `sessionOf`
+(`apps/web/src/server/auth/session-of.ts`):
+
+- **No session cookie**, or one this server did not sign, is nobody, and the endpoint answers as
+  it does. Nothing more is asked of the database.
+- **A cookie whose session the database does not have, or has as ended,** is nobody too: the
+  person signed out, or was signed out. That costs one more read, for a request that is refused
+  anyway, and signing in again works as ever.
+- **A cookie whose session could not be read** is refused with 500, like any other request whose
+  query failed, and the reference is in the log. The endpoint is never reached, so nothing is
+  changed and nothing is listed.
+
+With the database answering, a hook reads the session once, as before, and decides as before.
+The signed session cookie is the only thing these endpoints take for a session: there is no
+cookie cache and no bearer plugin, and the tokens and keys of `/mcp` are checked by its own
+gateway. A hook that only writes to the audit log after an endpoint has answered still takes a
+session it cannot read for nobody, and writes nothing: the answer has been given by then.
+Everything else that asks for a session refuses a request without one: the endpoints of the
+plugins here, the server functions, and the gateways for sync, files, push, webhooks, GitHub and
+connecting an agent. A session they cannot read is a failed query there, and is answered as one.
+
 ### Roles and invitations
 
 Roles are Better Auth's defaults: `owner`, `admin` and `member`. Admins invite people, change

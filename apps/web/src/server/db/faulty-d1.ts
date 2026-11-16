@@ -37,11 +37,17 @@ export async function migratedD1(name: string, { migrate = true } = {}) {
 
 /**
  * The database, failing when told to: the next `failures` statements sent alone are refused with
- * `message`, before they reach the database. `sent` lists every one that was tried, refused or
- * not. A session it opens fails the same way.
+ * `message`, before they reach the database. With `only`, just the ones whose text it matches are,
+ * and the rest go through uncounted. `sent` lists every one that was tried, refused or not. A
+ * session it opens fails the same way.
  */
 export function faulty(d1: D1Database) {
-	const state = { failures: 0, message: LOCAL, sent: [] as string[] };
+	const state = {
+		failures: 0,
+		message: LOCAL,
+		only: undefined as RegExp | undefined,
+		sent: [] as string[],
+	};
 	const sends = new Set<PropertyKey>(["all", "raw", "first", "run"]);
 	const made = new WeakMap<object, D1PreparedStatement>();
 
@@ -56,7 +62,7 @@ export function faulty(d1: D1Database) {
 				if (!sends.has(key)) return value.bind(target);
 				return async (...args: unknown[]) => {
 					state.sent.push(query);
-					if (state.failures > 0) {
+					if (state.failures > 0 && (!state.only || state.only.test(query))) {
 						state.failures -= 1;
 						throw new Error(state.message);
 					}

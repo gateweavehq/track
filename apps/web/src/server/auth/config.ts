@@ -28,6 +28,7 @@ import {
 import { EndedSessions } from "./ended-sessions";
 import { type OidcProvider, oidcDatabaseHooks, oidcSignIn } from "./oidc-sign-in";
 import { passwordTries, tellOfSpentTries } from "./password-tries";
+import { sessionOf } from "./session-of";
 
 export interface AuthConfig {
 	db: Database;
@@ -244,7 +245,7 @@ export function createAuth(config: AuthConfig) {
 				// Better Auth lets every member list invitations. Where accounts cannot verify their
 				// email (a server without email), an invitation's id is enough to accept it with a
 				// new account under the invited address, so only those who can invite see the ids.
-				const session = await getSessionFromCtx(ctx);
+				const session = await sessionOf(ctx);
 				const organizationId: unknown =
 					ctx.query?.organizationId ?? session?.session.activeOrganizationId;
 				if (!session || typeof organizationId !== "string") return;
@@ -266,6 +267,7 @@ export function createAuth(config: AuthConfig) {
 				// The request is over: the sessions it ended are reported together (see below).
 				endedSessions.flush(ctx.context);
 				if (config.onAudit && isAuditedPath(ctx.path)) {
+					// The answer has been given: a session that cannot be read writes no row.
 					const session = await getSessionFromCtx(ctx);
 					const audited =
 						session &&
