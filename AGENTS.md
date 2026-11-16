@@ -124,6 +124,12 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
 10. **Admin rights are granted, never assumed.** `agent` is a role as well as `member`, so what
     only owners and admins may do is decided with `isAdminRole` from `packages/protocol`, never
     by comparing a role with `member`.
+11. **A statement's text holds no value.** Everything that asks D1 goes through `createDb`, which
+    logs a failed statement's text and throws an error without it ("When a query of D1 fails" in
+    `docs/architecture.md`). So values are bound: no `sql.raw` with anything but the code's own
+    words. Never read a database error's message to decide an answer, and never show or log
+    Drizzle's own error. A trigger that refuses with new words is added to `REFUSALS` in
+    `apps/web/src/server/db/query-failure.ts`.
 
 ## Code style
 
