@@ -1150,9 +1150,23 @@ describe("the sign-in page", () => {
 		return /role="alert"[^>]*>([^<]*)</.exec(html)?.[1];
 	}
 
-	/** The page without its scripts: what a browser would show before any of them ran. */
+	/**
+	 * The page's text outside its scripts: what a browser would show before any of them ran. Only
+	 * ever searched, never rendered, so it is cut by position and not cleaned.
+	 */
 	function shownIn(html: string) {
-		return html.replace(/<script\b[\s\S]*?<\/script>/g, "");
+		const lower = html.toLowerCase();
+		let shown = "";
+		let at = 0;
+		while (at < html.length) {
+			const open = lower.indexOf("<script", at);
+			if (open === -1) return shown + html.slice(at);
+			shown += html.slice(at, open);
+			const close = lower.indexOf("</script", open);
+			if (close === -1) return shown;
+			at = close + "</script".length;
+		}
+		return shown;
 	}
 
 	it("says a return that no longer matched took too long or was started twice", async () => {
