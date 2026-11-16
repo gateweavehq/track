@@ -8,6 +8,32 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.39.4] - 2026-11-16
+
+A database read that fails in passing is asked again instead of becoming an error, and a query
+that fails for good no longer shows or logs its values. There is no migration in this release.
+
+### Fixed
+
+- **An error because one database read failed.** When a single read from D1 failed, a page, a
+  sync connection or an MCP call was an error although asking again would have worked. A plain
+  read (one `SELECT` statement) that fails with one of the errors Cloudflare documents as passing
+  is now sent up to three times, a moment apart. Everything else is sent once, as before: writes,
+  several statements in one, and any other error. ([#320])
+- **A failed database query no longer carries its values.** When a query failed for good, the
+  error held the statement and its values. A failed read of a session was logged with the
+  session's token among them, and a failed read for a page showed them on the error page. The
+  token alone does not sign anyone in: the cookie also carries a signature made with the
+  server's secret. A failure now carries a reference only. The log has the kind of failure and
+  the statement without its values under the same reference, and the page shows a plain sentence
+  with it. To see whether a server ever logged one, search its logs for `Failed query:`.
+  ([#320])
+
+### If you run your own
+
+- **Nothing to do.** If a page shows a reference, the line with the same reference in the
+  Worker's logs says what failed.
+
 ## [0.39.3] - 2026-11-15
 
 An invitation's buttons no longer do nothing when pressed early. There is no migration in this
@@ -1886,6 +1912,7 @@ The first pre-release.
 [#313]: https://github.com/gateweavehq/track/pull/313
 [#314]: https://github.com/gateweavehq/track/pull/314
 [#316]: https://github.com/gateweavehq/track/pull/316
+[#320]: https://github.com/gateweavehq/track/pull/320
 [#295]: https://github.com/gateweavehq/track/pull/295
 [#294]: https://github.com/gateweavehq/track/pull/294
 [#293]: https://github.com/gateweavehq/track/pull/293
