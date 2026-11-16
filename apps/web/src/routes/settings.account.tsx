@@ -16,9 +16,9 @@ import { useDocumentTitle } from "#/lib/title";
 
 // Under /settings because no workspace can be called that, so this takes no workspace's address.
 export const Route = createFileRoute("/settings/account")({
-	beforeLoad: async () => {
+	beforeLoad: async ({ location }) => {
 		const { account, demo, legal, ownsServer } = await getAccount();
-		if (!account) throw redirect({ to: "/login" });
+		if (!account) throw redirect({ to: "/login", search: { redirect: location.href } });
 		return { account, demo, legal, ownsServer };
 	},
 	loader: () => getAssistantGrants(),

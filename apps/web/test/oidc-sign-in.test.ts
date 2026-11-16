@@ -401,6 +401,139 @@ describe("signing in through a provider", () => {
 		expect(await isSignedIn(track, back.cookie)).toBe(false);
 		expect(await userRow(track, email)).toBeNull();
 	});
+
+	// WEB-64. A return that fails with a state Track can still read goes back to the page it set out
+	// from, which the state holds. One with a state used already, or never issued, has nowhere of its
+	// own to go, and went to Better Auth's page.
+	describe("a return that cannot be matched to a sign-in", () => {
+		it("sends a second return with the same state to the sign-in page", async () => {
+			const client = newClient();
+			const email = "twice@oidc.test";
+			const { authorize, cookie } = await pressButton(track, client);
+			const code = provider.grant(authorize, { sub: "sub-twice", email, email_verified: true });
+			const first = await comeBack(track, client, authorize, cookie, code);
+			expect(await isSignedIn(track, first.cookie)).toBe(true);
+
+			const second = await comeBack(track, client, authorize, cookie, code);
+
+			expect(second.location.origin).toBe(origin);
+			expect(second.location.pathname).toBe("/login");
+			expect(second.location.searchParams.get("error")).toBe("state_mismatch");
+			expect(await isSignedIn(track, second.cookie)).toBe(false);
+			// The first return's session is untouched.
+			expect(await isSignedIn(track, first.cookie)).toBe(true);
+		});
+
+		it("sends a return with a state it never issued to the sign-in page", async () => {
+			const client = newClient();
+			const { cookie } = await pressButton(track, client);
+			const query = new URLSearchParams({ code: "any", state: "never-issued", iss: OIDC.issuer });
+
+			const response = await track.fetch(`${origin}/api/auth/callback/oidc?${query}`, {
+				headers: { cookie, "cf-connecting-ip": client },
+			});
+
+			expect(response.status).toBe(302);
+			expect(response.headers.get("location")).toBe("/login?error=state_mismatch");
+			expect(await isSignedIn(track, cookieOf(response))).toBe(false);
+		});
+
+		it("sends a return with no state to the sign-in page", async () => {
+			const response = await track.fetch(`${origin}/api/auth/callback/oidc?code=any`, {
+				headers: { "cf-connecting-ip": newClient() },
+			});
+
+			expect(response.status).toBe(302);
+			expect(response.headers.get("location")).toBe("/login?error=state_not_found");
+		});
+
+		it("keeps where they were headed when the state can still be read", async () => {
+			const client = newClient();
+			const started = await authApi(track, "/sign-in/social", {
+				client,
+				body: {
+					provider: "oidc",
+					callbackURL: "/acme/issue/ENG-1",
+					errorCallbackURL: "/login?redirect=%2Facme%2Fissue%2FENG-1",
+				},
+			});
+			const { url } = (await started.json()) as { url: string };
+			const authorize = new URL(url);
+			const code = provider.grant(authorize, {
+				sub: "sub-other-tab",
+				email: "other-tab@oidc.test",
+				email_verified: true,
+			});
+			// Another tab starts a sign-in, and the browser's one cookie is now that tab's.
+			const other = await pressButton(track, client);
+
+			const back = await comeBack(track, client, authorize, other.cookie, code);
+
+			expect(back.location.pathname).toBe("/login");
+			expect(back.location.searchParams.get("error")).toBe("state_mismatch");
+			expect(back.location.searchParams.get("redirect")).toBe("/acme/issue/ENG-1");
+		});
+
+		it("has no page of Better Auth's left to land on", async () => {
+			const description = "<img src=x onerror=alert(1)>";
+			const query = new URLSearchParams({
+				error: "state_mismatch",
+				error_description: description,
+			});
+
+			const response = await track.fetch(`${origin}/api/auth/error?${query}`);
+
+			expect(response.status).toBe(302);
+			const location = new URL(response.headers.get("location") ?? "", origin);
+			expect(location.origin).toBe(origin);
+			expect(location.pathname).toBe("/login");
+			expect(location.searchParams.get("error")).toBe("state_mismatch");
+		});
+	});
+
+	// Better Auth kept the state for ten minutes and the cookie that proves whose it is for five, so
+	// six minutes at the provider (signing up there with an emailed code) could not end in a sign-in.
+	it("gives someone as long at the provider as it keeps their state", async () => {
+		const client = newClient();
+		const before = Date.now();
+		const response = await authApi(track, "/sign-in/social", {
+			client,
+			body: { provider: "oidc", callbackURL: "/", errorCallbackURL: "/login" },
+		});
+		const { url } = (await response.json()) as { url: string };
+		const state = new URL(url).searchParams.get("state") ?? "";
+
+		const cookies = response.headers.getSetCookie().filter((each) => /^[^=]*\.state=/.test(each));
+		expect(cookies).toHaveLength(1);
+		const attributes = (cookies[0] ?? "").split(";").map((each) => each.trim().toLowerCase());
+		expect(attributes).toContain("max-age=600");
+		// Still what binds the return to this browser: out of a script's reach, and not sent along
+		// with another site's request.
+		expect(attributes).toContain("httponly");
+		expect(attributes).toContain("samesite=lax");
+
+		const row = await track.db
+			.prepare("SELECT expires_at FROM verification WHERE identifier = ?")
+			.bind(`auth-state:${state}`)
+			.first<{ expires_at: number | string }>();
+		const lifetime = new Date(row?.expires_at ?? 0).getTime() - before;
+		expect(lifetime).toBeGreaterThan(599_000);
+		expect(lifetime).toBeLessThan(660_000);
+	});
+
+	it("still refuses a return without the cookie it left with", async () => {
+		const client = newClient();
+		const email = "no-cookie@oidc.test";
+		const { authorize } = await pressButton(track, client);
+		const code = provider.grant(authorize, { sub: "sub-no-cookie", email, email_verified: true });
+
+		const back = await comeBack(track, client, authorize, "", code);
+
+		expect(back.location.pathname).toBe("/login");
+		expect(back.location.searchParams.get("error")).toBe("state_mismatch");
+		expect(await isSignedIn(track, back.cookie)).toBe(false);
+		expect(await userRow(track, email)).toBeNull();
+	});
 });
 
 describe("a provider that is not answering", () => {
@@ -1010,6 +1143,86 @@ describe("the sign-in page", () => {
 		const said = /role="alert"[^>]*>([^<]*)</.exec(made)?.[1];
 		expect(said).toContain("did not work");
 		expect(said).not.toContain("Call this number");
+	});
+
+	/** What the page tells them, since the router also carries its query along in a script. */
+	function saidIn(html: string) {
+		return /role="alert"[^>]*>([^<]*)</.exec(html)?.[1];
+	}
+
+	/** The page without its scripts: what a browser would show before any of them ran. */
+	function shownIn(html: string) {
+		return html.replace(/<script\b[\s\S]*?<\/script>/g, "");
+	}
+
+	it("says a return that no longer matched took too long or was started twice", async () => {
+		const said = saidIn(await page(1, "?error=state_mismatch"));
+		expect(said).toBe("Signing in took too long or was started twice. Try again.");
+	});
+
+	it("keeps its words for the codes it knew", async () => {
+		expect(saidIn(await page(1, "?error=access_denied"))).toContain("You chose not to");
+		expect(saidIn(await page(1, "?error=email_not_found"))).toContain("not given an email");
+		expect(saidIn(await page(1, "?error=SIGN_UP_CLOSED"))).toContain("by invitation");
+	});
+
+	it("has one sentence for a code it does not know", async () => {
+		const unknown = saidIn(await page(1, "?error=state_not_found"));
+		expect(unknown).toContain("did not work");
+		expect(saidIn(await page(1, "?error=internal_server_error"))).toBe(unknown);
+	});
+
+	it("puts nothing a link says on the page", async () => {
+		const markup = '<img src=x onerror="alert(1)">';
+		const unknown = new URLSearchParams({ error: markup, error_description: `${markup}Call 555` });
+		const made = await page(1, `?${unknown}`);
+		expect(saidIn(made)).toContain("did not work");
+		// Not as markup anywhere, the router's script included, and not as text in any element.
+		expect(made).not.toContain("<img src=x");
+		expect(shownIn(made)).not.toContain("Call 555");
+
+		const known = new URLSearchParams({
+			error: "state_mismatch",
+			error_description: `${markup}Call 555`,
+		});
+		const explained = await page(1, `?${known}`);
+		expect(saidIn(explained)).toBe("Signing in took too long or was started twice. Try again.");
+		expect(explained).not.toContain("<img src=x");
+		expect(shownIn(explained)).not.toContain("Call 555");
+	});
+
+	it("says nothing when nothing went wrong", async () => {
+		expect(saidIn(await page(1))).toBeUndefined();
+	});
+
+	it("sends someone already signed in on, whatever the link says went wrong", async () => {
+		const cookie = await signUpWithPassword(track, "signed-in@oidc.test");
+		const to = async (query: string) => {
+			const response = await track.fetch(`${origin}/login${query}`, { headers: { cookie } });
+			expect(response.status).toBeGreaterThanOrEqual(300);
+			expect(response.status).toBeLessThan(400);
+			return response.headers.get("location");
+		};
+
+		expect(await to("?error=state_mismatch")).toBe("/");
+		expect(await to("?error=state_mismatch&redirect=%2Fsettings%2Faccount")).toBe(
+			"/settings/account",
+		);
+		for (const elsewhere of ["https://example.com", "//example.com", "/\\example.com"]) {
+			const query = new URLSearchParams({ error: "state_mismatch", redirect: elsewhere });
+			expect(await to(`?${query}`)).toBe("/");
+		}
+	});
+
+	it("remembers the account page for someone who opens it signed out", async () => {
+		const response = await track.fetch(`${origin}/settings/account`);
+
+		expect(response.status).toBeGreaterThanOrEqual(300);
+		expect(response.status).toBeLessThan(400);
+		const location = new URL(response.headers.get("location") ?? "", origin);
+		expect(location.origin).toBe(origin);
+		expect(location.pathname).toBe("/login");
+		expect(location.searchParams.get("redirect")).toBe("/settings/account");
 	});
 });
 

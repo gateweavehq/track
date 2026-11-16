@@ -119,6 +119,12 @@ export function createAuth(config: AuthConfig) {
 		baseURL: config.baseURL,
 		database: drizzleAdapter(config.db, { provider: "sqlite", schema }),
 		telemetry: { enabled: false },
+		// Where a return from GitHub or the provider goes when it fails with nothing to say where it
+		// set out from: a state used already or never issued, or no state at all. Better Auth's own
+		// page otherwise, which is not Track's and links to its documentation. The sign-in page
+		// explains the code in words of its own (`sign-in-refusal.ts`). An agent's authorization that
+		// is refused before its redirect address is known to be its own comes here too.
+		onAPIError: { errorURL: SIGN_IN_PAGE },
 		// Better Auth only turns its limiter on by itself when NODE_ENV is "production", which a
 		// Worker never sets. Its built-in rules allow 3 sign-ins per 10 seconds per client. It
 		// stays on in local dev too, so what works there works deployed.
@@ -149,6 +155,11 @@ export function createAuth(config: AuthConfig) {
 			// Only the attribute: `useSecureCookies` would also rename the cookies to `__Secure-...`,
 			// which signs everyone out.
 			...(config.secureCookies && { defaultCookieAttributes: { secure: true } }),
+			// The cookie that ties a return from GitHub or the provider to the browser that left for
+			// it. Better Auth gives it five minutes and the state it names ten (`state.mjs`, 1.7), so
+			// someone who took six at the provider, signing up there with an emailed code, came back
+			// to a sign-in that could not finish. The check is the same; the two now end together.
+			cookies: { state: { attributes: { maxAge: OAUTH_STATE_LIFETIME_SECONDS } } },
 			// Email goes out after the response. For password reset this also keeps the response
 			// time the same whether or not the account exists.
 			...(config.runInBackground && {
@@ -489,6 +500,14 @@ export type Auth = ReturnType<typeof createAuth>;
 
 /** What a client may send to an auth path that has no rule of its own: Better Auth's default. */
 export const DEFAULT_AUTH_LIMIT = { window: 10, max: 100 };
+
+const SIGN_IN_PAGE = "/login";
+
+/**
+ * How long someone may take at GitHub or the provider before coming back: as long as Better Auth
+ * keeps the state they left with (`generateGenericState` and `generateState`, 1.7).
+ */
+export const OAUTH_STATE_LIFETIME_SECONDS = 10 * 60;
 
 export const INVITATION_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 

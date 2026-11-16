@@ -164,3 +164,47 @@ test("an agent's authorization carries on after signing in through the provider"
 	expect(back.searchParams.get("state")).toBe("1e5");
 	expect(back.searchParams.get("code")).toBeTruthy();
 });
+
+test("a return that arrives a second time ends on Track's own page, and signing in again works", async ({
+	page,
+	context,
+}) => {
+	const person = someone();
+	await providerKnows(context, person);
+	const returned = page.waitForRequest(/\/api\/auth\/callback\/oidc\?/);
+	await pressButton(page);
+	const callback = (await returned).url();
+	await expect(page.getByRole("heading", { name: "Workspaces" })).toBeVisible();
+
+	// The same return again, as a provider that answers twice sends it. They are signed in by now.
+	await page.goto(callback);
+	await expect(page.getByRole("heading", { name: "Workspaces" })).toBeVisible();
+	expect(new URL(page.url()).pathname).toBe("/");
+
+	// And once more in a browser that is not: the state is used, so this is nobody's sign-in.
+	await context.clearCookies();
+	await providerKnows(context, person);
+	await page.goto(callback);
+
+	await expect(page).toHaveURL(/\/login\?error=state_mismatch$/);
+	await expect(page.getByRole("alert")).toHaveText(
+		"Signing in took too long or was started twice. Try again.",
+	);
+	await expect(page.getByText("better-auth")).toHaveCount(0);
+
+	await waitForHydration(page);
+	await page.getByRole("button", { name: BUTTON }).click();
+	await expect(page.getByRole("heading", { name: "Workspaces" })).toBeVisible();
+});
+
+test("the account page opened signed out is where signing in ends", async ({ page, context }) => {
+	await providerKnows(context, someone());
+
+	await page.goto("/settings/account");
+	await expect(page).toHaveURL(/\/login\?redirect=%2Fsettings%2Faccount$/);
+	await waitForHydration(page);
+	await page.getByRole("button", { name: BUTTON }).click();
+
+	await expect(page).toHaveURL(/\/settings\/account$/);
+	await expect(page.getByRole("heading", { name: "Your account" })).toBeVisible();
+});
