@@ -17,8 +17,9 @@ Puts back a guard that v0.39.4 dropped by mistake. There is no migration in this
 - **A server function's request from another origin is refused again.** The framework refuses
   such a request unless the browser says it comes from the app's own origin. v0.39.4 added a file
   that replaced the framework's default without listing that guard, so for some hours it did not
-  run. A page on an unrelated site could not act as a signed-in person, because browsers keep
-  the session cookie off its requests; a page on another host of the same site (another
+  run. The session cookie is `SameSite=Lax`, which browsers keep off another site's `POST`
+  requests, and everything that changes something is a `POST`, so a page on an unrelated site
+  could not act as a signed-in person in such a browser. A page on another host of the same site (another
   subdomain of the deployment's domain) could have, for the settings a workspace's pages change:
   webhooks, the GitHub connection, notification settings, a guided team. Issues and everything
   that syncs go through the sync gateway, which checks the origin itself and was not affected.
