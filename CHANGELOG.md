@@ -8,6 +8,21 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.39.6] - 2026-11-16
+
+A guard that cannot read the session now refuses. There is no migration in this release.
+
+### Fixed
+
+- **A guard that cannot read the session refuses.** The guards on listing a workspace's
+  invitations and on counting password tries decide by the caller's session. When a session
+  cookie is present and the session cannot be read, they now refuse the request instead of
+  leaving the decision to the endpoint. Nothing changes when the database answers. ([#324])
+
+### If you run your own
+
+- **Update.**
+
 ## [0.39.5] - 2026-11-16
 
 Puts back a guard that v0.39.4 dropped by mistake. There is no migration in this release.
@@ -1935,6 +1950,7 @@ The first pre-release.
 [#316]: https://github.com/gateweavehq/track/pull/316
 [#320]: https://github.com/gateweavehq/track/pull/320
 [#322]: https://github.com/gateweavehq/track/pull/322
+[#324]: https://github.com/gateweavehq/track/pull/324
 [#295]: https://github.com/gateweavehq/track/pull/295
 [#294]: https://github.com/gateweavehq/track/pull/294
 [#293]: https://github.com/gateweavehq/track/pull/293
