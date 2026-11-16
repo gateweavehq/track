@@ -38,7 +38,7 @@ jobs:
           # And without quoting, so a path with a letter outside ASCII still matches the patterns.
           code=false
           app=false
-          while read -r file; do
+          while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
               docs/*|*.md|.claude/*|LICENSE) ;;
