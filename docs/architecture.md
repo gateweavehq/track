@@ -113,9 +113,11 @@ a report that failed. Both close with `4401`.
 Everything in the Worker that asks D1 asks through `createDb` (`apps/web/src/server/db/index.ts`):
 Better Auth and its plugins, the sync, MCP and file gateways, the pages' server functions, intake,
 connecting an agent, the unsubscribe link, the `Backup` entrypoint and the daily run. It does two
-things to the database Drizzle makes. The workspaces' Durable Objects are not part of this: they
-use Drizzle's synchronous SQLite driver inside the object, which has no network between a query
-and its answer and does not make the error described below.
+things to the database Drizzle makes. A workspace's own storage is not part of this: the Durable
+Object uses Drizzle's synchronous SQLite driver inside the object, which has no network between a
+query and its answer and does not make the error described below. What the object's alarm asks
+of D1 is: the inbox and requester emails and push read people and their settings through this
+same database, between the object's transactions and never inside one.
 
 - **A read that fails for a moment is sent again**, up to three times in all
   (`apps/web/src/server/db/retry-reads.ts`), before a page or a session check is told. D1 can fail
