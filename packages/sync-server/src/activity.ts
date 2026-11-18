@@ -69,7 +69,9 @@ export function mergeActivity(
 	const previous = latest.change;
 	switch (change.type) {
 		case "comment":
-			return append;
+			return previous.type === "comment" && previous.commentId === change.commentId
+				? { kind: "skip" }
+				: append;
 		case "description":
 			return previous.type === "description" ? { kind: "skip" } : { kind: "append" };
 		case "label":

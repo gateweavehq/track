@@ -437,6 +437,16 @@ describe("Track MCP tools", () => {
 		expect(workspace.queries).toEqual([]);
 	});
 
+	it("accepts MCP request metadata alongside strict tool arguments", async () => {
+		const result = await client.callTool({
+			name: "search_issues",
+			arguments: { workspace: "acme", text: "light" },
+			_meta: { progressToken: "search-progress" },
+		});
+		expect(result.isError).toBeFalsy();
+		expect(workspace.queries).toHaveLength(1);
+	});
+
 	it("refuses unknown fields on other tools, including the no-argument tool", async () => {
 		const extra = await call("create_issue", {
 			workspace: "acme",

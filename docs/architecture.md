@@ -740,7 +740,9 @@ does, and then reads or mutates through the Durable Object's RPC (see
 reported as not found. The tools themselves live in `apps/web/src/server/mcp/tools.ts`. Agents
 read an issue's comments with `get_issue`, write one with `add_comment`, and edit their own with
 `update_comment`, as the person. A comment edit records its previous text in the issue's activity
-history. `create_issue` and `update_issue` return a short summary: key, title, status,
+history. Everyone who can see the issue can read that previous text, even after the comment is
+deleted. A secret pasted by mistake must be rotated; editing or deleting the comment does not
+remove it from history. `create_issue` and `update_issue` return a short summary: key, title, status,
 statusName, priority, assignee, labels, project, url, updatedAt and creator. They return the description
 only with `include: ["description"]`; `get_issue` still returns the full issue. They
 mention people as the app does, with `[@Name](mention:<member id>)`, which the tools' descriptions

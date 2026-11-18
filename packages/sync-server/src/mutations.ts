@@ -1125,6 +1125,18 @@ function createComment(
 	changes.events.push({ type: "comment.created", comment: row });
 }
 
+/** Keep one bounded copy of the text before an edit in issue history. */
+export const COMMENT_HISTORY_TRUNCATION = "\n\n[… truncated]";
+const COMMENT_HISTORY_LIMIT = 20_000;
+
+function historyText(body: string): string {
+	if (body.length <= COMMENT_HISTORY_LIMIT) return body;
+	let end = COMMENT_HISTORY_LIMIT - COMMENT_HISTORY_TRUNCATION.length;
+	const last = body.charCodeAt(end - 1);
+	if (last >= 0xd800 && last <= 0xdbff) end--;
+	return body.slice(0, end) + COMMENT_HISTORY_TRUNCATION;
+}
+
 /** A comment says what its author said, so nobody else can change it, admins included. */
 function updateComment(
 	db: Db,
@@ -1158,7 +1170,7 @@ function updateComment(
 			recordActivity(db, changes, issue, actor.member.userId, {
 				type: "comment",
 				commentId: comment.id,
-				from: comment.body,
+				from: historyText(comment.body),
 			});
 		}
 	}

@@ -1062,7 +1062,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Update comment",
 			description:
-				"Edits the text of your own comment on an issue. Only its author can edit it, including agent members; nobody can edit another member's comment. The previous text stays in the issue's history.",
+				"Only its author may edit a comment. Its previous text stays visible in issue history to everyone who can see the issue, even after deletion. Rotate a secret pasted by mistake; editing it away will not remove it.",
 			inputSchema: strictInput("update_comment", {
 				workspace: workspaceInput,
 				key: keyInput,

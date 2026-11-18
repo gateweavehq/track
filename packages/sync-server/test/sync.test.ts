@@ -25,6 +25,7 @@ import type { MemberProfile, MutateResult, SocketSession } from "../src";
 import { ARCHIVE_ROW_ALLOWANCE, archiveSize } from "../src/archive";
 import * as schema from "../src/db/schema";
 import { compact } from "../src/log";
+import { COMMENT_HISTORY_TRUNCATION } from "../src/mutations";
 import {
 	freshWorkspace,
 	SESSION,
@@ -3094,6 +3095,41 @@ describe("comments", () => {
 		expect((await snapshotOf(workspace)).activities.map((entry) => entry.change)).toEqual([
 			{ type: "comment", commentId: "comment-1", from: "First!" },
 		]);
+	});
+
+	it("keeps the first text of a burst and separate histories for separate comments", async () => {
+		const { workspace, admin } = await withTeam();
+		const author = await TestClient.live(workspace, alice);
+		const issue = await createIssue(admin, "issue-comment-history");
+		await comment(author, "first", issue.id, "Original");
+		await comment(author, "second", issue.id, "Other original");
+		await author.apply({ name: "comment.update", args: { id: "first", body: "Middle" } });
+		await author.apply({ name: "comment.update", args: { id: "first", body: "Final" } });
+		expect((await snapshotOf(workspace)).activities.map((entry) => entry.change)).toEqual([
+			{ type: "comment", commentId: "first", from: "Original" },
+		]);
+		await author.apply({ name: "comment.update", args: { id: "second", body: "Other final" } });
+		expect((await snapshotOf(workspace)).activities.map((entry) => entry.change)).toEqual([
+			{ type: "comment", commentId: "first", from: "Original" },
+			{ type: "comment", commentId: "second", from: "Other original" },
+		]);
+	});
+
+	it("caps previous comment text without cutting a surrogate pair and keeps it after deletion", async () => {
+		const { workspace, admin } = await withTeam();
+		const author = await TestClient.live(workspace, alice);
+		const issue = await createIssue(admin, "issue-long-comment");
+		const original = `${"a".repeat(19_984)}😀${"b".repeat(80_000)}`;
+		await comment(author, "long", issue.id, original);
+		await author.apply({ name: "comment.update", args: { id: "long", body: "Revised" } });
+		await author.apply({ name: "comment.delete", args: { id: "long" } });
+		const change = (await snapshotOf(workspace)).activities[0]?.change;
+		expect(change).toEqual({
+			type: "comment",
+			commentId: "long",
+			from: `${"a".repeat(19_984)}${COMMENT_HISTORY_TRUNCATION}`,
+		});
+		if (change?.type === "comment") expect(change.from.length).toBeLessThanOrEqual(20_000);
 	});
 
 	it("lets an agent edit its own comment but not a person's", async () => {

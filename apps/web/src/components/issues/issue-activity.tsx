@@ -30,7 +30,7 @@ import {
 	Tag,
 	UserRound,
 } from "lucide-react";
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { type ReactNode, useId, useMemo, useRef, useState } from "react";
 import { Markdown } from "#/components/markdown";
 import { MemberAvatar } from "#/components/members/member-avatar";
 import { useMentions } from "#/components/mention-menu";
@@ -340,7 +340,7 @@ function describe(
 		case "description":
 			return plain(FileText, "updated the description");
 		case "comment":
-			return plain(Pencil, <span title={`Was “${change.from}”`}>edited a comment</span>);
+			return plain(Pencil, <CommentEditDescription from={change.from} />);
 		case "intake":
 			return change.accepted
 				? plain(Inbox, "accepted the request")
@@ -400,6 +400,33 @@ function describe(
 				),
 			);
 	}
+}
+
+/** A comment edit in history, with its previous text behind a button that works by keyboard and touch. */
+export function CommentEditDescription({ from }: { from: string }) {
+	const [open, setOpen] = useState(false);
+	const id = useId();
+	return (
+		<>
+			edited a comment{" "}
+			<button
+				type="button"
+				aria-expanded={open}
+				aria-controls={id}
+				onClick={() => setOpen((value) => !value)}
+				className="text-foreground underline-offset-2 hover:underline"
+			>
+				{open ? "Hide the previous text" : "Show the previous text"}
+			</button>
+			<span
+				id={id}
+				hidden={!open}
+				className="mt-1 block whitespace-pre-wrap break-words rounded-md border bg-muted/30 px-2 py-1 text-sm text-foreground"
+			>
+				{from}
+			</span>
+		</>
+	);
 }
 
 function relationText(kind: RelationKind, added: boolean, other: ReactNode): ReactNode {
