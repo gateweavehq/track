@@ -62,6 +62,7 @@ export function AgentsSettings({
 					{!admin && " Admins create agents and their keys."}
 				</p>
 			</div>
+			{mcpUrl && <PersonalMcpSetup mcpUrl={mcpUrl} />}
 			{admin && !mcpUrl && (
 				<p className="rounded-lg border bg-muted/40 p-3 text-sm">
 					MCP is off on this server, so agents cannot connect yet. Set{" "}
@@ -82,6 +83,51 @@ export function AgentsSettings({
 						))}
 					</ul>
 				))}
+		</section>
+	);
+}
+
+function PersonalMcpSetup({ mcpUrl }: { mcpUrl: string }) {
+	const prompt = [
+		"Connect my AI assistant to Gateweave Track using this remote MCP endpoint:",
+		mcpUrl,
+		"Use the MCP client's browser-based OAuth sign-in so it acts as me. Do not ask me to paste a password or agent key into chat.",
+		"After connecting, call list_workspaces to discover my workspaces. Then call get_workspace with the chosen workspace slug to learn its teams and statuses before creating or changing issues.",
+		"For unattended automation, ask a workspace admin to create a separate agent member in Settings > Agents.",
+	].join("\n\n");
+
+	async function copy(text: string, what: string) {
+		try {
+			await navigator.clipboard.writeText(text);
+			toast.success(`${what} copied`);
+		} catch {
+			toast.error(`Could not copy the ${what.toLowerCase()}`);
+		}
+	}
+
+	return (
+		<section className="space-y-3 rounded-lg border p-4" aria-labelledby="personal-mcp-heading">
+			<div className="space-y-1">
+				<h3 id="personal-mcp-heading" className="text-sm font-semibold">
+					Connect your AI assistant
+				</h3>
+				<p className="text-sm text-muted-foreground">
+					Use the remote MCP endpoint below in a client that supports HTTP and OAuth. Sign in as
+					yourself in the browser; it receives the same workspace rights you have. A separate agent
+					member and key are for unattended work.
+				</p>
+			</div>
+			<code className="block break-all rounded-md bg-muted p-2 font-mono text-xs">{mcpUrl}</code>
+			<div className="flex flex-wrap gap-2">
+				<Button variant="outline" size="sm" onClick={() => copy(mcpUrl, "MCP URL")}>
+					<Copy />
+					Copy MCP URL
+				</Button>
+				<Button variant="outline" size="sm" onClick={() => copy(prompt, "Setup prompt")}>
+					<Copy />
+					Copy setup prompt
+				</Button>
+			</div>
 		</section>
 	);
 }
