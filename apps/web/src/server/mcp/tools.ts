@@ -175,6 +175,32 @@ const issueDetail = issueSummary.extend({
 		),
 	createdAt: z.string(),
 });
+const issueWriteOutput = issueSummary
+	.pick({
+		key: true,
+		title: true,
+		status: true,
+		statusName: true,
+		priority: true,
+		assignee: true,
+		labels: true,
+		project: true,
+		url: true,
+		updatedAt: true,
+	})
+	.extend({
+		creator: z
+			.string()
+			.nullable()
+			.describe(
+				"The creator's email, or for what made it on its own the name: Track, GitHub, Request form or Email.",
+			),
+		description: z.string().nullable().optional(),
+	});
+const includeDescription = z
+	.array(z.literal("description"))
+	.optional()
+	.describe('Pass ["description"] to return the issue description in the answer.');
 const relationOutput = z.looseObject({
 	relation: z.string().describe(RELATION_HELP),
 	key: z.string().describe("The other issue's key."),
@@ -184,6 +210,7 @@ const relationOutput = z.looseObject({
 	url: z.string(),
 });
 const commentOutput = z.looseObject({
+	id: z.string(),
 	author: z
 		.string()
 		.nullable()
@@ -289,6 +316,19 @@ const PROPOSALS_NOTE =
 /** A failure the agent can act on. Reported as a tool error, not thrown to the client. */
 class ToolError extends Error {}
 
+/** Keep advertised inputs and runtime validation in sync, with an actionable unknown-field error. */
+function strictInput<Shape extends Record<string, z.ZodType>>(name: string, shape: Shape) {
+	return z.strictObject(shape, {
+		error: (issue) => {
+			if (issue.code !== "unrecognized_keys") return undefined;
+			const fields = issue.keys.map((key) => JSON.stringify(key));
+			const accepted = Object.keys(shape).join(", ") || "no fields";
+			const hint = name === "search_issues" ? ' To search words, use "text".' : "";
+			return `Unknown field${fields.length === 1 ? "" : "s"} ${fields.join(", ")}. ${name} accepts: ${accepted}.${hint}`;
+		},
+	});
+}
+
 /** Builds the MCP server for one request. */
 export function createTrackServer(access: TrackAccess): McpServer {
 	const server = new McpServer({ name: "gateweave-track", version: "1.0.0" });
@@ -298,6 +338,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "List workspaces",
 			description: "Lists the Track workspaces you belong to. Start here to find a slug.",
+			inputSchema: strictInput("list_workspaces", {}),
 			outputSchema: z.looseObject({
 				workspaces: z.array(
 					z.looseObject({ slug: z.string(), name: z.string(), role: z.enum(MEMBER_ROLES) }),
@@ -314,7 +355,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			title: "Get workspace",
 			description:
 				"Lists a workspace's teams (whose keys prefix issue keys) with their statuses and issue templates, the current and upcoming cycles of the teams that work in cycles, its labels, its projects, its members (who can be assignees), and which member you are.",
-			inputSchema: z.object({ workspace: workspaceInput }),
+			inputSchema: strictInput("get_workspace", { workspace: workspaceInput }),
 			outputSchema: z.looseObject({
 				teams: z.array(
 					z.looseObject({
@@ -492,8 +533,8 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Search issues",
 			description:
-				"Finds issues in a workspace. Every filter is optional. With text, the best matches come first; otherwise the most recently updated.",
-			inputSchema: z.object({
+				"Finds issues in a workspace. Put the words to search in text. Every filter is optional. With text, every word must match the start of a word in the key, title, description or comments, ignoring case and accents; non-matching issues are excluded and the best matches come first. Otherwise the most recently updated come first.",
+			inputSchema: strictInput("search_issues", {
 				workspace: workspaceInput,
 				team: z.string().optional().describe("A team key, such as ENG."),
 				status: z
@@ -566,7 +607,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			title: "Get issue",
 			description:
 				"Reads one issue, including its description, its sub-issues, its relations to other issues, its comments, oldest first, the changes agents proposed that wait for a person, and the pull requests on GitHub that mention it.",
-			inputSchema: z.object({ workspace: workspaceInput, key: keyInput }),
+			inputSchema: strictInput("get_issue", { workspace: workspaceInput, key: keyInput }),
 			outputSchema: issueDetail.extend({
 				subIssues: z.array(issueSummary),
 				relations: z.array(relationOutput),
@@ -615,8 +656,8 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"create_issue",
 		{
 			title: "Create issue",
-			description: `Creates an issue in a team, and in a project, a cycle or under a parent issue if you name one. It can start from one of the team's templates. It goes to the end of the manual order. ${PROPOSALS_NOTE}`,
-			inputSchema: z.object({
+			description: `Creates an issue in a team, and in a project, a cycle or under a parent issue if you name one. It can start from one of the team's templates. It goes to the end of the manual order. Returns a short issue summary; pass include: ["description"] to return its description. ${PROPOSALS_NOTE}`,
+			inputSchema: strictInput("create_issue", {
 				workspace: workspaceInput,
 				team: z.string().describe("The team's key, such as ENG."),
 				template: z
@@ -629,6 +670,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					),
 				title: z.string().trim().min(1).max(512),
 				description: z.string().max(100_000).optional().describe(MENTION_HELP),
+				include: includeDescription,
 				status: statusInput
 					.optional()
 					.describe(
@@ -650,7 +692,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						"True files it as a request in the team's intake, out of lists until a person accepts or declines it.",
 					),
 			}),
-			outputSchema: issueDetail.extend({ proposed: proposedOutput }),
+			outputSchema: issueWriteOutput.extend({ proposed: proposedOutput }),
 			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
 		},
 		(input) =>
@@ -692,7 +734,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					},
 				});
 				return withProposed(
-					await detail(access, workspace, directory, await reread(workspace, id)),
+					writeSummary(access, workspace, directory, await reread(workspace, id), input.include),
 					directory,
 					proposed,
 				);
@@ -703,8 +745,8 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"update_issue",
 		{
 			title: "Update issue",
-			description: `Changes an issue's title, description, status, priority, assignee, project, cycle, labels, parent, dates or estimate, or archives or restores it. Fields you leave out stay as they are. ${PROPOSALS_NOTE}`,
-			inputSchema: z.object({
+			description: `Changes an issue's title, description, status, priority, assignee, project, cycle, labels, parent, dates or estimate, or archives or restores it. Fields you leave out stay as they are. Returns a short issue summary; pass include: ["description"] to return its description. ${PROPOSALS_NOTE}`,
+			inputSchema: strictInput("update_issue", {
 				workspace: workspaceInput,
 				key: keyInput,
 				title: z.string().trim().min(1).max(512).optional(),
@@ -714,6 +756,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					.nullable()
 					.optional()
 					.describe(`${MENTION_HELP} Null clears it.`),
+				include: includeDescription,
 				status: statusInput.optional(),
 				priority: priorityInput.optional(),
 				assignee: assigneeInput.optional(),
@@ -750,7 +793,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						"True archives a completed or canceled issue, taking it out of lists; false restores it. Reopening an issue restores it too.",
 					),
 			}),
-			outputSchema: issueDetail.extend({ proposed: proposedOutput }),
+			outputSchema: issueWriteOutput.extend({ proposed: proposedOutput }),
 			annotations: {
 				readOnlyHint: false,
 				destructiveHint: false,
@@ -835,7 +878,13 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					);
 				}
 				return withProposed(
-					await detail(access, workspace, directory, await reread(workspace, issue.id)),
+					writeSummary(
+						access,
+						workspace,
+						directory,
+						await reread(workspace, issue.id),
+						input.include,
+					),
 					directory,
 					proposed,
 				);
@@ -848,7 +897,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			title: "Link issues",
 			description:
 				"Relates an issue to another, in any team: one blocks the other, duplicates it, or is related to it. Two issues have one relation at most, so this replaces the one they have. Returns the issue's relations.",
-			inputSchema: z.object({
+			inputSchema: strictInput("link_issues", {
 				workspace: workspaceInput,
 				key: keyInput,
 				relation: z.enum(RELATION_KINDS).describe(RELATION_HELP),
@@ -884,7 +933,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			title: "Unlink issues",
 			description:
 				"Removes the relation between two issues, whatever it is. Returns the issue's relations.",
-			inputSchema: z.object({
+			inputSchema: strictInput("unlink_issues", {
 				workspace: workspaceInput,
 				key: keyInput,
 				from: z.string().min(1).describe("The other issue's key, such as DES-7."),
@@ -919,7 +968,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			title: "Triage request",
 			description:
 				"Accepts a request waiting in its team's intake into the team's workflow, keeping its status or moving it to an open one, or declines it into the team's first canceled status with an optional reply as a comment. Only people decide: called by an agent member, the decision, with the reply it drafted, is not made but comes back under proposed, for a person to accept or dismiss.",
-			inputSchema: z.object({
+			inputSchema: strictInput("triage_request", {
 				workspace: workspaceInput,
 				key: keyInput,
 				decision: z.enum(["accept", "decline"]),
@@ -984,7 +1033,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Add comment",
 			description: "Comments on an issue as you. Everyone in the workspace sees it at once.",
-			inputSchema: z.object({
+			inputSchema: strictInput("add_comment", {
 				workspace: workspaceInput,
 				key: keyInput,
 				body: z.string().trim().min(1).max(100_000).describe(MENTION_HELP),
@@ -1009,12 +1058,52 @@ export function createTrackServer(access: TrackAccess): McpServer {
 	);
 
 	server.registerTool(
+		"update_comment",
+		{
+			title: "Update comment",
+			description:
+				"Only its author may edit a comment. Its previous text stays visible in issue history to everyone who can see the issue, even after deletion. Rotate a secret pasted by mistake; editing it away will not remove it.",
+			inputSchema: strictInput("update_comment", {
+				workspace: workspaceInput,
+				key: keyInput,
+				id: z.string().min(1).describe("The comment id from get_issue or add_comment."),
+				body: z.string().trim().min(1).max(100_000).describe(MENTION_HELP),
+			}),
+			outputSchema: commentOutput,
+			annotations: {
+				readOnlyHint: false,
+				destructiveHint: false,
+				idempotentHint: true,
+				openWorldHint: false,
+			},
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				const issue = await findIssue(workspace, input.key);
+				const before = (await workspace.comments(issue.id)).find(
+					(comment) => comment.id === input.id,
+				);
+				if (!before) throw new ToolError("Comment not found.");
+				await apply(workspace, {
+					name: "comment.update",
+					args: { id: before.id, body: input.body },
+				});
+				const after = (await workspace.comments(issue.id)).find(
+					(comment) => comment.id === before.id,
+				);
+				if (!after) throw new ToolError("Comment not found.");
+				return commentView(await workspace.directory(), after);
+			}),
+	);
+
+	server.registerTool(
 		"create_label",
 		{
 			title: "Create label",
 			description:
 				"Creates a label that any issue in the workspace can have. Names are unique, ignoring case.",
-			inputSchema: z.object({
+			inputSchema: strictInput("create_label", {
 				workspace: workspaceInput,
 				name: z.string().trim().min(1).max(64),
 				color: z
@@ -1046,7 +1135,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			title: "Create team",
 			description:
 				"Creates a team, which groups issues and gives them their key prefix. Only workspace admins can create teams. Use it to set up a new workspace before creating issues.",
-			inputSchema: z.object({
+			inputSchema: strictInput("create_team", {
 				workspace: workspaceInput,
 				name: z.string().trim().min(1).max(64),
 				key: z
@@ -1092,7 +1181,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			title: "Create project",
 			description:
 				"Creates a project, a goal that groups issues across teams. Put issues in it with create_issue or update_issue. Only people can create projects, not agent members.",
-			inputSchema: z.object({
+			inputSchema: strictInput("create_project", {
 				workspace: workspaceInput,
 				name: projectNameInput,
 				description: projectDescriptionInput.optional(),
@@ -1131,7 +1220,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			title: "Update project",
 			description:
 				"Changes a project's name, description, status, lead or target date. Fields you leave out stay as they are. Only people can change projects, not agent members.",
-			inputSchema: z.object({
+			inputSchema: strictInput("update_project", {
 				workspace: workspaceInput,
 				project: projectInput,
 				name: projectNameInput.optional(),
@@ -1183,7 +1272,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			title: "Post project update",
 			description:
 				"Posts an update on how a project is going, as you: its health and what you have to say. The latest update gives the project its health. Everyone in the workspace sees it at once, and agent members can post too.",
-			inputSchema: z.object({
+			inputSchema: strictInput("post_project_update", {
 				workspace: workspaceInput,
 				project: projectInput,
 				health: z
@@ -1223,7 +1312,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			title: "List project updates",
 			description:
 				"Reads a project's updates, the latest first: how it has been going, in its people's words.",
-			inputSchema: z.object({
+			inputSchema: strictInput("list_project_updates", {
 				workspace: workspaceInput,
 				project: projectInput,
 				limit: z.number().int().min(1).max(100).default(10),
@@ -1250,7 +1339,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 			title: "Get insights",
 			description:
 				"How a team's or a project's work has gone over the last weeks: issues created and closed each week, the median cycle time (from first started to done), and where the open issues are now. Give a team or a project, not both. Use it to write a status summary, such as a project update.",
-			inputSchema: z.object({
+			inputSchema: strictInput("get_insights", {
 				workspace: workspaceInput,
 				team: z.string().min(1).optional().describe("A team key, such as ENG."),
 				project: projectInput.optional(),
@@ -1647,7 +1736,7 @@ async function relationViews(
 }
 
 /** An issue's detail, with what the call proposed when it proposed anything. */
-function withProposed(issue: IssueDetail, directory: Directory, proposed: Proposal[]) {
+function withProposed<T extends object>(issue: T, directory: Directory, proposed: Proposal[]) {
 	if (proposed.length === 0) return issue;
 	return { ...issue, proposed: proposed.map((proposal) => proposalView(directory, proposal)) };
 }
@@ -1681,10 +1770,36 @@ function proposalView(directory: Directory, { change }: Proposal): ProposalOutpu
 
 function commentView(directory: Directory, comment: Comment): CommentOutput {
 	return {
+		id: comment.id,
 		author: actorOf(directory, comment.authorId),
 		body: comment.body,
 		createdAt: new Date(comment.createdAt).toISOString(),
 		edited: comment.updatedAt > comment.createdAt,
+	};
+}
+
+function writeSummary(
+	access: TrackAccess,
+	workspace: WorkspaceAccess,
+	directory: Directory,
+	issue: Issue,
+	include?: readonly "description"[],
+) {
+	const { key, title, status, statusName, priority, assignee, labels, project, url, updatedAt } =
+		summarize(access, workspace, directory, issue);
+	return {
+		key,
+		title,
+		status,
+		statusName,
+		priority,
+		assignee,
+		labels,
+		project,
+		url,
+		updatedAt,
+		creator: actorOf(directory, issue.creatorId),
+		...(include?.includes("description") && { description: issue.description }),
 	};
 }
 

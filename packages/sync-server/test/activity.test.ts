@@ -104,6 +104,19 @@ describe("mergeActivity", () => {
 		).toEqual({ kind: "skip" });
 	});
 
+	it("merges only consecutive edits to the same comment by the same actor in the window", () => {
+		const first = { type: "comment", commentId: "one", from: "Original" } as const;
+		const next = { type: "comment", commentId: "one", from: "Revised" } as const;
+		expect(mergeActivity(latest(first), issue, "user-a", next, later)).toEqual({ kind: "skip" });
+		expect(mergeActivity(latest(first), issue, "user-b", next, later)).toEqual({ kind: "append" });
+		expect(
+			mergeActivity(latest(first), issue, "user-a", next, later + ACTIVITY_MERGE_WINDOW_MS + 1),
+		).toEqual({ kind: "append" });
+		expect(
+			mergeActivity(latest(first), issue, "user-a", { ...next, commentId: "two" }, later),
+		).toEqual({ kind: "append" });
+	});
+
 	it("keeps an accepted proposal in an entry of its own, so the history says whose idea it was", () => {
 		const next: ActivityChange = { type: "status", from: "todo", to: "done" };
 		const own = latest({ type: "status", from: "backlog", to: "todo" });

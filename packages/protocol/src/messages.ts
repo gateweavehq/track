@@ -24,7 +24,7 @@ import type { MutationInput } from "./mutations";
 import type { WorkflowStatus } from "./statuses";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 26;
+export const PROTOCOL_VERSION = 27;
 
 /**
  * How long the server remembers that a mutation id was applied. A resend within this time is

@@ -56,28 +56,28 @@ different protocol versions in production. It also gives self-hosters one thing 
 
 ## Data ownership
 
-| Data                                 | Lives in     | Owner                                     |
-| ------------------------------------ | ------------ | ----------------------------------------- |
-| Users, sessions, OAuth accounts      | D1           | Better Auth                               |
-| Workspaces, members, invitations     | D1           | Better Auth organization plugin           |
-| OAuth clients, grants, signing keys  | D1           | Better Auth MCP plugin                    |
-| Agent members' keys (hashed)         | D1           | Track's agent members plugin              |
-| Who runs the server, sign-up setting | D1           | Track's deployment plugin                 |
-| Sign-up list (addresses, notes)      | D1           | Track's deployment plugin                 |
-| Where each workspace's object is     | D1           | Track ([below](#where-a-workspace-lives)) |
-| Teams, issues, labels, projects      | Workspace DO | `sync-server`                             |
-| Saved views                          | Workspace DO | `sync-server`                             |
-| Comments on issues                   | Workspace DO | `sync-server`                             |
-| Issue activity (history)             | Workspace DO | `sync-server`, from issue writes          |
-| Subscriptions and inbox items        | Workspace DO | `sync-server`, from issue writes          |
-| Notification settings                | Workspace DO | `sync-server`, each person's own          |
-| Due-date reminders sent              | Workspace DO | `sync-server`, from the alarm             |
-| Team automations' runs               | Workspace DO | `sync-server`, from the alarm             |
-| Webhooks, their secrets, deliveries  | Workspace DO | `sync-server`, managed by admins          |
-| GitHub connections and secrets       | Workspace DO | `sync-server`, managed by admins          |
-| Pull requests that mention issues    | Workspace DO | `sync-server`, from GitHub                |
-| Member replica (name, avatar, role)  | Workspace DO | Pushed from D1 by membership hooks        |
-| Attached files                       | R2           | The file gateway                          |
+| Data                                 | Lives in     | Owner                                       |
+| ------------------------------------ | ------------ | ------------------------------------------- |
+| Users, sessions, OAuth accounts      | D1           | Better Auth                                 |
+| Workspaces, members, invitations     | D1           | Better Auth organization plugin             |
+| OAuth clients, grants, signing keys  | D1           | Better Auth MCP plugin                      |
+| Agent members' keys (hashed)         | D1           | Track's agent members plugin                |
+| Who runs the server, sign-up setting | D1           | Track's deployment plugin                   |
+| Sign-up list (addresses, notes)      | D1           | Track's deployment plugin                   |
+| Where each workspace's object is     | D1           | Track ([below](#where-a-workspace-lives))   |
+| Teams, issues, labels, projects      | Workspace DO | `sync-server`                               |
+| Saved views                          | Workspace DO | `sync-server`                               |
+| Comments on issues                   | Workspace DO | `sync-server`                               |
+| Issue activity (history)             | Workspace DO | `sync-server`, from issue and comment edits |
+| Subscriptions and inbox items        | Workspace DO | `sync-server`, from issue writes            |
+| Notification settings                | Workspace DO | `sync-server`, each person's own            |
+| Due-date reminders sent              | Workspace DO | `sync-server`, from the alarm               |
+| Team automations' runs               | Workspace DO | `sync-server`, from the alarm               |
+| Webhooks, their secrets, deliveries  | Workspace DO | `sync-server`, managed by admins            |
+| GitHub connections and secrets       | Workspace DO | `sync-server`, managed by admins            |
+| Pull requests that mention issues    | Workspace DO | `sync-server`, from GitHub                  |
+| Member replica (name, avatar, role)  | Workspace DO | Pushed from D1 by membership hooks          |
+| Attached files                       | R2           | The file gateway                            |
 
 A backup Worker reads the workspace objects through the `Backup` entrypoint ([Backups](#backups)).
 
@@ -738,7 +738,13 @@ Each tool call resolves the workspace slug to the caller's membership in D1, as 
 does, and then reads or mutates through the Durable Object's RPC (see
 [Server-side clients](#server-side-clients)). A workspace the caller does not belong to is
 reported as not found. The tools themselves live in `apps/web/src/server/mcp/tools.ts`. Agents
-read an issue's comments with `get_issue` and write one with `add_comment`, as the person. They
+read an issue's comments with `get_issue`, write one with `add_comment`, and edit their own with
+`update_comment`, as the person. A comment edit records its previous text in the issue's activity
+history. Everyone who can see the issue can read that previous text, even after the comment is
+deleted. A secret pasted by mistake must be rotated; editing or deleting the comment does not
+remove it from history. `create_issue` and `update_issue` return a short summary: key, title, status,
+statusName, priority, assignee, labels, project, url, updatedAt and creator. They return the description
+only with `include: ["description"]`; `get_issue` still returns the full issue. They
 mention people as the app does, with `[@Name](mention:<member id>)`, which the tools' descriptions
 spell out. An
 agent sets up a fresh workspace's teams with `create_team`, which only admins may use. It makes
@@ -1940,7 +1946,8 @@ moves the issues already past the limit and leaves every other row as it is.
   frequencies differ, so they are not mixed in with the others'.
 
 Matching follows one set of rules, so that server-side clients and the browser find the same
-issues. Text is folded to lowercase without diacritics (NFKD, combining marks removed) and split
+issues. Text is folded to lowercase without diacritics (NFKD, combining marks removed, and dotless
+`ı` folded to `i`) and split
 into runs of letters and digits. An issue matches when every word of the query starts a word in
 one of its fields, so "auth" finds "authentication" and "resume" finds "Résumé". The server
 quotes each word as an FTS5 prefix query, so query syntax has no effect, and ranks matches with

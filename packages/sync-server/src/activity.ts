@@ -68,6 +68,10 @@ export function mergeActivity(
 
 	const previous = latest.change;
 	switch (change.type) {
+		case "comment":
+			return previous.type === "comment" && previous.commentId === change.commentId
+				? { kind: "skip" }
+				: append;
 		case "description":
 			return previous.type === "description" ? { kind: "skip" } : { kind: "append" };
 		case "label":
@@ -112,7 +116,7 @@ export function mergeActivity(
 	}
 }
 
-function retarget(change: Extract<ActivityChange, { from: unknown }>): MergeDecision {
+function retarget(change: Extract<ActivityChange, { from: unknown; to: unknown }>): MergeDecision {
 	return change.from === change.to ? { kind: "remove" } : { kind: "replace", change };
 }
 

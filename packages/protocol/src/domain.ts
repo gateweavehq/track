@@ -375,6 +375,8 @@ export function relationOf(
 export type ActivityChange =
 	| { type: "title"; from: string; to: string }
 	| { type: "description" }
+	/** The previous text stays in issue history after a comment is edited. */
+	| { type: "comment"; commentId: string; from: string }
 	| { type: "status"; from: IssueStatus; to: IssueStatus }
 	| { type: "priority"; from: IssuePriority; to: IssuePriority }
 	| { type: "assignee"; from: string | null; to: string | null }

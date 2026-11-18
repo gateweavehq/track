@@ -173,7 +173,7 @@ export function optimizeSearch(db: Db): void {
 
 /** Lowercase, without diacritics: "Résumé" becomes "resume", "İstanbul" becomes "istanbul". */
 export function normalize(text: string): string {
-	return text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+	return text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replaceAll("ı", "i");
 }
 
 /** The words of a text: runs of letters and digits, normalized. */
@@ -186,9 +186,60 @@ export function tokenize(text: string): string[] {
  * no words. Tokens are letters and digits only, so quoting them leaves no FTS5 syntax to inject.
  */
 export function matchExpression(text: string): string | undefined {
-	const words = tokenize(text);
+	const words = queryWords(text);
 	if (words.length === 0) return undefined;
-	return words.map((word) => `"${word}"*`).join(" ");
+	return wordExpressions(words).join(" AND ");
+}
+
+/** A word of a query, folded as `tokenize` folds it, and as typed with dotless ı kept. */
+interface QueryWord {
+	folded: string;
+	typed: string;
+}
+
+/** The words of a query. SQLite's tokenizer keeps dotless ı distinct from i, including in older index rows. */
+function queryWords(text: string): QueryWord[] {
+	const typed =
+		text
+			.normalize("NFKD")
+			.replace(/\p{M}/gu, "")
+			.toLowerCase()
+			.match(/[\p{L}\p{N}]+/gu) ?? [];
+	return typed.map((word) => ({ folded: word.replaceAll("ı", "i"), typed: word }));
+}
+
+/** The dotless-ı spellings of a folded word. Only the first four i positions vary: at most 16. */
+function dotlessVariants(word: string): string[] {
+	const positions = [...word.matchAll(/i/g)].slice(0, 4).map((match) => match.index);
+	const variants = new Set([word]);
+	for (const position of positions) {
+		for (const variant of [...variants]) {
+			variants.add(`${variant.slice(0, position)}ı${variant.slice(position + 1)}`);
+		}
+	}
+	return [...variants];
+}
+
+/**
+ * One FTS5 term group per word. Every word keeps its folded form and its spelling as typed, so an
+ * exact spelling always matches. The other dotless-ı alternatives share a 64-term budget across
+ * the query; a word whose alternatives no longer fit keeps only its required terms.
+ */
+function wordExpressions(words: QueryWord[]): string[] {
+	const required = words.map(({ folded, typed }) =>
+		typed === folded ? [folded] : [folded, typed],
+	);
+	let extras = Math.max(0, 64 - required.reduce((sum, terms) => sum + terms.length, 0));
+	return words.map(({ folded }, index) => {
+		const terms = new Set(required[index]);
+		const more = dotlessVariants(folded).filter((variant) => !terms.has(variant));
+		if (more.length <= extras) {
+			for (const variant of more) terms.add(variant);
+			extras -= more.length;
+		}
+		const quoted = [...terms].map((term) => `"${term}"*`);
+		return quoted.length === 1 ? (quoted[0] as string) : `(${quoted.join(" OR ")})`;
+	});
 }
 
 /** Keeps the rows of `issueSearch` that match an expression from `matchExpression`. */
@@ -211,7 +262,9 @@ export const RANK = sql<number>`bm25(${issueSearch}, ${WEIGHTS})`;
  */
 export function commentMatches(db: Db, text: string): Map<string, number> {
 	const found = new Map<string, number>();
-	const words = [...new Set(tokenize(text))].map((word) => `"${word}"*`);
+	const words = wordExpressions([
+		...new Map(queryWords(text).map((word) => [`${word.folded} ${word.typed}`, word])).values(),
+	]);
 	if (words.length === 0) return found;
 	// The comments that match any word, and their issues' rows. Usually none: only issues past
 	// the limit have comments here.
