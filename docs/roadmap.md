@@ -73,6 +73,43 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
   workspaces first; the flags are listed in `apps/web/src/lib/flags.ts`. A server decides them
   through an optional Cloudflare Flagship binding, and a server without one serves each flag's
   default. Shipped in v0.38.0.
+- **Guided start.** A new workspace can begin with a team and issues that show Track by doing.
+- **Imports and exports.** Import from Linear, GitHub Issues, Jira (its CSV export) and CSV, and
+  export to CSV and JSON.
+- **Markdown and attached files.** Descriptions and comments support Markdown, images and
+  attachments.
+- **Sub-issues and relations.** Issues can have sub-issues and relations (blocks, duplicate of,
+  related).
+- **Dates and estimates.** Issues have start dates, due dates and estimates.
+- **Saved views and layouts.** Saved views, and table, calendar and timeline layouts.
+- **Bulk edit.** Pick several issues in a list and change or delete them at once.
+- **Inbox email and notification settings.** Email for unread inbox items, and notification
+  settings per person. Shipped in v0.11.0.
+- **Mentions and reminders.** @-mentions in descriptions and comments, and due-date reminders for
+  assignees. Shipped in v0.12.0.
+- **Workflow statuses per team.** Each team names, colors, orders and removes its own statuses, in
+  five fixed categories that decide what they mean everywhere else. Shipped in v0.14.0.
+- **Archive, automations and templates.** Closed issues can be archived out of lists and boards,
+  and restored, with an archive page per team: shipped in v0.15.0. Team automations that archive
+  closed issues and close stale ones after a number of months untouched: shipped in v0.16.0. Issue
+  templates per team, in the app and over MCP: shipped in v0.17.0. Recurring issues, made by
+  templates on a schedule: shipped in v0.18.0.
+- **Intake.** Requests from outside a team wait in its intake until a person accepts or declines
+  them, and an agent triages them through proposals. Requests come in from the app, over MCP,
+  through each team's public request form (behind Turnstile) and to its intake email address
+  (Email Routing). A requester's reply to the decision email becomes a comment on their
+  request. Shipped in v0.18.0.
+- **Insights and project updates.** A page per team with issues created and closed by week, cycle
+  time and where open issues are, worked out from the local copy: shipped in v0.17.0. Project
+  updates, a health (on track, at risk, off track) and a note kept as the project's history and
+  sent to webhooks, and the same insights per project: shipped in v0.18.0.
+- **GitHub integration.** Link pull requests and close issues from commits. A webhook per
+  repository or organization shipped in v0.10.0; a GitHub App that admins install shipped in
+  v0.19.0.
+- **Agent identity over MCP.** `get_workspace` names the caller. Shipped in v0.13.0.
+- **OpenID Connect sign-in.** Sign in through any OpenID Connect provider, set up by
+  configuration, so a person's [Gateweave ID](ecosystem.md#identity-and-workspaces) account
+  opens Track without a new password. Without that configuration nothing changes.
 
 ## Next: launch
 
@@ -83,42 +120,8 @@ Where Gateweave Track is going, in order. Dates are deliberately absent; each ph
 
 ## After launch
 
-- **Switching kit**: what someone moving from another tracker needs on their first day.
-  - A guided start: a new workspace can begin with a team and issues that show Track by doing.
-  - Import from Linear, GitHub Issues, Jira (its CSV export) and CSV, and export to CSV and JSON.
-  - Markdown in descriptions and comments, with images and attachments.
-  - Sub-issues and relations (blocks, duplicate of, related).
-  - Start dates, due dates and estimates.
-  - Saved views, and table, calendar and timeline layouts.
-  - Bulk edit: pick several issues in a list and change or delete them at once.
-- Email for unread inbox items, and notification settings per person: shipped in v0.11.0.
-- @-mentions in descriptions and comments, and due-date reminders for assignees: shipped in
-  v0.12.0.
-- Workflow statuses per team: each team names, colors, orders and removes its own statuses, in
-  five fixed categories that decide what they mean everywhere else. Shipped in v0.14.0.
-- Archive: closed issues can be archived out of lists and boards, and restored, with an archive
-  page per team: shipped in v0.15.0. Team automations that archive closed issues and close
-  stale ones after a number of months untouched: shipped in v0.16.0. Issue templates per
-  team, in the app and over MCP: shipped in v0.17.0. Recurring issues, made by templates on a
-  schedule: shipped in v0.18.0.
-- Intake: requests from outside a team wait in its intake until a person accepts or declines
-  them, and an agent triages them through proposals. Requests come in from the app, over MCP,
-  through each team's public request form (behind Turnstile) and to its intake email address
-  (Email Routing). A requester's reply to the decision email becomes a comment on their
-  request. Shipped in v0.18.0.
-- Insights: a page per team with issues created and closed by week, cycle time and where open
-  issues are, worked out from the local copy: shipped in v0.17.0. Project updates, a health (on
-  track, at risk, off track) and a note kept as the project's history and sent to webhooks, and
-  the same insights per project: shipped in v0.18.0.
-- GitHub integration: link pull requests and close issues from commits. The first part, over a
-  webhook per repository or organization, shipped in v0.10.0. A GitHub App that admins install
-  instead: shipped in v0.19.0.
 - An AI triage agent that labels, deduplicates and routes new issues through the same mutations
   people use (see [ecosystem.md](ecosystem.md#agents-are-members)). It runs in Gateweave Agents,
   on the agent members and webhooks above.
 - Assigning an issue to an agent that works on it and proposes a pull request: Gateweave Agents'
-  "Work on Track issues", on an agent member's key and webhook. Track's part, `get_workspace`
-  naming the caller, shipped in v0.13.0.
-- Sign in through any OpenID Connect provider, set up by configuration, so a person's
-  [Gateweave ID](ecosystem.md#identity-and-workspaces) account opens Track without a new password.
-  Without that configuration nothing changes.
+  "Work on Track issues", on an agent member's key and webhook.
