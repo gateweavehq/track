@@ -88,6 +88,20 @@ describe("rejectionReporter", () => {
 			description: "Issue not found.",
 		});
 	});
+
+	it("names a stored change this build cannot read in the usual toast", () => {
+		vi.useFakeTimers();
+		const report = rejectionReporter((error) => changeName(error.mutation, () => undefined));
+		report({
+			message: "This version of Track cannot read the stored change",
+			mutation: { name: "retired.change", args: { id: "x" } },
+			storedUnreadable: true,
+		} as MutationError);
+		vi.advanceTimersByTime(300);
+		expect(toast.error).toHaveBeenCalledWith("Your change was not saved", {
+			description: "retired.change x: This version of Track cannot read the stored change.",
+		});
+	});
 });
 
 describe("changeName", () => {

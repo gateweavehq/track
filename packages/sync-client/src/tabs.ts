@@ -10,6 +10,8 @@ export type ConnectionStatus =
 	| "offline"
 	/** The server speaks a newer protocol. The page must be reloaded. */
 	| "outdated"
+	/** Local pending storage cannot be read by this build. */
+	| "unreadable"
 	/** The session has ended. The user must sign in again. */
 	| "unauthorized"
 	/** The user is not a member of the workspace, or it no longer exists. */

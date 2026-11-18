@@ -2,28 +2,41 @@ import {
 	ENTITY_NAMES,
 	type Entities,
 	type EntityName,
+	mutationSchema,
 	type Op,
 	PROTOCOL_VERSION,
 	type Snapshot,
 } from "@gateweave/track-protocol";
 import { type DBSchema, deleteDB, type IDBPDatabase, openDB } from "idb";
-import type { Persistence, StoredReplica } from "./persistence";
+import { PendingFormatError, type Persistence, type StoredReplica } from "./persistence";
 import type { PendingMutation } from "./store";
 
 const DB_PREFIX = "track:";
 
 /**
  * Bump when the stored layout changes. The database version also folds in the protocol version,
- * so stored rows never outlive the entity shapes they were written with: on an upgrade the old
- * stores are dropped and the replica re-syncs from the server. What outlives a protocol-only
- * upgrade is the `pending` store: an edit made offline exists nowhere else, and the server
- * re-validates it on resend, refusing what the new protocol cannot take.
+ * so cached rows never outlive the entity shapes they were written with. The pending store and
+ * client id outlive both protocol and storage upgrades; the server validates stored edits on resend.
  */
 const STORAGE_VERSION = 1;
 export const DB_VERSION = PROTOCOL_VERSION * 1000 + STORAGE_VERSION;
+/** Pending rows have { id, mutation, createdAt }, ordered by their auto-increment keys. */
+const PENDING_FORMAT = 1;
+
+function checkPendingFormat(format: unknown): void {
+	// Format 1 is the only known format. Add an explicit migration case for an older known
+	// format before accepting it; unknown and newer formats must keep the old DB intact.
+	switch (format) {
+		case undefined:
+		case PENDING_FORMAT:
+			return;
+		default:
+			throw new PendingFormatError(format);
+	}
+}
 
 interface ReplicaSchema extends DBSchema {
-	meta: { key: "clientId" | "version"; value: string | number };
+	meta: { key: "clientId" | "version" | "pendingFormat"; value: string | number };
 	team: { key: string; value: Entities["team"] };
 	status: { key: string; value: Entities["status"] };
 	issue: { key: string; value: Entities["issue"] };
@@ -72,49 +85,90 @@ export async function openIdbPersistence(
 	options: IdbPersistenceOptions = {},
 ): Promise<Persistence> {
 	let persistence: IdbPersistence | undefined;
+	let upgradeError: unknown;
 	const db = await openDB<ReplicaSchema>(DB_PREFIX + key, options.version ?? DB_VERSION, {
-		upgrade(db, oldVersion, newVersion, tx) {
-			// The last three digits hold STORAGE_VERSION. A protocol-only upgrade keeps `pending`
-			// and meta's clientId, but not the snapshot: its rows were written with the old
-			// protocol's entity shapes, so meta's version goes and the replica re-syncs.
-			const keepUnsent =
-				newVersion !== null &&
-				oldVersion % 1000 === newVersion % 1000 &&
-				db.objectStoreNames.contains("pending");
-			for (const name of [...db.objectStoreNames]) {
-				if (keepUnsent && (name === "pending" || name === "meta")) continue;
-				db.deleteObjectStore(name);
-			}
-			if (!keepUnsent) db.createObjectStore("meta");
-			for (const entity of ENTITY_NAMES) db.createObjectStore(entity, { keyPath: "id" });
-			if (keepUnsent) {
-				tx.objectStore("meta").delete("version");
-			} else {
-				db.createObjectStore("pending", { keyPath: "seq", autoIncrement: true }).createIndex(
-					"id",
-					"id",
-					{ unique: true },
-				);
-			}
+		upgrade(db, _oldVersion, _newVersion, tx) {
+			// Read the format before changing any store. Aborting this transaction preserves the old DB.
+			const meta = db.objectStoreNames.contains("meta") ? tx.objectStore("meta") : null;
+			const check = meta ? meta.get("pendingFormat") : Promise.resolve(undefined);
+			check
+				.then((format) => {
+					checkPendingFormat(format);
+					const keepUnsent = db.objectStoreNames.contains("pending") && meta !== null;
+					for (const name of [...db.objectStoreNames]) {
+						if (keepUnsent && (name === "pending" || name === "meta")) continue;
+						db.deleteObjectStore(name);
+					}
+					if (!keepUnsent) db.createObjectStore("meta");
+					for (const entity of ENTITY_NAMES) db.createObjectStore(entity, { keyPath: "id" });
+					if (keepUnsent) {
+						void meta.delete("version").catch(() => {});
+						void meta.put(PENDING_FORMAT, "pendingFormat").catch(() => {});
+					} else {
+						const pending = db.createObjectStore("pending", {
+							keyPath: "seq",
+							autoIncrement: true,
+						});
+						pending.createIndex("id", "id", { unique: true });
+						void tx
+							.objectStore("meta")
+							.put(PENDING_FORMAT, "pendingFormat")
+							.catch(() => {});
+					}
+				})
+				.catch((error: unknown) => {
+					upgradeError = error;
+					void tx.done.catch(() => {});
+					try {
+						tx.abort();
+					} catch {
+						/* The transaction already failed. */
+					}
+				});
+			void tx.done.catch(() => {});
 		},
-		// Another tab is upgrading or deleting the database. Step aside instead of blocking it;
-		// writes from here on fail. An upgrade comes from a newer build, whose tabs lead on their own,
-		// so the client carries on from memory until it is told it is outdated. A delete has no version.
+		// The client drains its queued writes before closing for an upgrade. A delete closes now.
 		blocking(_current, blockedVersion) {
-			persistence?.close();
-			if (blockedVersion === null) options.onDeleted?.();
+			if (blockedVersion === null) {
+				persistence?.close();
+				options.onDeleted?.();
+			} else persistence?.taken();
 		},
+	}).catch((error: unknown) => {
+		throw upgradeError ?? error;
 	});
 	persistence = new IdbPersistence(db);
 	return persistence;
 }
 
 /**
+ * How long a discard waits for the database to be deleted. Another tab that holds it open and
+ * does not close it blocks the delete; IndexedDB cannot cancel a delete once asked, so after
+ * this time the wait ends and the delete may still finish later.
+ */
+export const DISCARD_TIMEOUT_MS = 10_000;
+
+/**
  * Deletes the replica stored under `key`, for example once the user has lost access to its
  * workspace. Tabs that still have it open close their copy and hear of it through `onDeleted`.
+ * `onBlocked` is called when another connection keeps the delete waiting; the promise rejects
+ * after `DISCARD_TIMEOUT_MS`.
  */
-export async function deleteIdbReplica(key: string): Promise<void> {
-	await deleteDB(DB_PREFIX + key);
+export async function deleteIdbReplica(
+	key: string,
+	options: { onBlocked?: () => void } = {},
+): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		await Promise.race([
+			deleteDB(DB_PREFIX + key, { blocked: () => options.onBlocked?.() }),
+			new Promise<never>((_resolve, reject) => {
+				timer = setTimeout(() => reject(new Error("Discard timed out")), DISCARD_TIMEOUT_MS);
+			}),
+		]);
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 /** Deletes every replica stored by this app in this browser, for example on sign-out. */
@@ -129,12 +183,29 @@ export async function deleteIdbReplicas(): Promise<void> {
 
 class IdbPersistence implements Persistence {
 	readonly shared = true;
+	#onTaken?: () => void;
 
 	constructor(private readonly db: Database) {}
+	onTaken(listener: () => void): void {
+		this.#onTaken = listener;
+	}
+	taken(): void {
+		if (this.#onTaken) this.#onTaken();
+		else this.close();
+	}
 
 	async load(): Promise<StoredReplica> {
 		const tx = this.db.transaction(ALL_STORES, "readwrite");
 		const meta = tx.objectStore("meta");
+		const format = await meta.get("pendingFormat");
+		try {
+			checkPendingFormat(format);
+		} catch (error) {
+			void tx.done.catch(() => {});
+			tx.abort();
+			throw error;
+		}
+		if (format === undefined) await meta.put(PENDING_FORMAT, "pendingFormat");
 		let clientId = (await meta.get("clientId")) as string | undefined;
 		if (!clientId) {
 			clientId = crypto.randomUUID();
@@ -207,7 +278,7 @@ class IdbPersistence implements Persistence {
 							inbox,
 							pullRequests,
 						},
-			pending: pending.map(({ seq: _, ...mutation }) => mutation),
+			...readPending(pending),
 		};
 	}
 
@@ -263,16 +334,61 @@ class IdbPersistence implements Persistence {
 		await Promise.all([...mutations.map((mutation) => tx.store.add(mutation)), tx.done]);
 	}
 
-	async removePending(id: string): Promise<void> {
+	async removePending(id: string | number): Promise<boolean> {
 		const tx = this.db.transaction("pending", "readwrite");
-		const seq = await tx.store.index("id").getKey(id);
+		const seq = typeof id === "number" ? id : await tx.store.index("id").getKey(id);
+		const exists = seq !== undefined && (await tx.store.getKey(seq)) !== undefined;
 		if (seq !== undefined) await tx.store.delete(seq);
 		await tx.done;
+		return exists;
 	}
 
 	close(): void {
 		this.db.close();
 	}
+}
+
+function readPending(rows: readonly unknown[]): Pick<StoredReplica, "pending" | "unreadable"> {
+	const pending: PendingMutation[] = [];
+	const unreadable: StoredReplica["unreadable"] = [];
+	for (const row of rows) {
+		const record = isRecord(row) ? row : {};
+		const id = record.id;
+		if (typeof id !== "string" || !id) {
+			const fields = isRecord(record.mutation) ? record.mutation : {};
+			unreadable.push({
+				seq: typeof record.seq === "number" ? record.seq : undefined,
+				name: typeof fields.name === "string" ? fields.name : "Stored change",
+				args: isRecord(fields.args) ? fields.args : {},
+			});
+			continue;
+		}
+		const mutation = record.mutation;
+		const parsed = mutationSchema.safeParse(mutation);
+		if (
+			parsed.success &&
+			typeof record.createdAt === "number" &&
+			Number.isFinite(record.createdAt)
+		) {
+			pending.push({
+				id,
+				mutation: parsed.data,
+				createdAt: record.createdAt,
+			});
+		} else {
+			const fields = isRecord(mutation) ? mutation : {};
+			unreadable.push({
+				id,
+				name: typeof fields.name === "string" ? fields.name : "Stored change",
+				args: isRecord(fields.args) ? fields.args : {},
+			});
+		}
+	}
+	return { pending, unreadable };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** The row store for an entity, typed loosely enough to take any entity's rows. */

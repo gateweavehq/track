@@ -1,6 +1,6 @@
 import { type MutationError, SyncClient } from "./client";
 import { openIdbPersistence } from "./idb";
-import { MemoryPersistence } from "./persistence";
+import { MemoryPersistence, PendingFormatError } from "./persistence";
 import { browserTabs, supportsBrowserTabs, tabsName } from "./tabs";
 import { httpTransport } from "./transport";
 
@@ -34,6 +34,7 @@ export function createBrowserSyncClient(options: BrowserSyncClientOptions): Sync
 		transport: httpTransport({ workspace, baseUrl }),
 		persistence: shared
 			? openIdbPersistence(storageKey, { onDeleted }).catch((error: unknown) => {
+					if (error instanceof PendingFormatError) throw error;
 					console.warn("sync: IndexedDB is unavailable; keeping data in memory", error);
 					return new MemoryPersistence();
 				})

@@ -74,7 +74,9 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    `packages/sync-client/src/optimistic.ts`. Change all three together, with tests. Follow
    `.claude/skills/add-mutation/SKILL.md`.
 3. **The protocol is a contract.** Any breaking change to a message or entity shape bumps
-   `PROTOCOL_VERSION` in `packages/protocol/src/messages.ts`. That also discards client caches.
+   `PROTOCOL_VERSION` in `packages/protocol/src/messages.ts`. That discards client caches, while
+   unsent mutations and their original ids survive protocol and storage upgrades. The server
+   validates them on resend; a stored row the client cannot parse is reported to the person.
 4. **Versions are gapless and mutations are idempotent.** Every op gets the next workspace
    version; a mutation id applies once. Keep both properties when touching `log.ts` or
    `applyMutation`.

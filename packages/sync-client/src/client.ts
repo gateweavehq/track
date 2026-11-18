@@ -13,7 +13,12 @@ import {
 	type ServerMessage,
 	type Snapshot,
 } from "@gateweave/track-protocol";
-import { MemoryPersistence, type Persistence, type StoredReplica } from "./persistence";
+import {
+	MemoryPersistence,
+	PendingFormatError,
+	type Persistence,
+	type StoredReplica,
+} from "./persistence";
 import { type Delta, type PendingMutation, Replica, type SyncState } from "./store";
 import { type ConnectionStatus, standaloneTabs, type TabMessage, type Tabs } from "./tabs";
 import { HttpError, type SyncSocket, type Transport } from "./transport";
@@ -32,7 +37,8 @@ export class MutationError extends Error {
 	constructor(
 		readonly reason: RejectReason,
 		message: string,
-		readonly mutation: Mutation,
+		readonly mutation: Mutation | { name: string; args: Record<string, unknown> },
+		readonly storedUnreadable = false,
 	) {
 		super(message);
 		this.name = "MutationError";
@@ -73,7 +79,12 @@ function cleanStrings(_key: string, value: unknown): unknown {
 	return typeof value === "string" ? cleanText(value) : value;
 }
 
-const FATAL: ReadonlySet<ConnectionStatus> = new Set(["outdated", "unauthorized", "forbidden"]);
+const FATAL: ReadonlySet<ConnectionStatus> = new Set([
+	"outdated",
+	"unreadable",
+	"unauthorized",
+	"forbidden",
+]);
 
 /**
  * How old an unconfirmed mutation may be and still be sent. Past this the server may have forgotten
@@ -107,6 +118,8 @@ export class SyncClient {
 	readonly #waiters = new Map<string, Waiter>();
 	/** Mutations this tab loaded from storage at startup. */
 	readonly #restored = new Set<string>();
+	#unreadable: StoredReplica["unreadable"] = [];
+	#taken = false;
 	/** Tab messages held back while state loads from storage, replayed afterwards. */
 	#held: TabMessage[] | null = [];
 	/** Storage writes, each followed by the tab message that announces it. Runs in order. */
@@ -152,6 +165,9 @@ export class SyncClient {
 
 	getStatus = (): SyncStatus => this.#status;
 
+	/** Readable, unconfirmed changes in their original order. */
+	getPending = (): readonly PendingMutation[] => [...this.#replica.pending];
+
 	subscribeStatus = (listener: () => void): (() => void) => {
 		this.#statusListeners.add(listener);
 		return () => this.#statusListeners.delete(listener);
@@ -184,6 +200,9 @@ export class SyncClient {
 		{ report = true }: { report?: boolean } = {},
 	): Promise<number>[] {
 		if (this.#role === "closed") throw new Error("This SyncClient is closed");
+		if (this.#taken) throw new Error("A newer version of Track has taken over this tab's storage");
+		if (this.#status.connection === "unreadable")
+			throw new Error("Stored changes cannot be read; discard the local copy to continue");
 		const now = Date.now();
 		// Validate exactly what the server will receive: JSON drops undefined fields. Text pasted
 		// into the app may carry NUL characters or lone surrogates, which the server refuses; they
@@ -206,7 +225,6 @@ export class SyncClient {
 		});
 
 		this.#replica.addPending(...pending);
-		const [one] = pending;
 		// One message per mutation, as for one at a time, which a tab of an earlier build still reads.
 		this.#write(
 			(p) => p.addPending(...pending),
@@ -246,6 +264,10 @@ export class SyncClient {
 		try {
 			persistence = await (this.#options.persistence ?? new MemoryPersistence());
 		} catch (error) {
+			if (error instanceof PendingFormatError) {
+				this.#unreadableStorage(error);
+				return;
+			}
 			console.warn("sync: local storage is unavailable; keeping data in memory", error);
 			persistence = new MemoryPersistence();
 		}
@@ -254,11 +276,17 @@ export class SyncClient {
 		else this.#options.tabs?.close();
 		// Subscribe before loading so nothing announced during the load is missed.
 		this.#tabs.subscribe((message) => this.#onTabMessage(message));
+		persistence.onTaken?.(() => void this.#handOver());
 
 		let stored: StoredReplica;
 		try {
 			stored = await persistence.load();
 		} catch (error) {
+			if (error instanceof PendingFormatError) {
+				persistence.close();
+				this.#unreadableStorage(error);
+				return;
+			}
 			console.warn("sync: could not read local storage; keeping data in memory", error);
 			persistence.close();
 			this.#tabs.close();
@@ -266,7 +294,7 @@ export class SyncClient {
 			this.#tabs = standaloneTabs();
 			stored = await this.#persistence.load();
 		}
-		if (this.#role === "closed") return;
+		if (this.#role === "closed" || this.#taken) return;
 
 		this.#clientId = stored.clientId;
 		for (const { id } of stored.pending) this.#restored.add(id);
@@ -274,14 +302,49 @@ export class SyncClient {
 		this.#role = "follower";
 		this.#releaseHeld();
 		this.#unwake = this.#options.wake?.(this.retryNow);
-		this.#tabs.elect(() => this.#lead());
+		this.#tabs.elect(() => {
+			this.#lead().catch((error: unknown) => console.warn("sync: could not take the lead", error));
+		});
 		this.#tabs.post({ type: "status?" });
 	}
 
 	#load(stored: StoredReplica): void {
 		if (stored.snapshot) this.#replica.reset(stored.snapshot, { onlyIfNewer: true });
 		this.#replica.addPending(...stored.pending);
+		this.#unreadable = stored.unreadable;
 		if (this.#replica.hasData) this.#setStatus({ loaded: true });
+	}
+
+	#unreadableStorage(error: PendingFormatError): void {
+		this.#taken = true;
+		this.#fail("unreadable");
+		this.#rejectWaiters("The stored changes cannot be read; this edit was not confirmed");
+		this.#tabs.close();
+		this.#options.tabs?.close();
+		this.#options.onReject?.(
+			new MutationError("invalid", error.message, { name: "Stored changes", args: {} }, true),
+		);
+	}
+
+	async #handOver(): Promise<void> {
+		if (this.#taken || this.#role === "closed") return;
+		this.#taken = true;
+		this.#fail("outdated");
+		this.#rejectWaiters("A newer version took over storage; this edit was not confirmed");
+		await this.#started.catch(() => {});
+		await this.#writes;
+		this.#tabs.close();
+		this.#persistence.close();
+	}
+
+	#rejectWaiters(message: string): void {
+		for (const [id, waiter] of this.#waiters) {
+			const mutation = this.#replica.pending.find((pending) => pending.id === id)?.mutation;
+			waiter.reject(
+				new MutationError("invalid", message, mutation ?? { name: "Stored changes", args: {} }),
+			);
+			this.#waiters.delete(id);
+		}
 	}
 
 	/** Re-reads shared storage after this follower fell behind or the leader replaced it. */
@@ -289,8 +352,16 @@ export class SyncClient {
 		if (this.#held) return;
 		this.#held = [];
 		try {
-			this.#load(await this.#persistence.load());
+			const stored = await this.#persistence.load();
+			if (this.#role === "closed" || this.#taken) return;
+			this.#load(stored);
 		} catch (error) {
+			if (this.#role === "closed" || this.#taken) return;
+			if (error instanceof PendingFormatError) {
+				this.#persistence.close();
+				this.#unreadableStorage(error);
+				return;
+			}
 			console.warn("sync: could not reload local storage", error);
 		} finally {
 			this.#releaseHeld();
@@ -340,15 +411,40 @@ export class SyncClient {
 				this.#rejected(message.id, message.reason, message.message);
 				return;
 			case "status":
-				this.#setStatus({ connection: message.connection });
+				if (!this.#taken) this.#setStatus({ connection: message.connection });
 				return;
 		}
 	}
 
-	#lead(): void {
-		if (this.#role === "closed") return;
+	async #lead(): Promise<void> {
+		if (this.#role === "closed" || this.#taken) return;
 		this.#role = "leader";
-		void this.#connect();
+		for (const change of this.#unreadable) {
+			if (this.#role !== "leader" || this.#taken) return;
+			const key = change.id ?? change.seq;
+			if (key === undefined) continue;
+			await this.#write((p) => p.removePending(key)).then((removed) => {
+				if (removed === false) return;
+				this.#options.onReject?.(
+					new MutationError(
+						"invalid",
+						"This version of Track cannot read the stored change",
+						change,
+						true,
+					),
+				);
+				if (removed && change.id) {
+					this.#tabs.post({
+						type: "reject",
+						id: change.id,
+						reason: "invalid",
+						message: "This version of Track cannot read the stored change",
+					});
+				}
+			});
+		}
+		this.#unreadable = [];
+		if (this.#role === "leader" && !this.#taken) void this.#connect();
 	}
 
 	// Connection
@@ -632,30 +728,34 @@ export class SyncClient {
 	 * means a tab that reloads from storage always finds at least what it has been told about.
 	 */
 	#write(
-		write: (persistence: Persistence) => Promise<void>,
+		write: (persistence: Persistence) => Promise<unknown>,
 		message?: TabMessage | TabMessage[],
 		{ state = false } = {},
-	): void {
-		this.#writes = this.#writes.then(async () => {
+	): Promise<boolean | undefined> {
+		const outcome = this.#writes.then(async () => {
 			try {
+				let result: unknown;
 				if (state && this.#storageDirty) {
 					await this.#persistence.replace(this.#replica.snapshot());
 					this.#storageDirty = false;
 				} else {
-					await write(this.#persistence);
+					result = await write(this.#persistence);
 				}
+				for (const each of message === undefined ? [] : [message].flat()) {
+					try {
+						this.#tabs.post(each);
+					} catch {
+						// The tab group is already closed.
+					}
+				}
+				return result !== false;
 			} catch (error) {
 				if (state) this.#storageDirty = true;
 				console.warn("sync: could not write to local storage", error);
 			}
-			for (const each of message === undefined ? [] : [message].flat()) {
-				try {
-					this.#tabs.post(each);
-				} catch {
-					// The tab group is already closed.
-				}
-			}
 		});
+		this.#writes = outcome.then(() => {});
+		return outcome;
 	}
 
 	/** Tells the subscribers of a change at the next frame, once for every change before it. */
@@ -679,6 +779,14 @@ export class SyncClient {
 	}
 
 	#setStatus(patch: Partial<SyncStatus>): boolean {
+		if (
+			this.#status.connection === "unreadable" &&
+			patch.connection !== undefined &&
+			patch.connection !== "unreadable" &&
+			patch.connection !== "forbidden" &&
+			!(patch.connection === "outdated" && this.#taken)
+		)
+			return false;
 		const next = { ...this.#status, ...patch };
 		if (
 			next.connection === this.#status.connection &&

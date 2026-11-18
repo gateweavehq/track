@@ -2248,7 +2248,22 @@ renamed workspace keeps its cache). It holds the confirmed rows, the confirmed v
 pending mutations. A reload renders straight from storage and then catches up from the oplog,
 without downloading a snapshot. Pending mutations are written with strict durability, because
 until the server has them they exist nowhere else. The database version includes the protocol
-version, so a protocol change discards the old cache instead of misreading it. Signing out
+version, so a protocol or storage change discards the old cache instead of misreading it. Unsent
+mutations remain in insertion order with their original ids and client id. A changed mutation
+schema is checked when the stored mutation is read. A row this client cannot parse is quarantined,
+removed from the pending store and reported through the usual refusal callback, naming the change;
+it never reaches optimistic replay or resend, while readable rows keep syncing in their original
+order. The pending store has its own format version. Format
+1 is the only known format today. A future older known format needs an explicit migration that
+preserves mutation ids and order; until one exists, every other format (including unknown and newer
+ones) aborts the upgrade and leaves the old database intact. Only a pending store that cannot be
+read as a whole, including an unknown format or aborted upgrade, gets the unreadable status.
+The app shows any readable snapshot and offers a confirmed discard of this workspace's IndexedDB
+copy, including pending changes, before starting fresh. A blocked discard reports the other tab
+and stops waiting after ten seconds; cancellation prevents this tab's dialog from triggering a
+delayed reload if the delete later completes. An
+old tab on this build finishes queued writes before closing on `versionchange`.
+A tab still on a pre-fix build cannot be made to finish an in-memory write at that point. Signing out
 deletes every replica, and losing access deletes that workspace's: when the server reports that
 the user is no longer a member, or they leave, the app deletes the database, so a removed
 member's browser does not keep a copy.

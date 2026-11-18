@@ -47,6 +47,7 @@ export interface BatchChange {
 export interface Failure {
 	key: string;
 	reason: string;
+	storedUnreadable?: boolean;
 }
 
 /**
@@ -86,7 +87,7 @@ export function sendBatch(client: SyncClient, changes: readonly BatchChange[]): 
  * is listed once, so a bare "A change" would fold every refusal of a deleted issue into one.
  */
 export function changeName(
-	mutation: Pick<MutationInput, "name" | "args">,
+	mutation: { name: string; args: Record<string, unknown> },
 	keyOf: (issueId: string) => string | undefined,
 ): string {
 	const args = mutation.args as { id?: unknown; issueId?: unknown };
@@ -108,7 +109,11 @@ export function rejectionReporter(
 	let pending: Failure[] = [];
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	return (error) => {
-		pending.push({ key: describe(error), reason: reasonOf(error) });
+		pending.push({
+			key: describe(error),
+			reason: reasonOf(error),
+			storedUnreadable: error.storedUnreadable,
+		});
 		if (timer !== undefined) return;
 		timer = setTimeout(() => {
 			const failures = pending;
@@ -116,7 +121,11 @@ export function rejectionReporter(
 			timer = undefined;
 			const [only] = failures;
 			if (failures.length === 1 && only) {
-				toast.error("Your change was not saved", { description: sentence(only.reason) });
+				toast.error("Your change was not saved", {
+					description: only.storedUnreadable
+						? `${only.key}: ${sentence(only.reason)}`
+						: sentence(only.reason),
+				});
 				return;
 			}
 			const { title, description } = batchFailure(failures);
