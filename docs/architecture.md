@@ -2250,10 +2250,15 @@ without downloading a snapshot. Pending mutations are written with strict durabi
 until the server has them they exist nowhere else. The database version includes the protocol
 version, so a protocol or storage change discards the old cache instead of misreading it. Unsent
 mutations remain in insertion order with their original ids and client id. A changed mutation
-schema is decided by the server when the stored mutation is resent. A row this client cannot parse
-is reported through the usual refusal callback, naming the change. The pending store has its own
-format version; an unknown format aborts the upgrade, leaves the old database intact and reports
-the problem. An old tab on this build finishes queued writes before closing on `versionchange`.
+schema is checked when the stored mutation is read. A row this client cannot parse is quarantined,
+removed from the pending store and reported through the usual refusal callback, naming the change;
+it never reaches optimistic replay or resend. The pending store has its own format version. Format
+1 is the only known format today. A future older known format needs an explicit migration that
+preserves mutation ids and order; until one exists, every other format (including unknown and newer
+ones) aborts the upgrade and leaves the old database intact. Unreadable local storage gets its own
+status rather than an update prompt. The app shows any readable snapshot and offers a confirmed
+discard of this workspace's IndexedDB copy, including pending changes, before starting fresh. An
+old tab on this build finishes queued writes before closing on `versionchange`.
 A tab still on a pre-fix build cannot be made to finish an in-memory write at that point. Signing out
 deletes every replica, and losing access deletes that workspace's: when the server reports that
 the user is no longer a member, or they leave, the app deletes the database, so a removed

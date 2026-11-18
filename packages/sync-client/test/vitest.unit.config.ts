@@ -1,5 +1,11 @@
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-	test: { setupFiles: ["./test/setup.ts"], testTimeout: 10_000 },
+	test: {
+		include: [
+			"test/{react,store,transport,upgrade-idb-rules,review-rules,browser-pending-format}.test.{ts,tsx}",
+		],
+		setupFiles: ["./test/setup.ts"],
+		testTimeout: 10_000,
+	},
 });

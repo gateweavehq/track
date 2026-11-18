@@ -9,12 +9,16 @@ export interface StoredReplica {
 	/** Unconfirmed mutations, in the order they were made. */
 	pending: PendingMutation[];
 	/** Rows whose stored shape cannot be read by this build. */
-	unreadable: { id: string; name: string; args: Record<string, unknown> }[];
+	unreadable: { id?: string; seq?: number; name: string; args: Record<string, unknown> }[];
 }
 
 export class PendingFormatError extends Error {
 	constructor(format: unknown) {
-		super(`This version of Track cannot read changes stored in pending format ${String(format)}`);
+		const label =
+			typeof format === "string" || typeof format === "number" || typeof format === "boolean"
+				? String(format)
+				: "unknown";
+		super(`This version of Track cannot read changes stored in pending format ${label}`);
 		this.name = "PendingFormatError";
 	}
 }
@@ -36,7 +40,8 @@ export interface Persistence {
 	applyOps(ops: readonly Op[], version: number): Promise<void>;
 	/** Stores mutations in order, in one write. */
 	addPending(...mutations: PendingMutation[]): Promise<void>;
-	removePending(id: string): Promise<void>;
+	/** Returns whether a row was actually removed. A number addresses a row without an id by seq. */
+	removePending(id: string | number): Promise<boolean>;
 	/** A newer tab needs this database closed after queued client writes finish. */
 	onTaken?(listener: () => void): void;
 	close(): void;
@@ -78,8 +83,11 @@ export class MemoryPersistence implements Persistence {
 		for (const mutation of mutations) this.#pending.push(structuredClone(mutation));
 	}
 
-	async removePending(id: string): Promise<void> {
+	async removePending(id: string | number): Promise<boolean> {
+		if (typeof id === "number") return false;
+		const before = this.#pending.length;
 		this.#pending = this.#pending.filter((p) => p.id !== id);
+		return this.#pending.length !== before;
 	}
 
 	close(): void {}

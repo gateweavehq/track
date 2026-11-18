@@ -64,6 +64,8 @@ export interface PendingMutation {
 	mutation: Mutation;
 	/** Client time the mutation was made. Optimistic rows use it as their timestamp. */
 	createdAt: number;
+	/** A legacy payload still goes to the server, but cannot be replayed by this build. */
+	predict?: false;
 }
 
 type Tables = { readonly [E in EntityName]: ReadonlyMap<string, Entities[E]> };
@@ -297,7 +299,9 @@ export class Replica {
 		let tables = this.#confirmed;
 		if (this.#pending.length > 0) {
 			const draft = new Draft(tables);
-			for (const pending of this.#pending) applyOptimistic(draft, pending, this.userId);
+			for (const pending of this.#pending) {
+				if (pending.predict !== false) applyOptimistic(draft, pending, this.userId);
+			}
 			tables = draft.finish();
 		}
 		this.#state = toState(tables, this.#version, this.#activeIssues(tables.issue));

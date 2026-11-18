@@ -66,7 +66,7 @@ function WorkspaceLayout() {
 			<SyncProvider client={client}>
 				<WorkspaceActionsProvider>
 					<AppShell>
-						<SyncGate>
+						<SyncGate storageKey={replicaKey(workspace.userId, workspace.id)}>
 							<Outlet />
 						</SyncGate>
 					</AppShell>

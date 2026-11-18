@@ -2,6 +2,7 @@ import {
 	ENTITY_NAMES,
 	type Entities,
 	type EntityName,
+	mutationSchema,
 	type Op,
 	PROTOCOL_VERSION,
 	type Snapshot,
@@ -21,6 +22,18 @@ const STORAGE_VERSION = 1;
 export const DB_VERSION = PROTOCOL_VERSION * 1000 + STORAGE_VERSION;
 /** Pending rows have { id, mutation, createdAt }, ordered by their auto-increment keys. */
 const PENDING_FORMAT = 1;
+
+function checkPendingFormat(format: unknown): void {
+	// Format 1 is the only known format. Add an explicit migration case for an older known
+	// format before accepting it; unknown and newer formats must keep the old DB intact.
+	switch (format) {
+		case undefined:
+		case PENDING_FORMAT:
+			return;
+		default:
+			throw new PendingFormatError(format);
+	}
+}
 
 interface ReplicaSchema extends DBSchema {
 	meta: { key: "clientId" | "version" | "pendingFormat"; value: string | number };
@@ -80,8 +93,7 @@ export async function openIdbPersistence(
 			const check = meta ? meta.get("pendingFormat") : Promise.resolve(undefined);
 			check
 				.then((format) => {
-					if (format !== undefined && format !== PENDING_FORMAT)
-						throw new PendingFormatError(format);
+					checkPendingFormat(format);
 					const keepUnsent = db.objectStoreNames.contains("pending") && meta !== null;
 					for (const name of [...db.objectStoreNames]) {
 						if (keepUnsent && (name === "pending" || name === "meta")) continue;
@@ -90,15 +102,18 @@ export async function openIdbPersistence(
 					if (!keepUnsent) db.createObjectStore("meta");
 					for (const entity of ENTITY_NAMES) db.createObjectStore(entity, { keyPath: "id" });
 					if (keepUnsent) {
-						void meta.delete("version");
-						void meta.put(PENDING_FORMAT, "pendingFormat");
+						void meta.delete("version").catch(() => {});
+						void meta.put(PENDING_FORMAT, "pendingFormat").catch(() => {});
 					} else {
 						const pending = db.createObjectStore("pending", {
 							keyPath: "seq",
 							autoIncrement: true,
 						});
 						pending.createIndex("id", "id", { unique: true });
-						void tx.objectStore("meta").put(PENDING_FORMAT, "pendingFormat");
+						void tx
+							.objectStore("meta")
+							.put(PENDING_FORMAT, "pendingFormat")
+							.catch(() => {});
 					}
 				})
 				.catch((error: unknown) => {
@@ -110,6 +125,7 @@ export async function openIdbPersistence(
 						/* The transaction already failed. */
 					}
 				});
+			void tx.done.catch(() => {});
 		},
 		// The client drains its queued writes before closing for an upgrade. A delete closes now.
 		blocking(_current, blockedVersion) {
@@ -160,10 +176,12 @@ class IdbPersistence implements Persistence {
 		const tx = this.db.transaction(ALL_STORES, "readwrite");
 		const meta = tx.objectStore("meta");
 		const format = await meta.get("pendingFormat");
-		if (format !== undefined && format !== PENDING_FORMAT) {
+		try {
+			checkPendingFormat(format);
+		} catch (error) {
 			void tx.done.catch(() => {});
 			tx.abort();
-			throw new PendingFormatError(format);
+			throw error;
 		}
 		if (format === undefined) await meta.put(PENDING_FORMAT, "pendingFormat");
 		let clientId = (await meta.get("clientId")) as string | undefined;
@@ -294,11 +312,13 @@ class IdbPersistence implements Persistence {
 		await Promise.all([...mutations.map((mutation) => tx.store.add(mutation)), tx.done]);
 	}
 
-	async removePending(id: string): Promise<void> {
+	async removePending(id: string | number): Promise<boolean> {
 		const tx = this.db.transaction("pending", "readwrite");
-		const seq = await tx.store.index("id").getKey(id);
+		const seq = typeof id === "number" ? id : await tx.store.index("id").getKey(id);
+		const exists = seq !== undefined && (await tx.store.getKey(seq)) !== undefined;
 		if (seq !== undefined) await tx.store.delete(seq);
 		await tx.done;
+		return exists;
 	}
 
 	close(): void {
@@ -312,12 +332,19 @@ function readPending(rows: readonly unknown[]): Pick<StoredReplica, "pending" | 
 	for (const row of rows) {
 		const record = isRecord(row) ? row : {};
 		const id = record.id;
-		if (typeof id !== "string" || !id) throw new PendingFormatError("missing mutation id");
+		if (typeof id !== "string" || !id) {
+			const fields = isRecord(record.mutation) ? record.mutation : {};
+			unreadable.push({
+				seq: typeof record.seq === "number" ? record.seq : undefined,
+				name: typeof fields.name === "string" ? fields.name : "Stored change",
+				args: isRecord(fields.args) ? fields.args : {},
+			});
+			continue;
+		}
 		const mutation = record.mutation;
+		const parsed = mutationSchema.safeParse(mutation);
 		if (
-			isRecord(mutation) &&
-			typeof mutation.name === "string" &&
-			isRecord(mutation.args) &&
+			parsed.success &&
 			typeof record.createdAt === "number" &&
 			Number.isFinite(record.createdAt)
 		) {
