@@ -8,6 +8,29 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.39.7] - 2026-11-18
+
+Signing in through a provider: a return that fails comes back to Track's own page, and a sign-in
+may take ten minutes. There is no migration in this release.
+
+### Fixed
+
+- **A failed return from the sign-in provider lands on Track's sign-in page.** It used to show
+  the authentication library's bare error page. The page now says what happened in a sentence of
+  Track's own, chosen from a fixed list; nothing from the link is shown. ([#327])
+- **A sign-in through a provider may take ten minutes.** After five, the return was refused, so
+  anyone who signed up at the provider with an emailed code or reset a password on the way had to
+  start again. The check itself is unchanged: the return must come to the browser that started,
+  once. ([#327])
+- **`/settings/account` opened signed out** remembers where you were headed. ([#327])
+- **The path to go to after signing in** is refused when its dot segments resolve to another
+  site (`/.//example.com`). Nothing followed such a path before, because the router and the
+  authentication library refuse it too. ([#329])
+
+### If you run your own
+
+- **Update.**
+
 ## [0.39.6] - 2026-11-16
 
 A guard that cannot read the session now refuses. There is no migration in this release.
@@ -1951,6 +1974,8 @@ The first pre-release.
 [#320]: https://github.com/gateweavehq/track/pull/320
 [#322]: https://github.com/gateweavehq/track/pull/322
 [#324]: https://github.com/gateweavehq/track/pull/324
+[#327]: https://github.com/gateweavehq/track/pull/327
+[#329]: https://github.com/gateweavehq/track/pull/329
 [#295]: https://github.com/gateweavehq/track/pull/295
 [#294]: https://github.com/gateweavehq/track/pull/294
 [#293]: https://github.com/gateweavehq/track/pull/293
