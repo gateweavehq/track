@@ -8,6 +8,44 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.41.0] - 2026-11-18
+
+Track's MCP server is easier for an agent to use: a mistyped field is refused instead of ignored,
+writes answer briefly, and a caller can edit its own comment. This release changes the sync
+protocol, so open tabs reload their local copy; unsent edits are kept. There is no server
+migration.
+
+### Added
+
+- **`update_comment` over MCP.** A caller can change its own comment. The previous text stays in
+  the issue's history, where everyone who can see the issue can read it, also after the comment
+  is deleted: a secret pasted by mistake must be rotated, not edited away. Edits made one after
+  another by the same author are one history entry.
+  ([#338](https://github.com/gateweavehq/track/pull/338))
+- **Search matches the dotless ı with i**, in the app and over MCP.
+  ([#338](https://github.com/gateweavehq/track/pull/338))
+
+### Changed
+
+- **MCP tools refuse a field they do not know.** The answer names the field and lists the ones
+  the tool accepts. Before, such a field was dropped silently, so a search sent as `query`
+  instead of `text` answered with an unfiltered list. A client that sends extra arguments will
+  now get an error. ([#338](https://github.com/gateweavehq/track/pull/338))
+- **`create_issue` and `update_issue` answer briefly**: the issue's key, title, status,
+  priority, assignee, labels, project, URL, when it changed and who made it. Pass
+  `include: ["description"]` to get the description back as well; `get_issue` is unchanged.
+  ([#338](https://github.com/gateweavehq/track/pull/338))
+- **A token that fails is answered alike** whether it was never valid, has expired or was taken
+  back, so nothing outside can tell which.
+  ([#337](https://github.com/gateweavehq/track/pull/337))
+
+### If you run your own
+
+- **Update, and reload open tabs.** The protocol version rises from 26 to 27. A tab on 0.40.0 or
+  later keeps its unsent edits across the reload; a tab on an older build does not.
+- Better Auth is on 1.7.25, with Vite, Wrangler and the other tools on their current versions.
+  ([#337](https://github.com/gateweavehq/track/pull/337))
+
 ## [0.40.1] - 2026-11-18
 
 Unsent edits are also kept when the stored layout changes, and a change that cannot be kept is
