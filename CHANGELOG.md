@@ -8,6 +8,34 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.40.1] - 2026-11-18
+
+Unsent edits are also kept when the stored layout changes, and a change that cannot be kept is
+never dropped without a word. There is no server migration, and nothing changes on a device until
+the next upgrade of its local copy.
+
+### Fixed
+
+- **Unsent edits survive an upgrade of the stored layout too.** 0.40.0 kept them across a protocol
+  upgrade; an upgrade that changed the layout still discarded them. Both keep them now, in order
+  and with their ids, so an edit the server had already taken is not applied twice.
+  ([#332](https://github.com/gateweavehq/track/pull/332))
+- **A stored edit that cannot be read is reported, not dropped.** Track removes it, names it in a
+  notice, and sends the rest in order. An edit from an older version that no longer fits is handled
+  the same way instead of breaking the page.
+  ([#332](https://github.com/gateweavehq/track/pull/332))
+- **A local copy that cannot be read at all says so.** Track leaves it untouched, shows what it
+  can, and offers to discard it, naming the unsent changes that would be lost. If another tab of
+  the workspace holds the copy, it says to close that tab, and waiting can be stopped.
+  ([#332](https://github.com/gateweavehq/track/pull/332))
+- **A tab on an older build** finishes its queued writes and closes when a newer build upgrades
+  the local copy. A tab still on a build from before 0.40.0 cannot do this: reload open tabs after
+  updating. ([#332](https://github.com/gateweavehq/track/pull/332))
+
+### If you run your own
+
+- **Update, and reload open tabs.**
+
 ## [0.40.0] - 2026-11-18
 
 Workspace members can connect their own AI assistants to Track through MCP without asking an admin
