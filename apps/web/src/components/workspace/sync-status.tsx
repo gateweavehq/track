@@ -1,8 +1,13 @@
-import { deleteIdbReplica, type SyncStatus } from "@gateweave/track-sync-client";
+import {
+	DISCARD_TIMEOUT_MS,
+	deleteIdbReplica,
+	type SyncStatus,
+} from "@gateweave/track-sync-client";
 import { useSyncClient, useSyncStatus } from "@gateweave/track-sync-client/react";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
+import { issueKey } from "#/lib/issues";
 import { cn } from "#/lib/utils";
 import { ConfirmDialog } from "./confirm-dialog";
 import { Notice } from "./notice";
@@ -37,16 +42,45 @@ export function SyncBadge({ className }: { className?: string }) {
  * explains why instead, since the data on screen can no longer be trusted or saved.
  */
 export function SyncGate({ children, storageKey }: { children: ReactNode; storageKey: string }) {
+	// Any status change, the pending count included, renders again, so the list below stays current.
 	const { connection, loaded } = useSyncStatus();
 	const client = useSyncClient();
 	const [confirmDiscard, setConfirmDiscard] = useState(false);
+	const [discardMessage, setDiscardMessage] = useState("");
+	const discardActive = useRef(false);
+	const readable = client.getPending();
+	const descriptions = readable.slice(0, 5).map(({ mutation }) => {
+		const { args } = mutation;
+		const id = "id" in args && typeof args.id === "string" ? args.id : undefined;
+		const state = id ? client.getState() : undefined;
+		const issue = id && state ? state.issues.get(id) : undefined;
+		const detail =
+			"title" in args && typeof args.title === "string"
+				? args.title
+				: "key" in args && typeof args.key === "string"
+					? args.key
+					: issue && state
+						? issueKey(state.teams.get(issue.teamId), issue)
+						: undefined;
+		return detail ? `${mutation.name} (${detail})` : mutation.name;
+	});
 
 	if (connection === "unreadable") {
 		return (
 			<>
 				<Notice
 					title="This device's local copy cannot be read"
-					action={<Button onClick={() => setConfirmDiscard(true)}>Discard local copy</Button>}
+					action={
+						<Button
+							onClick={() => {
+								discardActive.current = true;
+								setDiscardMessage("");
+								setConfirmDiscard(true);
+							}}
+						>
+							Discard local copy
+						</Button>
+					}
 				>
 					Some changes stored on this device may not have reached the server. You can still read any
 					data shown below. Discard the local copy to download a fresh one.
@@ -56,15 +90,43 @@ export function SyncGate({ children, storageKey }: { children: ReactNode; storag
 					<ConfirmDialog
 						title="Discard this device's local copy?"
 						confirmLabel="Discard local copy"
-						onClose={() => setConfirmDiscard(false)}
+						allowCancelWhilePending
+						onClose={() => {
+							discardActive.current = false;
+							setConfirmDiscard(false);
+						}}
 						onConfirm={async () => {
 							await client.close();
-							await deleteIdbReplica(storageKey);
-							window.location.reload();
+							if (!discardActive.current) return;
+							try {
+								await deleteIdbReplica(storageKey, {
+									onBlocked: () =>
+										setDiscardMessage(
+											"Another tab of this workspace is open. Close it to finish discarding this copy.",
+										),
+								});
+								if (discardActive.current) window.location.reload();
+							} catch {
+								setDiscardMessage(
+									`Discard stopped after ${DISCARD_TIMEOUT_MS / 1000} seconds. Close other workspace tabs and reload this page before trying again.`,
+								);
+								throw new Error("Discard timed out");
+							}
 						}}
 					>
-						Changes that have not reached the server will be lost. This device will download a fresh
-						copy of the workspace.
+						{readable.length > 0 ? (
+							<>
+								{readable.length === 1
+									? "1 change that has not reached the server will be lost:"
+									: `${readable.length} changes that have not reached the server will be lost:`}{" "}
+								{descriptions.join(", ")}
+								{readable.length > 5 ? `, and ${readable.length - 5} more` : ""}.
+							</>
+						) : (
+							"No unsent changes could be read; nothing readable will be lost."
+						)}{" "}
+						This device will download a fresh copy of the workspace.
+						{discardMessage && <span role="alert"> {discardMessage}</span>}
 					</ConfirmDialog>
 				)}
 			</>

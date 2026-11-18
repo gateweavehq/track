@@ -165,6 +165,9 @@ export class SyncClient {
 
 	getStatus = (): SyncStatus => this.#status;
 
+	/** Readable, unconfirmed changes in their original order. */
+	getPending = (): readonly PendingMutation[] => [...this.#replica.pending];
+
 	subscribeStatus = (listener: () => void): (() => void) => {
 		this.#statusListeners.add(listener);
 		return () => this.#statusListeners.delete(listener);
@@ -299,7 +302,9 @@ export class SyncClient {
 		this.#role = "follower";
 		this.#releaseHeld();
 		this.#unwake = this.#options.wake?.(this.retryNow);
-		this.#tabs.elect(() => this.#lead());
+		this.#tabs.elect(() => {
+			this.#lead().catch((error: unknown) => console.warn("sync: could not take the lead", error));
+		});
 		this.#tabs.post({ type: "status?" });
 	}
 
@@ -308,7 +313,6 @@ export class SyncClient {
 		this.#replica.addPending(...stored.pending);
 		this.#unreadable = stored.unreadable;
 		if (this.#replica.hasData) this.#setStatus({ loaded: true });
-		if (stored.unreadable.length > 0) this.#setStatus({ connection: "unreadable" });
 	}
 
 	#unreadableStorage(error: PendingFormatError): void {
@@ -409,14 +413,13 @@ export class SyncClient {
 		}
 	}
 
-	#lead(): void {
+	async #lead(): Promise<void> {
 		if (this.#role === "closed" || this.#taken) return;
 		this.#role = "leader";
-		const unreadable = this.#unreadable.length > 0;
 		for (const change of this.#unreadable) {
 			const key = change.id ?? change.seq;
 			if (key === undefined) continue;
-			void this.#write((p) => p.removePending(key)).then((removed) => {
+			await this.#write((p) => p.removePending(key)).then((removed) => {
 				if (removed === false) return;
 				this.#options.onReject?.(
 					new MutationError(
@@ -437,11 +440,7 @@ export class SyncClient {
 			});
 		}
 		this.#unreadable = [];
-		if (unreadable) {
-			this.#setConnection("unreadable");
-			return;
-		}
-		void this.#connect();
+		if (this.#role === "leader" && !this.#taken) void this.#connect();
 	}
 
 	// Connection

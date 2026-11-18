@@ -142,11 +142,33 @@ export async function openIdbPersistence(
 }
 
 /**
+ * How long a discard waits for the database to be deleted. Another tab that holds it open and
+ * does not close it blocks the delete; IndexedDB cannot cancel a delete once asked, so after
+ * this time the wait ends and the delete may still finish later.
+ */
+export const DISCARD_TIMEOUT_MS = 10_000;
+
+/**
  * Deletes the replica stored under `key`, for example once the user has lost access to its
  * workspace. Tabs that still have it open close their copy and hear of it through `onDeleted`.
+ * `onBlocked` is called when another connection keeps the delete waiting; the promise rejects
+ * after `DISCARD_TIMEOUT_MS`.
  */
-export async function deleteIdbReplica(key: string): Promise<void> {
-	await deleteDB(DB_PREFIX + key);
+export async function deleteIdbReplica(
+	key: string,
+	options: { onBlocked?: () => void } = {},
+): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		await Promise.race([
+			deleteDB(DB_PREFIX + key, { blocked: () => options.onBlocked?.() }),
+			new Promise<never>((_resolve, reject) => {
+				timer = setTimeout(() => reject(new Error("Discard timed out")), DISCARD_TIMEOUT_MS);
+			}),
+		]);
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 /** Deletes every replica stored by this app in this browser, for example on sign-out. */

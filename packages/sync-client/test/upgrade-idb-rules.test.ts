@@ -45,6 +45,16 @@ it("discards the local database and its pending store before a fresh start", asy
 	fresh.close();
 });
 
+it("reports a blocked delete and ends the wait after ten seconds", async () => {
+	const key = crypto.randomUUID();
+	const blocker = await raw(key);
+	const onBlocked = vi.fn();
+	const deleting = deleteIdbReplica(key, { onBlocked });
+	await vi.waitFor(() => expect(onBlocked).toHaveBeenCalledOnce());
+	await expect(deleting).rejects.toThrow("Discard timed out");
+	blocker.close();
+}, 15_000);
+
 it("clears a real stored snapshot while keeping ordered pending rows and client id", async () => {
 	const key = crypto.randomUUID();
 	const old = await openIdbPersistence(key);
@@ -194,9 +204,11 @@ it("quarantines a row without an id while preserving the rest of the queue", asy
 	reopened.close();
 });
 
-it("shows unreadable storage for a row without an id while retaining readable snapshot data", async () => {
+it("syncs readable changes around an unreadable row in order", async () => {
 	const key = crypto.randomUUID();
 	const storage = await openIdbPersistence(key);
+	const first = change();
+	await storage.addPending(first);
 	await storage.replace({
 		version: 7,
 		teams: [],
@@ -229,21 +241,38 @@ it("shows unreadable storage for a row without an id while retaining readable sn
 			}),
 	);
 	db.close();
+	const after = await openIdbPersistence(key);
+	const last = change();
+	await after.addPending(last);
+	after.close();
 	const onReject = vi.fn();
+	const sent: string[] = [];
 	const client = new SyncClient({
 		userId: "bob",
 		persistence: openIdbPersistence(key),
 		onReject,
 		transport: {
 			snapshot: async () => {
-				throw new Error("Must not sync");
+				throw new Error("Stored snapshot should be used");
 			},
 			probe: async () => {},
-			connect: () => ({ send() {}, close() {} }),
+			connect: (handlers) => {
+				queueMicrotask(() => handlers.open());
+				return {
+					close() {},
+					send(data) {
+						const message = JSON.parse(data);
+						if (message.type === "hello")
+							handlers.message(JSON.stringify({ type: "ready", version: 7 }));
+						if (message.type === "mutate") sent.push(message.id);
+					},
+				};
+			},
 		},
 	});
 	await vi.waitFor(() => expect(onReject).toHaveBeenCalledOnce());
-	expect(client.getStatus()).toMatchObject({ connection: "unreadable", loaded: true });
+	await vi.waitFor(() => expect(sent).toEqual([first.id, last.id]));
+	expect(client.getStatus()).toMatchObject({ connection: "live", loaded: true });
 	expect(client.getState().version).toBe(7);
 	await client.close();
 });
@@ -310,7 +339,7 @@ it("quarantines an old mutation shape before optimistic replay or resend", async
 			},
 		},
 	});
-	await vi.waitFor(() => expect(client.getStatus().connection).toBe("unreadable"));
+	await vi.waitFor(() => expect(client.getStatus().connection).toBe("live"));
 	expect(client.getStatus().pending).toBe(0);
 	expect(() => client.getState()).not.toThrow();
 	expect(sent).toHaveLength(0);
