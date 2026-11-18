@@ -820,7 +820,7 @@ code goes live; neither touches existing rows.
   or left from this version on. That includes mentions, the history replicas catch up from, webhook deliveries and the
   search index. What you wrote stays with the team, under "Deleted member". The only owner of a workspace is told which
   one stands in the way. If you run Track yourself, [say what stays in your privacy
-  notice](docs/self-hosting.md#when-someone-deletes-their-account). ([#224])
+notice](docs/self-hosting.md#when-someone-deletes-their-account). ([#224])
 
 ### Changed
 

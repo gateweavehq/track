@@ -68,8 +68,11 @@ export function protectResource(
 				},
 			});
 		} catch (error) {
-			if (errorCode(error) === "ERR_JWT_EXPIRED") throw unauthorized("token expired");
-			if (isInvalidTokenError(error)) throw unauthorized("invalid access token");
+			// Since Better Auth 1.7.22 a token that was presented and failed is answered with
+			// `error="invalid_token"` (RFC 6750 §3.1), which only a request with no token is spared.
+			if (errorCode(error) === "ERR_JWT_EXPIRED")
+				throw unauthorized("token expired", "invalid_token");
+			if (isInvalidTokenError(error)) throw unauthorized("invalid access token", "invalid_token");
 			throw error;
 		}
 
@@ -92,7 +95,8 @@ export function protectResource(
 		}
 
 		if (!(await options.stillGranted(payload)))
-			throw unauthorized("access was taken back", "invalid_token");
+			// The same words as for a token that was never valid, so nothing outside says which it was.
+			throw unauthorized("invalid access token", "invalid_token");
 		return payload;
 	}
 
