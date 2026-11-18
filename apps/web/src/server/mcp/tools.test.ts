@@ -28,6 +28,7 @@ import type { IssueQuery, MemberProfile, MutateResult } from "@gateweave/track-s
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { beforeEach, describe, expect, it } from "vitest";
+import { search } from "#/lib/search";
 import { createTrackServer, type TrackAccess, type WorkspaceAccess } from "./tools";
 
 const me: MemberProfile = {
@@ -111,7 +112,8 @@ class FakeWorkspace implements WorkspaceAccess {
 	}
 	async issues(query: IssueQuery) {
 		this.queries.push(query);
-		return this.issues_
+		const filtered = this.issues_
+			.filter((issue) => query.teamId === undefined || issue.teamId === query.teamId)
 			.filter((issue) => query.assigneeId === undefined || issue.assigneeId === query.assigneeId)
 			.filter((issue) => !query.statuses || query.statuses.includes(issue.status))
 			.filter((issue) => query.labelId === undefined || issue.labelIds.includes(query.labelId))
@@ -121,8 +123,24 @@ class FakeWorkspace implements WorkspaceAccess {
 			.filter(
 				(issue) => query.archived === undefined || (issue.archivedAt !== null) === query.archived,
 			)
-			.filter((issue) => query.intake === undefined || issue.intake === query.intake)
-			.slice(0, query.limit);
+			.filter((issue) => query.intake === undefined || issue.intake === query.intake);
+		if (query.text?.trim()) {
+			const ids = new Set(filtered.map((issue) => issue.id));
+			return search(
+				{
+					teams: new Map(this.teams.map((team) => [team.id, team])),
+					issues: new Map(filtered.map((issue) => [issue.id, issue])),
+					comments: new Map(
+						this.comments_
+							.filter((comment) => ids.has(comment.issueId))
+							.map((comment) => [comment.id, comment]),
+					),
+				},
+				query.text,
+				query.limit,
+			).map((result) => result.issue as Issue);
+		}
+		return filtered.slice(0, query.limit);
 	}
 	async issue(id: string) {
 		return this.issues_.find((issue) => issue.id === id) ?? null;
@@ -328,7 +346,15 @@ class FakeWorkspace implements WorkspaceAccess {
 			});
 		} else if (mutation.name === "comment.create") {
 			const at = Date.UTC(2026, 9, 28);
-			this.comments_.push({ ...mutation.args, authorId: me.id, createdAt: at, updatedAt: at });
+			this.comments_.push({ ...mutation.args, authorId: this.me.id, createdAt: at, updatedAt: at });
+		} else if (mutation.name === "comment.update") {
+			const comment = this.comments_.find((row) => row.id === mutation.args.id);
+			if (!comment) return { ok: false, reason: "not_found", message: "Comment not found" };
+			if (comment.authorId !== this.me.id) {
+				return { ok: false, reason: "forbidden", message: "Only the author can edit a comment" };
+			}
+			comment.body = mutation.args.body;
+			comment.updatedAt += 1;
 		}
 		return { ok: true, version, proposed };
 	}
@@ -382,9 +408,186 @@ describe("Track MCP tools", () => {
 			"search_issues",
 			"triage_request",
 			"unlink_issues",
+			"update_comment",
 			"update_issue",
 			"update_project",
 		]);
+	});
+
+	it("advertises closed input schemas for every tool", async () => {
+		const { tools } = await client.listTools();
+		for (const tool of tools) {
+			expect(tool.inputSchema.additionalProperties, tool.name).toBe(false);
+		}
+	});
+
+	it("refuses unknown search fields before reading issues and names the accepted fields", async () => {
+		await created({ title: "Unrelated" });
+		workspace.queries.length = 0;
+		const result = await call("search_issues", { workspace: "acme", query: "Pinterest" });
+		expect(result.isError).toBe(true);
+		expect(result.structuredContent).toBeUndefined();
+		expect(result.content).toEqual([
+			{
+				type: "text",
+				text: expect.stringContaining('Unknown field "query". search_issues accepts:'),
+			},
+		]);
+		expect(result.content[0]).toMatchObject({ text: expect.stringContaining('use "text"') });
+		expect(workspace.queries).toEqual([]);
+	});
+
+	it("refuses unknown fields on other tools, including the no-argument tool", async () => {
+		const extra = await call("create_issue", {
+			workspace: "acme",
+			team: "ENG",
+			title: "Should not be created",
+			unexpected: true,
+		});
+		expect(extra.isError).toBe(true);
+		expect(extra.content[0]).toMatchObject({
+			text: expect.stringContaining("create_issue accepts: workspace, team"),
+		});
+		expect(workspace.issues_).toEqual([]);
+		const empty = await call("list_workspaces", { unexpected: true });
+		expect(empty.isError).toBe(true);
+		expect(empty.content[0]).toMatchObject({ text: expect.stringContaining("no fields") });
+	});
+
+	it("returns short write answers unless description is requested", async () => {
+		const made = await call("create_issue", {
+			workspace: "acme",
+			team: "ENG",
+			title: "Short",
+			description: "Long body",
+		});
+		expect(made.structuredContent).toEqual({
+			key: "ENG-1",
+			title: "Short",
+			status: "backlog",
+			statusName: "Backlog",
+			priority: "none",
+			assignee: null,
+			labels: [],
+			project: null,
+			url: "https://track.example.com/acme/issue/ENG-1",
+			updatedAt: "2026-10-27T00:00:00.000Z",
+			creator: "maya@example.com",
+		});
+		const changed = await call("update_issue", {
+			workspace: "acme",
+			key: "ENG-1",
+			title: "Shorter",
+			include: ["description"],
+		});
+		expect(changed.structuredContent).toMatchObject({ title: "Shorter", description: "Long body" });
+		const again = await call("update_issue", { workspace: "acme", key: "ENG-1", title: "Again" });
+		expect(again.structuredContent).not.toHaveProperty("description");
+		const included = await call("create_issue", {
+			workspace: "acme",
+			team: "ENG",
+			title: "With body",
+			description: "Visible",
+			include: ["description"],
+		});
+		expect(included.structuredContent).toMatchObject({ description: "Visible" });
+	});
+
+	it("passes text to a narrowing search and applies the limit to matches", async () => {
+		await created({ title: "Şüpheli üye ışığı" });
+		await created({ title: "Unrelated", description: "Şüpheli report" });
+		await created({ title: "Unrelated again" });
+		await call("add_comment", { workspace: "acme", key: "ENG-3", body: "Şüpheli note" });
+		for (let n = 0; n < 50; n += 1) await created({ title: `Unrelated ${n}` });
+		const found = await call("search_issues", { workspace: "acme", text: "supheli" });
+		expect(
+			(found.structuredContent as { issues: { key: string }[] }).issues.map((row) => row.key),
+		).toEqual(["ENG-1", "ENG-2", "ENG-3"]);
+		expect(
+			(await call("search_issues", { workspace: "acme", text: "supheli uye isigi" }))
+				.structuredContent,
+		).toMatchObject({ issues: [{ key: "ENG-1" }] });
+		expect(
+			(await call("search_issues", { workspace: "acme", text: "supheli", limit: 1 }))
+				.structuredContent,
+		).toMatchObject({ issues: [{ key: "ENG-1" }] });
+		expect(workspace.queries.at(-1)).toMatchObject({ text: "supheli", limit: 1 });
+	});
+
+	it("edits only the caller's comment, including for an agent", async () => {
+		await created({ title: "Discussion" });
+		const added = await call("add_comment", { workspace: "acme", key: "ENG-1", body: "Before" });
+		const id = (added.structuredContent as { id: string }).id;
+		const changed = await call("update_comment", {
+			workspace: "acme",
+			key: "ENG-1",
+			id,
+			body: "After",
+		});
+		expect(changed.structuredContent).toMatchObject({ id, body: "After", edited: true });
+		workspace.me = { ...me, id: "agent-bot", role: "agent" };
+		const agent = await call("update_comment", {
+			workspace: "acme",
+			key: "ENG-1",
+			id,
+			body: "Agent",
+		});
+		expect(agent.isError).toBe(true);
+		const ownAgent = await call("add_comment", {
+			workspace: "acme",
+			key: "ENG-1",
+			body: "Agent before",
+		});
+		const ownAgentId = (ownAgent.structuredContent as { id: string }).id;
+		expect(
+			(
+				await call("update_comment", {
+					workspace: "acme",
+					key: "ENG-1",
+					id: ownAgentId,
+					body: "Agent after",
+				})
+			).structuredContent,
+		).toMatchObject({ body: "Agent after" });
+		workspace.me = me;
+		workspace.comments_.push({
+			id: "someone-else",
+			issueId: workspace.issues_[0]?.id ?? "",
+			authorId: sam.id,
+			body: "Private",
+			createdAt: 1,
+			updatedAt: 1,
+		});
+		expect(
+			(
+				await call("update_comment", {
+					workspace: "acme",
+					key: "ENG-1",
+					id: "someone-else",
+					body: "No",
+				})
+			).isError,
+		).toBe(true);
+		expect(
+			(await call("update_comment", { workspace: "other", key: "ENG-1", id, body: "No" })).isError,
+		).toBe(true);
+		expect(
+			(await call("update_comment", { workspace: "acme", key: "ENG-1", id, body: " " })).isError,
+		).toBe(true);
+		expect(
+			(
+				await call("update_comment", {
+					workspace: "acme",
+					key: "ENG-1",
+					id,
+					body: "x".repeat(100_001),
+				})
+			).isError,
+		).toBe(true);
+		const tools = (await client.listTools()).tools;
+		expect(tools.find((tool) => tool.name === "update_comment")?.description).toContain(
+			"Only its author",
+		);
 	});
 
 	it("reads a team's or a project's insights, with keys, names and emails", async () => {
@@ -508,14 +711,22 @@ describe("Track MCP tools", () => {
 			],
 		});
 
-		const issue = await created({ title: "In this cycle", cycle: "current" });
+		await created({ title: "In this cycle", cycle: "current" });
 		expect(workspace.mutations.at(-1)).toMatchObject({ args: { cycleId: "c-2" } });
-		expect(issue.cycle).toBe(2);
+		expect(
+			(await call("get_issue", { workspace: "acme", key: "ENG-1" })).structuredContent,
+		).toMatchObject({ cycle: 2 });
 
 		const update = (cycle: unknown) =>
 			call("update_issue", { workspace: "acme", key: "ENG-1", cycle });
-		expect((await update("next")).structuredContent).toMatchObject({ cycle: 3 });
-		expect((await update(null)).structuredContent).toMatchObject({ cycle: null });
+		await update("next");
+		expect(
+			(await call("get_issue", { workspace: "acme", key: "ENG-1" })).structuredContent,
+		).toMatchObject({ cycle: 3 });
+		await update(null);
+		expect(
+			(await call("get_issue", { workspace: "acme", key: "ENG-1" })).structuredContent,
+		).toMatchObject({ cycle: null });
 		expect(await update(7)).toMatchObject({
 			isError: true,
 			content: [{ type: "text", text: "Team ENG has no cycle 7. See get_workspace." }],
@@ -605,10 +816,11 @@ describe("Track MCP tools", () => {
 			status: "todo",
 			priority: "high",
 			assignee: "sam@example.com",
-			creator: "maya@example.com",
-			description: "Details",
 			url: "https://track.example.com/acme/issue/ENG-2",
 		});
+		expect(
+			(await call("get_issue", { workspace: "acme", key: "ENG-2" })).structuredContent,
+		).toMatchObject({ creator: "maya@example.com", description: "Details" });
 	});
 
 	it("rejects unknown teams and assignees without writing", async () => {
@@ -653,22 +865,26 @@ describe("Track MCP tools", () => {
 	});
 
 	it("sets and clears an issue's dates and estimate", async () => {
-		const issue = await created({
+		await created({
 			title: "Launch",
 			start_date: "2026-11-02",
 			due_date: "2026-11-20",
 			estimate: 5,
 		});
-		expect(issue).toMatchObject({ startDate: "2026-11-02", dueDate: "2026-11-20", estimate: 5 });
+		expect(
+			(await call("get_issue", { workspace: "acme", key: "ENG-1" })).structuredContent,
+		).toMatchObject({ startDate: "2026-11-02", dueDate: "2026-11-20", estimate: 5 });
 
-		const result = await call("update_issue", {
+		await call("update_issue", {
 			workspace: "acme",
 			key: "ENG-1",
 			due_date: null,
 			estimate: 0,
 		});
 
-		expect(result.structuredContent).toMatchObject({
+		expect(
+			(await call("get_issue", { workspace: "acme", key: "ENG-1" })).structuredContent,
+		).toMatchObject({
 			startDate: "2026-11-02",
 			dueDate: null,
 			estimate: 0,
@@ -677,13 +893,19 @@ describe("Track MCP tools", () => {
 			name: "issue.update",
 			args: { patch: { dueDate: null, estimate: 0 } },
 		});
-		expect((await created({ title: "Bare" })).dueDate).toBeNull();
+		await created({ title: "Bare" });
+		expect(
+			(await call("get_issue", { workspace: "acme", key: "ENG-2" })).structuredContent,
+		).toMatchObject({ dueDate: null });
 	});
 
 	it("puts an issue under a parent, lists sub-issues, and makes it top-level again", async () => {
 		await created({ title: "Launch" });
 		const child = await created({ title: "Write the post", parent: "eng-1" });
-		expect(child).toMatchObject({ key: "ENG-2", parent: "ENG-1" });
+		expect(child).toMatchObject({ key: "ENG-2" });
+		expect(
+			(await call("get_issue", { workspace: "acme", key: "ENG-2" })).structuredContent,
+		).toMatchObject({ parent: "ENG-1" });
 		expect(workspace.mutations.at(-1)).toMatchObject({
 			name: "issue.create",
 			args: { parentId: workspace.issues_[0]?.id },
@@ -697,8 +919,10 @@ describe("Track MCP tools", () => {
 		const found = await call("search_issues", { workspace: "acme", parent: "ENG-1" });
 		expect(found.structuredContent).toMatchObject({ issues: [{ key: "ENG-2" }] });
 
-		const moved = await call("update_issue", { workspace: "acme", key: "ENG-2", parent: null });
-		expect(moved.structuredContent).toMatchObject({ parent: null });
+		await call("update_issue", { workspace: "acme", key: "ENG-2", parent: null });
+		expect(
+			(await call("get_issue", { workspace: "acme", key: "ENG-2" })).structuredContent,
+		).toMatchObject({ parent: null });
 		expect(workspace.mutations.at(-1)).toMatchObject({ args: { patch: { parentId: null } } });
 	});
 
@@ -962,7 +1186,10 @@ describe("Track MCP tools", () => {
 			status: "done",
 			archived: true,
 		});
-		expect(updated.structuredContent).toMatchObject({ status: "done", archived: true });
+		expect(updated.structuredContent).toMatchObject({ status: "done" });
+		expect(
+			(await call("get_issue", { workspace: "acme", key: "ENG-1" })).structuredContent,
+		).toMatchObject({ archived: true });
 		// The status first, so the issue is closed by the time it is archived.
 		expect(workspace.mutations.slice(-2).map((mutation) => mutation.name)).toEqual([
 			"issue.update",
@@ -979,12 +1206,14 @@ describe("Track MCP tools", () => {
 		expect(await titles(false)).toEqual(["Still open"]);
 		expect(await titles(true)).toEqual(["Shipped (archived)"]);
 
-		const restored = await call("update_issue", {
+		await call("update_issue", {
 			workspace: "acme",
 			key: "ENG-1",
 			archived: false,
 		});
-		expect(restored.structuredContent).toMatchObject({ archived: false });
+		expect(
+			(await call("get_issue", { workspace: "acme", key: "ENG-1" })).structuredContent,
+		).toMatchObject({ archived: false });
 	});
 
 	it("tells an agent its decision on a request waits for a person", async () => {
@@ -1022,7 +1251,10 @@ describe("Track MCP tools", () => {
 			title: "Export to PDF",
 			intake: true,
 		});
-		expect(filed.structuredContent).toMatchObject({ key: "ENG-1", intake: true });
+		expect(filed.structuredContent).toMatchObject({ key: "ENG-1" });
+		expect(
+			(await call("get_issue", { workspace: "acme", key: "ENG-1" })).structuredContent,
+		).toMatchObject({ intake: true });
 		expect(workspace.mutations.at(-1)).toMatchObject({ args: { intake: true } });
 		await created({ title: "Planned work" });
 
@@ -1214,7 +1446,7 @@ describe("Track MCP tools", () => {
 		const read = await call("get_issue", { workspace: "acme", key: "ENG-1" });
 		const missing = await call("add_comment", { workspace: "acme", key: "ENG-9", body: "Hi" });
 
-		expect(added.structuredContent).toEqual({
+		expect(added.structuredContent).toMatchObject({
 			author: "maya@example.com",
 			body: "Second, from an agent",
 			createdAt: "2026-10-28T00:00:00.000Z",
@@ -1227,6 +1459,9 @@ describe("Track MCP tools", () => {
 				{ author: "maya@example.com", body: "Second, from an agent", edited: false },
 			],
 		});
+		expect((read.structuredContent as { comments: { id: string }[] }).comments.at(-1)?.id).toBe(
+			(added.structuredContent as { id: string }).id,
+		);
 		expect(missing.isError).toBe(true);
 		expect(workspace.mutations.filter((m) => m.name === "comment.create")).toHaveLength(1);
 	});

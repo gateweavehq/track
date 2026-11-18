@@ -33,7 +33,7 @@ export interface SearchTables {
 
 /** Lowercase, without diacritics: "Résumé" and "İstanbul" become "resume" and "istanbul". */
 export function normalize(text: string): string {
-	return text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+	return text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replaceAll("ı", "i");
 }
 
 /** Maximal runs of letters and digits, after normalizing. */

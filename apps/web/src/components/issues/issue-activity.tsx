@@ -339,6 +339,8 @@ function describe(
 			);
 		case "description":
 			return plain(FileText, "updated the description");
+		case "comment":
+			return plain(Pencil, <span title={`Was “${change.from}”`}>edited a comment</span>);
 		case "intake":
 			return change.accepted
 				? plain(Inbox, "accepted the request")

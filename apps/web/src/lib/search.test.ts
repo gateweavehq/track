@@ -101,11 +101,10 @@ describe("matching", () => {
 		expect(ids(rows, "İSTANBUL")).toEqual(["b"]);
 	});
 
-	it("matches the dotless ı only as itself", () => {
+	it("folds dotless ı to i", () => {
 		const rows = [issue({ title: "kırmızı" })];
 		expect(ids(rows, "kırmızı")).toEqual(["i1"]);
-		// ı has no decomposition, so it is not folded into i.
-		expect(ids(rows, "kirmizi")).toEqual([]);
+		expect(ids(rows, "kirmizi")).toEqual(["i1"]);
 	});
 
 	it("matches token prefixes, not substrings", () => {

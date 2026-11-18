@@ -1149,6 +1149,18 @@ function updateComment(
 	if (row) {
 		changes.put("comment", toComment(row));
 		changes.events.push({ type: "comment.updated", comment: row, previous: comment });
+		const issue = db
+			.select()
+			.from(schema.issues)
+			.where(eq(schema.issues.id, comment.issueId))
+			.get();
+		if (issue) {
+			recordActivity(db, changes, issue, actor.member.userId, {
+				type: "comment",
+				commentId: comment.id,
+				from: comment.body,
+			});
+		}
 	}
 }
 

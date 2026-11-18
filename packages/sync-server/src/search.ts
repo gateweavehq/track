@@ -173,7 +173,7 @@ export function optimizeSearch(db: Db): void {
 
 /** Lowercase, without diacritics: "Résumé" becomes "resume", "İstanbul" becomes "istanbul". */
 export function normalize(text: string): string {
-	return text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+	return text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replaceAll("ı", "i");
 }
 
 /** The words of a text: runs of letters and digits, normalized. */
@@ -188,7 +188,21 @@ export function tokenize(text: string): string[] {
 export function matchExpression(text: string): string | undefined {
 	const words = tokenize(text);
 	if (words.length === 0) return undefined;
-	return words.map((word) => `"${word}"*`).join(" ");
+	return words.map(wordExpression).join(" AND ");
+}
+
+/** SQLite's tokenizer keeps dotless ı distinct from i, including in older index rows. */
+function wordExpression(word: string): string {
+	const positions = [...word.matchAll(/i/g)].map((match) => match.index);
+	if (positions.length === 0) return `"${word}"*`;
+	// A query is at most 200 characters. Limit expansion for pathological repeated-i inputs.
+	const variants = new Set([word, word.replaceAll("i", "ı")]);
+	for (const position of positions.slice(0, 8)) {
+		for (const variant of [...variants]) {
+			variants.add(`${variant.slice(0, position)}ı${variant.slice(position + 1)}`);
+		}
+	}
+	return `(${[...variants].map((variant) => `"${variant}"*`).join(" OR ")})`;
 }
 
 /** Keeps the rows of `issueSearch` that match an expression from `matchExpression`. */
@@ -211,7 +225,7 @@ export const RANK = sql<number>`bm25(${issueSearch}, ${WEIGHTS})`;
  */
 export function commentMatches(db: Db, text: string): Map<string, number> {
 	const found = new Map<string, number>();
-	const words = [...new Set(tokenize(text))].map((word) => `"${word}"*`);
+	const words = [...new Set(tokenize(text))].map(wordExpression);
 	if (words.length === 0) return found;
 	// The comments that match any word, and their issues' rows. Usually none: only issues past
 	// the limit have comments here.
