@@ -1,6 +1,7 @@
 import { CloseCode, PROTOCOL_VERSION, privateId } from "@gateweave/track-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	DB_VERSION,
 	deleteIdbReplica,
 	HttpError,
 	MemoryPersistence,
@@ -403,6 +404,39 @@ describe("offline", () => {
 		await waitForConvergence(synced, alice);
 		expect(issueBy(alice, "Survives the reload").creatorId).toBe("bob");
 		expect(online.snapshots).toBe(0);
+	});
+
+	it("sends an edit made offline after a new build's protocol upgrade", async () => {
+		const ws = setup();
+		const key = `upgraded-${ws.id}`;
+		const alice = await ws.live("alice");
+		const team = make.team();
+		await alice.mutate(team);
+		await alice.mutate(make.issue(team.args.id, "Plan"));
+
+		const network = ws.network("bob");
+		const bob = await ws.live("bob", { network, persistence: openIdbPersistence(key) });
+		await waitForConvergence(alice, bob);
+		network.offline();
+		await waitFor(() => bob.getStatus().connection === "offline");
+		void bob.mutate(make.update(issueBy(bob, "Plan"), { title: "Renamed before the upgrade" }));
+		await bob.close();
+
+		// The next build speaks a higher protocol version, so its storage opens one version up. The
+		// upgrade drops the old snapshot, but the edit exists nowhere else: it must survive.
+		const next = { version: DB_VERSION + 1000 };
+		const upgraded = await openIdbPersistence(key, next);
+		expect((await upgraded.load()).pending).toHaveLength(1);
+		await upgraded.close();
+
+		const online = ws.network("bob");
+		const back = await ws.live("bob", {
+			network: online,
+			persistence: openIdbPersistence(key, next),
+		});
+		await waitForConvergence(alice, back);
+		expect(issueBy(alice, "Renamed before the upgrade")).toBeDefined();
+		expect(issueBy(back, "Renamed before the upgrade")).toBeDefined();
 	});
 
 	it("drops an edit kept past the resend window instead of sending it", async () => {

@@ -15,10 +15,12 @@ const DB_PREFIX = "track:";
 /**
  * Bump when the stored layout changes. The database version also folds in the protocol version,
  * so stored rows never outlive the entity shapes they were written with: on an upgrade the old
- * stores are dropped and the replica re-syncs from the server.
+ * stores are dropped and the replica re-syncs from the server. What outlives a protocol-only
+ * upgrade is the `pending` store: an edit made offline exists nowhere else, and the server
+ * re-validates it on resend, refusing what the new protocol cannot take.
  */
 const STORAGE_VERSION = 1;
-const DB_VERSION = PROTOCOL_VERSION * 1000 + STORAGE_VERSION;
+export const DB_VERSION = PROTOCOL_VERSION * 1000 + STORAGE_VERSION;
 
 interface ReplicaSchema extends DBSchema {
 	meta: { key: "clientId" | "version"; value: string | number };
@@ -54,6 +56,11 @@ export interface IdbPersistenceOptions {
 	 * page should let go of this client rather than carry on.
 	 */
 	onDeleted?: () => void;
+	/**
+	 * The database version to open, as a newer build's is. Defaults to this build's; a test passes
+	 * a higher one to play the upgrade a person meets after a deploy.
+	 */
+	version?: number;
 }
 
 /**
@@ -62,26 +69,40 @@ export interface IdbPersistenceOptions {
  */
 export async function openIdbPersistence(
 	key: string,
-	{ onDeleted }: IdbPersistenceOptions = {},
+	options: IdbPersistenceOptions = {},
 ): Promise<Persistence> {
 	let persistence: IdbPersistence | undefined;
-	const db = await openDB<ReplicaSchema>(DB_PREFIX + key, DB_VERSION, {
-		upgrade(db) {
-			for (const name of [...db.objectStoreNames]) db.deleteObjectStore(name);
-			db.createObjectStore("meta");
+	const db = await openDB<ReplicaSchema>(DB_PREFIX + key, options.version ?? DB_VERSION, {
+		upgrade(db, oldVersion, newVersion, tx) {
+			// The last three digits hold STORAGE_VERSION. A protocol-only upgrade keeps `pending`
+			// and meta's clientId, but not the snapshot: its rows were written with the old
+			// protocol's entity shapes, so meta's version goes and the replica re-syncs.
+			const keepUnsent =
+				newVersion !== null &&
+				oldVersion % 1000 === newVersion % 1000 &&
+				db.objectStoreNames.contains("pending");
+			for (const name of [...db.objectStoreNames]) {
+				if (keepUnsent && (name === "pending" || name === "meta")) continue;
+				db.deleteObjectStore(name);
+			}
+			if (!keepUnsent) db.createObjectStore("meta");
 			for (const entity of ENTITY_NAMES) db.createObjectStore(entity, { keyPath: "id" });
-			db.createObjectStore("pending", { keyPath: "seq", autoIncrement: true }).createIndex(
-				"id",
-				"id",
-				{ unique: true },
-			);
+			if (keepUnsent) {
+				tx.objectStore("meta").delete("version");
+			} else {
+				db.createObjectStore("pending", { keyPath: "seq", autoIncrement: true }).createIndex(
+					"id",
+					"id",
+					{ unique: true },
+				);
+			}
 		},
 		// Another tab is upgrading or deleting the database. Step aside instead of blocking it;
 		// writes from here on fail. An upgrade comes from a newer build, whose tabs lead on their own,
 		// so the client carries on from memory until it is told it is outdated. A delete has no version.
 		blocking(_current, blockedVersion) {
 			persistence?.close();
-			if (blockedVersion === null) onDeleted?.();
+			if (blockedVersion === null) options.onDeleted?.();
 		},
 	});
 	persistence = new IdbPersistence(db);

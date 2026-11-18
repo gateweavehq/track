@@ -1,6 +1,7 @@
 export { type BrowserSyncClientOptions, createBrowserSyncClient } from "./browser";
 export { MutationError, SyncClient, type SyncClientOptions, type SyncStatus } from "./client";
 export {
+	DB_VERSION,
 	deleteIdbReplica,
 	deleteIdbReplicas,
 	type IdbPersistenceOptions,
