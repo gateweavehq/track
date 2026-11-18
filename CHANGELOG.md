@@ -8,6 +8,36 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.40.0] - 2026-11-18
+
+Workspace members can connect their own AI assistants to Track through MCP without asking an admin
+for an agent key. Offline edits survive a protocol-only upgrade. There is no server migration.
+
+### Added
+
+- **Personal MCP setup in Settings > Agents.** Every member can copy the workspace's MCP endpoint
+  and a setup prompt that uses browser-based OAuth, discovers workspaces and teams, and keeps
+  passwords and agent keys out of chat. Unattended automation still uses a separate agent member.
+  ([#333](https://github.com/gateweavehq/track/pull/333))
+
+### Fixed
+
+- **Unsent offline edits survive a protocol-only upgrade.** Track keeps pending mutations and the
+  client id while it rebuilds the local entity stores and resynchronizes. An upgrade that changes
+  the stored layout still recreates all stores; a mutation the new server cannot accept is shown
+  as rejected instead of being dropped silently.
+  ([#331](https://github.com/gateweavehq/track/pull/331))
+
+### Changed
+
+- **The roadmap now puts shipped features under Done.** This changes documentation only.
+  ([#334](https://github.com/gateweavehq/track/pull/334))
+
+### If you run your own
+
+- **Update.** No D1 or Durable Object migration is required. A client may rebuild its local
+  entity stores and resynchronize after the upgrade while retaining pending edits.
+
 ## [0.39.7] - 2026-11-18
 
 Signing in through a provider: a return that fails comes back to Track's own page, and a sign-in
