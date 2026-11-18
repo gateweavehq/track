@@ -98,6 +98,65 @@ it("keeps a taken follower outdated when a late live status arrives", async () =
 	await client.close();
 });
 
+it("shows the reload prompt when takeover follows an unreadable status", async () => {
+	const c = controls();
+	const client = new SyncClient({ userId: "bob", ...c });
+	await vi.waitFor(() => expect(c.post).toHaveBeenCalledWith({ type: "status?" }));
+	c.receive({ type: "status", connection: "unreadable" });
+	expect(client.getStatus().connection).toBe("unreadable");
+	c.take();
+	expect(client.getStatus().connection).toBe("outdated");
+	await client.close();
+});
+
+it("ignores a failed follower reload after storage takeover", async () => {
+	const c = controls();
+	const onReject = vi.fn();
+	let failLoad = () => {};
+	const failed = new Promise<never>((_resolve, reject) => {
+		failLoad = () => reject(new PendingFormatError(99));
+	});
+	const load = c.persistence.load.bind(c.persistence);
+	let reads = 0;
+	c.persistence.load = () => (++reads === 1 ? load() : failed);
+	const client = new SyncClient({ userId: "bob", ...c, onReject });
+	await vi.waitFor(() => expect(c.post).toHaveBeenCalledWith({ type: "status?" }));
+	c.receive({ type: "reload" });
+	await vi.waitFor(() => expect(reads).toBe(2));
+	c.take();
+	failLoad();
+	await vi.waitFor(() => expect(client.getStatus().connection).toBe("outdated"));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(onReject).not.toHaveBeenCalled();
+	await client.close();
+});
+
+it("leaves remaining unreadable rows for the new owner after takeover", async () => {
+	const c = controls();
+	const load = c.persistence.load.bind(c.persistence);
+	c.persistence.load = async () => ({
+		...(await load()),
+		unreadable: [
+			{ id: "first", name: "old.change", args: {} },
+			{ id: "second", name: "old.change", args: {} },
+		],
+	});
+	let finish = () => {};
+	const removing = new Promise<boolean>((resolve) => {
+		finish = () => resolve(true);
+	});
+	c.persistence.removePending = vi.fn(() => removing);
+	const client = new SyncClient({ userId: "bob", ...c });
+	await vi.waitFor(() => expect(c.post).toHaveBeenCalledWith({ type: "status?" }));
+	c.lead();
+	await vi.waitFor(() => expect(c.persistence.removePending).toHaveBeenCalledWith("first"));
+	c.take();
+	finish();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	await client.close();
+	expect(c.persistence.removePending).toHaveBeenCalledTimes(1);
+});
+
 it("settles unconfirmed edits on takeover without removing their stored rows", async () => {
 	const c = controls();
 	const client = new SyncClient({ userId: "bob", ...c });

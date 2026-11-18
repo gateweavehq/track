@@ -352,8 +352,11 @@ export class SyncClient {
 		if (this.#held) return;
 		this.#held = [];
 		try {
-			this.#load(await this.#persistence.load());
+			const stored = await this.#persistence.load();
+			if (this.#role === "closed" || this.#taken) return;
+			this.#load(stored);
 		} catch (error) {
+			if (this.#role === "closed" || this.#taken) return;
 			if (error instanceof PendingFormatError) {
 				this.#persistence.close();
 				this.#unreadableStorage(error);
@@ -417,6 +420,7 @@ export class SyncClient {
 		if (this.#role === "closed" || this.#taken) return;
 		this.#role = "leader";
 		for (const change of this.#unreadable) {
+			if (this.#role !== "leader" || this.#taken) return;
 			const key = change.id ?? change.seq;
 			if (key === undefined) continue;
 			await this.#write((p) => p.removePending(key)).then((removed) => {
@@ -779,7 +783,8 @@ export class SyncClient {
 			this.#status.connection === "unreadable" &&
 			patch.connection !== undefined &&
 			patch.connection !== "unreadable" &&
-			patch.connection !== "forbidden"
+			patch.connection !== "forbidden" &&
+			!(patch.connection === "outdated" && this.#taken)
 		)
 			return false;
 		const next = { ...this.#status, ...patch };

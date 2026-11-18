@@ -59,7 +59,7 @@ export function ConfirmDialog({
 				</DialogHeader>
 				<DialogFooter className="gap-2">
 					<Button variant="outline" onClick={cancel} disabled={pending && !allowCancelWhilePending}>
-						Cancel
+						{pending && allowCancelWhilePending ? "Stop waiting" : "Cancel"}
 					</Button>
 					<Button variant="destructive" onClick={confirm} disabled={pending}>
 						{confirmLabel}

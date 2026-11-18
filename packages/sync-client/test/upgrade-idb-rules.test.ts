@@ -204,6 +204,35 @@ it("quarantines a row without an id while preserving the rest of the queue", asy
 	reopened.close();
 });
 
+it("restores schema defaults before replaying a stored pending change", async () => {
+	const key = crypto.randomUUID();
+	const storage = await openIdbPersistence(key);
+	storage.close();
+	const db = await raw(key);
+	const row = {
+		id: crypto.randomUUID(),
+		createdAt: Date.now(),
+		mutation: {
+			name: "issue.create",
+			args: {
+				id: uuidv7(),
+				teamId: uuidv7(),
+				title: "A stored issue",
+				sortOrder: "a",
+			},
+		},
+	};
+	await request(db.transaction("pending", "readwrite").objectStore("pending").add(row));
+	db.close();
+	const reopened = await openIdbPersistence(key);
+	const stored = await reopened.load();
+	expect(stored.pending[0]?.mutation).toMatchObject({
+		name: "issue.create",
+		args: { labelIds: [] },
+	});
+	reopened.close();
+});
+
 it("syncs readable changes around an unreadable row in order", async () => {
 	const key = crypto.randomUUID();
 	const storage = await openIdbPersistence(key);

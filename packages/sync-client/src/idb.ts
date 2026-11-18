@@ -372,7 +372,7 @@ function readPending(rows: readonly unknown[]): Pick<StoredReplica, "pending" | 
 		) {
 			pending.push({
 				id,
-				mutation: mutation as PendingMutation["mutation"],
+				mutation: parsed.data,
 				createdAt: record.createdAt,
 			});
 		} else {

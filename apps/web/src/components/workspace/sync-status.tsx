@@ -47,7 +47,7 @@ export function SyncGate({ children, storageKey }: { children: ReactNode; storag
 	const client = useSyncClient();
 	const [confirmDiscard, setConfirmDiscard] = useState(false);
 	const [discardMessage, setDiscardMessage] = useState("");
-	const discardActive = useRef(false);
+	const discardAttempt = useRef(0);
 	const readable = client.getPending();
 	const descriptions = readable.slice(0, 5).map(({ mutation }) => {
 		const { args } = mutation;
@@ -73,7 +73,7 @@ export function SyncGate({ children, storageKey }: { children: ReactNode; storag
 					action={
 						<Button
 							onClick={() => {
-								discardActive.current = true;
+								discardAttempt.current++;
 								setDiscardMessage("");
 								setConfirmDiscard(true);
 							}}
@@ -92,25 +92,31 @@ export function SyncGate({ children, storageKey }: { children: ReactNode; storag
 						confirmLabel="Discard local copy"
 						allowCancelWhilePending
 						onClose={() => {
-							discardActive.current = false;
+							discardAttempt.current++;
 							setConfirmDiscard(false);
 						}}
 						onConfirm={async () => {
+							const attempt = discardAttempt.current;
 							await client.close();
-							if (!discardActive.current) return;
+							if (attempt !== discardAttempt.current) return;
 							try {
 								await deleteIdbReplica(storageKey, {
-									onBlocked: () =>
-										setDiscardMessage(
-											"Another tab of this workspace is open. Close it to finish discarding this copy.",
-										),
+									onBlocked: () => {
+										if (attempt === discardAttempt.current)
+											setDiscardMessage(
+												"Another tab of this workspace is open. Close it to finish discarding this copy.",
+											);
+									},
 								});
-								if (discardActive.current) window.location.reload();
-							} catch {
-								setDiscardMessage(
-									`Discard stopped after ${DISCARD_TIMEOUT_MS / 1000} seconds. Close other workspace tabs and reload this page before trying again.`,
-								);
-								throw new Error("Discard timed out");
+								if (attempt === discardAttempt.current) window.location.reload();
+							} catch (error) {
+								if (attempt === discardAttempt.current)
+									setDiscardMessage(
+										error instanceof Error && error.message === "Discard timed out"
+											? `Discard stopped waiting after ${DISCARD_TIMEOUT_MS / 1000} seconds. Close other workspace tabs before trying again. The deletion may still finish after you leave this dialog.`
+											: "The local copy could not be deleted. Please try again.",
+									);
+								throw error;
 							}
 						}}
 					>
@@ -123,9 +129,10 @@ export function SyncGate({ children, storageKey }: { children: ReactNode; storag
 								{readable.length > 5 ? `, and ${readable.length - 5} more` : ""}.
 							</>
 						) : (
-							"No unsent changes could be read; nothing readable will be lost."
+							"This version could not list unsent changes. Discarding deletes all local changes, including changes it could not list."
 						)}{" "}
-						This device will download a fresh copy of the workspace.
+						This device will download a fresh copy of the workspace. Once deletion starts, closing
+						this dialog cannot stop it.
 						{discardMessage && <span role="alert"> {discardMessage}</span>}
 					</ConfirmDialog>
 				)}

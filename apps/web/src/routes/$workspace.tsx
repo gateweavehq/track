@@ -58,15 +58,16 @@ export const Route = createFileRoute("/$workspace")({
 function WorkspaceLayout() {
 	const { workspace: slug } = Route.useParams();
 	const workspace = Route.useLoaderData();
-	const client = useWorkspaceClient(slug, workspace.id, workspace.userId);
-	if (!client) return null;
+	const storageKey = replicaKey(workspace.userId, workspace.id);
+	const current = useWorkspaceClient(slug, workspace.id, workspace.userId);
+	if (!current || current.slug !== slug || current.storageKey !== storageKey) return null;
 
 	return (
 		<WorkspaceProvider workspace={{ ...workspace, slug }}>
-			<SyncProvider client={client}>
+			<SyncProvider client={current.client}>
 				<WorkspaceActionsProvider>
 					<AppShell>
-						<SyncGate storageKey={replicaKey(workspace.userId, workspace.id)}>
+						<SyncGate storageKey={storageKey}>
 							<Outlet />
 						</SyncGate>
 					</AppShell>
@@ -109,7 +110,11 @@ async function lostWorkspace(slug: string): Promise<boolean> {
 }
 
 function useWorkspaceClient(slug: string, workspaceId: string, userId: string) {
-	const [client, setClient] = useState<SyncClient | null>(null);
+	const [current, setCurrent] = useState<{
+		client: SyncClient;
+		slug: string;
+		storageKey: string;
+	} | null>(null);
 	useEffect(() => {
 		// Refusals no one waits for, such as changes queued offline before a reload, arrive together
 		// when the tab reconnects: they are summed up, naming the issues they would have changed.
@@ -139,11 +144,11 @@ function useWorkspaceClient(slug: string, workspaceId: string, userId: string) {
 			if (next.getStatus().connection !== "forbidden") return;
 			void next.close().then(() => forgetWorkspace(userId, workspaceId));
 		});
-		setClient(next);
+		setCurrent({ client: next, slug, storageKey: replicaKey(userId, workspaceId) });
 		return () => {
 			unsubscribe();
 			void next.close();
 		};
 	}, [slug, workspaceId, userId]);
-	return client;
+	return current;
 }
