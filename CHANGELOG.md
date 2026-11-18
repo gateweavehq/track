@@ -42,7 +42,9 @@ migration.
 ### If you run your own
 
 - **Update, and reload open tabs.** The protocol version rises from 26 to 27. A tab on 0.40.0 or
-  later keeps its unsent edits across the reload; a tab on an older build does not.
+  later keeps its unsent edits across the reload; a tab on an older build does not, so if people
+  may have tabs open from before 0.40.0 with work made offline, have them go online and wait for
+  "Live" before you update.
 - Better Auth is on 1.7.25, with Vite, Wrangler and the other tools on their current versions.
   ([#337](https://github.com/gateweavehq/track/pull/337))
 
