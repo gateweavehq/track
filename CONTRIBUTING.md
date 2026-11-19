@@ -9,6 +9,7 @@ Issues labelled [good first issue](https://github.com/gateweavehq/track/labels/g
 are small, and each says where to look and when it's done. Say in the issue that you're taking
 one, so nobody does it twice, and ask there if you get stuck. If you have something else in
 mind, open an issue first for anything large.
+[See the open ones](https://github.com/gateweavehq/track/issues?q=is%3Aopen+label%3A%22good+first+issue%22).
 
 ## Setup
 
@@ -19,6 +20,11 @@ pnpm dev:setup
 pnpm dev
 pnpm dev:seed    # in a second terminal: sample people, teams and issues to work with
 ```
+
+The app runs on http://localhost:4710.
+
+The browser tests (`pnpm test:e2e`) are not part of `pnpm verify`; the first time, run
+`pnpm --filter @gateweave/track-web exec playwright install chromium`.
 
 See the [README](README.md) for details and [docs/architecture.md](docs/architecture.md) for how
 the system fits together. Read the architecture doc before changing anything in
