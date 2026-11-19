@@ -11,7 +11,9 @@ import {
 	syncBadge,
 	teamUrl,
 	unique,
+	waitForHydration,
 } from "./helpers";
+import { Network } from "./network";
 
 test("sign up, create a workspace and a team, and file the first issue", async ({ page }) => {
 	await signUp(page);
@@ -154,6 +156,38 @@ test("an invitation cannot be answered before its page's script has run", async 
 		release();
 		// Scripts still on their way must not fail the test as the browser closes under them.
 		await guestContext.unrouteAll({ behavior: "ignoreErrors" });
+		await guestContext.close();
+	}
+});
+
+test("an invitee can retry joining after the network returns", async ({ page, browser }) => {
+	const workspace = await startWorkspace(page);
+	const guestContext = await newBrowserContext(browser);
+	try {
+		const network = await Network.attach(guestContext);
+		const guestPage = await guestContext.newPage();
+		const guest = await signUp(guestPage, newPerson("guest"));
+		await page.goto(`/${workspace.slug}/settings/members`);
+		await page.getByLabel("Email address").fill(guest.email);
+		await page.getByRole("button", { name: "Create invite link" }).click();
+		const link = await page.getByLabel("Invite link").inputValue();
+
+		await guestPage.goto(link);
+		await waitForHydration(guestPage);
+		const join = guestPage.getByRole("button", { name: `Join ${workspace.name}` });
+		const decline = guestPage.getByRole("button", { name: "Decline" });
+		await expect(join).toBeEnabled();
+		await network.goOffline();
+		await join.click();
+		await expect(guestPage.getByText("Could not join")).toBeVisible();
+		await expect(guestPage.getByText("Check your connection and try again.")).toBeVisible();
+		await expect(join).toBeEnabled();
+		await expect(decline).toBeEnabled();
+
+		await network.goOnline();
+		await join.click();
+		await expect(guestPage).toHaveURL(new RegExp(`/${workspace.slug}(/team/ENG)?$`));
+	} finally {
 		await guestContext.close();
 	}
 });
