@@ -8,6 +8,30 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.42.0] - 2026-11-19
+
+A reply an AI agent drafted now says so when it reaches the person who asked. There is no
+migration in this release, and the sync protocol is unchanged.
+
+### Added
+
+- **A declined request's reply says when an AI agent drafted it.** When a team member accepts
+  an agent's proposal to decline a request, the reply ends with "Drafted by an AI agent (name)
+  and approved by a team member.", in the issue's comment and in the email to the person who
+  asked. This supports the transparency rules of the EU AI Act, Article 50. Only an accepted
+  proposal adds the line; a reply a person writes is posted as written. The agent's name can
+  form no link or mention, and a draft that is too long is shortened, never the line. ([#346](https://github.com/gateweavehq/track/pull/346))
+
+### Changed
+
+- **Inbox emails and push notifications name an agent as "name (agent)"**, also after the
+  agent has left the workspace. Webhooks already say `actor.type: "agent"` for an agent's own
+  writes; for an accepted reply the actor is the person who accepted it. ([#346](https://github.com/gateweavehq/track/pull/346))
+
+### If you run your own
+
+- **Update.** Nothing else to do: no migration, variable or secret.
+
 ## [0.41.0] - 2026-11-18
 
 Track's MCP server is easier for an agent to use: a mistyped field is refused instead of ignored,
