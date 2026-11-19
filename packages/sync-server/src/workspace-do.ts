@@ -88,6 +88,7 @@ import {
 	checkCopy,
 	digestTables,
 	endImport,
+	forgetSealed,
 	freezeEnds,
 	freezeForMove,
 	MOVING_MESSAGE,
@@ -299,7 +300,7 @@ export class WorkspaceDO extends DurableObject {
 		this.#db = drizzle(ctx.storage, { schema });
 		ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
 		void ctx.blockConcurrencyWhile(async () => {
-			// A sealed workspace has moved: what it holds waits to be destroyed, and nothing runs.
+			// A sealed workspace has moved, and nothing runs here even after its copy is deleted.
 			this.#move = moveStateAtStart(ctx.storage, Date.now());
 			if (this.#move === "sealed") return;
 			// A frozen workspace migrates too, so that it reads as the code expects. A migration that
@@ -938,6 +939,11 @@ export class WorkspaceDO extends DurableObject {
 		await this.ctx.storage.deleteAlarm();
 	}
 
+	/** Deletes a sealed old copy after the move, keeping its seal. */
+	moveForget(): Promise<void> {
+		return forgetSealed(this.ctx, Date.now());
+	}
+
 	/** Ends the freeze of a move that gave up, so the workspace works where it is. */
 	moveThaw(token: string): Thawed {
 		const thawed = thawAfterMove(this.ctx.storage, token);
@@ -1284,6 +1290,7 @@ export class WorkspaceDO extends DurableObject {
 
 	/** Runs a write in a transaction, then broadcasts its ops to every live socket. */
 	#write<T extends WriteResult>(fn: () => T): T {
+		if (this.#move === "sealed") throw new Error(MOVING_MESSAGE);
 		const result = this.ctx.storage.transactionSync(fn);
 		if (result.queued || result.wake) this.#alarmSoon();
 		this.#broadcast(result);

@@ -102,7 +102,8 @@ on its own:
   `"jurisdiction": "eu"` on the `FILES` binding in `wrangler.jsonc`.
 - **Workspaces**: set `DURABLE_OBJECT_JURISDICTION` to `eu`. New workspaces are made there. Ones
   made before move there in the daily run at 03:23 UTC, three at a time, each paused for a few
-  seconds while it is copied. The copy each leaves behind is kept until the workspace is deleted.
+  seconds while it is copied. The old copy is sealed at once and refuses all workspace requests.
+  The daily run deletes it once the move is at least seven days old, even if the setting is unset.
   Unsetting it later moves nothing back. Rate limits are counted there too.
 
 If your team works far from the database, the Worker can run near it instead of near each

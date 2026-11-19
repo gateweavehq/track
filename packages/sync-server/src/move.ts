@@ -15,8 +15,8 @@ import type { Db } from "./state";
  * 2. The new object is emptied and migrated, then takes the old one's rows a page at a time: tables
  *    others refer to first, and rowids too, since history is read in rowid order.
  * 3. Both count their rows and hash them, each value as SQLite quotes it, and the two must agree.
- * 4. The old object seals: it refuses everything from then on and keeps its data until it is
- *    destroyed. Then the new one starts its alarm, and the app records where the workspace is.
+ * 4. The old object seals and refuses everything from then on. The new one starts its alarm,
+ *    and the app records where the workspace is. A later daily run forgets the old copy.
  *
  * Versions travel with the oplog, so replicas carry on from where they were.
  */
@@ -48,6 +48,7 @@ interface Freeze {
 interface Sealed {
 	to: string;
 	at: number;
+	forgottenAt?: number;
 }
 
 interface Import {
@@ -204,6 +205,7 @@ export function freezeForMove(
 	now: number,
 ): MoveOut {
 	const sealed = storage.kv.get<Sealed>(SEALED);
+	if (sealed?.forgottenAt !== undefined) throw new Error("This workspace's old copy was deleted.");
 	if (sealed) return { frozen: false, sealedTo: sealed.to, version: currentVersion(db) };
 	const freeze = storage.kv.get<Freeze>(FREEZE);
 	if (freeze && freeze.token !== token && freeze.until > now) {
@@ -309,8 +311,7 @@ function size(row: SqlStorageValue[]): number {
 }
 
 /**
- * Seals the workspace once its copy is checked: it refuses everything from then on, and keeps its
- * data until it is destroyed.
+ * Seals the workspace once its copy is checked, so it refuses everything while awaiting deletion.
  */
 export function sealForMove(storage: DurableObjectStorage, token: string, now: number): void {
 	const freeze = checkFreeze(storage, token, now);
@@ -318,6 +319,29 @@ export function sealForMove(storage: DurableObjectStorage, token: string, now: n
 		storage.kv.put(SEALED, { to: freeze.to, at: now } satisfies Sealed);
 		storage.kv.delete(FREEZE);
 	});
+}
+
+/** Deletes the sealed copy, leaving the seal so it still refuses requests after a restart. */
+export async function forgetSealed(ctx: DurableObjectState, now: number): Promise<void> {
+	const { storage } = ctx;
+	const sealed = storage.kv.get<Sealed>(SEALED);
+	if (!sealed) throw new Error("Only a sealed workspace copy can be forgotten.");
+	if (sealed.forgottenAt !== undefined) return;
+
+	for (const ws of ctx.getWebSockets()) {
+		try {
+			ws.close(1012, "Workspace moved");
+		} catch {
+			// Already closing.
+		}
+	}
+	await storage.deleteAlarm();
+	// Writes with no `await` between them commit as one atomic transaction ("Write coalescing" in
+	// Cloudflare's Rules of Durable Objects), and `deleteAll` is atomic on SQLite: so the seal
+	// written again here lands with the deletion, and no crash leaves an empty, unsealed object.
+	const deleted = storage.deleteAll();
+	storage.kv.put(SEALED, { ...sealed, forgottenAt: now } satisfies Sealed);
+	await deleted;
 }
 
 // The new object.
@@ -480,6 +504,7 @@ export interface MoveSource {
 	moveRead(token: string, cursor: MoveCursor, chars?: number): Promise<MovePage>;
 	moveDigest(): Promise<Record<string, string>>;
 	moveSeal(token: string): Promise<void>;
+	moveForget(): Promise<void>;
 	moveThaw(token: string): Promise<Thawed>;
 }
 

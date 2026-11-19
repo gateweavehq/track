@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { moveWorkspace } from "@gateweave/track-sync-server";
-import { asc, eq, isNull, ne, or } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { Database } from "./db";
 import { schema } from "./db";
 import { configuredJurisdiction, objectsIn } from "./jurisdiction";
@@ -14,14 +14,30 @@ import { type WorkspaceRef, workspaceStub } from "./workspaces";
  */
 const MOVES_PER_RUN = 3;
 
+const MOVED_COPY_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// One query and two subrequests per copy leave room under 50 with three small moves
+// at about 12 each, their selection query, and the rest of the daily run.
+const FORGETS_PER_RUN = 3;
+
 /**
  * Moves workspaces whose Durable Object is outside the deployment's jurisdiction into it, the
- * oldest first, a few each run. Each is paused for the seconds its copy takes. The old object
- * is sealed and keeps what the workspace held, until the workspace is deleted.
+ * oldest first, a few each run. Each is paused for the seconds its copy takes. The old object is
+ * sealed at once, and the daily run deletes its copy once the move is at least a week old.
  */
 export async function moveWorkspaces(db: Database): Promise<void> {
 	const target = configuredJurisdiction();
-	if (!target) return;
+	// Forgetting first: a large move can use up the run's subrequests, and a copy waiting to be
+	// deleted matters more than a move, which the next run makes as well.
+	await forgetMovedCopies(db);
+	if (target) await moveIntoJurisdiction(db, target);
+}
+
+async function moveIntoJurisdiction(
+	db: Database,
+	target: DurableObjectJurisdiction,
+): Promise<void> {
 	const elsewhere = await db
 		.select({
 			workspaceId: schema.organization.id,
@@ -33,9 +49,13 @@ export async function moveWorkspaces(db: Database): Promise<void> {
 			eq(schema.workspaceLocation.workspaceId, schema.organization.id),
 		)
 		.where(
-			or(
-				isNull(schema.workspaceLocation.jurisdiction),
-				ne(schema.workspaceLocation.jurisdiction, target),
+			and(
+				// Each row tracks one sealed copy. Keep its location until that copy is deleted.
+				isNull(schema.workspaceLocation.movedFrom),
+				or(
+					isNull(schema.workspaceLocation.jurisdiction),
+					ne(schema.workspaceLocation.jurisdiction, target),
+				),
 			),
 		)
 		.orderBy(asc(schema.organization.createdAt))
@@ -57,6 +77,48 @@ export async function moveWorkspaces(db: Database): Promise<void> {
 			);
 		} catch (error) {
 			console.error(`move: workspace ${workspace.workspaceId} didn't move to ${target}`, error);
+		}
+	}
+}
+
+async function forgetMovedCopies(db: Database): Promise<void> {
+	const location = schema.workspaceLocation;
+	const copies = await db
+		.select()
+		.from(location)
+		.where(
+			and(
+				isNotNull(location.movedFrom),
+				lte(location.movedAt, Date.now() - MOVED_COPY_DAYS * DAY_MS),
+			),
+		)
+		// In no fixed order, so a copy that keeps failing can't hold a place in every run and keep
+		// the others waiting behind it.
+		.orderBy(sql`random()`)
+		.limit(FORGETS_PER_RUN)
+		.all();
+	for (const { workspaceId, jurisdiction, movedFrom, movedAt } of copies) {
+		if (movedFrom === null || movedAt === null) continue;
+		if (movedFrom === jurisdiction) {
+			console.error(`move: workspace ${workspaceId}'s old copy points to its current jurisdiction`);
+			continue;
+		}
+		try {
+			await objectsIn(env.WORKSPACE, movedFrom).getByName(workspaceId).moveForget();
+			await db
+				.update(location)
+				.set({ movedFrom: null })
+				.where(
+					and(
+						eq(location.workspaceId, workspaceId),
+						eq(location.jurisdiction, jurisdiction),
+						eq(location.movedFrom, movedFrom),
+						eq(location.movedAt, movedAt),
+					),
+				)
+				.run();
+		} catch (error) {
+			console.error(`move: workspace ${workspaceId}'s old copy wasn't forgotten`, error);
 		}
 	}
 }
