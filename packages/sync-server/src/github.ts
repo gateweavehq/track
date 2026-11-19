@@ -322,6 +322,8 @@ const MAX_REFERENCES = 50;
 const KEY = /\b([a-z][a-z0-9]{0,6})-(\d{1,9})\b/gi;
 /** A closing word, then a key: "Fixes TRK-12", "closes: trk-12". */
 const CLOSING = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+([a-z][a-z0-9]{0,6}-\d{1,9})\b/gi;
+/** "Part of TRK-12": one slice of a larger issue, which merging must leave open. */
+const PART_OF = /\bpart\s+of:?\s+([a-z][a-z0-9]{0,6}-\d{1,9})\b/gi;
 
 interface Reference {
 	issue: schema.IssueRow;
@@ -352,12 +354,22 @@ class GitHubEvents {
 			.get();
 		// The branch was named for the issue, so merging it closes the issue. A description can name an
 		// issue for any reason, even to say it is left out, so there a key only links it. It comes last,
-		// since the first mention of a key says whether the pull request is about it.
-		const references = this.#resolve([
-			...mentions(pr.head.ref, true).map(asAbout),
-			...mentions(pr.title).map(asAbout),
-			...mentions(pr.body ?? ""),
-		]);
+		// since the first mention of a key says whether the pull request is about it. "Part of" says
+		// the pull request is about an issue it does not finish: work on one issue often spans several
+		// pull requests from branches named for it, and the first to merge must not close it. It wins
+		// over a branch name and a closing word, since an issue closed too early hides the work left.
+		const slices = partOf(`${pr.title}\n${pr.body ?? ""}`);
+		const references = this.#resolve(
+			[
+				...mentions(pr.head.ref, true).map(asAbout),
+				...mentions(pr.title).map(asAbout),
+				...mentions(pr.body ?? ""),
+			].map((mention) =>
+				slices.has(`${mention.teamKey}-${mention.number}`)
+					? { ...mention, closing: false, about: true }
+					: mention,
+			),
+		);
 		if (!existing && references.size === 0) return;
 
 		const state = pullRequestState(pr);
@@ -408,7 +420,12 @@ class GitHubEvents {
 		if (ref !== `refs/heads/${repository.default_branch}`) return;
 		for (const commit of commits) {
 			if (commit.distinct === false) continue;
-			const closing = mentions(commit.message).filter((mention) => mention.closing);
+			// A squash or merge commit carries its pull request's title, and often its description, so
+			// "Part of" keeps an issue open here as it does on the pull request.
+			const slices = partOf(commit.message);
+			const closing = mentions(commit.message).filter(
+				(mention) => mention.closing && !slices.has(`${mention.teamKey}-${mention.number}`),
+			);
 			const source: ActivitySource = {
 				type: "commit",
 				label: `${repository.full_name}@${commit.id.slice(0, 7)}`,
@@ -527,6 +544,16 @@ export function mentions(text: string, closing = false): Mention[] {
 		found.push({ teamKey, number, closing: closing || closed.has(`${teamKey}-${number}`) });
 	}
 	return found;
+}
+
+/** The keys a text says it is part of, uppercased: "Part of TRK-12", "part of: trk-12". */
+export function partOf(text: string): Set<string> {
+	const keys = new Set<string>();
+	for (const match of text.matchAll(PART_OF)) {
+		for (const mention of mentions(match[1] ?? ""))
+			keys.add(`${mention.teamKey}-${mention.number}`);
+	}
+	return keys;
 }
 
 function pullRequestState(pr: PullRequestPayload["pull_request"]): PullRequestState {

@@ -2121,13 +2121,20 @@ it has one. The code is `packages/sync-server/src/github.ts`, with the gateways 
 - **Linking.** Keys in a pull request's branch name, title and description link it to those
   issues, matched case-insensitively against team keys and live issues. A key in the branch name,
   or after a closing word (close, closes, closed, fix, fixes, fixed, resolve, resolves, resolved),
-  makes the link a closing one. A pull request that names no issue of the workspace is not kept.
+  makes the link a closing one. `Part of KEY` in the title or description says the pull request
+  is one slice of that issue: it links and moves the issue as one the pull request is about, and
+  never closes it, whatever the branch name or a closing word says, so the first slice of work
+  spread over several pull requests does not close its issue. A pull request that names no issue
+  of the workspace is not kept.
   Pull requests are an entity of their own (`pullRequest`), in every member's replica, with the
   ids of the issues they link and close; the snapshot leaves out those that only name deleted
   issues. The issue page lists them, and MCP's `get_issue` returns them.
 - **A plain mention moves nothing.** A key in a description can be there for any reason, even to
   say an issue is left out, so it only links. A pull request moves the issues its branch or title
-  names, and those a closing word names wherever it is.
+  names, those a closing word names wherever it is, and those it says it is `Part of`. A commit
+  on the default branch closes what a closing word in its message names, except an issue the
+  same message says it is `Part of`; a squash commit carries the pull request's title and often
+  its description, so put "Part of" where the commit will repeat it.
 - **Automation only moves forward.** A draft pull request moves its issues to In Progress, an
   open one to In Review, and a merged one moves the issues it closes to Done. A push to the
   default branch moves the issues its commits close to Done (commits GitHub marks as not
