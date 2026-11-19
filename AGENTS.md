@@ -92,7 +92,8 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    session either: its token, signed with `BETTER_AUTH_SECRET`, names the member, and it can only
    turn their email off. A team's public request form (`apps/web/src/server/intake-form.ts`) and
    its intake email address (`apps/web/src/server/intake-email.ts`) carry no member either: the
-   channel's key, which the object makes, admits them after Turnstile or a rate limit, a key no
+   channel's key, which the object makes, admits them after a rate limit, and the form after
+   Turnstile as well (Turnstile alone is no gate: it can be solved without a browser). A key no
    team has gets the same 404 or refusal as a missing workspace, and they can only file a request
    into that team's intake. Another server's request to connect an agent has three entries, all
    in `apps/web/src/server/connect.ts`: the page `/connect/agent` and its server functions admit
