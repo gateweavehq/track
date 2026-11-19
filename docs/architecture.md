@@ -974,9 +974,11 @@ aren't there yet.
   after the seal leaves it out of reach until the next run, which finds it sealed and only notes
   the new place; its last two steps are tried five times first. An object never takes a move's
   rows while it holds a workspace of its own.
-- **The sealed object** refuses sockets and writes and runs no alarm. It keeps what the workspace
-  held when it moved until the workspace is deleted, which destroys both. Clearing it sooner is
-  not built yet.
+- **The old copy** is sealed as soon as it moves and refuses all workspace requests. Once the move
+  is at least seven days old, the daily run may delete the copy, leaving a seal so the object
+  still refuses requests. Each run deletes at most three, picked at random so a copy that keeps
+  failing can't hold up the rest; the others wait for a later run. A workspace can move again once its previous copy has been
+  deleted. Deleting a workspace before then destroys both copies.
 - **Rate limits** are counted in the same jurisdiction. Their objects don't move: counts start
   again there.
 

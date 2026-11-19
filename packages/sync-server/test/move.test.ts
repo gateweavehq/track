@@ -184,6 +184,72 @@ describe("moving a workspace", () => {
 		expect(recorded).toEqual(["eu"]);
 	});
 
+	it("forgets the sealed copy and still refuses requests after a restart", async () => {
+		let from = await filledWorkspace();
+		const to = freshWorkspace();
+		const before = await from.snapshot(owner);
+		const mutation = await renaming(from, "i-1", "Too late");
+		await move(from, to);
+
+		await from.moveForget();
+		from = await restart(from);
+		expect(await from.moveDigest()).toEqual({});
+		expect(await runDurableObjectAlarm(from)).toBe(false);
+		expect((await openSocket(from)).status).toBe(503);
+		expect(await failure(from.mutate(owner, "client-owner", "too-late", mutation))).toContain(
+			"This workspace is moving",
+		);
+		const stored = () => runInDurableObject(from, (_, state) => [...state.storage.kv.list()]);
+		const seal = await stored();
+		expect(seal).toEqual([
+			["move.sealed", { to: "eu", at: expect.any(Number), forgottenAt: expect.any(Number) }],
+		]);
+		await from.moveForget();
+		expect(await stored()).toEqual(seal);
+		expect(await to.snapshot(owner)).toEqual(before);
+	});
+
+	it("refuses to forget a live workspace and preserves its rows and version", async () => {
+		const workspace = await filledWorkspace();
+		const before = await workspace.snapshot(owner);
+		const rows = await workspace.moveDigest();
+
+		expect(await failure(workspace.moveForget())).toContain("Only a sealed workspace copy");
+		expect(await workspace.snapshot(owner)).toEqual(before);
+		expect(await workspace.moveDigest()).toEqual(rows);
+	});
+
+	it("refuses to forget a frozen workspace", async () => {
+		const workspace = await filledWorkspace();
+		const freeze = await workspace.moveOut("frozen", "eu");
+
+		expect(await failure(workspace.moveForget())).toContain("Only a sealed workspace copy");
+		expect(await workspace.moveOut("frozen", "eu")).toEqual(freeze);
+		expect(await workspace.moveThaw("frozen")).toBe("thawed");
+	});
+
+	it("refuses to forget an importing workspace and preserves its copied rows", async () => {
+		const from = await filledWorkspace();
+		const to = freshWorkspace();
+		const freeze = await from.moveOut("importing", "eu");
+		if (!freeze.frozen) throw new Error("Expected a frozen workspace");
+		await to.moveIn("importing", freeze.manifest);
+		const page = await from.moveRead("importing", { table: 0, after: null });
+		await to.moveWrite("importing", page.tables);
+
+		expect(await failure(to.moveForget())).toContain("Only a sealed workspace copy");
+		await to.moveCheck("importing", freeze.manifest);
+		expect(await to.moveDigest()).toEqual(await from.moveDigest());
+	});
+
+	it("refuses to forget an empty object that was never sealed", async () => {
+		const workspace = freshWorkspace();
+		const before = await workspace.moveDigest();
+
+		expect(await failure(workspace.moveForget())).toContain("Only a sealed workspace copy");
+		expect(await workspace.moveDigest()).toEqual(before);
+	});
+
 	it("closes the sockets, and a client carries on in the new object from its version", async () => {
 		const from = await filledWorkspace();
 		const to = freshWorkspace();
@@ -325,6 +391,6 @@ async function lapse(workspace: Workspace): Promise<void> {
 async function restart(workspace: Workspace): Promise<Workspace> {
 	await runInDurableObject(workspace, (_, state) => state.abort("restart")).catch(() => {});
 	const fresh = env.WORKSPACE.get(workspace.id);
-	await fresh.lastSortOrder();
+	await fresh.moveDigest();
 	return fresh;
 }

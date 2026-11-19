@@ -155,8 +155,8 @@ export const workspaceLocation = sqliteTable("workspace_location", {
 	workspaceId: text("workspace_id").primaryKey(),
 	jurisdiction: text("jurisdiction").notNull(),
 	/**
-	 * Where it was before it moved here, "" for outside any jurisdiction. The object there is
-	 * sealed and keeps what the workspace held then, until it is destroyed.
+	 * Where it was before it moved here, "" for outside any jurisdiction. Cleared once the
+	 * daily run deletes the sealed copy.
 	 */
 	movedFrom: text("moved_from"),
 	/** When it moved here, or null if it was made here. */
