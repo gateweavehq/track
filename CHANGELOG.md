@@ -8,6 +8,40 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.43.0] - 2026-11-20
+
+A pull request can now be one part of a larger issue without closing it, and a deployment that
+moved its workspaces into a jurisdiction no longer keeps the old copies. There is no migration
+in this release, and the sync protocol is unchanged.
+
+### Added
+
+- **"Part of KEY" links an issue without closing it.** Write `Part of ENG-12` in a pull
+  request's title or description, or in a commit message, and the issue is linked and moves
+  with the pull request, but merging leaves it open, whatever the branch name or a closing word
+  says. Use it for each slice of a larger issue; the last one can still close it. ([#348](https://github.com/gateweavehq/track/pull/348))
+
+### Changed
+
+- **A moved workspace's old copy is deleted a week after the move.** When
+  `DURABLE_OBJECT_JURISDICTION` moves a workspace, its old Durable Object is sealed at once, as
+  before; from seven days after the move the daily run now deletes what it held, keeping only
+  the seal, so data you moved into a jurisdiction no longer stays outside it. Each run deletes
+  up to three copies, picked at random; the rest wait for a later run. A workspace isn't moved
+  again until its old copy is gone. ([#350](https://github.com/gateweavehq/track/pull/350))
+
+### Fixed
+
+- **An invitation page recovers from a network error.** Accepting or declining an invitation,
+  or switching account from it, while the request couldn't reach the server left the buttons
+  disabled; they come back now, with an error you can retry from. ([#349](https://github.com/gateweavehq/track/pull/349))
+
+### If you run your own
+
+- **Update.** Nothing else to do: no migration, variable or secret. If you moved workspaces
+  into a jurisdiction more than a week ago, the first daily run after the update starts
+  deleting their sealed old copies.
+
 ## [0.42.0] - 2026-11-19
 
 A reply an AI agent drafted now says so when it reaches the person who asked. There is no
