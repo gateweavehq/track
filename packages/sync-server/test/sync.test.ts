@@ -1637,7 +1637,7 @@ describe("intake", () => {
 		expect(await issueOf(admin, request.id)).toMatchObject({ intake: true, priority: 2 });
 	});
 
-	it("makes an agent's proposed decline the person's, with the reply it drafted", async () => {
+	it("R11: makes the proposed decline the person’s, with the attributed reply", async () => {
 		const { workspace, admin } = await withTeam();
 		const agent = await TestClient.live(workspace, triage);
 		const request = await fileRequest(admin, "issue-1");
@@ -1656,7 +1656,11 @@ describe("intake", () => {
 		const snapshot = await snapshotOf(workspace);
 		expect(snapshot.proposals).toEqual([]);
 		expect(snapshot.comments).toEqual([
-			expect.objectContaining({ authorId: owner.id, body: "Out of scope.", issueId: request.id }),
+			expect.objectContaining({
+				authorId: owner.id,
+				body: "Out of scope.\n\nDrafted by an AI agent (Triage) and approved by a team member.",
+				issueId: request.id,
+			}),
 		]);
 		expect(
 			snapshot.activities

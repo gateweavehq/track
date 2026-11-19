@@ -1,5 +1,12 @@
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
-import { INTAKE_EMAIL_ACTOR_ID, type MutationInput, privateId } from "@gateweave/track-protocol";
+import {
+	DEFAULT_NOTIFICATIONS,
+	INTAKE_EMAIL_ACTOR_ID,
+	MAX_COMMENT_BODY_LENGTH,
+	MAX_REQUESTER_QUOTE_LENGTH,
+	type MutationInput,
+	privateId,
+} from "@gateweave/track-protocol";
 import { describe, expect, it, vi } from "vitest";
 import {
 	LINK_HEADER,
@@ -23,6 +30,8 @@ const owner: MemberProfile = {
 	role: "owner",
 };
 const alice: MemberProfile = { ...owner, id: "user-alice", name: "Alice", role: "member" };
+const triage: MemberProfile = { ...owner, id: "user-triage", name: "Triage", role: "agent" };
+const DISCLOSURE = "\n\nDrafted by an AI agent (Triage) and approved by a team member.";
 const TEAM_ID = "team-1";
 const LINK: WorkspaceLink = { id: "ws-1", slug: "acme", origin: "https://track.example.com" };
 
@@ -97,8 +106,100 @@ async function runAlarm(workspace: Workspace) {
 	});
 }
 
+async function proposedDecline(draft: string, agent = triage) {
+	const { workspace, as, file, sent } = await setup();
+	const request = await file("Export to PDF", "sam@customer.test");
+	const result = await as(agent, {
+		name: "issue.decline",
+		args: { id: request.id, reply: { id: "draft", body: draft } },
+	});
+	const [proposal] = result.proposed ?? [];
+	if (!proposal) throw new Error("No proposal");
+	const approve = async () => {
+		await as(alice, { name: "proposal.accept", args: { id: proposal.id } });
+		await runAlarm(workspace);
+		return (await workspace.snapshot(owner)).comments;
+	};
+	return { workspace, sent, approve };
+}
+
 describe("deciding on a request", () => {
-	it("tells whoever filed it through a form what the team decided, once", async () => {
+	it("R11: approval appends the attribution to the comment and requester notice", async () => {
+		const { approve, sent } = await proposedDecline("Out of scope.");
+		const body = `Out of scope.${DISCLOSURE}`;
+		expect(await approve()).toMatchObject([{ authorId: alice.id, body }]);
+		expect(sent).toMatchObject([{ accepted: false, reply: body }]);
+	});
+
+	it("R11: sanitizes control characters and escapes Markdown in the agent’s name", async () => {
+		const { approve, sent } = await proposedDecline("Out of scope.", {
+			...triage,
+			name: "One\r\nTwo\u2028Three\u0007\u202e *_[]" + "`" + "<>\\&~",
+		});
+		const body =
+			"Out of scope.\n\nDrafted by an AI agent (One Two Three \\*\\_\\`\\<\\>\\\\\\&\\~) and approved by a team member.";
+		expect(await approve()).toMatchObject([{ body }]);
+		// The email is plain text, so the name reads there as it is, without Markdown's escapes.
+		const notice =
+			"Out of scope.\n\nDrafted by an AI agent (One Two Three *_`<>\\&~) and approved by a team member.";
+		expect(sent).toMatchObject([{ reply: notice }]);
+	});
+
+	it("R11: a name cannot become a mention in the email or a link in the comment", async () => {
+		const { approve, sent } = await proposedDecline("Out of scope.", {
+			...triage,
+			name: `[Boss](mention:${owner.id}) ${"x".repeat(120)}`,
+		});
+		const name = `Boss(mention:${owner.id}) ${"x".repeat(120)}`.slice(0, 80).trim();
+		const line = `\n\nDrafted by an AI agent (${name}) and approved by a team member.`;
+		expect(await approve()).toMatchObject([{ body: `Out of scope.${line}` }]);
+		expect(sent).toMatchObject([{ reply: `Out of scope.${line}` }]);
+	});
+
+	it("R11: names no agent when the drafting agent has left", async () => {
+		const { workspace, approve, sent } = await proposedDecline("Out of scope.");
+		await workspace.removeMember(triage.id);
+		const body = "Out of scope.\n\nDrafted by an AI agent and approved by a team member.";
+		expect(await approve()).toMatchObject([{ body }]);
+		expect(sent).toMatchObject([{ reply: body }]);
+	});
+
+	it("R11: limits the draft in the comment and email quote without cutting the attribution", async () => {
+		const prefix = "x".repeat(MAX_COMMENT_BODY_LENGTH - DISCLOSURE.length - 1);
+		const draft = `${prefix}😀${DISCLOSURE}`.slice(0, MAX_COMMENT_BODY_LENGTH);
+		const { approve, sent } = await proposedDecline(draft);
+		expect(await approve()).toMatchObject([{ body: prefix + DISCLOSURE }]);
+		const quoted = "x".repeat(MAX_REQUESTER_QUOTE_LENGTH - DISCLOSURE.length - 1);
+		expect(sent).toMatchObject([{ reply: `${quoted}…${DISCLOSURE}` }]);
+	});
+
+	it("R11: accepting a proposal to accept the request sends no reply", async () => {
+		const { workspace, as, file, sent } = await setup();
+		const request = await file("Export to PDF", "sam@customer.test");
+		const result = await as(triage, { name: "issue.accept", args: { id: request.id } });
+		const [proposal] = result.proposed ?? [];
+		if (!proposal) throw new Error("No proposal");
+		await as(alice, { name: "proposal.accept", args: { id: proposal.id } });
+		await runAlarm(workspace);
+		expect((await workspace.snapshot(owner)).comments).toEqual([]);
+		expect(sent).toMatchObject([{ accepted: true, reply: null }]);
+	});
+
+	it("R15: turning off all inbox notifications leaves the attribution in place", async () => {
+		const { workspace, approve, sent } = await proposedDecline("Out of scope.");
+		const off = Object.fromEntries(Object.keys(DEFAULT_NOTIFICATIONS).map((key) => [key, "off"]));
+		for (const member of [owner, alice]) {
+			expect(await workspace.updateNotificationSettings(member, off)).toMatchObject({
+				ok: true,
+				value: off,
+			});
+		}
+		const body = `Out of scope.${DISCLOSURE}`;
+		expect(await approve()).toMatchObject([{ body }]);
+		expect(sent).toMatchObject([{ reply: body }]);
+	});
+
+	it("R12: sends a person’s own decline reply unchanged and tells each requester once", async () => {
 		const { workspace, as, file, sent } = await setup();
 		const wanted = await file("Export to PDF", "sam@customer.test");
 		const unwanted = await file("Dark mode", "lee@customer.test");
@@ -116,6 +217,9 @@ describe("deciding on a request", () => {
 			},
 		});
 		await as(alice, { name: "issue.accept", args: { id: anonymous.id } });
+		expect((await workspace.snapshot(owner)).comments).toMatchObject([
+			{ authorId: alice.id, body: "Not this year, [@Olivia Owner](mention:user-owner) says." },
+		]);
 		await runAlarm(workspace);
 
 		expect(sent).toHaveLength(2);

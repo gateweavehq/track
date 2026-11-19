@@ -698,6 +698,47 @@ describe("delivery", () => {
 		]);
 	});
 
+	it("R14: sends an agent’s own comment as an agent and an approved draft as a person", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await mutate(workspace, owner, {
+			name: "issue.create",
+			args: { id: "issue-1", teamId: "team-eng", title: "Request", sortOrder: "a0", intake: true },
+		});
+		await createHook(workspace, { events: ["comment.created"] });
+		await mutate(workspace, triage, {
+			name: "comment.create",
+			args: { id: "comment-1", issueId: "issue-1", body: "Looking into it." },
+		});
+		await mutate(workspace, triage, {
+			name: "issue.decline",
+			args: { id: "issue-1", reply: { id: "draft", body: "Out of scope." } },
+		});
+		const [proposal] = (await workspace.snapshot(owner)).proposals;
+		if (!proposal) throw new Error("No proposal");
+		await mutate(workspace, alice, { name: "proposal.accept", args: { id: proposal.id } });
+		await deliver(workspace);
+
+		expect(payloads(received)).toMatchObject([
+			{
+				type: "comment.created",
+				data: {
+					actor: { id: triage.id, name: "Triage", type: "agent" },
+					comment: { body: "Looking into it." },
+				},
+			},
+			{
+				type: "comment.created",
+				data: {
+					actor: { id: alice.id, name: "Alice", type: "person" },
+					comment: {
+						body: "Out of scope.\n\nDrafted by an AI agent (Triage) and approved by a team member.",
+					},
+				},
+			},
+		]);
+	});
+
 	it("sends comments with their issue", async () => {
 		const received = receiver();
 		const workspace = await workspaceWithTeams();

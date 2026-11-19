@@ -1,4 +1,9 @@
-import { type InboxEvent, mentionsAsText } from "@gateweave/track-protocol";
+import {
+	cutText,
+	type InboxEvent,
+	MAX_REQUESTER_QUOTE_LENGTH,
+	mentionsAsText,
+} from "@gateweave/track-protocol";
 import type { Email } from "./mailer";
 
 /** An email before it is addressed. */
@@ -105,6 +110,7 @@ export interface DigestEntry {
 	event: InboxEvent;
 	/** Who caused the newest event. */
 	actor: string;
+	actorIsAgent: boolean;
 	unread: number;
 	/** The text of the comment, or of the one that mentions them, with mentions as `@Name`. */
 	comment: string | null;
@@ -184,7 +190,10 @@ export function requestDecisionEmail({
 	const decided = accepted ? "accepted" : "declined";
 	// Mentions name members by id; a requester only needs the names.
 	const text = reply ? mentionsAsText(reply).replace(/\r\n?/g, "\n").trim() : "";
-	const answer = text.length > 4000 ? `${text.slice(0, 3999)}…` : text || null;
+	const answer =
+		text.length > MAX_REQUESTER_QUOTE_LENGTH
+			? `${cutText(text, MAX_REQUESTER_QUOTE_LENGTH - 1)}…`
+			: text || null;
 	return compose({
 		subject: `Your request was ${decided}: ${request}`,
 		heading: `Your request was ${decided}`,
@@ -212,10 +221,10 @@ export function requestDecisionEmail({
 
 /** One line on what happened to an issue, as the inbox email and a push notification say it. */
 export function newsLine(
-	item: Pick<DigestEntry, "event" | "actor" | "statusName">,
+	item: Pick<DigestEntry, "event" | "actor" | "actorIsAgent" | "statusName">,
 	issue: string,
 ): string {
-	const actor = clip(item.actor, 60);
+	const actor = clip(item.actor, 60) + (item.actorIsAgent ? " (agent)" : "");
 	switch (item.event.type) {
 		case "assigned":
 			return `${actor} assigned you ${issue}`;

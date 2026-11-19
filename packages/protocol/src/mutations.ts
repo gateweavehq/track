@@ -49,7 +49,8 @@ export const calendarDate = z
 	}, "Not a real calendar date");
 /** Points. Teams pick their own scale; 0 is a valid size, for work too small to count. */
 export const estimate = z.number().int().min(0).max(1000);
-const commentBody = userText.trim().min(1).max(100_000);
+export const MAX_COMMENT_BODY_LENGTH = 100_000;
+const commentBody = userText.trim().min(1).max(MAX_COMMENT_BODY_LENGTH);
 /**
  * When an issue, comment or project update was first written, in the tracker it is imported
  * from (epoch ms). Only admins may set it, and the server keeps it no later than its own clock.

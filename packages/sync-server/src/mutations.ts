@@ -1,9 +1,12 @@
 import {
 	type ActivityChange,
 	AGENT_CHANGE_KINDS,
+	cutText,
 	displayToStore,
 	isAdminRole,
+	MAX_COMMENT_BODY_LENGTH,
 	MAX_LABELS_PER_ISSUE,
+	MAX_REQUESTER_QUOTE_LENGTH,
 	MAX_VIEWS,
 	type Mutation,
 	type MutationArgs,
@@ -19,6 +22,7 @@ import { scheduleCycles } from "./cycles";
 import * as schema from "./db/schema";
 import { followIntake, notify, subscribeToIssue, updateInbox } from "./inbox";
 import { ChangeSet, type WriteResult } from "./log";
+import { memberName } from "./notifications";
 import {
 	decide,
 	findOpenProposal,
@@ -583,6 +587,7 @@ function declineIssue(
 	actor: Actor,
 	args: MutationArgs<"issue.decline">,
 	proposedBy: string | null = null,
+	noticeReply = args.reply?.body ?? null,
 ) {
 	const issue = findLiveIssue(db, args.id);
 	if (!issue) throw new MutationRejected("not_found", "Issue not found");
@@ -604,7 +609,7 @@ function declineIssue(
 		createComment(db, changes, actor, { ...args.reply, issueId: issue.id });
 	}
 	leaveIntake(db, changes, actor, issue, canceled.key, false, proposedBy);
-	noteDecision(db, issue.id, false, args.reply?.body ?? null);
+	noteDecision(db, issue.id, false, noticeReply);
 }
 
 function alreadyDecided() {
@@ -1309,6 +1314,9 @@ function updateAgent(db: Db, changes: ChangeSet, actor: Actor, args: MutationArg
 	if (row) changes.put("member", toMember(row));
 }
 
+/** The most of an agent's name that the line on a reply it drafted shows, so the line always fits. */
+const MAX_DISCLOSED_NAME_LENGTH = 80;
+
 /**
  * Makes the proposed change as the person accepting it, through the same handlers as their own
  * edits, with the agent noted in the history. It is made against the issue as it is now:
@@ -1332,11 +1340,33 @@ function acceptProposal(
 		if (change.accepted) {
 			const args = { id: issueId, ...(change.status !== null && { status: change.status }) };
 			acceptIssue(db, changes, actor, args, agentId);
+		} else if (change.reply === null) {
+			declineIssue(db, changes, actor, { id: issueId }, agentId);
 		} else {
-			// The reply the agent drafted is posted as the person who accepts it, who made it theirs.
-			const reply =
-				change.reply === null ? undefined : { id: crypto.randomUUID(), body: change.reply };
-			declineIssue(db, changes, actor, { id: issueId, ...(reply && { reply }) }, agentId);
+			// Without brackets the name can form no link and no mention, in the comment or in the
+			// email, whose text goes through `mentionsAsText`. A name that is a web address still
+			// shows as a link in Track: the line keeps every word, so that is accepted.
+			const name = Array.from(
+				memberName(db, agentId, false)
+					?.replace(/[\r\n\p{Zl}\p{Zp}]+/gu, " ")
+					.replace(/[\p{Cc}\p{Cf}[\]]/gu, "")
+					.trim() ?? "",
+			)
+				.slice(0, MAX_DISCLOSED_NAME_LENGTH)
+				.join("")
+				.trim();
+			const line = (who: string) =>
+				`\n\nDrafted by an AI agent${who ? ` (${who})` : ""} and approved by a team member.`;
+			// Track renders the comment as Markdown, so the name is escaped there to read literally;
+			// the email shows plain text, where the escapes would show.
+			const disclosure = line(name.replace(/[\\*_`<>&~]/g, "\\$&"));
+			const notice = line(name);
+			const body = cutText(change.reply, MAX_COMMENT_BODY_LENGTH - disclosure.length).trimEnd();
+			// The email quotes less than Track displays. Leave room for the disclosure in both.
+			const quoteLimit = MAX_REQUESTER_QUOTE_LENGTH - notice.length;
+			const quote = body.length > quoteLimit ? `${cutText(body, quoteLimit - 1).trimEnd()}…` : body;
+			const reply = { id: crypto.randomUUID(), body: body + disclosure };
+			declineIssue(db, changes, actor, { id: issueId, reply }, agentId, quote + notice);
 		}
 		return;
 	}
