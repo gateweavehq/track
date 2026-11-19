@@ -24,6 +24,15 @@
   <a href="https://gateweave.com/questions">Questions people ask</a>
 </p>
 
+<p align="center">
+  <a href="https://www.producthunt.com/products/gateweave?launch=gateweave">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1317565&theme=dark">
+      <img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1317565&theme=light" width="250" height="54" alt="Gateweave on Product Hunt">
+    </picture>
+  </a>
+</p>
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/realtime-dark.gif">
   <img src="docs/images/realtime-light.gif" alt="Two browsers side by side on one workspace. A card dragged in one moves in the other, a new issue appears in both, and an edit made offline arrives when the browser reconnects.">
