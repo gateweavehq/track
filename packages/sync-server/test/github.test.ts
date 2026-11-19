@@ -629,6 +629,18 @@ describe("pushes", () => {
 			url: "https://github.com/acme/app/commit/abc1234def",
 		});
 	});
+
+	// TRK-149: the squash commit of a slice carries its pull request's text to the default branch.
+	it("leave open an issue a commit says it is part of", async () => {
+		const { workspace, deliver } = await setup();
+		await deliver(
+			"push",
+			push("refs/heads/main", [
+				{ id: "abc1234def", message: "Fixes ENG-1: slice 1 (#7)\n\nPart of ENG-1. Fixes ENG-3." },
+			]),
+		);
+		expect(await statuses(workspace)).toMatchObject({ "issue-1": "backlog", "issue-3": "done" });
+	});
 });
 
 describe("GitHub's changes", () => {

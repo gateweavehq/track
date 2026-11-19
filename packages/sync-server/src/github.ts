@@ -420,7 +420,12 @@ class GitHubEvents {
 		if (ref !== `refs/heads/${repository.default_branch}`) return;
 		for (const commit of commits) {
 			if (commit.distinct === false) continue;
-			const closing = mentions(commit.message).filter((mention) => mention.closing);
+			// A squash or merge commit carries its pull request's title, and often its description, so
+			// "Part of" keeps an issue open here as it does on the pull request.
+			const slices = partOf(commit.message);
+			const closing = mentions(commit.message).filter(
+				(mention) => mention.closing && !slices.has(`${mention.teamKey}-${mention.number}`),
+			);
 			const source: ActivitySource = {
 				type: "commit",
 				label: `${repository.full_name}@${commit.id.slice(0, 7)}`,

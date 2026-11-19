@@ -2131,7 +2131,10 @@ it has one. The code is `packages/sync-server/src/github.ts`, with the gateways 
   issues. The issue page lists them, and MCP's `get_issue` returns them.
 - **A plain mention moves nothing.** A key in a description can be there for any reason, even to
   say an issue is left out, so it only links. A pull request moves the issues its branch or title
-  names, and those a closing word names wherever it is.
+  names, those a closing word names wherever it is, and those it says it is `Part of`. A commit
+  on the default branch closes what a closing word in its message names, except an issue the
+  same message says it is `Part of`; a squash commit carries the pull request's title and often
+  its description, so put "Part of" where the commit will repeat it.
 - **Automation only moves forward.** A draft pull request moves its issues to In Progress, an
   open one to In Review, and a merged one moves the issues it closes to Done. A push to the
   default branch moves the issues its commits close to Done (commits GitHub marks as not
