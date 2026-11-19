@@ -24,6 +24,10 @@ export type MemberRole = (typeof MEMBER_ROLES)[number];
 /** The roles a person can be invited with or given. */
 export type PersonRole = Exclude<MemberRole, "agent">;
 
+export function isAgentRole(role: MemberRole): boolean {
+	return role === "agent";
+}
+
 /** Owners and admins manage teams, labels, members and agents. */
 export function isAdminRole(role: MemberRole): boolean {
 	return role === "owner" || role === "admin";

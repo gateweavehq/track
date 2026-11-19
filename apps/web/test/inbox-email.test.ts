@@ -61,6 +61,7 @@ function digest() {
 				issue: { key: "ENG-1", title: "Fix <login>" },
 				event: { type: "comment", commentId: "comment-1" },
 				actor: "Hal",
+				actorIsAgent: false,
 				unread: 2,
 				updatedAt: Date.now(),
 				comment: "Can you look at this today?",

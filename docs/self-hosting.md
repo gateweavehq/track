@@ -299,6 +299,15 @@ Admins then turn on each team's address next to its form. Each sender can file 1
 hour and 30 a day, and each address takes at most 60 an hour and 300 a day. Attachments go into
 the bucket for attached files, where there is one.
 
+### AI-drafted replies
+
+When a team member approves an agent's drafted reply declining a request, Track adds a line to the
+comment and to the email sent to the requester. The line says that an AI agent drafted the reply
+and a team member approved it, and names the agent when its name is available. Replies written by
+people appear as written. Track also labels agent names in inbox emails and push notifications
+that quote their words. These disclosures support the transparency goals of
+[EU AI Act Article 50](https://eur-lex.europa.eu/eli/reg/2024/1689/oj/eng#art_50) and cannot be turned off.
+
 ### Sign in with GitHub
 
 Create a [GitHub OAuth app](https://github.com/settings/developers) whose redirect URI, which

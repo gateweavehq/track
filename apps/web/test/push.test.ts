@@ -124,6 +124,7 @@ function notice(workspace = workspaceId) {
 				issue: { key: "ENG-7", title: "Fix <login>" },
 				event: { type: "comment", commentId: "comment-1" },
 				actor: "Hal",
+				actorIsAgent: false,
 				unread: 1,
 				updatedAt: Date.now(),
 				comment: "Can you look at this today?",

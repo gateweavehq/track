@@ -12,6 +12,20 @@ import {
 const DAY = 24 * 60 * 60 * 1000;
 
 describe("requestDecisionEmail", () => {
+	it("R11: quotes the whole attribution at the end of a full-length reply", () => {
+		const disclosure = "Drafted by an AI agent (Triage) and approved by a team member.";
+		const reply = `${"x".repeat(4000 - disclosure.length - 3)}…\n\n${disclosure}`;
+		const email = requestDecisionEmail({
+			workspace: "Acme",
+			team: "Engineering",
+			title: "Export to PDF",
+			accepted: false,
+			reply,
+		});
+		expect(email.text).toContain(`…\n> \n> ${disclosure}`);
+		expect(email.html).toContain(`…\n\n${disclosure}</p>`);
+	});
+
 	it("says what the team decided, with the reply to a decline, and links nowhere", () => {
 		const declined = requestDecisionEmail({
 			workspace: "Acme",
@@ -119,6 +133,7 @@ describe("inboxDigestEmail", () => {
 		url: "https://track.example.com/acme/issue/ENG-12",
 		event: { type: "assigned" },
 		actor: "Maya Chen",
+		actorIsAgent: false,
 		unread: 1,
 		comment: null,
 		statusName: null,
@@ -140,6 +155,23 @@ describe("inboxDigestEmail", () => {
 		expect(email.html).toContain(`href="${base.settingsUrl}"`);
 	});
 
+	it("R13: identifies the agent whose comment is quoted and leaves a person’s name as written", () => {
+		const comment = {
+			...entry,
+			event: { type: "comment", commentId: "c1" } as const,
+			comment: "Ship it",
+		};
+		for (const [actorIsAgent, byline] of [
+			[true, "Maya Chen (agent)"],
+			[false, "Maya Chen"],
+		] as const) {
+			const email = inboxDigestEmail({ ...base, items: [{ ...comment, actorIsAgent }] });
+			expect(email.subject).toBe(`${byline} commented on ENG-12: Export issues as CSV`);
+			expect(email.text).toContain(`${byline} commented on ENG-12\n> Ship it`);
+			expect(email.html).toContain(`${byline} commented on ENG-12</p>`);
+		}
+	});
+
 	it("counts the news, and says what each was", () => {
 		const email = inboxDigestEmail({
 			...base,
@@ -156,6 +188,7 @@ describe("inboxDigestEmail", () => {
 					...entry,
 					key: "ENG-15",
 					actor: "Triage",
+					actorIsAgent: true,
 					event: { type: "proposal", proposalId: "p1", change: { type: "priority", to: 1 } },
 				},
 			],
@@ -164,7 +197,7 @@ describe("inboxDigestEmail", () => {
 		expect(email.text).toContain("Maya Chen commented on ENG-12 · 3 updates\n> Ship it");
 		expect(email.text).toContain("Maya Chen moved ENG-13 to Ready for QA");
 		expect(email.text).toContain("Maya Chen unassigned you from ENG-14");
-		expect(email.text).toContain("Triage proposed a change to ENG-15");
+		expect(email.text).toContain("Triage (agent) proposed a change to ENG-15");
 	});
 
 	it("tells of mentions with the comment, and of due dates by the day", () => {

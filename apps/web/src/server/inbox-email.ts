@@ -43,6 +43,7 @@ export async function emailInboxDigest(digest: InboxDigest): Promise<void> {
 			url: `${base}/issue/${item.issue.key}`,
 			event: item.event,
 			actor: item.actor,
+			actorIsAgent: item.actorIsAgent,
 			unread: item.unread,
 			comment: item.comment,
 			statusName: item.statusName,

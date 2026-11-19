@@ -3,6 +3,7 @@ import {
 	EMAIL_INTERVAL_MS,
 	GITHUB_ACTOR_ID,
 	type InboxEvent,
+	isAgentRole,
 	mentionsAsText,
 	NOTIFICATION_KINDS,
 	type NotificationSettings,
@@ -36,6 +37,7 @@ export interface DigestItem {
 	 * has left.
 	 */
 	actor: string;
+	actorIsAgent: boolean;
 	unread: number;
 	updatedAt: number;
 	/**
@@ -252,10 +254,12 @@ function describe(db: Db, item: schema.InboxItemRow): DigestItem | undefined {
 					.where(eq(schema.statuses.id, statusId(issue.teamId, item.event.to)))
 					.get()
 			: undefined;
+	const actor = memberIdentity(db, item.actorId);
 	return {
 		issue: { key: `${issue.team}-${issue.number}`, title: issue.title },
 		event: item.event,
-		actor: actorName(db, item.actorId),
+		actor: actorName(item.actorId, actor?.name),
+		actorIsAgent: actor !== undefined && isAgentRole(actor.role),
 		unread: item.unread,
 		updatedAt: item.updatedAt,
 		comment,
@@ -263,18 +267,27 @@ function describe(db: Db, item: schema.InboxItemRow): DigestItem | undefined {
 	};
 }
 
-function actorName(db: Db, actorId: string): string {
+function actorName(actorId: string, name: string | undefined): string {
 	if (actorId === GITHUB_ACTOR_ID) return "GitHub";
 	if (actorId === SYSTEM_ACTOR_ID) return "Track";
-	return memberName(db, actorId) ?? "Someone";
+	return name ?? "Someone";
 }
 
-function memberName(db: Db, memberId: string): string | undefined {
+export function memberName(db: Db, memberId: string, includeRemoved = true): string | undefined {
+	const member = memberIdentity(db, memberId);
+	return member && (includeRemoved || member.removedAt === null) ? member.name : undefined;
+}
+
+function memberIdentity(db: Db, memberId: string) {
 	return db
-		.select({ name: schema.members.name })
+		.select({
+			name: schema.members.name,
+			role: schema.members.role,
+			removedAt: schema.members.removedAt,
+		})
 		.from(schema.members)
 		.where(eq(schema.members.userId, memberId))
-		.get()?.name;
+		.get();
 }
 
 /** The earliest a member may be emailed again from this workspace. */

@@ -246,6 +246,7 @@ describe("inbox email", () => {
 						issue: { key: "ENG-1", title: "Ship email" },
 						event: { type: "comment", commentId: "comment-1" },
 						actor: "Bob",
+						actorIsAgent: false,
 						unread: 2,
 						updatedAt: expect.any(Number),
 						comment: "Can you take this **today**?",
@@ -394,6 +395,33 @@ describe("inbox email", () => {
 });
 
 describe("inbox push", () => {
+	it("R13: carries the agent role with a quoted comment in the push and digest", async () => {
+		const { workspace, as, pushed, sent } = await setup();
+		await as(alice, { name: "issue.subscribe", args: { issueId: ISSUE_ID, subscribed: true } });
+		await as(triage, comment("comment-1", "I can take this."));
+		const item = expect.objectContaining({
+			actor: "Triage",
+			actorIsAgent: true,
+			comment: "I can take this.",
+		});
+		await vi.waitFor(() => expect(pushed.alice[0]?.items).toEqual([item]));
+		await later(workspace, EMAIL_DELAY_MS);
+		await alarm(workspace);
+		expect(sent.alice[0]?.items).toEqual([item]);
+	});
+
+	it("R13: still names an agent that has left as an agent", async () => {
+		const { workspace, as, sent } = await setup();
+		await as(alice, { name: "issue.subscribe", args: { issueId: ISSUE_ID, subscribed: true } });
+		await as(triage, comment("comment-1", "I can take this."));
+		await workspace.removeMember(triage.id);
+		await later(workspace, EMAIL_DELAY_MS);
+		await alarm(workspace);
+		expect(sent.alice[0]?.items).toEqual([
+			expect.objectContaining({ actor: "Triage", actorIsAgent: true }),
+		]);
+	});
+
 	it("pushes news a person wants by email as it happens, once, and emails it all the same", async () => {
 		const { workspace, update, pushed, sent } = await setup();
 		await update(owner, { assigneeId: alice.id });
@@ -407,6 +435,7 @@ describe("inbox push", () => {
 						issue: { key: "ENG-1", title: "Ship email" },
 						event: { type: "assigned" },
 						actor: "Olivia Owner",
+						actorIsAgent: false,
 						unread: 1,
 						updatedAt: expect.any(Number),
 						comment: null,

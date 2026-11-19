@@ -1290,10 +1290,14 @@ team's intake page (`/$workspace/team/$teamKey/intake`), oldest first. Search fi
   the agent, with the status it would accept into or the reply it drafted (see
   [Proposals](#proposals)). An agent triages by working on requests through the ordinary
   mutations and by proposing decisions; a person accepts or declines. Accepting the proposal
-  makes the decision as that person, through the same handlers, with the agent in the history's
-  `proposedBy`; a drafted reply is posted as the person, who made it theirs. Once a request leaves
-  intake, however it does, the decisions agents proposed on it are dismissed by whoever took it
-  out. Deciding on what is no longer a
+  makes the decision as that person through the same handlers, with the agent in the history's
+  `proposedBy`; a drafted reply is posted as that person. Its text then ends with a line saying
+  that an AI agent (named while it is still a member) drafted it and a team member approved it,
+  so the comment and the email to the requester both say so. Replies people write themselves
+  appear as written. The line answers
+  [EU AI Act Article 50](https://eur-lex.europa.eu/eli/reg/2024/1689/oj/eng#art_50) and cannot be
+  turned off. Once a request leaves intake, whoever took it out dismisses the decisions agents
+  proposed on it. Deciding on what is no longer a
   request is a `conflict` ("Someone already decided on this request"), so whoever decides second
   hears it, and a reply they wrote is not lost unseen. A retried mutation id is answered as
   applied before that.

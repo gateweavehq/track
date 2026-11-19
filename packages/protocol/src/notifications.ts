@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { InboxEvent } from "./domain";
 
+/** The most of a reply that the requester email quotes. */
+export const MAX_REQUESTER_QUOTE_LENGTH = 4000;
+
 /** The kinds of news that reach an inbox, one per {@link InboxEvent} type. */
 export const NOTIFICATION_KINDS = [
 	"assigned",
