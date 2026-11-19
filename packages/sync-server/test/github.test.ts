@@ -9,7 +9,7 @@ import {
 } from "@gateweave/track-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MemberProfile, WebhookResult, WorkspaceLink } from "../src";
-import { mentions } from "../src/github";
+import { mentions, partOf } from "../src/github";
 import { freshWorkspace, TestClient, type Workspace, whole } from "./client";
 import { GITHUB_APP_SECRET } from "./worker";
 
@@ -164,6 +164,14 @@ describe("mentions", () => {
 			{ teamKey: "ENG", number: 4, closing: true },
 		]);
 		expect(mentions("UTF8 is not a key, nor is 12-3 or ENG-")).toEqual([]);
+	});
+
+	it("finds the keys a text says it is part of", () => {
+		expect([...partOf("Part of eng-12, and part of: DES-1. Fixes ENG-3; apart of ENG-4")]).toEqual([
+			"ENG-12",
+			"DES-1",
+		]);
+		expect([...partOf("Part of the work on ENG-5")]).toEqual([]);
 	});
 });
 
@@ -375,6 +383,41 @@ describe("pull requests", () => {
 			}),
 		);
 		expect(await statuses(workspace)).toMatchObject({ "issue-2": "done", "issue-3": "done" });
+	});
+
+	// TRK-149: an issue built in slices was closed by its first slice, whose branch was named for it.
+	it("leave open an issue they say they are part of, whatever the branch or a closing word says", async () => {
+		const { workspace, deliver } = await setup();
+		// The default branch is named for ENG-1, and the title says it fixes ENG-2.
+		const fields = { title: "Fixes ENG-2: slice 1", body: "Part of ENG-1. Part of: eng-2." };
+		await deliver("pull_request", pullRequest("opened", fields));
+		expect((await pullRequests(workspace))[0]?.closingIssueIds).toEqual([]);
+		// Still what the pull request is about, so it moves on while open.
+		expect(await statuses(workspace)).toMatchObject({
+			"issue-1": "in_review",
+			"issue-2": "in_review",
+		});
+
+		await deliver(
+			"pull_request",
+			pullRequest("closed", { ...fields, state: "closed", merged_at: "2026-10-31T09:00:00Z" }),
+		);
+		expect(await statuses(workspace)).toMatchObject({
+			"issue-1": "in_review",
+			"issue-2": "in_review",
+		});
+
+		// The slice that finishes it says so plainly, and closes it.
+		await deliver(
+			"pull_request",
+			pullRequest("closed", {
+				id: 9002,
+				number: 8,
+				state: "closed",
+				merged_at: "2026-10-31T10:00:00Z",
+			}),
+		);
+		expect((await statuses(workspace))["issue-1"]).toBe("done");
 	});
 
 	// TRK-79: GitHub's text is stored as typed text is, without NUL characters or lone surrogates.

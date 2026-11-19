@@ -2121,7 +2121,11 @@ it has one. The code is `packages/sync-server/src/github.ts`, with the gateways 
 - **Linking.** Keys in a pull request's branch name, title and description link it to those
   issues, matched case-insensitively against team keys and live issues. A key in the branch name,
   or after a closing word (close, closes, closed, fix, fixes, fixed, resolve, resolves, resolved),
-  makes the link a closing one. A pull request that names no issue of the workspace is not kept.
+  makes the link a closing one. `Part of KEY` in the title or description says the pull request
+  is one slice of that issue: it links and moves the issue as one the pull request is about, and
+  never closes it, whatever the branch name or a closing word says, so the first slice of work
+  spread over several pull requests does not close its issue. A pull request that names no issue
+  of the workspace is not kept.
   Pull requests are an entity of their own (`pullRequest`), in every member's replica, with the
   ids of the issues they link and close; the snapshot leaves out those that only name deleted
   issues. The issue page lists them, and MCP's `get_issue` returns them.
