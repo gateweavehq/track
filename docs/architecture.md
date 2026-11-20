@@ -993,12 +993,14 @@ address says nothing about who makes the named product. The public demo refuses 
    has gone, cleanup deletes only the key named by the approval. Issues stay in the workspace.
 
 **Threat model.** Anyone controlling the asking address who obtains approval can use the key to
-file, clear and reopen signals in the chosen team within its daily limits. With an agent assigned,
-a report can wake that agent and put the sender's text into its input. The approval page calls
-this out because that text can contain instructions. Before rolling back to an older Track, resolve
-unfinished connections, including approvals awaiting exchange and unfinished undos. Let the
-current Worker's daily run finish them, or reconcile the sources and keys in Settings. Then
-delete the `track-connect:` verification rows before rolling back, as for agent connections.
+file, clear and reopen signals in the chosen team within its daily limits. With an agent assigned, a
+report can wake that agent and put the sender's text into its input. The approval page calls this
+out because that text can contain instructions. Before rolling back to an older Track, stop new
+connections (for example, block `/connect/source` and `/api/connect/exchange` at the edge) and wait
+for requests in flight to finish. Resolve approvals awaiting exchange and unfinished undos through
+the current Worker's daily run or reconcile their sources and keys in Settings. Then delete the
+`track-connect:` verification rows and roll back. Keep the block in place until the rollback is
+complete.
 
 ### Backups
 

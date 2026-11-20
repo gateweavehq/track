@@ -349,10 +349,10 @@ export function finishConnectedSourceRemoval(
 	const seal = liveConnectSeal(db, changes, sourceId);
 	const row = db.select().from(sources).where(eq(sources.id, sourceId)).get();
 	if (!row?.removing || !seal || seal.holder !== holder)
-		return { ...changes.result(), removed: false };
+		return { ...changes.result(), status: "notHeld" as const };
 	if (keyRevoked(db, sourceId, approvalKey(holder))) {
 		clearSeal(db, changes, sourceId, seal.paused);
-		return { ...changes.result(), removed: false };
+		return { ...changes.result(), status: "revoked" as const };
 	}
 	deleteSource(db, changes, sourceId);
 	recordAudit(
@@ -365,5 +365,5 @@ export function finishConnectedSourceRemoval(
 		},
 		now,
 	);
-	return { ...changes.result(), removed: true };
+	return { ...changes.result(), status: "removed" as const };
 }

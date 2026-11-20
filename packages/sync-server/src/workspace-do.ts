@@ -588,7 +588,7 @@ export class WorkspaceDO extends DurableObject {
 	finishConnectedSourceRemoval(sourceId: string, holder: string, reason: string) {
 		return this.#write(() =>
 			finishConnectedSourceRemoval(this.#db, sourceId, holder, reason, Date.now()),
-		).removed;
+		).status;
 	}
 
 	/** A D1 key can outlive its source after a failed cleanup. Revoking it still requires an admin. */

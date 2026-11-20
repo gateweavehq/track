@@ -1958,6 +1958,82 @@ describe("connecting a source", () => {
 		expect(await settings(f)).toEqual(before);
 	});
 
+	it("keeps the source and its other key when Settings revokes the approval key during finish", async () => {
+		const f = await setUp("revoke-during-finish");
+		const { answer } = await trade(f);
+		const id = answer.source.id;
+		const [key] = (await settings(f)).keys;
+		if (!key) throw Error("Missing approval key");
+		const checked = gate();
+		const inserted = gate();
+		const finishing = gate();
+		boundary = async (step) => {
+			if (step === "after-checkKey") await checked.pause();
+			if (step === "before-keyCreated") await inserted.pause();
+			if (step === "before-finish") await finishing.pause();
+			return true;
+		};
+		try {
+			const issuing = makeSettingsKey(f, id);
+			await checked.reached;
+			const undoing = undo(answer.undo);
+			await finishing.reached;
+			checked.resume();
+			await inserted.reached;
+			const revoke = await serverFn(
+				"changeSource",
+				"POST",
+				{
+					workspace: f.slug,
+					action: { kind: "revokeKey", id, keyId: key.id },
+				},
+				{ cookie: f.owner.cookie },
+			);
+			expect(revoke.result).toMatchObject({ ok: true });
+			finishing.resume();
+			const response = await undoing;
+			inserted.resume();
+			const other = await issuing;
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({ ok: true });
+			expect(await settings(f)).toMatchObject({
+				sources: [{ id, paused: false }],
+				keys: [{ sourceId: id }],
+			});
+			expect(await rowsFor(f)).toEqual([]);
+			expect((await sendEvent(other, event())).status).toBe(200);
+		} finally {
+			checked.resume();
+			inserted.resume();
+			finishing.resume();
+			boundary = undefined;
+		}
+	});
+
+	it("retries an undo whose seal expired while it still held its D1 claim", async () => {
+		const f = await setUp("undo-expired-finish");
+		const { answer } = await trade(f);
+		const before = await settings(f);
+		const now = Date.now();
+		await track.rpc(f.workspaceId, "setObjectTime", now);
+		boundary = async (step) => {
+			if (step === "before-finish") await track.rpc(f.workspaceId, "setObjectTime", now + 120_000);
+			return true;
+		};
+		try {
+			const response = await undo(answer.undo);
+			expect(response.status).toBe(500);
+			expect(await response.json()).toEqual({ error: "try_again" });
+		} finally {
+			boundary = undefined;
+		}
+		expect(await settings(f)).toEqual(before);
+		expect(await rowsFor(f)).toHaveLength(1);
+		await track.runScheduled(now + 601_000);
+		expect(await settings(f)).toEqual({ sources: [], keys: [] });
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
 	it("measures pending grace when the sweep asks about the source", async () => {
 		const f = await setUp("grace-at-ask");
 		const clockOffset = (offset: number) =>
@@ -2042,7 +2118,7 @@ describe("connecting a source", () => {
 		expect(await rowsFor(f)).toHaveLength(1);
 		await track.rpc(f.workspaceId, "setObjectTime", now + 120_000);
 		expect(await track.rpc(f.workspaceId, "finishConnectedSourceRemoval", id, holder, "undo")).toBe(
-			false,
+			"notHeld",
 		);
 		expect((await settings(f)).sources).toMatchObject([{ id, paused: true }]);
 		const unpaused = await track.rpc(f.workspaceId, "manageSource", f.owner.id, {
@@ -2131,6 +2207,29 @@ describe("connecting a source", () => {
 			}
 		},
 	);
+
+	it("records one agent deletion when webhook removal fails and the sweep retries", async () => {
+		const f = await setUp("agent-audit-retry");
+		await allow(f.owner, f.slug, newVerifier());
+		const [hook] = await webhooksOf(f.workspaceId, f.owner);
+		if (!hook?.agentId) throw Error("Missing agent webhook");
+		await expire(f);
+		boundary = async (step) => step !== "before-removeConnectedWebhooksOf";
+		try {
+			await track.runScheduled();
+		} finally {
+			boundary = undefined;
+		}
+		expect(await agentCount(f.workspaceId)).toBe(0);
+		expect(await webhooksOf(f.workspaceId, f.owner)).toEqual([hook]);
+		await track.runScheduled(Date.now() + 3601_000);
+		expect(await webhooksOf(f.workspaceId, f.owner)).toEqual([]);
+		expect(await rowsFor(f)).toEqual([]);
+		const deleted = (await auditOf(f.workspaceId, f.owner)).filter(
+			(entry) => entry.action === "agent.deleted",
+		);
+		expect(deleted).toMatchObject([{ target: { id: hook.agentId } }]);
+	});
 
 	it("a zero-key agent retry finishes the membership sync", async () => {
 		const f = await setUp("zero-key-retry");

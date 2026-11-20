@@ -935,7 +935,7 @@ it("a revocation after sealing prevents the live holder from finishing removal",
 			listed: true,
 		}),
 	).toMatchObject({ ok: true });
-	expect(await ws.finishConnectedSourceRemoval(sourceId, holder, "undo")).toBe(false);
+	expect(await ws.finishConnectedSourceRemoval(sourceId, holder, "undo")).toBe("revoked");
 	expect((await snapshot()).sources).toMatchObject([{ id: sourceId, paused: false }]);
 });
 
@@ -951,8 +951,8 @@ it("taking back a source seals it against events, and only that connection can f
 	expect(await ws.removeConnectedSource(sourceId, "another")).toBe("busy");
 	await ws.releaseConnectedSource(sourceId, "another");
 	expect(await send()).toMatchObject({ status: 503 });
-	expect(await ws.finishConnectedSourceRemoval(sourceId, "another", "undo")).toBe(false);
-	expect(await ws.finishConnectedSourceRemoval(sourceId, "key-1", "undo")).toBe(true);
+	expect(await ws.finishConnectedSourceRemoval(sourceId, "another", "undo")).toBe("notHeld");
+	expect(await ws.finishConnectedSourceRemoval(sourceId, "key-1", "undo")).toBe("removed");
 	expect(await ws.removeConnectedSource(sourceId, "key-1")).toBe("gone");
 	expect((await snapshot()).sources).toHaveLength(0);
 	const log = await ws.auditLog(owner, {});
@@ -969,7 +969,7 @@ it("a concurrent accepted event wins against take-back", async () => {
 	const [event, seal] = await Promise.all([send(), ws.removeConnectedSource(sourceId, "key-1")]);
 	expect(event).toMatchObject({ status: 200 });
 	expect(seal).toBe("heard");
-	expect(await ws.finishConnectedSourceRemoval(sourceId, "key-1", "undo")).toBe(false);
+	expect(await ws.finishConnectedSourceRemoval(sourceId, "key-1", "undo")).toBe("notHeld");
 	expect((await snapshot()).signals).toHaveLength(1);
 });
 

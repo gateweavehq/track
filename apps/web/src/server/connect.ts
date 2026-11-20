@@ -199,7 +199,14 @@ async function takeBack(
 	// Signed undo removes the webhooks first. Claimed cleanup must win the D1 delete first.
 	if (!condition) await stub.removeConnectedWebhooksOf(agentId);
 	const removed = await removeAgentOf(db, workspaceId, agentId, condition);
-	if (removed === null && condition) {
+	if (removed !== null) {
+		await reportAudit(db, workspaceId, {
+			actorId: null,
+			action: "agent.deleted",
+			target: { type: "agent", id: agentId, label: null },
+			detail,
+		});
+	} else if (condition) {
 		// A surviving user means the claim or the keys changed. A missing user means a retry
 		// still owes the object both calls after a previous D1 delete.
 		const present = await db
@@ -211,14 +218,6 @@ async function takeBack(
 	}
 	await syncMembership(db, workspaceId, agentId);
 	if (condition) await stub.removeConnectedWebhooksOf(agentId);
-	if (removed !== null) {
-		await reportAudit(db, workspaceId, {
-			actorId: null,
-			action: "agent.deleted",
-			target: { type: "agent", id: agentId, label: null },
-			detail,
-		});
-	}
 }
 
 /**
@@ -280,9 +279,10 @@ async function takeBackSource(
 		return "kept";
 	}
 	if (state === "pending" && !(await deleteKey())) return lost();
-	const removed = await stub.finishConnectedSourceRemoval(sourceId, holder, reason);
+	const finish = await stub.finishConnectedSourceRemoval(sourceId, holder, reason);
+	if (finish === "revoked") return "kept";
 	// A competing finish can leave its key behind if it has since lost its D1 claim.
-	if (!removed) {
+	if (finish === "notHeld") {
 		if (!(await stillHeld(row))) return lost();
 		throw new Error("Source removal must be checked again");
 	}

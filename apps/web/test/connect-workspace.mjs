@@ -86,6 +86,11 @@ export class WorkspaceDO extends Workspace {
 		return super.removeMember(id);
 	}
 
+	async removeConnectedWebhooksOf(id) {
+		await this.boundary("before-removeConnectedWebhooksOf", id);
+		return super.removeConnectedWebhooksOf(id);
+	}
+
 	async releaseConnectedSource(id, ...args) {
 		await this.boundary("before-release", id);
 		return time.run(this.objectTime, () => super.releaseConnectedSource(id, ...args));
