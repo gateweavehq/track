@@ -3,6 +3,8 @@ import {
 	ASSIGNED_PER_DAY,
 	BYTES_PER_DAY,
 	CALLS_PER_MINUTE,
+	EVENT_BODY_MAX,
+	EVENT_MAX_BYTES,
 	ISSUES_PER_DAY,
 	LIVE_SIGNALS,
 	type MutationInput,
@@ -394,6 +396,43 @@ it("R25: concurrent deliveries allocate one issue per key and gapless versions",
 			.map((row) => row.version),
 	);
 	expect(versions).toEqual(Array.from({ length: after.version - start }, (_, i) => start + i + 1));
+});
+
+it("U1: the largest event's issue.created delivery fits Agents' 64 KiB request cap", async () => {
+	const { ws, sourceId } = await setup();
+	const made = await ws.createWebhook(
+		owner,
+		{ id: "ws", slug: "test", origin: "https://track.test" },
+		{ url: "https://hooks.test/track", teamId: null, agentId: null, events: ["issue.created"] },
+	);
+	expect(made.ok).toBe(true);
+	// Tildes make the fence around the body three times its length, escaped quotes cost twice in
+	// both places, and the key, which the payload carries again, takes the rest of the 16 KiB.
+	const event = {
+		key: "",
+		state: "open",
+		sentAt: new Date().toISOString(),
+		severity: "critical",
+		title: "ࠀ".repeat(512),
+		type: '"'.repeat(200),
+		subject: '"'.repeat(200),
+		body: "~".repeat(EVENT_BODY_MAX),
+		url: "https://guard.test/finding",
+	};
+	const bytes = (text: string) => new TextEncoder().encode(text).length;
+	event.key = "k".repeat(EVENT_MAX_BYTES - bytes(JSON.stringify(event)));
+	const raw = JSON.stringify(event);
+	expect(bytes(raw)).toBe(EVENT_MAX_BYTES);
+	expect((await ws.sourceEvent(sourceId, "key-1", raw, workspaceUrl)).status).toBe(200);
+	const payload = await runInDurableObject(
+		ws,
+		(_, state) =>
+			state.storage.sql
+				.exec<{ payload: string }>("SELECT payload FROM webhook_deliveries LIMIT 1")
+				.one().payload,
+	);
+	// Agents refuses a trigger delivery over 64 KiB (`bodyBytes` in its triggers model).
+	expect(bytes(payload)).toBeLessThan(64 * 1024);
 });
 
 it("R26: a filed issue webhook names the system actor and carries signal metadata", async () => {
