@@ -32,6 +32,7 @@ Every product follows the same principles as Track:
 | **ID**     | Single sign-on, passkeys and access to internal apps              | Early access ([gateweavehq/id](https://github.com/gateweavehq/id))         |
 | **Guard**  | Security in one place for teams on Cloudflare; it only reads      | Early access ([gateweavehq/guard](https://github.com/gateweavehq/guard))   |
 | **Mail**   | Mailboxes for people and agents, aliases and transactional email  | Next, being designed; email-to-issue and inbox email ship in Track         |
+| **Backup** | D1, Durable Object and R2 backups, encrypted and restore-tested   | In use, pre-release ([docs](https://docs.gateweave.com/backup/))           |
 | **CRM**    | Contacts, companies and deals                                     | Proposed                                                                   |
 | **ERP**    | Invoicing, inventory and orders, one module at a time             | Later                                                                      |
 
