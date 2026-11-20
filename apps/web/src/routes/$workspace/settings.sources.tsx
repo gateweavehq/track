@@ -50,6 +50,8 @@ function SourceSettings() {
 				return false;
 			}
 			setSecret(result.value.secret ?? "");
+			if ("keyMissing" in result.value)
+				toast.error("The source was made, but its key was not. Use Make key on it.");
 			await router.invalidate();
 			return true;
 		} catch {

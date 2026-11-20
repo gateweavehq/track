@@ -74,6 +74,24 @@ async function setup() {
 	return { db, id, owner, injected, apply, manage, key, initial, send };
 }
 
+it("a source whose first key fails is reported as made, so trying again makes no second source", async () => {
+	const { db, id, owner, injected, apply } = await setup();
+	injected.state.only = /insert into "source_key"/i;
+	injected.state.failures = 1;
+	const made = await apply({
+		kind: "create",
+		input: { name: "Status", product: "status", teamId: "team", linkOrigins: [] },
+	});
+	expect(made).toEqual({ ok: true, value: { keyMissing: true } });
+	const snap = await track.rpc<Snapshot>(id, "snapshot", owner);
+	const status = snap.sources.filter((source) => source.name === "Status");
+	expect(status).toHaveLength(1);
+	const sourceId = status[0]?.id ?? "";
+	expect((await sourceKeys(db, id)).filter((key) => key.sourceId === sourceId)).toEqual([]);
+	const key = await apply({ kind: "makeKey", id: sourceId });
+	expect(key).toMatchObject({ ok: true, value: { secret: expect.stringMatching(/^gws_/) } });
+});
+
 it("R4: simultaneous rotations leave at most two usable keys and listings never show either secret", async () => {
 	const { db, id, apply, key, initial, send } = await setup();
 	const rotations = await Promise.all([

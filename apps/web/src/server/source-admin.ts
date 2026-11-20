@@ -8,7 +8,8 @@ export type SourceCommand =
 	| Parameters<WorkspaceDO["revokeSourceKey"]>[1];
 type Outcome = ReturnType<WorkspaceDO["manageSource"] | WorkspaceDO["revokeSourceKey"]>;
 export type SourceChangeResult =
-	| { ok: true; value: { secret?: string } }
+	/** `keyMissing`: the source was made but its first key was not; it is made with "Make key". */
+	| { ok: true; value: { secret?: string; keyMissing?: true } }
 	| { ok: false; message: string; retryAfter?: number };
 
 /** Two stores take part. A failed removal stays sealed until an admin finishes revoking its keys. */
@@ -42,8 +43,14 @@ export async function applySourceAction(
 		case "create": {
 			const made = await manage(action);
 			if (!made.ok) return made;
-			// If D1 is unavailable, settings still shows the source. Its first key can be made there.
-			return issueKey(made.value.id);
+			// The source exists from here on. If its first key fails, answer that the source was made,
+			// so trying again makes a key on it ("Make key") rather than a second source. A failed
+			// statement is logged where it failed (`createDb`).
+			try {
+				const key = await issueKey(made.value.id);
+				if (key.ok) return key;
+			} catch {}
+			return { ok: true, value: { keyMissing: true } };
 		}
 		case "makeKey": {
 			const allowed = await manage({ kind: "checkKey", id: action.id });

@@ -278,12 +278,17 @@ it("R18: assignment requires a current member and room in the rolling allowance"
 	});
 	if (!fresh.ok) throw new Error(fresh.message);
 	await ws.syncMember(agent);
-	await ws.manageSource(owner.id, { kind: "assign", id: fresh.value.id, assigneeId: agent.id });
-	await ws.removeMember(agent.id);
-	await send({ key: "gone" }, fresh.value.id);
 	expect(
-		(await snapshot()).issues.filter((row) => whole(row).assigneeId === agent.id),
-	).toHaveLength(ASSIGNED_PER_DAY);
+		(await ws.manageSource(owner.id, { kind: "assign", id: fresh.value.id, assigneeId: agent.id }))
+			.ok,
+	).toBe(true);
+	await ws.removeMember(agent.id);
+	const filed = answer(await send({ key: "gone" }, fresh.value.id));
+	expect(filed.filed).toBe(true);
+	const issues = (await snapshot()).issues.map(whole);
+	const gone = issues.find((row) => `ENG-${row.number}` === filed.issue?.key);
+	expect(gone).toMatchObject({ assigneeId: null });
+	expect(issues.filter((row) => row.assigneeId === agent.id)).toHaveLength(ASSIGNED_PER_DAY);
 });
 
 it("R19: clearing and dismissal close eligible work and record one history entry each", async () => {
@@ -303,12 +308,16 @@ it("R19: clearing and dismissal close eligible work and record one history entry
 
 it("R20: a missing canceled status leaves a dismissed issue open", async () => {
 	const { send, issue, mutate } = await setup({ closeWhenCleared: true });
-	await mutate({
-		name: "status.delete",
-		args: { teamId: "team", key: "canceled", moveTo: "done" },
-	});
+	expect(
+		(
+			await mutate({
+				name: "status.delete",
+				args: { teamId: "team", key: "canceled", moveTo: "done" },
+			})
+		).ok,
+	).toBe(true);
 	await send();
-	await send({ state: "dismissed" });
+	expect(answer(await send({ state: "dismissed" })).state).toBe("dismissed");
 	expect((await issue()).status).toBe("backlog");
 });
 

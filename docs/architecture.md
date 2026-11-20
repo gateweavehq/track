@@ -2143,7 +2143,7 @@ through a gateway-only object call. Issues already filed remain in their teams.
 
 Revoking a key records its id in the object before D1 forgets the key, and the id stays until the
 source is removed. So a request that found the key before the revocation, and held its body back
-past it, is still refused. A newer report of an unchanged state moves the signal's ordering time
+past it, is still refused. A newer report that repeats both state and severity moves the signal's ordering time
 without taking a version, so a clear sent before it, arriving late, changes nothing.
 
 ### GitHub
