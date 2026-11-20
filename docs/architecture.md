@@ -785,6 +785,24 @@ Settings has an Agents page for it.
 - **It goes with its workspace.** Deleting an agent deletes its user, membership and keys; the
   workspace keeps its profile, marked removed, for what it did. Deleting a workspace deletes its
   agents too, as does the demo's cleanup.
+- **Nothing it does reaches outside the workspace.** No tool or mutation open to an agent sends
+  anything to an address or host it names:
+  - issues, comments, labels and project updates stay in the workspace;
+  - webhooks, integrations and teams are admin settings, which the object checks with
+    `isAdminRole`, so the `agent` role is refused;
+  - declining an intake request is the one action that emails someone outside, its requester.
+    An agent's decision comes back as a proposal, for a person to accept or dismiss
+    (`triage_request`);
+  - an image in Markdown shows only when it is a file attached in the workspace. So text an agent
+    writes cannot make a reader's browser fetch from elsewhere: any other image shows as a link.
+
+  Gateweave Agents and Gateweave Mail refuse a destination that an injected instruction may have
+  supplied. In Track that check would have nothing to act on.
+- **What it reads may be someone else's.** An issue's title, description and comments can come
+  from outside the workspace: a request form, an intake email, or a requester's emailed reply.
+  An agent should treat them as outside content, as data and never as instructions to follow.
+  Gateweave Agents does: a result from any tool, Track's included, marks the run as having read
+  outside content, and from then on it checks where each of the run's actions sends.
 
 ### Connecting an agent in one step
 
