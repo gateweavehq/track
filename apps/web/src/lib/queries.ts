@@ -28,6 +28,7 @@ import { compareIssues } from "./issues";
 import { compareLabels } from "./labels";
 import { compareProjects, type ProjectProgress, projectProgress } from "./projects";
 import { blockedIssueIds } from "./relations";
+import { issueRuns } from "./runs";
 import { compareViews, isViewVisible } from "./saved-views";
 import { isIssueClosed, type StatusMap, statusOf, teamStatuses } from "./statuses";
 import { compareTemplates } from "./templates";
@@ -657,6 +658,14 @@ export function useIssuePullRequests(issueId: string): PullRequest[] {
 			(state: SyncState) => pullRequestsByIssue(state.pullRequests).get(issueId) ?? NONE,
 			[issueId],
 		),
+		shallowEqual,
+	);
+}
+
+/** The runs reported on an issue, live ones first (WEB-84). */
+export function useIssueRuns(issueId: string): ReturnType<typeof issueRuns> {
+	return useQuery(
+		useCallback((state: SyncState) => issueRuns(state.signals.values(), issueId), [issueId]),
 		shallowEqual,
 	);
 }
