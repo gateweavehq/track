@@ -2349,9 +2349,10 @@ sources, below, is the one step the server knows about.
   a 16 KiB event (`STORED_EVENT_URL_MAX_BYTES`). If a signal's issue has no row at all, as when
   its create failed, the object refuses the whole source with nothing written, and importing the
   same file again restores it; an issue deleted, in another team or already linked only drops
-  its signal. A file with sources must carry `exportedAt`. Each source restores in one transaction of at most 2,000
-  signals and 8 MiB of serialized rows, and the workspace keeps at most 8 MiB of signal field
-  values, measured in UTF-8 bytes inside the transaction. Sources restore in the file's source
+  its signal. A file with sources must carry `exportedAt`. Each source restores in one transaction
+  of at most 2,000 signals and 8 MiB of serialized rows, and a restore adds signals only while the
+  workspace's signal field values stay within 8 MiB, measured in UTF-8 bytes inside the
+  transaction (live events have their own daily limits). Sources restore in the file's source
   order, and each source's signals in file order; signals beyond the remaining budget are counted
   as over the limit. The 16 KiB limit on serialized link origins applies only to restore. The
   result counts repeated issue ids, missing issues, issues in another team, issues already linked,

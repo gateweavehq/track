@@ -141,7 +141,7 @@ function guideIssues(mcpUrl: string | null): GuideIssue[] {
 			description: lines(
 				"Owners and admins bring issues in from Settings, then Import: from Jira (its CSV export), a Linear team, a GitHub repository, a CSV file, or another Track workspace's JSON export.",
 				"",
-				"A Track JSON export also carries the chosen teams’ sources and signals. Restored sources start paused and keyless. In Settings, open Sources, make a key and resume the source to keep reporting on the imported issues.",
+				"A Track JSON export also carries the chosen teams’ sources and signals. Restored sources start paused and keyless. In Settings, open Sources, make a key, give it to the product in place of its old one (with this Track's address, if the workspace came from another Track), and resume the source to keep reporting on the imported issues.",
 				"",
 				"Labels, projects, comments, parents and relations come along where the source has them, and people are matched by email. Running an import again skips what it brought in before.",
 			),

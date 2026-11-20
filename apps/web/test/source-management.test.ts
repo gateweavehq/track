@@ -1340,7 +1340,11 @@ it("submits both repeated comments and restores the source after one is refused"
 	);
 	const comments = (await dest.snapshot()).comments;
 	expect(comments).toHaveLength(1);
-	expect(comments[0]?.issueId).toBe(await importId("track:" + doc.issues[0].id));
+	// Both creates are in flight at once, so either may arrive first.
+	const issueIds = await Promise.all(
+		doc.issues.map((row: { id: string }) => importId("track:" + row.id)),
+	);
+	expect(issueIds).toContain(comments[0]?.issueId);
 });
 
 it("a stale generation row leaves room to make and rotate two replacement keys", async () => {
