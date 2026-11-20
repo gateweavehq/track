@@ -232,6 +232,13 @@
       "when": 1794523348533,
       "tag": "0032_audit_log",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1795164290216,
+      "tag": "0033_sources_signals",
+      "breakpoints": true
     }
   ]
 }

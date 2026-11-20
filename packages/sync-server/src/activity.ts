@@ -86,6 +86,8 @@ export function mergeActivity(
 			)
 				return { kind: "append" };
 			return previous.added === change.added ? { kind: "skip" } : { kind: "remove" };
+		case "signal":
+			return append;
 		case "intake":
 			// A request leaves intake once, and is never put back.
 			return append;

@@ -6,6 +6,7 @@
 import type { IssueDisplay } from "./display";
 import type { IssueFilters } from "./filters";
 import type { TemplateRepeat } from "./repeat";
+import type { Signal, SignalState, Source } from "./sources";
 import type { WorkflowStatus } from "./statuses";
 
 /** The key of one of a team's statuses: see `WorkflowStatus`. */
@@ -61,6 +62,9 @@ export const SYSTEM_ACTOR_ID = "system";
  * when the pull request that fixes it merges. It is never a member's id.
  */
 export const GITHUB_ACTOR_ID = "github";
+
+/** The non-member actor behind a connected product's reports. */
+export const SOURCE_ACTOR_ID = "source";
 
 /**
  * The actor of the requests a team's public request form files, on behalf of someone who is not a
@@ -377,6 +381,7 @@ export function relationOf(
  * entry: an issue's `creatorId` and `createdAt` already say it.
  */
 export type ActivityChange =
+	| { type: "signal"; from: SignalState; to: SignalState }
 	| { type: "title"; from: string; to: string }
 	| { type: "description" }
 	/** The previous text stays in issue history after a comment is edited. */
@@ -646,6 +651,8 @@ export interface Entities {
 	subscription: Subscription;
 	inbox: InboxItem;
 	pullRequest: PullRequest;
+	source: Source;
+	signal: Signal;
 }
 export type EntityName = keyof Entities;
 export const ENTITY_NAMES = [
@@ -666,6 +673,8 @@ export const ENTITY_NAMES = [
 	"subscription",
 	"inbox",
 	"pullRequest",
+	"source",
+	"signal",
 ] as const satisfies readonly EntityName[];
 
 /**

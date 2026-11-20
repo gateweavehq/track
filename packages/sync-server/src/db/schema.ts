@@ -24,6 +24,10 @@ import {
 	type ProposedChange,
 	PULL_REQUEST_STATES,
 	RELATION_TYPES,
+	SIGNAL_SEVERITIES,
+	SIGNAL_STATES,
+	SOURCE_PRODUCTS,
+	SOURCE_THRESHOLDS,
 	STATUS_CATEGORIES,
 	type TemplateRepeat,
 	type WebhookDelivery,
@@ -585,3 +589,63 @@ export type GitHubConnectionRow = typeof githubConnections.$inferSelect;
 export type WebhookRow = typeof webhooks.$inferSelect;
 export type WebhookDeliveryRow = typeof webhookDeliveries.$inferSelect;
 export type AuditEventRow = typeof auditEvents.$inferSelect;
+
+export const sources = sqliteTable("sources", {
+	id: text("id").primaryKey(),
+	name: text("name").notNull(),
+	product: text("product", { enum: SOURCE_PRODUCTS }).notNull(),
+	teamId: text("team_id")
+		.notNull()
+		.references(() => teams.id),
+	assigneeId: text("assignee_id"),
+	lowestSeverity: text("lowest_severity", { enum: SOURCE_THRESHOLDS }).notNull(),
+	closeWhenCleared: integer("close_when_cleared", { mode: "boolean" }).notNull(),
+	linkOrigins: text("link_origins", { mode: "json" }).$type<string[]>().notNull(),
+	paused: integer("paused", { mode: "boolean" }).notNull().default(false),
+	removing: integer("removing", { mode: "boolean" }).notNull().default(false),
+	lastHeardAt: integer("last_heard_at"),
+	callTimes: text("call_times", { mode: "json" }).$type<number[]>().notNull().default(sql`'[]'`),
+	usage: text("usage", { mode: "json" })
+		.$type<
+			Array<{
+				at: number;
+				bytes: number;
+				filed: boolean;
+				assigned: boolean;
+				reopened: string | null;
+			}>
+		>()
+		.notNull()
+		.default(sql`'[]'`),
+	lastRefusedAt: integer("last_refused_at"),
+});
+
+export const signals = sqliteTable(
+	"signals",
+	{
+		id: text("id").primaryKey(),
+		sourceId: text("source_id")
+			.notNull()
+			.references(() => sources.id),
+		key: text("key").notNull(),
+		type: text("type"),
+		subject: text("subject"),
+		severity: text("severity", { enum: SIGNAL_SEVERITIES }).notNull(),
+		state: text("state", { enum: SIGNAL_STATES }).notNull(),
+		url: text("url"),
+		issueId: text("issue_id"),
+		reopens: integer("reopens").notNull().default(0),
+		firstAt: integer("first_at").notNull(),
+		changedAt: integer("changed_at").notNull(),
+		lastSentAt: integer("last_sent_at").notNull(),
+		clearedAt: integer("cleared_at"),
+	},
+	(table) => [
+		uniqueIndex("signals_source_key_idx").on(table.sourceId, table.key),
+		index("signals_issue_idx").on(table.issueId),
+		index("signals_retention_idx").on(table.state, table.clearedAt),
+	],
+);
+
+export type SourceRow = typeof sources.$inferSelect;
+export type SignalRow = typeof signals.$inferSelect;

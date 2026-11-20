@@ -22,6 +22,8 @@ const empty = {
 	subscriptions: [],
 	inbox: [],
 	pullRequests: [],
+	sources: [],
+	signals: [],
 };
 
 function change() {

@@ -406,7 +406,7 @@ describe("offline", () => {
 		expect(online.snapshots).toBe(0);
 	});
 
-	it("sends an edit made offline after a new build's protocol upgrade", async () => {
+	it("R51: sends a v27 offline edit after upgrading to the sources and signals protocol", async () => {
 		const ws = setup();
 		const key = `upgraded-${ws.id}`;
 		const alice = await ws.live("alice");
@@ -415,7 +415,10 @@ describe("offline", () => {
 		await alice.mutate(make.issue(team.args.id, "Plan"));
 
 		const network = ws.network("bob");
-		const bob = await ws.live("bob", { network, persistence: openIdbPersistence(key) });
+		const bob = await ws.live("bob", {
+			network,
+			persistence: openIdbPersistence(key, { version: 27001 }),
+		});
 		await waitForConvergence(alice, bob);
 		network.offline();
 		await waitFor(() => bob.getStatus().connection === "offline");
@@ -424,9 +427,17 @@ describe("offline", () => {
 
 		// The next build speaks a higher protocol version, so its storage opens one version up. The
 		// upgrade drops the old snapshot, but the edit exists nowhere else: it must survive.
-		const next = { version: DB_VERSION + 1000 };
+		const previous = await openIdbPersistence(key, { version: 27001 });
+		const before = await previous.load();
+		expect(before.snapshot).not.toBeNull();
+		expect(before.pending).toHaveLength(1);
+		await previous.close();
+
+		const next = { version: DB_VERSION };
 		const upgraded = await openIdbPersistence(key, next);
-		expect((await upgraded.load()).pending).toHaveLength(1);
+		const after = await upgraded.load();
+		expect(after.snapshot).toBeNull();
+		expect(after.pending).toEqual(before.pending);
 		await upgraded.close();
 
 		const online = ws.network("bob");
@@ -565,6 +576,8 @@ describe("offline", () => {
 			subscriptions: [],
 			inbox: [],
 			pullRequests: [],
+			sources: [],
+			signals: [],
 		});
 		const network = ws.network("alice");
 		const stale = await ws.live("alice", { persistence, network });
@@ -844,6 +857,8 @@ function scriptedTransport(
 			subscriptions: [],
 			inbox: [],
 			pullRequests: [],
+			sources: [],
+			signals: [],
 		}),
 		probe: async () => {},
 		connect(handlers): SyncSocket {

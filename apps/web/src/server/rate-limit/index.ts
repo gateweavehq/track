@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { normalizeIP } from "@better-auth/core/utils/ip";
+import { BAD_KEYS_PER_ADDRESS } from "@gateweave/track-protocol";
 import type { BetterAuthRateLimitOptions } from "better-auth";
 import { DEFAULT_AUTH_LIMIT } from "../auth/config";
 import type { Mailer } from "../email/mailer";
@@ -171,6 +172,13 @@ export async function allowConnectApproval(userId: string): Promise<boolean> {
 }
 
 const local = new LocalLimiter();
+
+export function limitBadSourceKeys(address: string): Promise<Decision> {
+	return consumeDurably(`bad-source-key:${normalizeIP(address, { ipv6Subnet: 64 })}`, [
+		{ window: 3600, max: BAD_KEYS_PER_ADDRESS.hour },
+		{ window: 86400, max: BAD_KEYS_PER_ADDRESS.day },
+	]);
+}
 
 /**
  * Better Auth's rate limit storage. Better Auth counts per client address and path. Paths with

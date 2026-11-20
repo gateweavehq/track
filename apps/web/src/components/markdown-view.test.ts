@@ -1,3 +1,4 @@
+import { sourceIssueText, sourceLimitNotice, sourceReopenComment } from "@gateweave/track-protocol";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -68,4 +69,29 @@ describe("MarkdownView", () => {
 		expect(html).not.toContain("<a");
 		expect(html).not.toContain("mention:");
 	});
+});
+
+it("R12: source reports render URLs, mentions, images and headings only as text", () => {
+	const text =
+		"# <https://example.com> www.example.com DEV@EXAMPLE.COM [@You](mention:user) ![x](https://img.test/x)";
+	const { title, description } = sourceIssueText(
+		{
+			key: "unsafe",
+			state: "open",
+			severity: "high",
+			sentAt: new Date().toISOString(),
+			title: text,
+			body: ["~~~~", "~~~", "---", text].join("\n"),
+		},
+		{ name: text },
+	);
+	expect(title).toBe(text);
+	for (const html of [
+		description,
+		sourceLimitNotice(text, "ISSUES_PER_DAY").description,
+		sourceReopenComment(text),
+	].map(render)) {
+		expect(html).not.toMatch(/<(?:a|img|h[1-6])\b|data-mention=/);
+	}
+	expect(render(description)).toContain("<code");
 });

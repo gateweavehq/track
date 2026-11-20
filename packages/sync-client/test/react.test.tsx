@@ -39,6 +39,8 @@ const snapshot: Snapshot = {
 	subscriptions: [],
 	inbox: [],
 	pullRequests: [],
+	sources: [],
+	signals: [],
 };
 
 /** Serves a snapshot but never connects, so every mutation stays pending. */

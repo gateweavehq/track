@@ -78,6 +78,8 @@ it("clears a real stored snapshot while keeping ordered pending rows and client 
 		subscriptions: [],
 		inbox: [],
 		pullRequests: [],
+		sources: [],
+		signals: [],
 	});
 	const first = change();
 	const second = change();
@@ -257,6 +259,8 @@ it("syncs readable changes around an unreadable row in order", async () => {
 		subscriptions: [],
 		inbox: [],
 		pullRequests: [],
+		sources: [],
+		signals: [],
 	});
 	storage.close();
 	const db = await raw(key);
@@ -352,6 +356,8 @@ it("quarantines an old mutation shape before optimistic replay or resend", async
 				subscriptions: [],
 				inbox: [],
 				pullRequests: [],
+				sources: [],
+				signals: [],
 			}),
 			probe: async () => {},
 			connect: (handlers) => {
@@ -471,6 +477,8 @@ it("reports an unreadable stored row through onReject with its change name", asy
 				subscriptions: [],
 				inbox: [],
 				pullRequests: [],
+				sources: [],
+				signals: [],
 			}),
 			probe: async () => {},
 			connect: () => ({ send() {}, close() {} }),
@@ -531,6 +539,8 @@ it("drains queued writes before an old tab closes on versionchange", async () =>
 				subscriptions: [],
 				inbox: [],
 				pullRequests: [],
+				sources: [],
+				signals: [],
 			}),
 			probe: async () => {},
 			connect: () => ({ send() {}, close() {} }),

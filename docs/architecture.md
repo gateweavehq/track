@@ -2121,6 +2121,31 @@ team, and optionally the agent member it sets off. The payload types and input s
   Management is admin-only twice over: the gateway checks membership in D1, and the object
   refuses a verified member who is not an admin. The public demo sends no webhooks.
 
+### Sources and signals
+
+A connected product sends JSON to `POST /api/events` (`apps/web/src/server/events.ts`).
+The gateway hashes the bearer key and looks it up in D1 before reading the body or counting
+a limit. The lookup identifies the workspace, its jurisdiction, the source and the key. The object
+admits the event only while the source exists and is active and the key is not revoked.
+Cookies confer no access.
+The public demo refuses events.
+
+Senders stamp events with ISO 8601 timestamps at millisecond precision. Equal timestamps are retries;
+the object rejects timestamps more than five minutes ahead of its clock.
+Each source reports into one team. A signal belongs to the source that supplied its key.
+A clear or dismissal for a key with no signal counts only toward the source's per-minute call limit.
+The object applies a change and records its issue, signal and oplog entries together.
+Source keys stay out of the workspace replica. Owners and admins manage them in
+the Sources page in Settings. To rotate a key, make a second key, switch the sender, then revoke the
+old key. The settings gateway checks D1 membership and the object checks the admin again.
+Removal seals the source so a key made during removal cannot write, deletes its keys in D1, then removes the signals and source
+through a gateway-only object call. Issues already filed remain in their teams.
+
+Revoking a key records its id in the object before D1 forgets the key, and the id stays until the
+source is removed. So a request that found the key before the revocation, and held its body back
+past it, is still refused. A newer report that repeats both state and severity moves the signal's ordering time
+without taking a version, so a clear sent before it, arriving late, changes nothing.
+
 ### GitHub
 
 A GitHub connection is a webhook on GitHub, on one repository or a whole organization, that tells

@@ -253,6 +253,8 @@ function describe(
 	if (!change) return plain(Plus, "created the issue");
 
 	switch (change.type) {
+		case "signal":
+			return plain(Pencil, `marked the signal ${change.to}`);
 		case "status":
 			return {
 				icon: <StatusIcon status={status(change.to)} className="size-3.5" />,

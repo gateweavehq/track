@@ -53,6 +53,8 @@ interface ReplicaSchema extends DBSchema {
 	member: { key: string; value: Entities["member"] };
 	subscription: { key: string; value: Entities["subscription"] };
 	inbox: { key: string; value: Entities["inbox"] };
+	source: { key: string; value: Entities["source"] };
+	signal: { key: string; value: Entities["signal"] };
 	pullRequest: { key: string; value: Entities["pullRequest"] };
 	pending: { key: number; value: PendingMutation & { seq?: number }; indexes: { id: string } };
 }
@@ -230,6 +232,8 @@ class IdbPersistence implements Persistence {
 			subscriptions,
 			inbox,
 			pullRequests,
+			sources,
+			signals,
 			pending,
 		] = await Promise.all([
 			meta.get("version") as Promise<number | undefined>,
@@ -250,6 +254,8 @@ class IdbPersistence implements Persistence {
 			tx.objectStore("subscription").getAll(),
 			tx.objectStore("inbox").getAll(),
 			tx.objectStore("pullRequest").getAll(),
+			tx.objectStore("source").getAll(),
+			tx.objectStore("signal").getAll(),
 			tx.objectStore("pending").getAll(),
 		]);
 		await tx.done;
@@ -277,6 +283,8 @@ class IdbPersistence implements Persistence {
 							subscriptions,
 							inbox,
 							pullRequests,
+							sources,
+							signals,
 						},
 			...readPending(pending),
 		};
@@ -302,6 +310,8 @@ class IdbPersistence implements Persistence {
 			subscription: snapshot.subscriptions,
 			inbox: snapshot.inbox,
 			pullRequest: snapshot.pullRequests,
+			source: snapshot.sources,
+			signal: snapshot.signals,
 		};
 		await Promise.all([
 			...ENTITY_NAMES.map(async (entity) => {

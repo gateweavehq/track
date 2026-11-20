@@ -330,6 +330,17 @@ describe("delivery", () => {
 		});
 	});
 
+	it("R50: an ordinary issue webhook omits the signal field", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await createHook(workspace);
+		await createIssue(workspace, owner, "ordinary");
+		await deliver(workspace);
+		const payload = payloadOf(received[0]);
+		expect(payload.data).toHaveProperty("issue.id", "ordinary");
+		expect(payload.data).not.toHaveProperty("issue.signal");
+	});
+
 	it("fails verification with another secret", async () => {
 		const received = receiver();
 		const workspace = await workspaceWithTeams();

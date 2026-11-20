@@ -1,8 +1,7 @@
 {
-	"extends": "../../../tsconfig.base.json",
+	"extends": "../tsconfig.json",
 	"compilerOptions": {
-		"lib": ["ES2024", "DOM", "DOM.Iterable"],
-		"types": ["node"]
+		"types": ["node", "vite/client"]
 	},
-	"include": ["*.ts"]
+	"include": ["*.ts", "../worker-configuration.d.ts", "../src/server/env.d.ts"]
 }

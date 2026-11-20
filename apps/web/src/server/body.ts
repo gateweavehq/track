@@ -1,5 +1,9 @@
-/** The body as text, or null when it is longer than `max` bytes. Stops reading there. */
-export async function readText(request: Request, max: number): Promise<string | null> {
+/** Stops at `max` bytes. With strict UTF-8, an invalid encoding also returns null. */
+export async function readText(
+	request: Request,
+	max: number,
+	strictUtf8 = false,
+): Promise<string | null> {
 	const declared = Number(request.headers.get("Content-Length"));
 	if (declared > max) return null;
 	if (!request.body) return "";
@@ -22,5 +26,9 @@ export async function readText(request: Request, max: number): Promise<string | 
 		bytes.set(chunk, offset);
 		offset += chunk.byteLength;
 	}
-	return new TextDecoder().decode(bytes);
+	try {
+		return new TextDecoder("utf-8", { fatal: strictUtf8 }).decode(bytes);
+	} catch {
+		return null;
+	}
 }

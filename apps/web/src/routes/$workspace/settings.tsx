@@ -1,5 +1,7 @@
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 
+import { isAdmin, useMyRole, useWorkspace } from "#/components/workspace/context";
+
 export const Route = createFileRoute("/$workspace/settings")({
 	component: SettingsLayout,
 });
@@ -7,6 +9,7 @@ export const Route = createFileRoute("/$workspace/settings")({
 const TABS = [
 	{ to: "/$workspace/settings/members", label: "Members" },
 	{ to: "/$workspace/settings/agents", label: "Agents" },
+	{ to: "/$workspace/settings/sources", label: "Sources" },
 	{ to: "/$workspace/settings/teams", label: "Teams" },
 	{ to: "/$workspace/settings/labels", label: "Labels" },
 	{ to: "/$workspace/settings/templates", label: "Templates" },
@@ -20,6 +23,9 @@ const TABS = [
 
 function SettingsLayout() {
 	const { workspace } = Route.useParams();
+	const admin = isAdmin(useMyRole());
+	const { demo } = useWorkspace();
+	const tabs = TABS.filter((tab) => tab.label !== "Sources" || (admin && !demo));
 	return (
 		<div className="h-full overflow-y-auto">
 			{/* The row is wider than the page so every tab fits on a desktop; a narrow window scrolls it. */}
@@ -30,7 +36,7 @@ function SettingsLayout() {
 						aria-label="Settings"
 						className="flex h-full min-w-0 gap-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 					>
-						{TABS.map((tab) => (
+						{tabs.map((tab) => (
 							<Link
 								key={tab.to}
 								to={tab.to}

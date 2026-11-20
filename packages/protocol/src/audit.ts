@@ -55,6 +55,12 @@ export const WORKSPACE_AUDIT_ACTIONS = [
 	"agent.updated",
 	/** The label is the URL's host: a URL's path can be its secret. */
 	"webhook.created",
+	"source.created",
+	"source.updated",
+	"source.paused",
+	"source.deleted",
+	"source.keyCreated",
+	"source.keyRevoked",
 	/** `change`: `url` (with `from` and `to` hosts), `active` (with `to`) or `events`. */
 	"webhook.updated",
 	"webhook.deleted",
@@ -81,6 +87,7 @@ export const AUDIT_TARGET_TYPES = [
 	"issue",
 	"comment",
 	"webhook",
+	"source",
 	"github",
 ] as const;
 export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number];

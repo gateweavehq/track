@@ -1,6 +1,7 @@
 import {
 	type Issue,
 	MAX_WEBHOOKS_PER_WORKSPACE,
+	SOURCE_ACTOR_ID,
 	SYSTEM_ACTOR_ID,
 	statusId,
 	WEBHOOK_TEST_EVENT,
@@ -292,8 +293,29 @@ class Payloads {
 			.from(schema.statuses)
 			.where(eq(schema.statuses.id, statusId(row.teamId, row.status)))
 			.get();
+		const signal =
+			row.creatorId === SOURCE_ACTOR_ID
+				? this.db
+						.select({
+							source: {
+								id: schema.sources.id,
+								name: schema.sources.name,
+								product: schema.sources.product,
+							},
+							key: schema.signals.key,
+							type: schema.signals.type,
+							subject: schema.signals.subject,
+							severity: schema.signals.severity,
+							state: schema.signals.state,
+						})
+						.from(schema.signals)
+						.innerJoin(schema.sources, eq(schema.sources.id, schema.signals.sourceId))
+						.where(eq(schema.signals.issueId, row.id))
+						.get()
+				: undefined;
 		return {
 			...toIssue(row),
+			...(signal && { signal }),
 			key,
 			url: url.href,
 			labels: this.#labelsOf(row.labelIds),

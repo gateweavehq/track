@@ -21,10 +21,11 @@ import type {
 	Team,
 } from "./domain";
 import type { MutationInput } from "./mutations";
+import type { Signal, Source } from "./sources";
 import type { WorkflowStatus } from "./statuses";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 27;
+export const PROTOCOL_VERSION = 28;
 
 /**
  * How long the server remembers that a mutation id was applied. A resend within this time is
@@ -144,6 +145,8 @@ export interface Snapshot {
 	inbox: InboxItem[];
 	/** Pull requests linked to live issues that are not archived. */
 	pullRequests: PullRequest[];
+	sources: Source[];
+	signals: Signal[];
 }
 
 /** Where each entity's rows live in a snapshot. */
@@ -165,6 +168,8 @@ export const SNAPSHOT_KEYS = {
 	subscription: "subscriptions",
 	inbox: "inbox",
 	pullRequest: "pullRequests",
+	source: "sources",
+	signal: "signals",
 } as const satisfies { [E in EntityName]: Exclude<keyof Snapshot, "version"> };
 
 // Reads over HTTP, beside the snapshot. Replicas hold an archived issue slim; these bring the

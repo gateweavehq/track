@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Comment, Issue, IssueRelation, Project, ProjectUpdate, Proposal } from "./domain";
+import type { Signal, Source } from "./sources";
 import type { StatusCategory } from "./statuses";
 
 /**
@@ -105,6 +106,9 @@ export interface WebhookActor {
 }
 
 export interface WebhookIssue extends Issue {
+	signal?: Pick<Signal, "key" | "type" | "subject" | "severity" | "state"> & {
+		source: Pick<Source, "id" | "name" | "product">;
+	};
 	/** The team key and number, such as `ENG-42`. */
 	key: string;
 	/** Where people open the issue. */

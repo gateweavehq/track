@@ -35,6 +35,7 @@ import {
 	type RejectReason,
 	type ServerMessage,
 	type Snapshot,
+	type Source,
 	statusKey,
 	type Webhook,
 	type WebhookInput,
@@ -76,6 +77,7 @@ import {
 } from "./github";
 import { fileRequest, findIntake, type IntakeTarget, intakeRequest } from "./intake";
 import {
+	ChangeSet,
 	compact,
 	currentVersion,
 	oplogFloor,
@@ -147,11 +149,25 @@ import {
 	takeRequesterNotices,
 } from "./requesters";
 import {
+	nextSignalExpiry,
+	processSourceEvent,
+	pruneExpiredSignals,
+	type SourceEventResult,
+} from "./source-events";
+import {
+	type KeyRevocation,
+	manageSource,
+	revokeSourceKey,
+	type SourceAdminAction,
+	SourceLimit,
+} from "./source-management";
+import {
 	activeMember,
 	type Db,
 	type MemberProfile,
 	readSnapshot,
 	removeMember,
+	toSource,
 	upsertMember,
 } from "./state";
 import {
@@ -541,6 +557,64 @@ export class WorkspaceDO extends DurableObject {
 		return results;
 	}
 
+	sourcesForAdmin(memberId: string): WebhookResult<Source[]> {
+		const member = activeMember(this.#db, memberId);
+		if (!member || !isAdminRole(member.role)) {
+			return {
+				ok: false,
+				reason: "forbidden",
+				message: "Only workspace admins can manage sources",
+			};
+		}
+		return { ok: true, value: this.#db.select().from(schema.sources).all().map(toSource) };
+	}
+
+	/** A D1 key can outlive its source after a failed cleanup. Revoking it still requires an admin. */
+	revokeSourceKey(memberId: string, command: KeyRevocation): WebhookResult<{ id: string }> {
+		const member = activeMember(this.#db, memberId);
+		if (!member || !isAdminRole(member.role))
+			return {
+				ok: false,
+				reason: "forbidden",
+				message: "Only workspace admins can manage sources",
+			};
+		try {
+			this.#write(() => {
+				const now = Date.now();
+				revokeSourceKey(this.#db, memberId, command, now);
+				return new ChangeSet(this.#db, memberId, now).result();
+			});
+			return { ok: true, value: { id: command.id } };
+		} catch (error) {
+			if (!(error instanceof MutationRejected)) throw error;
+			return { ok: false, reason: error.reason, message: error.message };
+		}
+	}
+
+	/** Gateway only. The caller has already verified this member's current role in D1. */
+	manageSource(
+		memberId: string,
+		command: SourceAdminAction,
+	): WebhookResult<Source> | { ok: false; reason: "invalid"; message: string; retryAfter: number } {
+		const member = activeMember(this.#db, memberId);
+		if (!member || !isAdminRole(member.role)) {
+			return {
+				ok: false,
+				reason: "forbidden",
+				message: "Only workspace admins can manage sources",
+			};
+		}
+		try {
+			const result = this.#write(() => manageSource(this.#db, memberId, command, Date.now()));
+			return { ok: true, value: result.source };
+		} catch (error) {
+			if (error instanceof SourceLimit)
+				return { ok: false, reason: "invalid", message: error.message, retryAfter: 86400 };
+			if (!(error instanceof MutationRejected)) throw error;
+			return { ok: false, reason: error.reason, message: error.message };
+		}
+	}
+
 	// RPC for webhook settings. The gateway passes the verified member, as for `mutate`, and the
 	// workspace's current link, since only the gateway knows the slug and the app's origin.
 
@@ -797,6 +871,21 @@ export class WorkspaceDO extends DurableObject {
 	 */
 	protected githubAppSecret(): string | null {
 		return null;
+	}
+
+	/**
+	 * The events gateway has found this source's key in D1. Check the source's row, and that the key
+	 * was not revoked since, before parsing.
+	 */
+	sourceEvent(
+		sourceId: string,
+		keyId: string,
+		raw: string | null,
+		workspaceUrl: string,
+	): SourceEventResult {
+		return this.#write(() =>
+			processSourceEvent(this.#db, sourceId, keyId, raw, workspaceUrl, Date.now()),
+		).response;
 	}
 
 	/** A delivery from a GitHub connection's webhook. */
@@ -1074,6 +1163,7 @@ export class WorkspaceDO extends DurableObject {
 			this.#move = null;
 		}
 		const now = Date.now();
+		this.#broadcast(this.ctx.storage.transactionSync(() => pruneExpiredSignals(this.#db, now)));
 		// Deliveries this queues go out below, in this same run.
 		this.#broadcast(this.ctx.storage.transactionSync(() => advanceCycles(this.#db, now)));
 		this.#broadcast(this.ctx.storage.transactionSync(() => remindDue(this.#db, now)));
@@ -1132,6 +1222,7 @@ export class WorkspaceDO extends DurableObject {
 					nextDeliveryAt(this.#db) ?? Number.POSITIVE_INFINITY,
 					nextDigestAt(this.#db) ?? Number.POSITIVE_INFINITY,
 					nextPushAt(this.#db) ?? Number.POSITIVE_INFINITY,
+					soon(nextSignalExpiry(this.#db)),
 					soon(nextCycleChange(this.#db, Date.now())),
 					soon(nextReminderAt(this.#db, Date.now())),
 					soon(nextAutomationsAt(this.#db)),
