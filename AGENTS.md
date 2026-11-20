@@ -183,7 +183,8 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
   port 4711) fills a workspace with 2,000 issues, then times a reload from the local copy (the
   app's `track:issue-list-shown` mark) and an edit reaching a second browser, five runs each.
   `pnpm test:perf` fails when a median goes over its budget in `perf/budgets.ts`, and writes the
-  numbers to the job summary. CI runs it as the `perf` job; it is not part of `pnpm verify`.
+  numbers to the job summary. In CI the local server keeps its state in memory (`TRACK_E2E_STATE_DIR`), since the
+  runner's disk stalls and production's storage is not that disk. CI runs it as the `perf` job; it is not part of `pnpm verify`.
   Never loosen a budget to pass; find what got slower. `perf/machine-probe.mjs` runs beside the
   browsers and notes when the machine itself stalled, and each number says so, which tells a busy
   machine from a slower app.

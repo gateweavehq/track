@@ -157,6 +157,13 @@ jobs:
             pnpm --filter @gateweave/track-web exec playwright install chromium
       - name: Build and measure
         run: pnpm test:perf
+        env:
+          # The local server's Durable Objects and database in memory, not on the runner's disk. A
+          # write is sent on only once it is durable, so when this disk stalls, as it does for
+          # seconds at a time, every edit waited on it. In production that write goes to
+          # Cloudflare's storage, not to a disk like this one. The browsers stay on the disk, so a
+          # cached open still reads its copy as a person's browser would.
+          TRACK_E2E_STATE_DIR: /dev/shm/track-perf-state
       - name: Upload the trace of a run over budget
         if: failure()
         uses: actions/upload-artifact@v7

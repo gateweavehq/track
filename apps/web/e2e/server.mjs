@@ -12,7 +12,10 @@ const root = resolve(import.meta.dirname, "..");
 process.chdir(root);
 
 // Kept apart from `pnpm dev` data, and wiped on every start so each run begins empty.
-const state = resolve(root, ".wrangler", "e2e-state");
+// TRACK_E2E_STATE_DIR puts it elsewhere: CI's perf job keeps it in memory (see ci.yml).
+const state = process.env.TRACK_E2E_STATE_DIR
+	? resolve(process.env.TRACK_E2E_STATE_DIR)
+	: resolve(root, ".wrangler", "e2e-state");
 rmSync(state, { recursive: true, force: true });
 
 // Only the secret matters; the app runs with email off. A preview reads it from beside the built
