@@ -1917,6 +1917,7 @@ it("R13: a source and its signal survive snapshot, delta and IndexedDB reload", 
 	};
 	const signal: Signal = {
 		id: "signal-1",
+		kind: "alert",
 		key: "build",
 		sourceId: source.id,
 		type: null,
@@ -1928,6 +1929,14 @@ it("R13: a source and its signal survive snapshot, delta and IndexedDB reload", 
 		reopens: 0,
 		firstAt: 1,
 		changedAt: 1,
+		progress: null,
+		startedAt: null,
+		endedAt: null,
+		executor: null,
+		agentName: null,
+		waitReason: null,
+		waitDetail: null,
+		lastContactAt: null,
 	};
 	const store = replica();
 	store.reset({ ...snapshot, sources: [source], signals: [signal] });
