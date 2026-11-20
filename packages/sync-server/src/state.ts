@@ -13,7 +13,9 @@ import {
 	type Proposal,
 	type PullRequest,
 	type SavedView,
+	type Signal,
 	type Snapshot,
+	type Source,
 	type Subscription,
 	type Team,
 	toSyncedIssue,
@@ -29,6 +31,19 @@ export type Db = DrizzleSqliteDODatabase<typeof schema>;
 
 /** A verified workspace member, as supplied by the app worker, which owns membership. */
 export type MemberProfile = Omit<Member, "removedAt" | "proposes">;
+
+export const toSource = ({
+	removing: _,
+	usage: _usage,
+	callTimes: _calls,
+	lastRefusedAt: _refused,
+	...source
+}: schema.SourceRow): Source => source;
+export const toSignal = ({
+	lastSentAt: _,
+	clearedAt: _cleared,
+	...signal
+}: schema.SignalRow): Signal => signal;
 
 export const toTeam = ({ issueCounter: _, ...team }: schema.TeamRow): Team => team;
 
@@ -93,6 +108,8 @@ export function readSnapshot(db: Db, memberId: string): Snapshot {
 	const whole = and(isNull(schema.issues.deletedAt), isNull(schema.issues.archivedAt));
 	return {
 		version: currentVersion(db),
+		sources: db.select().from(schema.sources).all().map(toSource),
+		signals: db.select().from(schema.signals).all().map(toSignal),
 		teams: db.select().from(schema.teams).all().map(toTeam),
 		statuses: db.select().from(schema.statuses).all().map(toStatus),
 		issues,

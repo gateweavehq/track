@@ -303,6 +303,7 @@ describe("delivery", () => {
 		expect(request?.headers["content-type"]).toBe("application/json");
 		const verified = new Verifier(secret).verify(request?.body ?? "", request?.headers ?? {});
 		expect(verified).toEqual(payloadOf(request));
+		expect(payloadOf(request).data).not.toHaveProperty("issue.signal");
 		expect(payloadOf(request)).toMatchObject({
 			type: "issue.created",
 			data: {

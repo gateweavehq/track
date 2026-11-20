@@ -95,6 +95,18 @@ export function auditSentence(event: AuditEvent, people: People): string {
 			return `deleted ${label}`;
 		case "comment.deleted":
 			return `deleted a comment by ${person(detail.author)} on ${label}`;
+		case "source.created":
+			return `added the source ${label}`;
+		case "source.updated":
+			return `changed the source ${label}`;
+		case "source.paused":
+			return `paused the source ${label}`;
+		case "source.deleted":
+			return `deleted the source ${label}`;
+		case "source.keyCreated":
+			return `made a key for the source ${label}`;
+		case "source.keyRevoked":
+			return `revoked a key of the source ${label}`;
 		case "webhook.created":
 			return `added a webhook to ${label}`;
 		case "webhook.updated":

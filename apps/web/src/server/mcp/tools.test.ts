@@ -390,7 +390,7 @@ async function created(args: Record<string, unknown>) {
 }
 
 describe("Track MCP tools", () => {
-	it("lists every tool", async () => {
+	it("R34: the MCP tool list grants no source management", async () => {
 		const { tools } = await client.listTools();
 		expect(tools.map((tool) => tool.name).sort()).toEqual([
 			"add_comment",

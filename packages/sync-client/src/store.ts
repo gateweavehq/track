@@ -45,6 +45,8 @@ export interface SyncState {
 	readonly inbox: ReadonlyMap<string, Entities["inbox"]>;
 	/** Pull requests on GitHub that mention a live issue. */
 	readonly pullRequests: ReadonlyMap<string, Entities["pullRequest"]>;
+	readonly sources: ReadonlyMap<string, Entities["source"]>;
+	readonly signals: ReadonlyMap<string, Entities["signal"]>;
 }
 
 /**
@@ -88,6 +90,8 @@ const EMPTY: Tables = {
 	subscription: new Map(),
 	inbox: new Map(),
 	pullRequest: new Map(),
+	source: new Map(),
+	signal: new Map(),
 };
 
 /**
@@ -218,6 +222,8 @@ export class Replica {
 			subscription: new Map(snapshot.subscriptions.map((row) => [row.id, row])),
 			inbox: new Map(snapshot.inbox.map((row) => [row.id, row])),
 			pullRequest: new Map(snapshot.pullRequests.map((row) => [row.id, row])),
+			source: new Map(snapshot.sources.map((row) => [row.id, row])),
+			signal: new Map(snapshot.signals.map((row) => [row.id, row])),
 		};
 		this.#version = snapshot.version;
 		this.#hasData = true;
@@ -285,6 +291,8 @@ export class Replica {
 			subscriptions: [...this.#confirmed.subscription.values()],
 			inbox: [...this.#confirmed.inbox.values()],
 			pullRequests: [...this.#confirmed.pullRequest.values()],
+			sources: [...this.#confirmed.source.values()],
+			signals: [...this.#confirmed.signal.values()],
 		};
 	}
 
@@ -333,5 +341,7 @@ function toState(
 		subscriptions: tables.subscription,
 		inbox: tables.inbox,
 		pullRequests: tables.pullRequest,
+		sources: tables.source,
+		signals: tables.signal,
 	};
 }

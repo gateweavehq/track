@@ -6,6 +6,7 @@ import { handleConnectRequest, isConnectRequest, sweepAllConnections } from "./s
 import { pruneExpired } from "./server/db/prune";
 import { demoEnabled } from "./server/demo/mode";
 import { retryErasures } from "./server/erasure";
+import { handleEvent } from "./server/events";
 import { handleFileRequest, isFileRequest } from "./server/files";
 import { handleGitHubRequest, isGitHubRequest } from "./server/github";
 import { handleGitHubAppRequest, isGitHubAppRequest } from "./server/github-app";
@@ -43,6 +44,7 @@ function notSetUp() {
 function route(request: Request, nonce: string): Response | Promise<Response> {
 	if (!isSetUp()) return notSetUp();
 	const url = new URL(request.url);
+	if (url.pathname === "/api/events") return handleEvent(request);
 	// Sync is handled before TanStack Start so WebSocket upgrade responses pass through untouched.
 	if (isSyncRequest(url)) return handleSyncRequest(request);
 	if (isMcpRequest(url)) return handleMcpRequest(request);

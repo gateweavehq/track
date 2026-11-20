@@ -12,7 +12,10 @@ export const LOCAL =
  * A local D1 with the app's migrations applied, or without them, as a deployment's is before its
  * first migration. Dispose of it after the tests.
  */
-export async function migratedD1(name: string, { migrate = true } = {}) {
+export async function migratedD1(
+	name: string,
+	{ migrate = true, before }: { migrate?: boolean; before?: string } = {},
+) {
 	const mf = new Miniflare(
 		convertV4MiniflareOptions({
 			modules: true,
@@ -22,28 +25,35 @@ export async function migratedD1(name: string, { migrate = true } = {}) {
 	);
 	const d1 = (await mf.getD1Database("DB")) as unknown as D1Database;
 	if (!migrate) return { d1, dispose: () => mf.dispose() };
-	const migrations = resolve(import.meta.dirname, "../../../migrations");
 	for (const file of readdirSync(migrations)
 		.filter((each) => each.endsWith(".sql"))
 		.sort()) {
-		const statements = readFileSync(join(migrations, file), "utf8")
-			.split("--> statement-breakpoint")
-			.map((statement) => statement.trim())
-			.filter(Boolean);
-		await d1.batch(statements.map((statement) => d1.prepare(statement)));
+		if (file === before) break;
+		await applyD1Migration(d1, file);
 	}
 	return { d1, dispose: () => mf.dispose() };
+}
+
+const migrations = resolve(import.meta.dirname, "../../../migrations");
+
+export async function applyD1Migration(d1: D1Database, file: string) {
+	const statements = readFileSync(join(migrations, file), "utf8")
+		.split("--> statement-breakpoint")
+		.map((statement) => statement.trim())
+		.filter(Boolean);
+	await d1.batch(statements.map((statement) => d1.prepare(statement)));
 }
 
 /**
  * The database, failing when told to: the next `failures` statements sent alone are refused with
  * `message`, before they reach the database. With `only`, just the ones whose text it matches are,
  * and the rest go through uncounted. `sent` lists every one that was tried, refused or not. A
- * session it opens fails the same way.
+ * session it opens fails the same way. With afterSend, the statement runs but its reply is lost.
  */
 export function faulty(d1: D1Database) {
 	const state = {
 		failures: 0,
+		afterSend: false,
 		message: LOCAL,
 		only: undefined as RegExp | undefined,
 		sent: [] as string[],
@@ -64,6 +74,7 @@ export function faulty(d1: D1Database) {
 					state.sent.push(query);
 					if (state.failures > 0 && (!state.only || state.only.test(query))) {
 						state.failures -= 1;
+						if (state.afterSend) await Reflect.apply(value, target, args);
 						throw new Error(state.message);
 					}
 					return Reflect.apply(value, target, args);

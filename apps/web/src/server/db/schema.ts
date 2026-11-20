@@ -162,3 +162,18 @@ export const workspaceLocation = sqliteTable("workspace_location", {
 	/** When it moved here, or null if it was made here. */
 	movedAt: integer("moved_at"),
 });
+
+/** A bearer key admits events to exactly one source. Only the hash and a short display prefix survive. */
+export const sourceKey = sqliteTable(
+	"source_key",
+	{
+		id: text("id").primaryKey(),
+		sourceId: text("source_id").notNull(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		hash: text("hash").notNull().unique(),
+		start: text("start").notNull(),
+	},
+	(table) => [index("sourceKey_workspace_source_idx").on(table.organizationId, table.sourceId)],
+);

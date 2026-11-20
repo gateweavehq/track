@@ -136,7 +136,7 @@ function createIssue(db: Db, changes: ChangeSet, template: schema.TemplateRow): 
 }
 
 /** A sort order after every issue's, as the app gives an issue it creates. */
-function sortOrderAfterAll(db: Db): string {
+export function sortOrderAfterAll(db: Db): string {
 	const last = db
 		.select({ last: max(schema.issues.sortOrder) })
 		.from(schema.issues)

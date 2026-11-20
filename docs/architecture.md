@@ -2102,6 +2102,22 @@ team, and optionally the agent member it sets off. The payload types and input s
   Management is admin-only twice over: the gateway checks membership in D1, and the object
   refuses a verified member who is not an admin. The public demo sends no webhooks.
 
+### Sources and signals
+
+A connected product sends JSON to `POST /api/events` (`apps/web/src/server/events.ts`).
+The gateway hashes the bearer key and looks it up in D1 before reading the body or counting
+a limit. The lookup identifies the workspace, its jurisdiction and the source. The object
+admits the event only while the source exists and is active. Cookies confer no access.
+The public demo refuses events.
+
+Each source reports into one team. A signal belongs to the source that supplied its key.
+The object applies a change and records its issue, signal and oplog entries together.
+Source keys stay out of the workspace replica. Owners and admins manage them in
+the Sources page in Settings. To rotate a key, make a second key, switch the sender, then revoke the
+old key. The settings gateway checks D1 membership and the object checks the admin again.
+Removal disables the source, deletes its keys in D1, then removes the signals and source
+through a gateway-only object call. Issues already filed remain in their teams.
+
 ### GitHub
 
 A GitHub connection is a webhook on GitHub, on one repository or a whole organization, that tells

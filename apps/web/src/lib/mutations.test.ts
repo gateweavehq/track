@@ -180,6 +180,8 @@ describe("send", () => {
 		subscriptions: [],
 		inbox: [],
 		pullRequests: [],
+		sources: [],
+		signals: [],
 	};
 	/** Serves a snapshot but never connects, so what was sent stays pending, to look at. */
 	const offline: Transport = {

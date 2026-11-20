@@ -11,12 +11,15 @@ import {
 	type Project,
 	type Proposal,
 	privateId,
+	type Signal,
 	type Snapshot,
+	type Source,
 	type Team,
 	type TemplateRepeat,
 	toSyncedIssue,
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
+import { openIdbPersistence } from "../src/idb";
 import { type PendingMutation, Replica } from "../src/store";
 
 const team: Team = {
@@ -75,6 +78,8 @@ const snapshot: Snapshot = {
 	subscriptions: [],
 	inbox: [],
 	pullRequests: [],
+	sources: [],
+	signals: [],
 };
 
 function replica(): Replica {
@@ -1895,4 +1900,57 @@ describe("Replica", () => {
 		applyOps(r, [put(3, issue)]);
 		expect(calls).toBe(2);
 	});
+});
+
+it("R13: a source and its signal survive snapshot, delta and IndexedDB reload", async () => {
+	const source: Source = {
+		id: "source-1",
+		name: "Guard",
+		product: "guard",
+		teamId: team.id,
+		lowestSeverity: "high",
+		assigneeId: null,
+		closeWhenCleared: false,
+		linkOrigins: [],
+		paused: false,
+		lastHeardAt: 1,
+	};
+	const signal: Signal = {
+		id: "signal-1",
+		key: "build",
+		sourceId: source.id,
+		type: null,
+		subject: null,
+		severity: "high",
+		state: "open",
+		url: null,
+		issueId: issue.id,
+		reopens: 0,
+		firstAt: 1,
+		changedAt: 1,
+	};
+	const store = replica();
+	store.reset({ ...snapshot, sources: [source], signals: [signal] });
+	expect(store.getState().sources.get(source.id)).toEqual(source);
+	expect(store.getState().signals.get(signal.id)).toEqual(signal);
+
+	const key = crypto.randomUUID();
+	const persistence = await openIdbPersistence(key);
+	await persistence.replace(store.snapshot());
+	const clear: Op = {
+		version: snapshot.version + 1,
+		entity: "signal",
+		op: "put",
+		id: signal.id,
+		data: { ...signal, state: "cleared", changedAt: 2 },
+	};
+	await persistence.applyOps([clear], clear.version);
+	await persistence.close();
+	const reopened = await openIdbPersistence(key);
+	const { snapshot: saved } = await reopened.load();
+	if (!saved) throw new Error("Missing persisted replica");
+	store.reset(saved);
+	expect(store.getState().sources.get(source.id)).toEqual(source);
+	expect(store.getState().signals.get(signal.id)).toEqual(clear.data);
+	await reopened.close();
 });
