@@ -112,7 +112,13 @@ it("R2: one indexed lookup of the hash identifies the workspace and source", asy
 		watched.state.sent.length = 0;
 		const found = await findSourceByKey(database, credential);
 		if (credential === secret)
-			expect(found).toEqual({ workspaceId: slug, slug, sourceId: source.id, jurisdiction: null });
+			expect(found).toEqual({
+				keyId: "key-1",
+				workspaceId: slug,
+				slug,
+				sourceId: source.id,
+				jurisdiction: null,
+			});
 		else expect(found).toBeNull();
 		expect(watched.state.sent).toHaveLength(1);
 		expect(watched.state.sent[0]).toContain("source_key");

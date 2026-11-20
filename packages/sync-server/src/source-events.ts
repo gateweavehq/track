@@ -30,6 +30,7 @@ import { notify } from "./inbox";
 import { ChangeSet, type WriteResult } from "./log";
 import { sortOrderAfterAll } from "./recurring";
 import { indexComment, indexIssue } from "./search";
+import { keyRevoked } from "./source-management";
 import { type Db, toComment, toIssue, toSignal, toSource } from "./state";
 import { teamStatuses } from "./statuses";
 import { queueDeliveries } from "./webhooks";
@@ -242,13 +243,14 @@ const closedFirstStatus = "The team's first status is closed.";
 export function processSourceEvent(
 	db: Db,
 	sourceId: string,
+	keyId: string,
 	raw: string | null,
 	workspaceUrl: string,
 	now: number,
 ): Outcome {
 	const changes = new ChangeSet(db, SOURCE_ACTOR_ID, now);
 	const source = db.select().from(schema.sources).where(eq(schema.sources.id, sourceId)).get();
-	if (!source || source.paused || source.removing)
+	if (!source || source.paused || source.removing || keyRevoked(db, source.id, keyId))
 		return { ...changes.result(), response: { status: 404 } };
 	const calls = source.callTimes.filter((at) => at > now - 60_000);
 	const recent = [...calls, now].slice(-CALLS_PER_MINUTE);
@@ -292,6 +294,13 @@ export function processSourceEvent(
 		(sentAt <= prior.lastSentAt ||
 			(event.state === prior.state && event.severity === prior.severity))
 	) {
+		// A newer report of the same state still orders later ones: one sent before it must not undo
+		// it. The time is not in the replica, so recording it takes no version.
+		if (sentAt > prior.lastSentAt)
+			db.update(schema.signals)
+				.set({ lastSentAt: sentAt })
+				.where(eq(schema.signals.id, prior.id))
+				.run();
 		const first =
 			!prior.issueId && prior.state === "open" && meetsThreshold(source, prior.severity)
 				? liveStatuses(teamStatuses(db, source.teamId))[0]

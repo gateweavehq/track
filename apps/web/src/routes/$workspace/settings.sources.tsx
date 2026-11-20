@@ -1,17 +1,17 @@
-import {
-	KEYS_PER_SOURCE,
-	SOURCE_PRODUCTS,
-	SOURCE_THRESHOLDS,
-	type Source,
-	sourceSettingsSchema,
-} from "@gateweave/track-protocol";
+import { KEYS_PER_SOURCE, type Source } from "@gateweave/track-protocol";
 import { createFileRoute, notFound, useRouter } from "@tanstack/react-router";
-import { type FormEvent, useId, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
+import {
+	type Run,
+	type SourceAction,
+	SourceForm,
+	selectClass,
+} from "#/components/settings/source-form";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { isAdmin, useMyRole } from "#/components/workspace/context";
-import { useActiveMembers, useTeams } from "#/lib/queries";
+import { useActiveMembers } from "#/lib/queries";
 import { changeSource, getSourceSettings } from "#/lib/sources";
 import { useDocumentTitle } from "#/lib/title";
 
@@ -24,10 +24,7 @@ export const Route = createFileRoute("/$workspace/settings/sources")({
 	component: SourcesPage,
 });
 
-type Action = Parameters<typeof changeSource>[0]["data"]["action"];
 type SourceKey = { id: string; start: string; sourceId: string };
-type Run = (action: Action) => Promise<boolean>;
-const selectClass = "block h-9 w-full rounded-md border border-input bg-background px-3";
 
 function SourcesPage() {
 	const { workspace } = Route.useParams();
@@ -44,7 +41,7 @@ function SourceSettings() {
 	const [adding, setAdding] = useState(false);
 	const [secret, setSecret] = useState("");
 	const [busy, setBusy] = useState(false);
-	async function run(action: Action) {
+	async function run(action: SourceAction) {
 		setBusy(true);
 		try {
 			const result = await changeSource({ data: { workspace, action } });
@@ -102,106 +99,6 @@ function SourceSettings() {
 				</section>
 			)}
 		</fieldset>
-	);
-}
-
-function SourceForm({ source, run, done }: { source?: Source; run: Run; done: () => void }) {
-	const teams = useTeams();
-	const nameId = useId();
-	async function submit(event: FormEvent<HTMLFormElement>) {
-		event.preventDefault();
-		const fields = new FormData(event.currentTarget);
-		const settings = sourceSettingsSchema.safeParse({
-			name: fields.get("name"),
-			product: fields.get("product"),
-			teamId: fields.get("teamId"),
-			lowestSeverity: fields.get("threshold"),
-			closeWhenCleared: fields.has("close"),
-			linkOrigins:
-				source?.linkOrigins ??
-				String(fields.get("links") ?? "")
-					.trim()
-					.split(/\s+/)
-					.filter(Boolean),
-		});
-		if (!settings.success) {
-			toast.error(settings.error.issues[0]?.message ?? "Invalid source settings");
-			return;
-		}
-		const { linkOrigins, ...input } = settings.data;
-		const saved = await run(
-			source
-				? {
-						kind: "update",
-						id: source.id,
-						input: Object.fromEntries(
-							Object.entries(input).filter(
-								([key, value]) => source[key as keyof typeof input] !== value,
-							),
-						),
-					}
-				: { kind: "create", input: { ...input, linkOrigins } },
-		);
-		if (saved) done();
-	}
-	return (
-		<form className="grid gap-4 rounded-md border p-4 text-sm" onSubmit={submit}>
-			<label htmlFor={nameId}>
-				Name
-				<Input id={nameId} name="name" defaultValue={source?.name} required />
-			</label>
-			<label>
-				Product
-				<select name="product" className={selectClass} defaultValue={source?.product ?? "other"}>
-					{SOURCE_PRODUCTS.map((product) => (
-						<option key={product}>{product}</option>
-					))}
-				</select>
-			</label>
-			<label>
-				Team
-				<select name="teamId" required className={selectClass} defaultValue={source?.teamId}>
-					{teams.map((team) => (
-						<option key={team.id} value={team.id}>
-							{team.name}
-						</option>
-					))}
-				</select>
-			</label>
-			<label>
-				Lowest severity
-				<select
-					name="threshold"
-					className={selectClass}
-					defaultValue={source?.lowestSeverity ?? "high"}
-				>
-					{SOURCE_THRESHOLDS.map((severity) => (
-						<option key={severity}>{severity}</option>
-					))}
-				</select>
-			</label>
-			<label className="flex items-center gap-2">
-				<input type="checkbox" name="close" defaultChecked={source?.closeWhenCleared} />
-				Close when cleared
-			</label>
-			<label>
-				Link origins (one per line)
-				<textarea
-					name="links"
-					className="block w-full rounded-md border p-2"
-					readOnly={Boolean(source)}
-					defaultValue={source?.linkOrigins.join("\n")}
-				/>
-			</label>
-			<div className="flex gap-2">
-				<Button type="submit" disabled={!teams.length}>
-					{source ? "Save changes" : "Create source"}
-				</Button>
-				<Button type="button" variant="outline" onClick={done}>
-					Cancel
-				</Button>
-			</div>
-		</form>
 	);
 }
 

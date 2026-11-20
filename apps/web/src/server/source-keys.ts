@@ -17,6 +17,7 @@ export async function findSourceByKey(db: Database, key: string | null) {
 	return (
 		(await db
 			.select({
+				keyId: sourceKey.id,
 				sourceId: sourceKey.sourceId,
 				workspaceId: organization.id,
 				slug: organization.slug,

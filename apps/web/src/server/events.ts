@@ -39,7 +39,12 @@ export async function handleEvent(request: Request): Promise<Response> {
 
 	const base = new URL(`/${encodeURIComponent(found.slug)}`, appOrigin(request));
 	const raw = await readText(request, EVENT_MAX_BYTES, true);
-	const result = await workspaceStub(found).sourceEvent(found.sourceId, raw, base.href);
+	const result = await workspaceStub(found).sourceEvent(
+		found.sourceId,
+		found.keyId,
+		raw,
+		base.href,
+	);
 	switch (result.status) {
 		case 404:
 			return refuseKey(request);

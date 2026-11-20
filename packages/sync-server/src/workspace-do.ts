@@ -873,10 +873,19 @@ export class WorkspaceDO extends DurableObject {
 		return null;
 	}
 
-	/** The events gateway has verified this source's key in D1. Check its object row before parsing. */
-	sourceEvent(sourceId: string, raw: string | null, workspaceUrl: string): SourceEventResult {
-		return this.#write(() => processSourceEvent(this.#db, sourceId, raw, workspaceUrl, Date.now()))
-			.response;
+	/**
+	 * The events gateway has found this source's key in D1. Check the source's row, and that the key
+	 * was not revoked since, before parsing.
+	 */
+	sourceEvent(
+		sourceId: string,
+		keyId: string,
+		raw: string | null,
+		workspaceUrl: string,
+	): SourceEventResult {
+		return this.#write(() =>
+			processSourceEvent(this.#db, sourceId, keyId, raw, workspaceUrl, Date.now()),
+		).response;
 	}
 
 	/** A delivery from a GitHub connection's webhook. */

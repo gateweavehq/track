@@ -114,14 +114,23 @@ it("R33: a failed D1 revocation seals the source until retry removes the keys an
 	expect(snap.issues).toHaveLength(1);
 });
 
-it("removing a source deletes the revoke proof left by a failed D1 key deletion", async () => {
-	const { id, injected, apply, key } = await setup();
+it("removing a source deletes the revoke proof and revoked key ids left by a failed D1 key deletion", async () => {
+	const { id, injected, apply, key, initial, send } = await setup();
 	injected.state.only = /delete from "source_key"/i;
 	injected.state.failures = 1;
 	await expect(apply({ kind: "revokeKey", id: key.sourceId, keyId: key.id })).rejects.toThrow();
+	// The key is still in D1, but the object already refuses it.
+	expect((await send(initial)).status).toBe(404);
 	const proofs = () =>
-		track.rpc(id, "backupRead", ["SELECT key, value FROM meta WHERE key GLOB 'source-revoke:*'"]);
-	expect(await proofs()).toEqual([[{ key: `source-revoke:${key.id}`, value: key.sourceId }]]);
+		track.rpc(id, "backupRead", [
+			"SELECT key, value FROM meta WHERE key GLOB 'source-revoke*' ORDER BY key",
+		]);
+	expect(await proofs()).toEqual([
+		[
+			{ key: `source-revoke:${key.id}`, value: key.sourceId },
+			{ key: `source-revoked:${key.id}`, value: key.sourceId },
+		],
+	]);
 	expect(await apply({ kind: "delete", id: key.sourceId })).toMatchObject({ ok: true });
 	expect(await proofs()).toEqual([[]]);
 });

@@ -51,6 +51,7 @@ async function setup(config: Partial<SourceSettings> = {}) {
 	const send = (fields: Partial<SourceEvent> = {}, id = sourceId) =>
 		ws.sourceEvent(
 			id,
+			"key-1",
 			JSON.stringify({
 				key: "build",
 				state: "open",
@@ -77,7 +78,37 @@ it("R5: a paused or missing source refuses even a malformed event", async () => 
 		true,
 	);
 	for (const id of [sourceId, "missing"])
-		expect(await ws.sourceEvent(id, null, workspaceUrl)).toEqual({ status: 404 });
+		expect(await ws.sourceEvent(id, "key-1", null, workspaceUrl)).toEqual({ status: 404 });
+});
+
+it("a key being revoked admits no event, though the gateway found it in D1 before", async () => {
+	const { ws, sourceId } = await setup();
+	const event = (sentAt: number) =>
+		JSON.stringify({
+			key: "build",
+			state: "open",
+			title: "Build failed",
+			severity: "high",
+			sentAt: new Date(sentAt).toISOString(),
+		});
+	const revoking = { id: sourceId, keyId: "key-1" };
+	expect(
+		await ws.revokeSourceKey(owner.id, { kind: "prepareRevoke", ...revoking, listed: true }),
+	).toMatchObject({ ok: true });
+	const now = Date.now();
+	expect(await ws.sourceEvent(sourceId, "key-1", event(now), workspaceUrl)).toEqual({
+		status: 404,
+	});
+	expect(await ws.revokeSourceKey(owner.id, { kind: "keyRevoked", ...revoking })).toMatchObject({
+		ok: true,
+	});
+	expect(await ws.sourceEvent(sourceId, "key-1", event(now + 1), workspaceUrl)).toEqual({
+		status: 404,
+	});
+	// The source's other keys still work.
+	expect(answer(await ws.sourceEvent(sourceId, "key-2", event(now + 2), workspaceUrl)).filed).toBe(
+		true,
+	);
 });
 
 it("R8: each source owns its key and receives only its issue link and state", async () => {
@@ -100,6 +131,19 @@ it("R9: an event no later than the last taken writes nothing", async () => {
 	const before = await snapshot();
 	for (const at of [sentAt, new Date(0).toISOString()])
 		expect(answer(await send({ sentAt: at, state: "dismissed" })).state).toBe("open");
+	expect(await snapshot()).toEqual(before);
+});
+
+it("R9: a clear sent before a later repeated open does not undo it", async () => {
+	const { send, snapshot } = await setup({ closeWhenCleared: true });
+	const at = (ms: number) => new Date(Date.now() + ms).toISOString();
+	const [t0, t1, t2] = [at(0), at(10), at(20)];
+	await send({ sentAt: t0 });
+	const before = await snapshot();
+	// The repeat changes nothing anyone sees: no version, no oplog row.
+	expect(answer(await send({ sentAt: t2 })).state).toBe("open");
+	expect(await snapshot()).toEqual(before);
+	expect(answer(await send({ sentAt: t1, state: "cleared" })).state).toBe("open");
 	expect(await snapshot()).toEqual(before);
 });
 
@@ -550,6 +594,7 @@ it("R25: an interrupted signal insert rolls back the issue, counter and all vers
 		try {
 			instance.sourceEvent(
 				sourceId,
+				"key-1",
 				JSON.stringify({
 					key: "build",
 					state: "open",
@@ -701,11 +746,13 @@ it("A18: 500 dismissals leave room for a new open key", async () => {
 				sentAt: new Date(now).toISOString(),
 				title: "Closed finding",
 			};
-			expect(instance.sourceEvent(sourceId, JSON.stringify(event), workspaceUrl).status).toBe(200);
+			expect(
+				instance.sourceEvent(sourceId, "key-1", JSON.stringify(event), workspaceUrl).status,
+			).toBe(200);
 			event.state = "dismissed";
 			event.sentAt = new Date(now + 1).toISOString();
 			expect(
-				answer(instance.sourceEvent(sourceId, JSON.stringify(event), workspaceUrl)).state,
+				answer(instance.sourceEvent(sourceId, "key-1", JSON.stringify(event), workspaceUrl)).state,
 			).toBe("dismissed");
 		}
 	});
@@ -742,7 +789,9 @@ it("A24: 600 unknown dismissals and a clear consume only calls, then a first ope
 				title: "Finding",
 				sentAt,
 			};
-			expect(answer(instance.sourceEvent(sourceId, JSON.stringify(event), workspaceUrl))).toEqual({
+			expect(
+				answer(instance.sourceEvent(sourceId, "key-1", JSON.stringify(event), workspaceUrl)),
+			).toEqual({
 				state: "dismissed",
 				filed: false,
 				issue: null,

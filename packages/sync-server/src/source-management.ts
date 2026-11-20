@@ -21,6 +21,19 @@ export class SourceLimit extends MutationRejected {
 
 const id = z.string().min(1).max(64);
 const revokePrefix = "source-revoke:";
+// A revoked key's id stays until its source is removed. The gateway's D1 lookup can come before
+// a revocation and its call here after, as when the sender holds the body back, so this decides.
+const revokedPrefix = "source-revoked:";
+
+/** Whether a key was revoked, or is being revoked: from then on it admits no event. */
+export function keyRevoked(db: Db, sourceId: string, keyId: string): boolean {
+	const row = db
+		.select()
+		.from(meta)
+		.where(eq(meta.key, revokedPrefix + keyId))
+		.get();
+	return row?.value === sourceId;
+}
 const internalAction = z.strictObject({
 	kind: z.enum(["prepareRemoval", "finishRemoval", "checkKey", "keyCreated"]),
 	id,
@@ -54,6 +67,10 @@ export function revokeSourceKey(db: Db, memberId: string, command: KeyRevocation
 		if (proof) return;
 		if (!action.listed) throw new MutationRejected("not_found", "Key not found");
 		db.insert(meta).values({ key: pending, value: id }).run();
+		db.insert(meta)
+			.values({ key: revokedPrefix + keyId, value: id })
+			.onConflictDoNothing()
+			.run();
 		return;
 	}
 	if (!proof) throw new MutationRejected("not_found", "Key not found");
@@ -181,9 +198,10 @@ export function manageSource(db: Db, memberId: string, command: SourceAdminActio
 				.all()) {
 				changes.delete("signal", removed.id);
 			}
-			db.delete(meta)
-				.where(and(sql`${meta.key} GLOB ${revokePrefix + "*"}`, eq(meta.value, row.id)))
-				.run();
+			for (const prefix of [revokePrefix, revokedPrefix])
+				db.delete(meta)
+					.where(and(sql`${meta.key} GLOB ${prefix + "*"}`, eq(meta.value, row.id)))
+					.run();
 			db.delete(sources).where(eq(sources.id, row.id)).run();
 			changes.delete("source", row.id);
 			audit(source, "source.deleted");
