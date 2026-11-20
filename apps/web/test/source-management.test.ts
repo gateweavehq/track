@@ -501,18 +501,25 @@ async function destination() {
 			{ keepTeams },
 		);
 		expect(plan.repeatedNotes).toEqual(expectedNotes);
+		// The app's sync client sends mutations in order on one socket, so a comment never reaches
+		// the object before its issue. Separate RPCs carry no such order, so send them one by one.
+		let sent: Promise<unknown> = Promise.resolve();
 		const progress = await runImport(
-			async (mutation) => {
-				const answer = await track.rpc<ReturnType<WorkspaceDO["mutate"]>>(
-					id,
-					"mutate",
-					member,
-					"import",
-					crypto.randomUUID(),
-					mutation,
-				);
-				if (!answer.ok) throw new Error(answer.message);
-				return 0;
+			(mutation) => {
+				const answered = sent.then(async () => {
+					const answer = await track.rpc<ReturnType<WorkspaceDO["mutate"]>>(
+						id,
+						"mutate",
+						member,
+						"import",
+						crypto.randomUUID(),
+						mutation,
+					);
+					if (!answer.ok) throw new Error(answer.message);
+					return 0;
+				});
+				sent = answered.catch(() => {});
+				return answered;
 			},
 			plan.mutations.filter(
 				(mutation) => !(mutation.name === "issue.create" && mutation.args.id === lostCreate),
