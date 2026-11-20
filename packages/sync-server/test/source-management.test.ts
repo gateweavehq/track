@@ -123,3 +123,39 @@ it("A23: updating only the name preserves severity, close policy and origins", a
 		linkOrigins: ["https://example.com"],
 	});
 });
+
+it("a gateway can reserve a source UUID, and an invalid or duplicate id cannot create a source", async () => {
+	const ws = await workspace();
+	const id = crypto.randomUUID();
+	expect(
+		ok(
+			await ws.manageSource(owner.id, { kind: "create", input, id, notAfter: Date.now() + 60_000 }),
+		).id,
+	).toBe(id);
+	for (const refused of [id, "malformed"])
+		expect(
+			await ws.manageSource(owner.id, {
+				kind: "create",
+				input,
+				id: refused,
+				notAfter: Date.now() + 60_000,
+			}),
+		).toMatchObject({
+			ok: false,
+			reason: "invalid",
+		});
+	expect(await ws.sourcesForAdmin(owner.id)).toMatchObject({ ok: true, value: [{ id }] });
+});
+
+it("refuses a reserved source create after its approval deadline", async () => {
+	const ws = await workspace();
+	expect(
+		await ws.manageSource(owner.id, {
+			kind: "create",
+			input,
+			id: crypto.randomUUID(),
+			notAfter: Date.now() - 1,
+		}),
+	).toMatchObject({ ok: false, message: "Source approval expired" });
+	expect(await ws.sourcesForAdmin(owner.id)).toMatchObject({ ok: true, value: [] });
+});

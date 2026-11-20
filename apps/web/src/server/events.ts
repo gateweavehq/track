@@ -46,6 +46,11 @@ export async function handleEvent(request: Request): Promise<Response> {
 		base.href,
 	);
 	switch (result.status) {
+		case 503:
+			return Response.json(
+				{ error: "try_again" },
+				{ status: 503, headers: { "retry-after": "60" } },
+			);
 		case 404:
 			return refuseKey(request);
 		case 400:

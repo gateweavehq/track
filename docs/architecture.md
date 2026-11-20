@@ -859,16 +859,15 @@ only configuration. The manual way, under Settings, stays.
    without opening the seal (see below). The key, the secret and the undo token stay sealed, and
    the challenge and the identifier stay bound into the seal's additional data. The code's own
    minute is `goodUntil` in the row, and the row's `expiresAt` is three days later
-   (`ROW_KEPT_MS`): Better Auth deletes every `verification` row past its `expiresAt` whenever it
-   looks one up, a sign-in for one, so a row that ran out with its code would usually be gone
-   before anyone could take back what it was made for. A row written by v0.39.0 has no such ids
-   and no `goodUntil`: its `expiresAt` is its minute, it goes with the general prune, and nothing
+   (`ROW_KEPT_MS`). That margin protects these rows during rollout to Workers that run
+   the connect sweep. Better Auth’s unfiltered bulk cleanup on lookup is disabled. A row written by v0.39.0 has no such ids
+   and no `goodUntil`: its `expiresAt` is its minute, the connect sweep deletes it, and nothing
    is taken back for it.
 5. **`POST /api/connect/exchange`** takes `{ code, verifier }` and no session; cookies are never
-   read. It deletes the row by its identifier, returning it, **before** looking at anything else:
-   the delete is what decides, so of two exchanges at once exactly one gets a row, and a code
-   that fails any check below is spent all the same. It then checks the code's minute is not over, that
-   `base64url(SHA-256(verifier))` equals the challenge, in constant time, and that the seal opens.
+   read. It checks the code's minute, compares `base64url(SHA-256(verifier))` to the challenge
+   in constant time and opens the seal. Success requires deleting the same unclaimed, unspent row
+   with `DELETE ... RETURNING`. A refusal claims the same row and marks it spent in one update.
+   Only the winner can hand out credentials or take them back.
    Answers `{ agentKey, webhookSecret, agent: { id, memberId, name }, workspace: { id, slug, name }, webhook: { id }, undo }`.
    Every way of failing, including a body of the wrong shape, is the same `400 {"error":"invalid_code"}`.
    A body of the wrong shape is refused before the delete: it spends nothing and takes nothing back.
@@ -888,16 +887,16 @@ only configuration. The manual way, under Settings, stays.
    by Track itself.
 7. **Codes never traded.** A code whose tab was closed, or whose asking server was down, expires
    and would leave its agent and webhook behind. So rows of this kind past their time are swept:
-   each is deleted with `DELETE ... RETURNING` (so a sweep and a late exchange cannot both act on
-   one row) and what its readable ids name is taken back with the same function undo uses (the
-   webhooks that name the agent, then the agent, then the membership sync), with an
+   each is claimed for ten minutes with a conditional update. An expired claim can be claimed
+   again. The D1 delete checks the exact claim and the unused key, and deletes the agent with
+   its membership and keys. Cleanup then syncs membership and removes the agent's webhooks, with an
    `agent.deleted` audit event by Track itself that names the asking origin and the reason. A
-   sweep acts only on ids read from a row it just deleted, so it never touches an agent whose
+   sweep deletes its claimed row after cleanup and acts only on ids read from that claim, so it never touches an agent whose
    code was traded (its row is gone) or one made by hand. Which rows are due is read from
-   `sweepAt` inside the row (`json_extract`), at first the code's own minute, never from
+   `sweepAt` inside the row (`json_extract`), at first the code's own minute. Older rows without a sweep time fall back to
    `expiresAt`. It runs on every Allow, for up to 5 rows so that Allow stays fast, and on the
    Worker's daily run, before the general prune of expired `verification` rows. When taking back
-   fails, which a workspace's object being restarted is enough for, the row goes back in with
+   fails, which a workspace's object being restarted is enough for, the claimed row is updated with
    only the ids, `goodUntil: 0` so that no code opens it, and a `sweepAt` an hour on; it is tried
    three times in all, then left to the log. That row's identifier is `track-connect:retry.` and
    a random id, which no code hashes to, so an asking server that exchanges again cannot spend
@@ -905,10 +904,10 @@ only configuration. The manual way, under Settings, stays.
    the sweep reads `sweepAt` only from a value that is (`json_valid`), and compares the prefix
    exactly. An agent that someone took over by hand in the meantime is left alone: the row names the key
    the connection made, and only while that is the agent's one key, never used, is the agent
-   taken back. After a rollback to v0.39.0, which
-   judges a code by `expiresAt`, delete the `track-connect:` rows: a row this version wrote
-   would otherwise be good there for three days instead of a minute (it still needs the code
-   and its verifier).
+   taken back. Before rolling back to v0.39.0, resolve unfinished connections and delete the
+   `track-connect:` verification rows as described under [Connecting a source in one step](#connecting-a-source-in-one-step).
+   That version judges a code by `expiresAt`, so a row this version wrote would otherwise be
+   good there for three days instead of a minute (it still needs the code and its verifier).
 
 Both routes count calls per client address in a `RateLimiter` Durable Object (20 at once,
 refilling over an hour, within 100 a day, shared by the two), by the zone a Worker comes from
@@ -937,6 +936,71 @@ Two limits are worth knowing. An admin who closes the tab after Allow leaves an 
 webhook whose secrets are lost once the code's minute is up: both are visible in Settings and can
 be removed there. And every caller that arrives from one Worker zone shares the exchange's rate
 limit, since that zone is the address it is counted by.
+
+### Connecting a source in one step
+
+A product such as Guard can send an admin to
+`/connect/source?product=guard&name=…&links=…&return=…&state=…&challenge=…`. The return
+address identifies the asker and follows the agent connection's address rules. Links default to
+that origin. The page shows the product, source name and up to five link origins, with a warning
+for each outside the asking origin. Agents and sources share `CONNECT_ORIGINS`: a known
+address says nothing about who makes the named product. The public demo refuses source connections.
+
+1. A signed-in owner or admin chooses a workspace, team, severity threshold, whether to close
+   issues when cleared, and an optional agent assignee. The initial threshold is high. Close
+   when cleared is on initially for Guard. Cancel returns the state and `error=denied`.
+2. Allow checks Track's own Origin and the person's membership in D1. It shares the agent
+   approval budget (ten per person per hour). Before making anything it records the workspace,
+   source and key ids in a pending `track-connect:` verification row. Its sweep time is also
+   the deadline for creation. The object refuses a reserved create past that time on its clock.
+   The D1 key insert requires the exact pending row and an unexpired deadline on the Worker's
+   clock in the insert itself. The transition from that pending value to ready starts the code's
+   minute. A sweep claims pending rows only after their deadline. If the object reports a source
+   absent, the sweep keeps the pending row if it asked within the following hour, allowing for clock skew.
+3. The asking server trades the code and verifier at `POST /api/connect/exchange`. Only a ready,
+   unspent, unclaimed row opens. A successful exchange deletes it with `RETURNING`. A refusal
+   durably marks it spent and claims it for cleanup. Sweeps also claim before cleanup, with a
+   ten-minute lease recoverable after a Worker restart. The winner deletes the row after cleanup.
+   The source answer gives the key, events endpoint, source, workspace, team, a three-day
+   `undo` token signed under its own purpose, and its UTC expiry `undoUntil`. At or after that
+   time undo answers `400 {"error":"invalid_undo"}`. Only code and state pass through the browser.
+   Exchange and undo count per client address, so all tenants of one Guard deployment share
+   the same allowance (about twenty calls an hour).
+4. Undo first inserts a durable claim naming the workspace, source and key. A second undo
+   during its ten-minute lease answers the same success. After expiry, another undo or the
+   daily sweep can take over, including when the object finished but the D1 key delete failed.
+   Each claim has a fresh random nonce and renews D1 retention. Every subsequent D1 write,
+   including deletion of a key whose source has gone, compares the exact approval or claim
+   value in the same statement. The connect sweep handles its verification rows oldest due first.
+   The general daily prune skips them. After 30 days the connect sweep discards a row and logs its ids.
+5. Failed Allow, take-back and undo seal the source in the object before reading its D1 keys.
+   In the seal transaction the object checks last-heard time, signals, usage and last-refused
+   time. Both seal and finish check whether the approval key has been revoked. A refusal may
+   already have filed a notice. A matching marker allows a retry to check again. The marker
+   combines key id and claim nonce (Allow's nonce during rollback). A different claimant backs
+   off until the next sweep. D1 claim ownership is separate from ownership of the object's seal.
+   A worker that detects it has lost the D1 claim releases its own seal. The object independently
+   checks its live seal and allows only its holder to release or finish. After two minutes on the
+   object's clock, the seal expires and restores the previous paused setting.
+   Settings removal can take over. An accepted event wins if it arrives first. During either
+   seal the gateway answers 503 with `Retry-After: 60` so the sender can try again. Only a
+   holder of the source's own key reaches this answer, so it reveals nothing to other callers.
+   Pending allows zero keys or just its own key. Ready and undo require exactly their own key.
+   If the keys differ, the gateway releases its seal by marker and restores the prior paused
+   setting. A Settings key issue that encounters the seal after inserting deletes its own key.
+6. Pending cleanup deletes its fenced key before finishing the object removal. Ready cleanup
+   and undo keep the key until the object finishes, so a retry can still check it. If the source
+   has gone, cleanup deletes only the key named by the approval. Issues stay in the workspace.
+
+**Threat model.** Anyone controlling the asking address who obtains approval can use the key to
+file, clear and reopen signals in the chosen team within its daily limits. With an agent assigned, a
+report can wake that agent and put the sender's text into its input. The approval page calls this
+out because that text can contain instructions. Before rolling back to an older Track, stop new
+connections (for example, block `/connect/source` and `/api/connect/exchange` at the edge) and wait
+for requests in flight to finish. Resolve approvals awaiting exchange and unfinished undos through
+the current Worker's daily run or reconcile their sources and keys in Settings. Then delete the
+`track-connect:` verification rows and roll back. Keep the block in place until the rollback is
+complete.
 
 ### Backups
 
@@ -2127,8 +2191,7 @@ A connected product sends JSON to `POST /api/events` (`apps/web/src/server/event
 The gateway hashes the bearer key and looks it up in D1 before reading the body or counting
 a limit. The lookup identifies the workspace, its jurisdiction, the source and the key. The object
 admits the event only while the source exists and is active and the key is not revoked.
-Cookies confer no access.
-The public demo refuses events.
+Cookies confer no access. The public demo refuses events.
 
 Senders stamp events with ISO 8601 timestamps at millisecond precision. Equal timestamps are retries;
 the object rejects timestamps more than five minutes ahead of its clock.
@@ -2140,6 +2203,8 @@ the Sources page in Settings. To rotate a key, make a second key, switch the sen
 old key. The settings gateway checks D1 membership and the object checks the admin again.
 Removal seals the source so a key made during removal cannot write, deletes its keys in D1, then removes the signals and source
 through a gateway-only object call. Issues already filed remain in their teams.
+During a connection seal or Settings removal, a valid source key receives 503 with
+`Retry-After: 60`. Missing sources, workspaces and invalid keys receive 404.
 
 Revoking a key records its id in the object before D1 forgets the key, and the id stays until the
 source is removed. So a request that found the key before the revocation, and held its body back

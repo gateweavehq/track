@@ -92,7 +92,7 @@ export default {
 			await cleanUpDemo();
 		}
 		await retryErasures(db);
-		// Before the prune, which would delete these rows without taking back what they made.
+		// Connection rows have their own cleanup, including changes in the workspace object.
 		await sweepAllConnections();
 		await pruneExpired(db);
 		// Last, as a workspace it moves is paused for a few seconds.

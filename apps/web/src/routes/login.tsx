@@ -26,12 +26,18 @@ const loginSearch = z.looseObject({
 	error: z.string().optional().catch(undefined),
 });
 
+// The router parses search values when navigating in the app. Approval needs the original query.
+function afterSignIn(value: string | undefined) {
+	const href = safeRedirect(value) ?? "/";
+	return { href, reloadDocument: /^\/connect\/(agent|source)\?/.test(href) };
+}
+
 export const Route = createFileRoute("/login")({
 	validateSearch: loginSearch,
 	beforeLoad: async ({ search, location }) => {
 		// An authorization request can ask a signed-in user to sign in again (`prompt=login`).
 		if (inAuthorizationFlow(location.searchStr)) return;
-		if (await getSession()) throw redirect({ href: safeRedirect(search.redirect) ?? "/" });
+		if (await getSession()) throw redirect(afterSignIn(search.redirect));
 	},
 	loader: () => getAuthOptions(),
 	component: LoginPage,
@@ -123,7 +129,8 @@ function ProviderButton({
 function SignInForm() {
 	const options = Route.useLoaderData();
 	const search = Route.useSearch();
-	const next = safeRedirect(search.redirect) ?? "/";
+	const destination = afterSignIn(search.redirect);
+	const next = destination.href;
 	const router = useRouter();
 	const [mode, setMode] = useState<"sign-in" | "sign-up">(search.mode ?? "sign-in");
 	const [error, setError] = useState(() => signInRefusal(search.error));
@@ -159,8 +166,8 @@ function SignInForm() {
 		// The auth client is already on its way back to the agent's authorization.
 		if (inAuthorizationFlow(window.location.search)) return;
 		setPending(false);
-		await router.invalidate();
-		await router.navigate({ href: next });
+		if (!destination.reloadDocument) await router.invalidate();
+		await router.navigate(destination);
 	}
 
 	return (

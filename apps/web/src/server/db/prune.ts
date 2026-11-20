@@ -1,6 +1,8 @@
-import { type Column, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, type Column, inArray, isNull, lt, type SQL, sql } from "drizzle-orm";
 import type { Database } from "./index";
 import { schema } from "./index";
+
+export const CONNECT_PREFIX = "track-connect:";
 
 /** D1 runs one query at a time, so one long delete would hold up everyone signing in. */
 const BATCH = 1000;
@@ -16,9 +18,14 @@ async function pruneOlder(
 		| typeof schema.invitation,
 	column: Column,
 	before: Date,
+	condition?: SQL,
 ) {
 	for (;;) {
-		const expired = db.select({ id: table.id }).from(table).where(lt(column, before)).limit(BATCH);
+		const expired = db
+			.select({ id: table.id })
+			.from(table)
+			.where(and(lt(column, before), condition))
+			.limit(BATCH);
 		const { meta } = await db.delete(table).where(inArray(table.id, expired)).run();
 		if (meta.changes < BATCH) return;
 	}
@@ -34,7 +41,13 @@ async function pruneOlder(
 export async function pruneExpired(db: Database): Promise<void> {
 	const now = new Date();
 	await pruneOlder(db, schema.session, schema.session.expiresAt, now);
-	await pruneOlder(db, schema.verification, schema.verification.expiresAt, now);
+	await pruneOlder(
+		db,
+		schema.verification,
+		schema.verification.expiresAt,
+		now,
+		sql`${schema.verification.identifier} NOT GLOB ${CONNECT_PREFIX + "*"}`,
+	);
 	// Refresh tokens first, because deleting one takes the access tokens made from it along.
 	await pruneOlder(db, schema.oauthRefreshToken, schema.oauthRefreshToken.expiresAt, now);
 	await pruneOlder(db, schema.oauthAccessToken, schema.oauthAccessToken.expiresAt, now);

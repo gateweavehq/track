@@ -30,7 +30,7 @@ import { notify } from "./inbox";
 import { ChangeSet, type WriteResult } from "./log";
 import { sortOrderAfterAll } from "./recurring";
 import { indexComment, indexIssue } from "./search";
-import { keyRevoked } from "./source-management";
+import { keyRevoked, liveConnectSeal } from "./source-management";
 import { type Db, toComment, toIssue, toSignal, toSource } from "./state";
 import { teamStatuses } from "./statuses";
 import { queueDeliveries } from "./webhooks";
@@ -54,7 +54,7 @@ type Answer = {
 	reason?: string;
 };
 export type SourceEventResult =
-	| { status: 400 | 404 }
+	| { status: 400 | 404 | 503 }
 	| { status: 429; retryAfter: number }
 	| { status: 200; answer: Answer };
 type Outcome = WriteResult & { response: SourceEventResult };
@@ -249,9 +249,12 @@ export function processSourceEvent(
 	now: number,
 ): Outcome {
 	const changes = new ChangeSet(db, SOURCE_ACTOR_ID, now);
+	liveConnectSeal(db, changes, sourceId);
 	const source = db.select().from(schema.sources).where(eq(schema.sources.id, sourceId)).get();
-	if (!source || source.paused || source.removing || keyRevoked(db, source.id, keyId))
+	if (!source || keyRevoked(db, source.id, keyId))
 		return { ...changes.result(), response: { status: 404 } };
+	if (source.removing) return { ...changes.result(), response: { status: 503 } };
+	if (source.paused) return { ...changes.result(), response: { status: 404 } };
 	const calls = source.callTimes.filter((at) => at > now - 60_000);
 	const recent = [...calls, now].slice(-CALLS_PER_MINUTE);
 	// Admission accounting never takes a workspace version, even for late or unchanged events.

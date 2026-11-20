@@ -77,7 +77,7 @@ declare namespace Cloudflare {
 		DURABLE_OBJECT_JURISDICTION?: string;
 		/**
 		 * Origins, comma-separated, such as `https://agents.example.com`, that the page where an
-		 * admin approves connecting an agent (`/connect/agent`) shows as known. Any other origin is
+		 * admin approves connecting an agent or source shows as known. Any other origin is
 		 * still allowed, with a warning. See docs/self-hosting.md.
 		 */
 		CONNECT_ORIGINS?: string;

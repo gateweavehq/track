@@ -1,10 +1,11 @@
 import { env } from "cloudflare:workers";
-import { isAdminRole } from "@gateweave/track-protocol";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { isAdminRole, type SourceProduct, type SourceThreshold } from "@gateweave/track-protocol";
+import { and, eq, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
 	type ConnectPurpose,
 	checkConnectRequest,
+	checkSourceConnectRequest,
 	MAX_AGENT_NAME_LENGTH,
 	parseConnectOrigins,
 	returnAddress,
@@ -14,7 +15,10 @@ import { removeAgentOf } from "./auth/agents";
 import { countedByWhoSentIt } from "./auth/workers-address";
 import { readText } from "./body";
 import { schema } from "./db";
+import { CONNECT_PREFIX } from "./db/prune";
+import { demoEnabled } from "./demo/mode";
 import { allowConnectApproval, limitConnectCalls } from "./rate-limit";
+import { makeSourceKey, newSourceKey, removeSourceKeys, sourceKeys } from "./source-keys";
 import { webhooksEnabled } from "./webhooks";
 import {
 	findMembership,
@@ -42,23 +46,19 @@ import {
  */
 
 const CODE_TTL_MS = 60 * 1000;
-/**
- * How long a code's row stays in the table after the code itself has run out. Better Auth deletes
- * every row of `verification` past its `expiresAt` whenever it looks one up, and so does the daily
- * prune, so a row whose `expiresAt` were the code's own minute would usually be gone before anyone
- * could take back what it was made for. The code's minute is `goodUntil` inside the row instead,
- * and `expiresAt` is this much later: long enough for a daily run that was missed twice.
- */
+/** Retain the D1 expiry margin for older Workers that still prune on verification lookup. */
 const ROW_KEPT_MS = 3 * 24 * 60 * 60 * 1000;
 /** A take-back that failed is tried again this much later, at most this many times. */
 const TAKE_BACK_AGAIN_MS = 60 * 60 * 1000;
 const TAKE_BACK_TRIES = 3;
+const CLAIM_MS = 10 * 60_000;
+const PENDING_GRACE_MS = 60 * 60_000;
+const SOURCE_UNDO_SECONDS = 3 * 86400;
 const UNDO_TTL_SECONDS = 10 * 60;
-/** A code row's `identifier`, so no other use of the `verification` table can be mistaken for one. */
-const IDENTIFIER_PREFIX = "track-connect:";
 /** The purposes the secret is used under, each its own key, and part of what a seal binds to. */
 const SEAL_PURPOSE = "track-connect-code-v1";
 const UNDO_PURPOSE = "track-connect-undo-v1";
+const SOURCE_UNDO_PURPOSE = "track-connect-source-undo-v1";
 const CODE = /^[A-Za-z0-9_-]{43}$/;
 const ID = /^[\w-]{1,64}$/;
 const MAX_BODY_BYTES = 4096;
@@ -109,7 +109,10 @@ const exchangeBody = z.object({
 });
 
 /** What the code's row seals: the secrets, and what the exchange answers besides them. */
-interface Sealed {
+type Sealed = AgentSealed | SourceSealed;
+
+interface AgentSealed {
+	kind?: "agent";
 	agentKey: string;
 	webhookSecret: string;
 	agent: { id: string; memberId: string; name: string };
@@ -119,9 +122,22 @@ interface Sealed {
 	returnOrigin: string;
 }
 
+interface SourceSealed {
+	kind: "source";
+	sourceKey: string;
+	endpoint: string;
+	source: { id: string; name: string; product: SourceProduct };
+	workspace: AgentSealed["workspace"];
+	team: { id: string; key: string; name: string };
+	undo: string;
+	undoUntil: string;
+}
+
 /** What the row keeps in `value`: the challenge in the clear, the rest sealed under the code. */
 const stored = z.object({
 	v: z.literal(1),
+	kind: z.enum(["agent", "source"]).default("agent"),
+	state: z.literal("ready").optional(),
 	challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
 	iv: z.string(),
 	ct: z.string(),
@@ -132,17 +148,24 @@ const stored = z.object({
  * traded can be taken back without opening the seal. These are ids, not secrets. A row written
  * before they were kept (v0.39.0) has none, and there is nothing to take back for it.
  */
-const madeFor = z.object({
+const madeBase = z.object({
 	workspaceId: z.string().regex(ID),
-	agentId: z.string().regex(ID),
-	// As long as an address the page takes may be (`MAX_URL_LENGTH` in connect-request.ts): a row
-	// this could not read would name nothing to take back.
 	origin: z.string().max(2048).optional(),
-	/** The key the connection made for the agent: while it is its only key and unused, nobody took the agent over. */
-	keyId: z.string().regex(ID).optional(),
-	/** How often taking it back has failed so far. */
 	tries: z.number().int().min(0).max(TAKE_BACK_TRIES).optional(),
 });
+const madeFor = z.union([
+	madeBase.extend({
+		kind: z.literal("agent").default("agent"),
+		agentId: z.string().regex(ID),
+		keyId: z.string().regex(ID).optional(),
+	}),
+	madeBase.extend({
+		kind: z.literal("source"),
+		state: z.enum(["pending", "ready", "undo"]),
+		sourceId: z.string().regex(ID),
+		keyId: z.string().regex(ID),
+	}),
+]);
 type MadeFor = z.infer<typeof madeFor>;
 
 function readMadeFor(value: string): MadeFor | null {
@@ -154,28 +177,28 @@ function readMadeFor(value: string): MadeFor | null {
 	}
 }
 
-/**
- * Takes back what a connection made: the webhooks that name the agent first, then the agent, then
- * the membership sync. Safe to repeat. Throws when it could not finish. The audit event is
- * Track's own, whatever `detail` is added.
- */
-async function takeBack(workspaceId: string, agentId: string, detail: Record<string, string> = {}) {
-	// The workspace must still exist in D1 before its object is reached, which reaching it makes.
-	const workspace = await db
+function existingWorkspace(workspaceId: string) {
+	return db
 		.select({ id: schema.organization.id })
 		.from(schema.organization)
 		.where(eq(schema.organization.id, workspaceId))
 		.get();
+}
+
+/** A claim guards cleanup of an untraded code. A signed agent undo has no claim. */
+async function takeBack(
+	workspaceId: string,
+	agentId: string,
+	detail: Record<string, string> = {},
+	condition?: SQL,
+) {
+	// The workspace must still exist in D1 before its object is reached, which reaching it makes.
+	const workspace = await existingWorkspace(workspaceId);
 	if (!workspace) return;
-	// The webhook first: with it gone, nothing is sent to an agent that no longer exists.
 	const stub = await findWorkspaceStub(db, workspaceId);
-	// Every webhook that names the agent, which can only be one made for it: it covers one this
-	// caller does not know of.
-	await stub.removeConnectedWebhooksOf(agentId);
-	const removed = await removeAgentOf(db, workspaceId, agentId);
-	// Whether or not this call removed it: an earlier one may have deleted the rows and then
-	// failed to tell the object, and a retry would otherwise never tell it.
-	await syncMembership(db, workspaceId, agentId);
+	// Signed undo removes the webhooks first. Claimed cleanup must win the D1 delete first.
+	if (!condition) await stub.removeConnectedWebhooksOf(agentId);
+	const removed = await removeAgentOf(db, workspaceId, agentId, condition);
 	if (removed !== null) {
 		await reportAudit(db, workspaceId, {
 			actorId: null,
@@ -183,7 +206,18 @@ async function takeBack(workspaceId: string, agentId: string, detail: Record<str
 			target: { type: "agent", id: agentId, label: null },
 			detail,
 		});
+	} else if (condition) {
+		// A surviving user means the claim or the keys changed. A missing user means a retry
+		// still owes the object both calls after a previous D1 delete.
+		const present = await db
+			.select({ id: schema.user.id })
+			.from(schema.user)
+			.where(eq(schema.user.id, agentId))
+			.get();
+		if (present) return;
 	}
+	await syncMembership(db, workspaceId, agentId);
+	if (condition) await stub.removeConnectedWebhooksOf(agentId);
 }
 
 /**
@@ -200,104 +234,177 @@ function goodUntilOf(row: { value: string; expiresAt: Date }): number {
 	return row.expiresAt.getTime();
 }
 
-type CodeRow = { identifier: string; value: string; expiresAt: Date };
+type CodeRow = Pick<typeof schema.verification.$inferSelect, "id" | "value">;
 
-/**
- * Takes back what a deleted row was made for. When that fails, which a workspace's object being
- * restarted is enough for, the row goes back in as one whose code opens nothing any more
- * (`goodUntil: 0`) and that the sweep tries again later, a few times. Only logs, with no secret.
- */
-async function takeBackFor(row: CodeRow, reason: string): Promise<void> {
+const verification = schema.verification;
+const sameRow = (row: CodeRow) =>
+	and(eq(verification.id, row.id), eq(verification.value, row.value));
+const holds = (row: CodeRow) => sql`exists (select 1 from ${verification} where ${sameRow(row)})`;
+const stillHeld = (row: CodeRow) =>
+	db.select({ id: verification.id }).from(verification).where(sameRow(row)).get();
+
+async function takeBackSource(
+	row: CodeRow,
+	made: Extract<MadeFor, { kind: "source" }>,
+	reason: string,
+) {
+	const { workspaceId, sourceId, keyId, state } = made;
+	const workspace = await existingWorkspace(workspaceId);
+	if (!workspace) return "kept";
+	if (!(await stillHeld(row))) return "retry";
+	const stub = await findWorkspaceStub(db, workspaceId);
+	const { claimNonce, allowNonce, sweepAt } = JSON.parse(row.value);
+	const holder = `${keyId}:${claimNonce ?? allowNonce}`;
+	const askedAt = Date.now();
+	const status = await stub.removeConnectedSource(sourceId, holder);
+	if (status === "busy") return "retry";
+	const deleteKey = async () => {
+		const deleted = await removeSourceKeys(db, workspaceId, sourceId, keyId, holds(row));
+		// Zero also means an earlier attempt deleted the key before it lost its reply.
+		return deleted.meta.changes === 1 || Boolean(await stillHeld(row));
+	};
+	if (status === "gone") {
+		if (!(await deleteKey())) return "retry";
+		return state === "pending" && askedAt < sweepAt + PENDING_GRACE_MS ? "withinGrace" : "gone";
+	}
+	if (status !== "sealed") return status;
+	const keys = await sourceKeys(db, workspaceId, sourceId);
+	const lost = async () => {
+		await stub.releaseConnectedSource(sourceId, holder);
+		return "retry" as const;
+	};
+	if (!(await stillHeld(row))) return lost();
+	if (!keys.every((key) => key.id === keyId) || (state !== "pending" && keys.length !== 1)) {
+		await stub.releaseConnectedSource(sourceId, holder);
+		return "kept";
+	}
+	if (state === "pending" && !(await deleteKey())) return lost();
+	const finish = await stub.finishConnectedSourceRemoval(sourceId, holder, reason);
+	if (finish === "revoked") return "kept";
+	// A competing finish can leave its key behind if it has since lost its D1 claim.
+	if (finish === "notHeld") {
+		if (!(await stillHeld(row))) return lost();
+		throw new Error("Source removal must be checked again");
+	}
+	if (state !== "pending" && !(await deleteKey())) return "retry";
+	return status;
+}
+
+async function cleanClaim(row: CodeRow, reason: string) {
 	const made = readMadeFor(row.value);
-	if (!made) return;
 	try {
-		// An admin who found the agent in Settings and gave it a key of their own, or whose key was
-		// used, has taken it over: it is theirs now, and stays.
-		const keys = await db
-			.select({ id: schema.agentKey.id, lastUsedAt: schema.agentKey.lastUsedAt })
-			.from(schema.agentKey)
-			.where(
-				and(
-					eq(schema.agentKey.userId, made.agentId),
-					eq(schema.agentKey.organizationId, made.workspaceId),
-				),
-			)
-			.all();
-		// Told by the connection's own key: another key, a used key, or that key revoked (with or
-		// without a new one in its place) all mean someone has been managing the agent.
-		const [only] = keys;
-		const untouched =
-			keys.length === 1 &&
-			only !== undefined &&
-			only.lastUsedAt === null &&
-			(made.keyId === undefined || only.id === made.keyId);
-		if (!untouched) return;
-		await takeBack(made.workspaceId, made.agentId, {
-			reason,
-			...(made.origin && { origin: made.origin }),
-		});
+		if (made?.kind === "source") {
+			const status = await takeBackSource(row, made, made.state === "undo" ? "undo" : reason);
+			if (status === "retry") return;
+			if (status === "withinGrace") {
+				await db
+					.update(verification)
+					.set({
+						value: sql`json_remove(${verification.value}, '$.claimedUntil', '$.claimNonce')`,
+						updatedAt: new Date(),
+					})
+					.where(sameRow(row))
+					.run();
+				return;
+			}
+		} else if (made) {
+			await takeBackAgent(row, made, reason);
+		}
+		await db.delete(verification).where(sameRow(row)).run();
 	} catch (error) {
 		console.error("connect: could not take back a connection whose code was not used", error);
+		if (!made || made.kind === "source") return; // The claim expires and the sweep retries.
 		const tries = (made.tries ?? 0) + 1;
-		if (tries >= TAKE_BACK_TRIES) return;
-		try {
-			await db
-				.insert(schema.verification)
-				.values({
-					id: crypto.randomUUID(),
-					// Not the code's identifier, which an exchange could name again and so spend the
-					// tries in seconds: one no code hashes to (a dot is not in base64url).
-					identifier: `${IDENTIFIER_PREFIX}retry.${crypto.randomUUID()}`,
-					// Only what taking it back needs: the sealed part is of no use to anyone now.
-					value: JSON.stringify({
-						...made,
-						tries,
-						goodUntil: 0,
-						sweepAt: Date.now() + TAKE_BACK_AGAIN_MS,
-					}),
-					expiresAt: new Date(Date.now() + ROW_KEPT_MS),
-				})
-				.run();
-		} catch (again) {
-			console.error("connect: could not keep a connection to take back later", again);
+		if (tries >= TAKE_BACK_TRIES) {
+			await db.delete(verification).where(sameRow(row)).run();
+			return;
 		}
+		await db
+			.update(verification)
+			.set({
+				identifier: `${CONNECT_PREFIX}retry.${crypto.randomUUID()}`,
+				value: JSON.stringify({
+					...made,
+					tries,
+					goodUntil: 0,
+					sweepAt: Date.now() + TAKE_BACK_AGAIN_MS,
+				}),
+				expiresAt: new Date(Date.now() + ROW_KEPT_MS),
+			})
+			.where(sameRow(row))
+			.run();
 	}
 }
 
-/**
- * Takes back what codes past their minute were made for, a few at a time. Each row is deleted
- * with `DELETE ... RETURNING`, so a sweep and a late exchange cannot both act on one row, and what
- * is taken back is only what a row just deleted names: never an agent whose code was traded (its
- * row is gone) or one made by hand. Answers how many rows it cleared. Never throws.
- */
+async function takeBackAgent(
+	row: CodeRow,
+	made: Extract<MadeFor, { kind: "agent" }>,
+	reason: string,
+) {
+	const { agentKey } = schema;
+	// Historical approvals did not record the key id. They still require one unused key.
+	const untouched = sql`(select count(*) = 1 and count(${agentKey.lastUsedAt}) = 0
+		${made.keyId === undefined ? sql.empty() : sql`and max(${agentKey.id}) = ${made.keyId}`}
+		from ${agentKey} where ${agentKey.userId} = ${made.agentId}
+		and ${agentKey.organizationId} = ${made.workspaceId})`;
+	await takeBack(
+		made.workspaceId,
+		made.agentId,
+		{
+			reason,
+			...(made.origin && { origin: made.origin }),
+		},
+		and(holds(row), untouched),
+	);
+}
+
+/** A lease survives a Worker restart. Its exact row value fences completion by an older worker. */
 export async function sweepConnections(max: number): Promise<number> {
 	try {
-		// By `sweepAt` in the row, not `expiresAt`, which is days later (see ROW_KEPT_MS). A row
-		// without one (v0.39.0) names nothing to take back and is left to the prune.
-		// The table is Better Auth's too, and not every value in it is JSON, which `json_extract`
-		// raises on. SQLite does not promise the order of an AND, so the guard is in the expression:
-		// only a value that is JSON is read. The prefix is compared exactly; LIKE ignores case.
-		const due = sql`substr(${schema.verification.identifier}, 1, ${IDENTIFIER_PREFIX.length}) = ${IDENTIFIER_PREFIX}
-			AND CASE WHEN json_valid(${schema.verification.value})
-				THEN json_extract(${schema.verification.value}, '$.sweepAt') END < ${Date.now()}`;
+		// Older agent rows have no sweepAt. Their verification expiry is their deadline.
+		const now = Date.now();
+		const oldest = new Date(now - 30 * 86400_000);
+		const dueAt = sql`CASE WHEN json_valid(${verification.value})
+			THEN max(coalesce(json_extract(${verification.value}, '$.sweepAt'), ${verification.expiresAt}),
+				coalesce(json_extract(${verification.value}, '$.claimedUntil'), 0))
+			ELSE ${verification.expiresAt} END`;
 		const rows = await db
-			.delete(schema.verification)
-			.where(
-				and(
-					due,
-					inArray(
-						schema.verification.id,
-						db
-							.select({ id: schema.verification.id })
-							.from(schema.verification)
-							.where(due)
-							.limit(max),
-					),
-				),
-			)
-			.returning()
+			.select()
+			.from(verification)
+			.where(sql`${verification.identifier} GLOB ${CONNECT_PREFIX + "*"}
+				AND (${verification.createdAt} < ${oldest.getTime()} OR ${dueAt} < ${now})`)
+			.orderBy(dueAt, verification.createdAt, verification.id)
+			.limit(max)
 			.all();
-		for (const row of rows) await takeBackFor(row, "code not used");
+		for (const row of rows) {
+			if (row.createdAt < oldest || !readMadeFor(row.value)) {
+				const deleted = await db
+					.delete(verification)
+					.where(sameRow(row))
+					.returning({ id: verification.id })
+					.get();
+				if (deleted && row.createdAt < oldest) {
+					const made = readMadeFor(row.value);
+					console.warn("connect: expired after 30 days", {
+						rowId: deleted.id,
+						workspaceId: made?.workspaceId,
+						keyId: made?.keyId,
+						...(made?.kind === "source" ? { sourceId: made.sourceId } : { agentId: made?.agentId }),
+					});
+				}
+				continue;
+			}
+			const claimed = await db
+				.update(verification)
+				.set({
+					value: sql`json_set(${verification.value}, '$.claimedUntil', ${Date.now() + CLAIM_MS}, '$.claimNonce', ${crypto.randomUUID()})`,
+					expiresAt: new Date(Date.now() + ROW_KEPT_MS),
+				})
+				.where(sameRow(row))
+				.returning()
+				.get();
+			if (claimed) await cleanClaim(claimed, "code not used");
+		}
 		return rows.length;
 	} catch (error) {
 		console.error("connect: could not sweep codes that were not used", error);
@@ -318,18 +425,36 @@ async function exchange(body: unknown): Promise<Response> {
 	const { code, verifier } = parsed.data;
 	const identifier = await identifierOf(code);
 
-	// The delete decides: whoever's statement removes the row is the one that goes on, so two
-	// exchanges at once cannot both succeed, and a code that fails below is spent all the same.
-	const [row] = await db
-		.delete(schema.verification)
-		.where(eq(schema.verification.identifier, identifier))
-		.returning()
-		.all();
+	const row = await db
+		.select()
+		.from(verification)
+		.where(eq(verification.identifier, identifier))
+		.get();
 	if (!row) return json(NO_CODE, 400);
-	// The code is spent and nobody was given what it made, with no token to undo it: so it is
-	// taken back here. The answer is the same whichever check failed.
+	let metadata: Record<string, unknown> | null;
+	try {
+		metadata = JSON.parse(row.value);
+	} catch {
+		metadata = null;
+	}
+	if (metadata?.spent || metadata?.claimedUntil !== undefined) return json(NO_CODE, 400);
 	const refuse = async () => {
-		await takeBackFor(row, "code refused");
+		const claimed = await db
+			.update(verification)
+			.set({
+				expiresAt: new Date(Date.now() + ROW_KEPT_MS),
+				value: JSON.stringify({
+					...metadata,
+					spent: true,
+					claimNonce: crypto.randomUUID(),
+					claimedUntil: Date.now() + CLAIM_MS,
+					sweepAt: metadata?.sweepAt ?? 0,
+				}),
+			})
+			.where(sameRow(row))
+			.returning()
+			.get();
+		if (claimed) await cleanClaim(claimed, "code refused");
 		return json(NO_CODE, 400);
 	};
 	if (goodUntilOf(row) <= Date.now()) return refuse();
@@ -348,6 +473,18 @@ async function exchange(body: unknown): Promise<Response> {
 	} catch {
 		return refuse();
 	}
+	if ((sealed.kind ?? "agent") !== keep.kind) return refuse();
+	if (sealed.kind === "source" && (demoEnabled() || keep.state !== "ready")) return refuse();
+	if (goodUntilOf(row) <= Date.now()) return refuse();
+	if (!(await db.delete(verification).where(sameRow(row)).returning({ id: verification.id }).get()))
+		return json(NO_CODE, 400);
+	if (sealed.kind === "source") {
+		const { sourceKey, endpoint, source, workspace, team, undo } = sealed;
+		return json(
+			{ sourceKey, endpoint, source, workspace, team, undo, undoUntil: sealed.undoUntil },
+			200,
+		);
+	}
 	return json(
 		{
 			agentKey: sealed.agentKey,
@@ -365,10 +502,43 @@ async function undo(body: unknown): Promise<Response> {
 	const token = z.object({ undo: z.string().max(512) }).safeParse(body);
 	const target = token.success ? await readUndoToken(token.data.undo) : null;
 	if (!target) return json(NO_UNDO, 400);
-	const { workspaceId, agentId } = target;
-
+	if (target.kind === "source" && demoEnabled()) return json(NO_UNDO, 400);
 	try {
-		await takeBack(workspaceId, agentId);
+		if (target.kind === "source") {
+			const now = Date.now();
+			const id = "track-source-undo:" + target.keyId;
+			const made = { ...target, state: "undo" as const };
+			const value = JSON.stringify({
+				...made,
+				sweepAt: 0,
+				claimedUntil: now + CLAIM_MS,
+				claimNonce: crypto.randomUUID(),
+			});
+			const expiresAt = new Date(now + ROW_KEPT_MS);
+			let row = await db
+				.insert(verification)
+				.values({
+					id,
+					identifier: CONNECT_PREFIX + id,
+					value,
+					expiresAt,
+				})
+				.onConflictDoNothing()
+				.returning()
+				.get();
+			if (!row) {
+				const previous = await db.select().from(verification).where(eq(verification.id, id)).get();
+				if (previous && JSON.parse(previous.value).claimedUntil <= now)
+					row = await db
+						.update(verification)
+						.set({ value, expiresAt })
+						.where(sameRow(previous))
+						.returning()
+						.get();
+			}
+			if (row && (await takeBackSource(row, made, "undo")) !== "retry")
+				await db.delete(verification).where(sameRow(row)).run();
+		} else await takeBack(target.workspaceId, target.agentId);
 	} catch (error) {
 		console.error("connect: undo did not finish", error);
 		return json({ error: "try_again" }, 500);
@@ -401,9 +571,7 @@ export async function connectOffer(query: string, request: Request): Promise<Con
 	if (!webhooksEnabled()) {
 		return { ok: false, problem: "This server sends no webhooks, so it cannot connect an agent." };
 	}
-	const workspaces = (await listWorkspaces(db, session.user.id)).filter((each) =>
-		isAdminRole(each.role),
-	);
+	const workspaces = await adminWorkspaces(session.user.id);
 	if (workspaces.length === 0) {
 		return {
 			ok: false,
@@ -418,7 +586,54 @@ export async function connectOffer(query: string, request: Request): Promise<Con
 		purpose: asked.purpose,
 		suggestedName: asked.name,
 		events: asked.events,
-		workspaces: workspaces.map(({ slug, name }) => ({ slug, name })),
+		workspaces,
+	};
+}
+
+async function adminWorkspaces(userId: string) {
+	return (await listWorkspaces(db, userId))
+		.filter((each) => isAdminRole(each.role))
+		.map(({ slug, name }) => ({ slug, name }));
+}
+
+export async function sourceConnectOffer(query: string, request: Request) {
+	const session = await getAuth().api.getSession({ headers: request.headers });
+	if (!session)
+		return { ok: false as const, problem: "You are signed out. Start again from the app." };
+	if (demoEnabled())
+		return { ok: false as const, problem: "This server does not accept source events." };
+	const checked = checkSourceConnectRequest(query, appOrigin(request));
+	if (!checked.ok) return checked;
+	const workspaces = await adminWorkspaces(session.user.id);
+	if (!workspaces.length)
+		return {
+			ok: false as const,
+			problem: "Only workspace owners and admins can connect a source.",
+		};
+	const { origin, product, name, linkOrigins, otherLinkOrigins } = checked.request;
+	return {
+		ok: true as const,
+		asker: origin,
+		known: parseConnectOrigins(env.CONNECT_ORIGINS).has(origin),
+		product,
+		name,
+		linkOrigins,
+		otherLinkOrigins,
+		workspaces,
+	};
+}
+
+export async function sourceConnectChoices(slug: string, request: Request) {
+	if (demoEnabled()) return null;
+	const session = await getAuth().api.getSession({ headers: request.headers });
+	const membership = session && (await findMembership(db, slug, session.user.id));
+	if (!membership || !isAdminRole(membership.profile.role)) return null;
+	const { teams, members } = await workspaceStub(membership).directory();
+	return {
+		teams: teams.map(({ id, key, name }) => ({ id, key, name })),
+		agents: members
+			.filter((m) => m.role === "agent" && m.removedAt === null)
+			.map(({ id, name }) => ({ id, name })),
 	};
 }
 
@@ -559,6 +774,7 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 			.where(eq(schema.member.userId, agentId))
 			.get();
 		const sealed: Sealed = {
+			kind: "agent",
 			agentKey: made.key,
 			webhookSecret: created.value.secret,
 			agent: { id: agentId, memberId: memberRow?.id ?? agentId, name: name.data },
@@ -575,6 +791,7 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 				identifier,
 				value: JSON.stringify({
 					v: 1,
+					kind: "agent",
 					challenge: asked.challenge,
 					// Not secret: what a refused or untraded code takes back, without opening the seal.
 					workspaceId,
@@ -606,6 +823,176 @@ export async function decideConnection(input: ApprovalInput, request: Request): 
 	return { ok: true, redirect: returnAddress(asked.returnTo, { code, state: asked.state }) };
 }
 
+interface SourceApprovalInput {
+	query: string;
+	decision: "allow" | "cancel";
+	workspace: string;
+	teamId: string;
+	lowestSeverity: SourceThreshold;
+	closeWhenCleared: boolean;
+	assigneeId: string | null;
+}
+
+export async function decideSourceConnection(
+	input: SourceApprovalInput,
+	request: Request,
+): Promise<Approval> {
+	const origin = appOrigin(request);
+	if (request.headers.get("origin") !== origin)
+		return refused("This request did not come from Track's own page.");
+	if (demoEnabled()) return refused("This server does not accept source events.");
+	const session = await getAuth().api.getSession({ headers: request.headers });
+	if (!session) return refused("You are signed out. Sign in and start again from the app.");
+	const checked = checkSourceConnectRequest(input.query, origin);
+	if (!checked.ok) return refused(checked.problem);
+	const asked = checked.request;
+	if (input.decision === "cancel")
+		return {
+			ok: true,
+			redirect: returnAddress(asked.returnTo, { error: "denied", state: asked.state }),
+		};
+	const membership = await findMembership(db, input.workspace, session.user.id);
+	if (!membership || !isAdminRole(membership.profile.role))
+		return refused("Only an owner or admin of a workspace can connect a source.");
+	if (!(await allowConnectApproval(session.user.id)))
+		return refused("You have connected apps too often. Try again in a while.");
+	await sweepConnections(SWEEP_ON_APPROVAL);
+	const { workspaceId } = membership;
+	const stub = workspaceStub(membership);
+	const sourceId = crypto.randomUUID();
+	const key = newSourceKey();
+	const code = randomBase64Url(32);
+	const identifier = await identifierOf(code);
+	const rowId = crypto.randomUUID();
+	const pending = {
+		kind: "source" as const,
+		state: "pending" as const,
+		workspaceId,
+		sourceId,
+		keyId: key.id,
+		origin: asked.origin,
+	};
+	const now = Date.now();
+	const notAfter = now + CODE_TTL_MS;
+	const row = {
+		id: rowId,
+		value: JSON.stringify({
+			...pending,
+			allowNonce: crypto.randomUUID(),
+			goodUntil: 0,
+			sweepAt: notAfter,
+		}),
+	};
+	const requirePending = async () => {
+		if (!(await stillHeld(row))) throw new Error("approval expired");
+	};
+	let mayHaveSource = false;
+	let failure = "Track could not prepare the connection.";
+	try {
+		const { teams } = await stub.directory();
+		const found = teams.find((team) => team.id === input.teamId);
+		if (!found) return refused("Choose a team in this workspace.");
+		const team = { id: found.id, key: found.key, name: found.name };
+		// Even an interrupted Allow leaves the sweep the ids it needs, including before the first
+		// key exists. Only the transition to ready below starts the code's own minute.
+		await db
+			.insert(schema.verification)
+			.values({
+				id: rowId,
+				identifier,
+				value: row.value,
+				expiresAt: new Date(now + CODE_TTL_MS + ROW_KEPT_MS),
+			})
+			.run();
+		await requirePending();
+		mayHaveSource = true;
+		const created = await stub.manageSource(session.user.id, {
+			kind: "create",
+			id: sourceId,
+			notAfter,
+			input: {
+				teamId: team.id,
+				product: asked.product,
+				name: asked.name,
+				linkOrigins: asked.linkOrigins,
+				lowestSeverity: input.lowestSeverity,
+				closeWhenCleared: input.closeWhenCleared,
+			},
+		});
+		if (!created.ok) {
+			// The object definitely refused the insert. In particular, an id already in use belongs
+			// to someone else and must never be rolled back by this request.
+			mayHaveSource = false;
+			failure = created.message;
+			throw new Error("source refused");
+		}
+		const keyFence = () => sql`${holds(row)} and ${Date.now()} <= ${notAfter}`;
+		if (!(await makeSourceKey(db, workspaceId, sourceId, key, keyFence)))
+			throw new Error("key refused");
+		const issued = await stub.manageSource(session.user.id, { kind: "keyCreated", id: sourceId });
+		if (!issued.ok) throw new Error("source no longer accepts keys");
+		if (input.assigneeId !== null) {
+			await requirePending();
+			const assigned = await stub.manageSource(session.user.id, {
+				kind: "assign",
+				id: sourceId,
+				assigneeId: input.assigneeId,
+			});
+			if (!assigned.ok) {
+				failure = assigned.message;
+				throw new Error("assignment refused");
+			}
+		}
+		const expiry = Math.floor(Date.now() / 1000) + SOURCE_UNDO_SECONDS;
+		const sealed: SourceSealed = {
+			kind: "source",
+			sourceKey: key.secret,
+			endpoint: new URL("/api/events", origin).href,
+			source: { id: sourceId, name: asked.name, product: asked.product },
+			workspace: { id: workspaceId, slug: input.workspace, name: membership.workspaceName },
+			team,
+			undo: await signUndo(SOURCE_UNDO_PURPOSE, ["source", workspaceId, sourceId, key.id], expiry),
+			undoUntil: new Date(expiry * 1000).toISOString(),
+		};
+		const ciphertext = await seal(code, identifier, asked.challenge, JSON.stringify(sealed));
+		const until = Date.now() + CODE_TTL_MS;
+		const ready = await db
+			.update(schema.verification)
+			.set({
+				value: JSON.stringify({
+					...pending,
+					state: "ready",
+					v: 1,
+					challenge: asked.challenge,
+					goodUntil: until,
+					sweepAt: until,
+					...ciphertext,
+				}),
+			})
+			.where(sameRow(row))
+			.returning({ id: schema.verification.id })
+			.get();
+		if (!ready) throw new Error("approval expired");
+	} catch {
+		try {
+			// A lost ready reply or a sweep transfers ownership away from this pending value.
+			const status = mayHaveSource ? await takeBackSource(row, pending, "approval failed") : "gone";
+			if (status !== "retry" && status !== "withinGrace")
+				await db.delete(verification).where(sameRow(row)).run();
+		} catch {
+			// The pending row stays for the sweep if either store was unavailable.
+		}
+		return refused(failure);
+	}
+	await reportAudit(db, workspaceId, {
+		actorId: session.user.id,
+		action: "source.connected",
+		target: { type: "source", id: sourceId, label: asked.name },
+		detail: { origin: asked.origin },
+	}).catch((error) => console.error("connect: audit log", error));
+	return { ok: true, redirect: returnAddress(asked.returnTo, { code, state: asked.state }) };
+}
+
 async function removeAgentAgain(headers: Headers, agentId: string): Promise<boolean> {
 	try {
 		await getAuth().api.deleteAgent({ headers, body: { agentId } });
@@ -626,7 +1013,7 @@ function messageOf(error: unknown, fallback: string): string {
 // The one-time code's row.
 
 async function identifierOf(code: string): Promise<string> {
-	return `${IDENTIFIER_PREFIX}${toBase64Url(await sha256(new TextEncoder().encode(code)))}`;
+	return `${CONNECT_PREFIX}${toBase64Url(await sha256(new TextEncoder().encode(code)))}`;
 }
 
 /** What the challenge for a verifier is: its SHA-256 as unpadded base64url. */
@@ -696,7 +1083,7 @@ async function open(
 
 // The undo token.
 
-async function undoKey() {
+async function undoKey(purpose: string) {
 	const secret = await crypto.subtle.importKey(
 		"raw",
 		new TextEncoder().encode(env.BETTER_AUTH_SECRET),
@@ -709,7 +1096,7 @@ async function undoKey() {
 			name: "HKDF",
 			hash: "SHA-256",
 			salt: new Uint8Array(),
-			info: new TextEncoder().encode(UNDO_PURPOSE),
+			info: new TextEncoder().encode(purpose),
 		},
 		secret,
 		{ name: "HMAC", hash: "SHA-256" },
@@ -718,44 +1105,58 @@ async function undoKey() {
 	);
 }
 
-function undoMessage(workspaceId: string, agentId: string, webhookId: string, expires: string) {
-	return new TextEncoder().encode(
-		`${UNDO_PURPOSE}:${workspaceId}:${agentId}:${webhookId}:${expires}`,
-	);
+function undoMessage(purpose: string, parts: string[]) {
+	return new TextEncoder().encode([purpose, ...parts].join(":"));
 }
 
-/** A token that names one workspace, agent member and webhook, good for ten minutes. */
-export async function undoToken(
+async function signUndo(purpose: string, ids: string[], expiry: number) {
+	const expires = String(expiry);
+	const parts = [...ids, expires];
+	const mac = await crypto.subtle.sign("HMAC", await undoKey(purpose), undoMessage(purpose, parts));
+	return [...parts, toBase64Url(new Uint8Array(mac))].join(".");
+}
+
+/** Keep the original agent token's wire format and MAC. */
+export function undoToken(
 	workspaceId: string,
 	agentId: string,
 	webhookId: string,
 	now = Date.now(),
-): Promise<string> {
-	const expires = String(Math.floor(now / 1000) + UNDO_TTL_SECONDS);
-	const mac = await crypto.subtle.sign(
-		"HMAC",
-		await undoKey(),
-		undoMessage(workspaceId, agentId, webhookId, expires),
+) {
+	return signUndo(
+		UNDO_PURPOSE,
+		[workspaceId, agentId, webhookId],
+		Math.floor(now / 1000) + UNDO_TTL_SECONDS,
 	);
-	return [workspaceId, agentId, webhookId, expires, toBase64Url(new Uint8Array(mac))].join(".");
 }
 
 async function readUndoToken(token: string) {
-	const [workspaceId = "", agentId = "", webhookId = "", expires = "", signature = "", ...rest] =
-		token.split(".");
-	if (rest.length > 0 || !/^\d{1,12}$/.test(expires)) return null;
-	if (![workspaceId, agentId, webhookId].every((part) => ID.test(part))) return null;
+	const parts = token.split(".");
+	const signature = parts.pop() ?? "";
 	const mac = fromBase64Url(signature);
 	if (!mac || mac.length !== 32) return null;
-	// `verify` compares in constant time.
-	const valid = await crypto.subtle.verify(
-		"HMAC",
-		await undoKey(),
-		mac,
-		undoMessage(workspaceId, agentId, webhookId, expires),
-	);
-	if (!valid || Number(expires) * 1000 <= Date.now()) return null;
-	return { workspaceId, agentId, webhookId };
+	const source = parts.length === 5 && parts[0] === "source";
+	const [workspaceId = "", id = "", linkedId = "", expires = "", ...extra] = source
+		? parts.slice(1)
+		: parts;
+	if (extra.length || !/^\d{1,12}$/.test(expires) || Number(expires) * 1000 <= Date.now())
+		return null;
+	if (![workspaceId, id, linkedId].every((part) => ID.test(part))) return null;
+	// Each kind signs under its own key and purpose. Its format must also agree with that key.
+	for (const purpose of [UNDO_PURPOSE, SOURCE_UNDO_PURPOSE]) {
+		const valid = await crypto.subtle.verify(
+			"HMAC",
+			await undoKey(purpose),
+			mac,
+			undoMessage(purpose, parts),
+		);
+		if (!valid) continue;
+		if (source && purpose === SOURCE_UNDO_PURPOSE)
+			return { kind: "source" as const, workspaceId, sourceId: id, keyId: linkedId };
+		if (!source && purpose === UNDO_PURPOSE)
+			return { kind: "agent" as const, workspaceId, agentId: id };
+	}
+	return null;
 }
 
 // Small helpers.

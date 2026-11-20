@@ -922,3 +922,90 @@ it("A16: a closed first status prevents a refusal notice", async () => {
 	expect(await send()).toMatchObject({ status: 429 });
 	expect(await snapshot()).toEqual(before);
 });
+
+it("a revocation after sealing prevents the live holder from finishing removal", async () => {
+	const { ws, sourceId, snapshot } = await setup();
+	const holder = "key-1:claim";
+	expect(await ws.removeConnectedSource(sourceId, holder)).toBe("sealed");
+	expect(
+		await ws.revokeSourceKey(owner.id, {
+			kind: "prepareRevoke",
+			id: sourceId,
+			keyId: "key-1",
+			listed: true,
+		}),
+	).toMatchObject({ ok: true });
+	expect(await ws.finishConnectedSourceRemoval(sourceId, holder, "undo")).toBe("revoked");
+	expect((await snapshot()).sources).toMatchObject([{ id: sourceId, paused: false }]);
+});
+
+it("taking back a source seals it against events, and only that connection can finish its seal", async () => {
+	const { ws, send, sourceId, snapshot } = await setup();
+	expect(await ws.removeConnectedSource("absent", "key-1")).toBe("gone");
+	expect(await send({ state: "dismissed" })).toMatchObject({ status: 200 });
+	expect(await ws.sourceEvent(sourceId, "key-1", null, workspaceUrl)).toMatchObject({
+		status: 400,
+	});
+	expect(await ws.removeConnectedSource(sourceId, "key-1")).toBe("sealed");
+	expect(await send()).toMatchObject({ status: 503 });
+	expect(await ws.removeConnectedSource(sourceId, "another")).toBe("busy");
+	await ws.releaseConnectedSource(sourceId, "another");
+	expect(await send()).toMatchObject({ status: 503 });
+	expect(await ws.finishConnectedSourceRemoval(sourceId, "another", "undo")).toBe("notHeld");
+	expect(await ws.finishConnectedSourceRemoval(sourceId, "key-1", "undo")).toBe("removed");
+	expect(await ws.removeConnectedSource(sourceId, "key-1")).toBe("gone");
+	expect((await snapshot()).sources).toHaveLength(0);
+	const log = await ws.auditLog(owner, {});
+	expect(log.ok && log.value.events[0]).toMatchObject({
+		actorId: null,
+		action: "source.takenBack",
+		detail: { reason: "undo" },
+		target: { id: sourceId },
+	});
+});
+
+it("a concurrent accepted event wins against take-back", async () => {
+	const { ws, send, sourceId, snapshot } = await setup();
+	const [event, seal] = await Promise.all([send(), ws.removeConnectedSource(sourceId, "key-1")]);
+	expect(event).toMatchObject({ status: 200 });
+	expect(seal).toBe("heard");
+	expect(await ws.finishConnectedSourceRemoval(sourceId, "key-1", "undo")).toBe("notHeld");
+	expect((await snapshot()).signals).toHaveLength(1);
+});
+
+it("a refusal that files a notice keeps the source even when it accepted no event", async () => {
+	const { ws, send, sourceId, snapshot } = await setup();
+	for (let i = 0; i < CALLS_PER_MINUTE; i++)
+		expect(await send({ state: "cleared" })).toMatchObject({ status: 200 });
+	expect(await send()).toMatchObject({ status: 429 });
+	const saved = await snapshot();
+	expect(saved.sources[0]?.lastHeardAt).toBeNull();
+	expect(saved.signals).toHaveLength(0);
+	expect(saved.issues).toHaveLength(1);
+	expect(await ws.removeConnectedSource(sourceId, "key-1")).toBe("heard");
+});
+
+it.each(["signal", "usage", "last heard", "last refused"])(
+	"keeps a source with only %s activity, including on a seal retry",
+	async (activity) => {
+		const { ws, sourceId, send } = await setup();
+		expect(await send()).toMatchObject({ status: 200 });
+		await runInDurableObject(ws, (_, state) => {
+			const sql = state.storage.sql;
+			if (activity !== "signal") sql.exec("DELETE FROM signals");
+			if (activity !== "usage") sql.exec("UPDATE sources SET usage='[]'");
+			if (activity !== "last heard") sql.exec("UPDATE sources SET last_heard_at=NULL");
+			if (activity === "last refused") sql.exec("UPDATE sources SET last_refused_at=1");
+		});
+		expect(await ws.removeConnectedSource(sourceId, "key-1")).toBe("heard");
+		await runInDurableObject(ws, (_, state) => {
+			state.storage.sql.exec("UPDATE sources SET removing=1, paused=1");
+			state.storage.sql.exec(
+				"INSERT INTO meta(key,value) VALUES(?,?)",
+				"source-connect-seal:" + sourceId,
+				JSON.stringify({ holder: "key-1", expiresAt: Date.now() + 120_000, paused: true }),
+			);
+		});
+		expect(await ws.removeConnectedSource(sourceId, "key-1")).toBe("heard");
+	},
+);

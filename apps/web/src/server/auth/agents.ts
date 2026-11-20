@@ -6,7 +6,7 @@ import {
 	createAuthMiddleware,
 	sessionMiddleware,
 } from "better-auth/api";
-import { and, asc, count, eq, like, notExists, or } from "drizzle-orm";
+import { and, asc, count, eq, exists, like, notExists, or, type SQL } from "drizzle-orm";
 import * as z from "zod";
 import type { Database } from "../db";
 import { schema } from "../db";
@@ -134,32 +134,31 @@ function deleteAgentRows(db: Database, agentId: string) {
 	]);
 }
 
-/**
- * Deletes an agent member of that workspace, for the one who made it through a connection and
- * asks to undo it. Not an admin's change, so no session is involved: whoever calls this has
- * checked the signed token. The agent goes only if it still is an agent of that workspace, and
- * the answer is its name, or null when there was nothing to delete.
- */
+/** Deletes the named workspace's agent for a signed undo or a cleanup holding its claim. */
 export async function removeAgentOf(
 	db: Database,
 	workspaceId: string,
 	agentId: string,
+	condition?: SQL,
 ): Promise<string | null> {
-	const found = await db
-		.select({ name: schema.user.name })
-		.from(schema.member)
-		.innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
+	const { member, user } = schema;
+	const membership = db
+		.select({ id: member.id })
+		.from(member)
 		.where(
 			and(
-				eq(schema.member.organizationId, workspaceId),
-				eq(schema.member.userId, agentId),
-				eq(schema.member.role, AGENT_ROLE),
+				eq(member.organizationId, workspaceId),
+				eq(member.userId, agentId),
+				eq(member.role, AGENT_ROLE),
 			),
-		)
+		);
+	// Membership and keys cascade from the user in this same statement.
+	const removed = await db
+		.delete(user)
+		.where(and(eq(user.id, agentId), exists(membership), condition))
+		.returning({ name: user.name })
 		.get();
-	if (!found) return null;
-	await deleteAgentRows(db, agentId);
-	return found.name;
+	return removed?.name ?? null;
 }
 
 export interface AgentKeyInfo {

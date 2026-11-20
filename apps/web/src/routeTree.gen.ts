@@ -21,6 +21,7 @@ import { Route as WorkspaceProjectsRouteImport } from './routes/$workspace/proje
 import { Route as WorkspaceProposalsRouteImport } from './routes/$workspace/proposals'
 import { Route as WorkspaceSettingsRouteImport } from './routes/$workspace/settings'
 import { Route as ConnectAgentRouteImport } from './routes/connect.agent'
+import { Route as ConnectSourceRouteImport } from './routes/connect.source'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite.$invitationId'
 import { Route as OauthConsentRouteImport } from './routes/oauth.consent'
 import { Route as SettingsAccountRouteImport } from './routes/settings.account'
@@ -107,6 +108,11 @@ const WorkspaceSettingsRoute = WorkspaceSettingsRouteImport.update({
 const ConnectAgentRoute = ConnectAgentRouteImport.update({
   id: '/connect/agent',
   path: '/connect/agent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConnectSourceRoute = ConnectSourceRouteImport.update({
+  id: '/connect/source',
+  path: '/connect/source',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InviteInvitationIdRoute = InviteInvitationIdRouteImport.update({
@@ -268,6 +274,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/proposals': typeof WorkspaceProposalsRoute
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/connect/agent': typeof ConnectAgentRoute
+  '/connect/source': typeof ConnectSourceRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/settings/account': typeof SettingsAccountRoute
@@ -307,6 +314,7 @@ export interface FileRoutesByTo {
   '/$workspace/projects': typeof WorkspaceProjectsRoute
   '/$workspace/proposals': typeof WorkspaceProposalsRoute
   '/connect/agent': typeof ConnectAgentRoute
+  '/connect/source': typeof ConnectSourceRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/settings/account': typeof SettingsAccountRoute
@@ -349,6 +357,7 @@ export interface FileRoutesById {
   '/$workspace/proposals': typeof WorkspaceProposalsRoute
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/connect/agent': typeof ConnectAgentRoute
+  '/connect/source': typeof ConnectSourceRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/settings/account': typeof SettingsAccountRoute
@@ -392,6 +401,7 @@ export interface FileRouteTypes {
     | '/$workspace/proposals'
     | '/$workspace/settings'
     | '/connect/agent'
+    | '/connect/source'
     | '/invite/$invitationId'
     | '/oauth/consent'
     | '/settings/account'
@@ -431,6 +441,7 @@ export interface FileRouteTypes {
     | '/$workspace/projects'
     | '/$workspace/proposals'
     | '/connect/agent'
+    | '/connect/source'
     | '/invite/$invitationId'
     | '/oauth/consent'
     | '/settings/account'
@@ -472,6 +483,7 @@ export interface FileRouteTypes {
     | '/$workspace/proposals'
     | '/$workspace/settings'
     | '/connect/agent'
+    | '/connect/source'
     | '/invite/$invitationId'
     | '/oauth/consent'
     | '/settings/account'
@@ -509,6 +521,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   ConnectAgentRoute: typeof ConnectAgentRoute
+  ConnectSourceRoute: typeof ConnectSourceRoute
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
   OauthConsentRoute: typeof OauthConsentRoute
   SettingsAccountRoute: typeof SettingsAccountRoute
@@ -599,6 +612,13 @@ declare module '@tanstack/react-router' {
       path: '/connect/agent'
       fullPath: '/connect/agent'
       preLoaderRoute: typeof ConnectAgentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/connect/source': {
+      id: '/connect/source'
+      path: '/connect/source'
+      fullPath: '/connect/source'
+      preLoaderRoute: typeof ConnectSourceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/invite/$invitationId': {
@@ -878,6 +898,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   ConnectAgentRoute: ConnectAgentRoute,
+  ConnectSourceRoute: ConnectSourceRoute,
   InviteInvitationIdRoute: InviteInvitationIdRoute,
   OauthConsentRoute: OauthConsentRoute,
   SettingsAccountRoute: SettingsAccountRoute,
