@@ -1,4 +1,4 @@
-import { sourceIssueText } from "@gateweave/track-protocol";
+import { sourceIssueText, sourceLimitNotice, sourceReopenComment } from "@gateweave/track-protocol";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -83,9 +83,14 @@ it("R12: source reports render URLs, mentions, images and headings only as text"
 			title: text,
 			body: ["~~~~", "~~~", "---", text].join("\n"),
 		},
-		{ name: "https://www.example.com" },
+		{ name: text },
 	);
-	for (const html of [render(title), render(description)]) {
+	expect(title).toBe(text);
+	for (const html of [
+		description,
+		sourceLimitNotice(text, "ISSUES_PER_DAY").description,
+		sourceReopenComment(text),
+	].map(render)) {
 		expect(html).not.toMatch(/<(?:a|img|h[1-6])\b|data-mention=/);
 	}
 	expect(render(description)).toContain("<code");

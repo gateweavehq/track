@@ -1,4 +1,4 @@
-import { runInDurableObject } from "cloudflare:test";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import type { Signal, Source } from "@gateweave/track-protocol";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/durable-sqlite";
@@ -114,4 +114,12 @@ it("R52: the sources migration adds two empty tables without changing a populate
 		expect(current.length).toBe(previous.length + 2);
 	});
 	expect(await workspace.snapshot(owner)).toEqual(before);
+});
+
+it("R50: the pruning alarm takes no version in a workspace without sources", async () => {
+	const ws = await withTeam();
+	const before = await ws.snapshot(owner);
+	await runInDurableObject(ws, (_, state) => state.storage.setAlarm(Date.now()));
+	expect(await runDurableObjectAlarm(ws)).toBe(true);
+	expect(await ws.snapshot(owner)).toEqual(before);
 });

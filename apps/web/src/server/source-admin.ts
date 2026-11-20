@@ -1,10 +1,12 @@
 import { KEYS_PER_SOURCE, type SourceAction } from "@gateweave/track-protocol";
 import type { WorkspaceDO } from "@gateweave/track-sync-server";
 import type { Database } from "./db";
-import { makeSourceKey, removeSourceKeys } from "./source-keys";
+import { makeSourceKey, removeSourceKeys, sourceKeys } from "./source-keys";
 
-type Command = Parameters<WorkspaceDO["manageSource"]>[1];
-type Outcome = ReturnType<WorkspaceDO["manageSource"]>;
+export type SourceCommand =
+	| Parameters<WorkspaceDO["manageSource"]>[1]
+	| Parameters<WorkspaceDO["revokeSourceKey"]>[1];
+type Outcome = ReturnType<WorkspaceDO["manageSource"] | WorkspaceDO["revokeSourceKey"]>;
 export type SourceChangeResult =
 	| { ok: true; value: { secret?: string } }
 	| { ok: false; message: string; retryAfter?: number };
@@ -13,7 +15,7 @@ export type SourceChangeResult =
 export async function applySourceAction(
 	db: Database,
 	workspaceId: string,
-	manage: (command: Command) => Promise<Outcome>,
+	manage: (command: SourceCommand) => Promise<Outcome>,
 	action: SourceAction,
 ): Promise<SourceChangeResult> {
 	async function issueKey(id: string) {
@@ -23,16 +25,17 @@ export async function applySourceAction(
 				ok: false as const,
 				message: `A source can have ${KEYS_PER_SOURCE} keys. Revoke one first.`,
 			};
+		let audit: Outcome;
 		try {
-			const audit = await manage({ kind: "keyCreated", id });
-			if (audit.ok) return { ok: true as const, value: { secret: key.secret } };
-			// A deletion may have passed the earlier check and already removed all its keys.
-			await removeSourceKeys(db, workspaceId, id, key.id);
-			return audit;
+			audit = await manage({ kind: "keyCreated", id });
 		} catch (error) {
 			await removeSourceKeys(db, workspaceId, id, key.id);
 			throw error;
 		}
+		if (audit.ok) return { ok: true as const, value: { secret: key.secret } };
+		// If cleanup fails, D1 still lists the key for an admin to revoke.
+		await removeSourceKeys(db, workspaceId, id, key.id);
+		return audit;
 	}
 	const done = { ok: true as const, value: {} };
 	switch (action.kind) {
@@ -42,14 +45,20 @@ export async function applySourceAction(
 			// If D1 is unavailable, settings still shows the source. Its first key can be made there.
 			return issueKey(made.value.id);
 		}
-		case "makeKey":
-		case "revokeKey": {
+		case "makeKey": {
 			const allowed = await manage({ kind: "checkKey", id: action.id });
+			return allowed.ok ? issueKey(action.id) : allowed;
+		}
+		case "revokeKey": {
+			const { id, keyId } = action;
+			const listed = (await sourceKeys(db, workspaceId)).some(
+				(k) => k.sourceId === id && k.id === keyId,
+			);
+			// Keep proof of the D1 row across a failed delete or a lost audit response.
+			const allowed = await manage({ kind: "prepareRevoke", id, keyId, listed });
 			if (!allowed.ok) return allowed;
-			if (action.kind === "makeKey") return issueKey(action.id);
-			const removed = await removeSourceKeys(db, workspaceId, action.id, action.keyId);
-			if (removed.meta.changes === 0) return { ok: false, message: "Key not found" };
-			const audit = await manage({ kind: "keyRevoked", id: action.id });
+			await removeSourceKeys(db, workspaceId, id, keyId);
+			const audit = await manage({ kind: "keyRevoked", id, keyId });
 			return audit.ok ? done : audit;
 		}
 		case "delete": {

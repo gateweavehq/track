@@ -39,6 +39,7 @@ function SourceSettings() {
 	const admin = isAdmin(useMyRole());
 	const { workspace } = Route.useParams();
 	const { sources, keys } = Route.useLoaderData();
+	const orphanKeys = keys.filter((key) => !sources.some((source) => source.id === key.sourceId));
 	const router = useRouter();
 	const [adding, setAdding] = useState(false);
 	const [secret, setSecret] = useState("");
@@ -55,7 +56,8 @@ function SourceSettings() {
 			await router.invalidate();
 			return true;
 		} catch {
-			toast.error("Could not save the source. Reload to check its settings.");
+			if (action.kind === "makeKey" || action.kind === "create") await router.invalidate();
+			toast.error("Could not save the source. Check its settings and try again.");
 			return false;
 		} finally {
 			setBusy(false);
@@ -93,6 +95,12 @@ function SourceSettings() {
 					run={run}
 				/>
 			))}
+			{orphanKeys.length > 0 && (
+				<section aria-label="Keys for removed sources">
+					<h3>Keys for removed sources</h3>
+					<KeyList keys={orphanKeys} run={run} />
+				</section>
+			)}
 		</fieldset>
 	);
 }
@@ -123,7 +131,15 @@ function SourceForm({ source, run, done }: { source?: Source; run: Run; done: ()
 		const { linkOrigins, ...input } = settings.data;
 		const saved = await run(
 			source
-				? { kind: "update", id: source.id, input }
+				? {
+						kind: "update",
+						id: source.id,
+						input: Object.fromEntries(
+							Object.entries(input).filter(
+								([key, value]) => source[key as keyof typeof input] !== value,
+							),
+						),
+					}
 				: { kind: "create", input: { ...input, linkOrigins } },
 		);
 		if (saved) done();
@@ -254,16 +270,7 @@ function SourceRow({ source, keys, run }: { source: Source; keys: SourceKey[]; r
 				</div>
 			)}
 			<h4 className="text-sm font-medium">Keys</h4>
-			<ul>
-				{keys.map((key) => (
-					<li key={key.id} className="flex items-center gap-3">
-						<code>{key.start}…</code>
-						<Button variant="ghost" onClick={() => run({ kind: "revokeKey", id, keyId: key.id })}>
-							Revoke
-						</Button>
-					</li>
-				))}
-			</ul>
+			<KeyList keys={keys} run={run} />
 			<Button
 				variant="outline"
 				disabled={keys.length >= KEYS_PER_SOURCE}
@@ -272,5 +279,23 @@ function SourceRow({ source, keys, run }: { source: Source; keys: SourceKey[]; r
 				Make key
 			</Button>
 		</section>
+	);
+}
+
+function KeyList({ keys, run }: { keys: SourceKey[]; run: Run }) {
+	return (
+		<ul>
+			{keys.map((key) => (
+				<li key={key.id} className="flex items-center gap-3">
+					<code>{key.start}…</code>
+					<Button
+						variant="ghost"
+						onClick={() => run({ kind: "revokeKey", id: key.sourceId, keyId: key.id })}
+					>
+						Revoke
+					</Button>
+				</li>
+			))}
+		</ul>
 	);
 }

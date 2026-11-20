@@ -90,7 +90,7 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    the object checks their signature against the connection's secret before reading them.
    The events gateway (`apps/web/src/server/events.ts`, `POST /api/events`) admits a source by its
    bearer key hash in D1 and its active source row in the workspace object. It reads no cookies.
-   Only the admin settings gateway removes a source: it disables writes, deletes its D1 keys,
+   Only the admin settings gateway removes a source: it seals the source so a key made during removal cannot write, deletes its D1 keys,
    then removes its signals and source through the object. Issues stay in the workspace.
    The unsubscribe link in an inbox email (`apps/web/src/server/unsubscribe.ts`) carries no
    session either: its token, signed with `BETTER_AUTH_SECRET`, names the member, and it can only

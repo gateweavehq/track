@@ -13,7 +13,7 @@ it("R7: source events require the finite state and severity lists and a millisec
 	for (const change of [
 		{ key: "" },
 		{ title: "" },
-		{ title: "a\0b" },
+		{ title: "\0" },
 		{ severity: "warn" },
 		{ state: "running" },
 		{ sentAt: 12 },

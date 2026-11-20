@@ -5,10 +5,10 @@ import {
 	type SourceAction,
 	sourceAction,
 } from "@gateweave/track-protocol";
-import { count, eq } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "./audit";
-import { signals, sources, teams } from "./db/schema";
+import { auditEvents, meta, signals, sources, teams } from "./db/schema";
 import { ChangeSet } from "./log";
 import { MutationRejected } from "./rejected";
 import { activeMember, type Db, toSource } from "./state";
@@ -19,10 +19,57 @@ export class SourceLimit extends MutationRejected {
 	}
 }
 
+const id = z.string().min(1).max(64);
 const internalAction = z.strictObject({
-	kind: z.enum(["prepareRemoval", "finishRemoval", "checkKey", "keyCreated", "keyRevoked"]),
-	id: z.string().min(1).max(64),
+	kind: z.enum(["prepareRemoval", "finishRemoval", "checkKey", "keyCreated"]),
+	id,
 });
+const keyRevocation = z.discriminatedUnion("kind", [
+	z.strictObject({ kind: z.literal("prepareRevoke"), id, keyId: id, listed: z.boolean() }),
+	z.strictObject({ kind: z.literal("keyRevoked"), id, keyId: id }),
+]);
+export type KeyRevocation = z.infer<typeof keyRevocation>;
+
+export function revokeSourceKey(db: Db, memberId: string, command: KeyRevocation, now: number) {
+	const action = keyRevocation.parse(command);
+	const { id, keyId } = action;
+	const pending = "source-revoke:" + keyId;
+	const completed = db
+		.select({ id: auditEvents.id })
+		.from(auditEvents)
+		.where(
+			and(
+				eq(auditEvents.action, "source.keyRevoked"),
+				eq(auditEvents.targetId, id),
+				sql`json_extract(${auditEvents.detail}, '$.keyId') = ${keyId}`,
+			),
+		)
+		.limit(1)
+		.get();
+	if (completed) return;
+	const proof = db.select().from(meta).where(eq(meta.key, pending)).get();
+	if (proof && proof.value !== id) throw new MutationRejected("not_found", "Key not found");
+	if (action.kind === "prepareRevoke") {
+		if (proof) return;
+		if (!action.listed) throw new MutationRejected("not_found", "Key not found");
+		db.insert(meta).values({ key: pending, value: id }).run();
+		return;
+	}
+	if (!proof) throw new MutationRejected("not_found", "Key not found");
+	const source = db.select({ name: sources.name }).from(sources).where(eq(sources.id, id)).get();
+	db.delete(meta).where(eq(meta.key, pending)).run();
+	recordAudit(
+		db,
+		{
+			actorId: memberId,
+			action: "source.keyRevoked",
+			target: { type: "source", id, label: source?.name ?? null },
+			detail: { keyId },
+		},
+		now,
+	);
+}
+
 export type SourceAdminAction =
 	| Extract<SourceAction, { kind: "create" | "update" | "assign" | "pause" }>
 	| z.infer<typeof internalAction>;
@@ -35,7 +82,11 @@ export function manageSource(db: Db, memberId: string, command: SourceAdminActio
 	function audit(source: Source, action: AuditAction) {
 		recordAudit(
 			db,
-			{ actorId: memberId, action, target: { type: "source", id: source.id, label: source.name } },
+			{
+				actorId: memberId,
+				action,
+				target: { type: "source", id: source.id, label: source.name },
+			},
 			now,
 		);
 	}
@@ -79,7 +130,10 @@ export function manageSource(db: Db, memberId: string, command: SourceAdminActio
 		case "pause":
 		case "assign":
 		case "update": {
-			if (action.kind === "update") requireTeam(action.input.teamId);
+			if (action.kind === "update") {
+				if (!Object.keys(action.input).length) break;
+				if (action.input.teamId !== undefined) requireTeam(action.input.teamId);
+			}
 			if (
 				action.kind === "assign" &&
 				action.assigneeId !== null &&
@@ -101,7 +155,7 @@ export function manageSource(db: Db, memberId: string, command: SourceAdminActio
 			break;
 		}
 		case "prepareRemoval":
-			// Seal it first. An interrupted D1 revocation can then only leave an inert source.
+			// Seal first so even a key made during removal cannot write before D1 revocation finishes.
 			if (!row.removing) {
 				source = toSource(
 					db
@@ -133,8 +187,7 @@ export function manageSource(db: Db, memberId: string, command: SourceAdminActio
 		case "checkKey":
 			break;
 		case "keyCreated":
-		case "keyRevoked":
-			audit(source, action.kind === "keyCreated" ? "source.keyCreated" : "source.keyRevoked");
+			audit(source, "source.keyCreated");
 			break;
 		default:
 			throw new MutationRejected("invalid", "This action needs the settings gateway");

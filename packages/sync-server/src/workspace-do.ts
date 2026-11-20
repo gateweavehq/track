@@ -77,6 +77,7 @@ import {
 } from "./github";
 import { fileRequest, findIntake, type IntakeTarget, intakeRequest } from "./intake";
 import {
+	ChangeSet,
 	compact,
 	currentVersion,
 	oplogFloor,
@@ -150,10 +151,16 @@ import {
 import {
 	nextSignalExpiry,
 	processSourceEvent,
-	pruneClearedSignals,
+	pruneExpiredSignals,
 	type SourceEventResult,
 } from "./source-events";
-import { manageSource, type SourceAdminAction, SourceLimit } from "./source-management";
+import {
+	type KeyRevocation,
+	manageSource,
+	revokeSourceKey,
+	type SourceAdminAction,
+	SourceLimit,
+} from "./source-management";
 import {
 	activeMember,
 	type Db,
@@ -560,6 +567,28 @@ export class WorkspaceDO extends DurableObject {
 			};
 		}
 		return { ok: true, value: this.#db.select().from(schema.sources).all().map(toSource) };
+	}
+
+	/** A D1 key can outlive its source after a failed cleanup. Revoking it still requires an admin. */
+	revokeSourceKey(memberId: string, command: KeyRevocation): WebhookResult<{ id: string }> {
+		const member = activeMember(this.#db, memberId);
+		if (!member || !isAdminRole(member.role))
+			return {
+				ok: false,
+				reason: "forbidden",
+				message: "Only workspace admins can manage sources",
+			};
+		try {
+			this.#write(() => {
+				const now = Date.now();
+				revokeSourceKey(this.#db, memberId, command, now);
+				return new ChangeSet(this.#db, memberId, now).result();
+			});
+			return { ok: true, value: { id: command.id } };
+		} catch (error) {
+			if (!(error instanceof MutationRejected)) throw error;
+			return { ok: false, reason: error.reason, message: error.message };
+		}
 	}
 
 	/** Gateway only. The caller has already verified this member's current role in D1. */
@@ -1125,7 +1154,7 @@ export class WorkspaceDO extends DurableObject {
 			this.#move = null;
 		}
 		const now = Date.now();
-		this.#broadcast(this.ctx.storage.transactionSync(() => pruneClearedSignals(this.#db, now)));
+		this.#broadcast(this.ctx.storage.transactionSync(() => pruneExpiredSignals(this.#db, now)));
 		// Deliveries this queues go out below, in this same run.
 		this.#broadcast(this.ctx.storage.transactionSync(() => advanceCycles(this.#db, now)));
 		this.#broadcast(this.ctx.storage.transactionSync(() => remindDue(this.#db, now)));

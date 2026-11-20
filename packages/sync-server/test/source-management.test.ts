@@ -100,3 +100,26 @@ it("R27: the workspace refuses the next source at its limit", async () => {
 		retryAfter: 86400,
 	});
 });
+
+it("A23: updating only the name preserves severity, close policy and origins", async () => {
+	const ws = await workspace();
+	const { id } = ok(
+		await ws.manageSource(owner.id, {
+			kind: "create",
+			input: {
+				...input,
+				lowestSeverity: "low",
+				closeWhenCleared: true,
+				linkOrigins: ["https://example.com"],
+			},
+		}),
+	);
+	expect(
+		ok(await ws.manageSource(owner.id, { kind: "update", id, input: { name: "New name" } })),
+	).toMatchObject({
+		name: "New name",
+		lowestSeverity: "low",
+		closeWhenCleared: true,
+		linkOrigins: ["https://example.com"],
+	});
+});

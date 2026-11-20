@@ -29,7 +29,10 @@ export async function editSource(slug: string, request: Request, action: SourceA
 	return applySourceAction(
 		db,
 		found.workspaceId,
-		(command) => found.stub.manageSource(found.id, command),
+		(command) =>
+			command.kind === "prepareRevoke" || command.kind === "keyRevoked"
+				? found.stub.revokeSourceKey(found.id, command)
+				: found.stub.manageSource(found.id, command),
 		action,
 	);
 }

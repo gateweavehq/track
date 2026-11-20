@@ -2110,12 +2110,14 @@ a limit. The lookup identifies the workspace, its jurisdiction and the source. T
 admits the event only while the source exists and is active. Cookies confer no access.
 The public demo refuses events.
 
+Senders stamp events with ISO 8601 timestamps at millisecond precision. Equal timestamps are retries;
+the object rejects timestamps more than five minutes ahead of its clock.
 Each source reports into one team. A signal belongs to the source that supplied its key.
 The object applies a change and records its issue, signal and oplog entries together.
 Source keys stay out of the workspace replica. Owners and admins manage them in
 the Sources page in Settings. To rotate a key, make a second key, switch the sender, then revoke the
 old key. The settings gateway checks D1 membership and the object checks the admin again.
-Removal disables the source, deletes its keys in D1, then removes the signals and source
+Removal seals the source so a key made during removal cannot write, deletes its keys in D1, then removes the signals and source
 through a gateway-only object call. Issues already filed remain in their teams.
 
 ### GitHub

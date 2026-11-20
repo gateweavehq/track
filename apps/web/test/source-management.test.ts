@@ -1,9 +1,14 @@
-import { type Snapshot, SOURCES_PER_WORKSPACE, type SourceAction } from "@gateweave/track-protocol";
+import {
+	type AuditPage,
+	type Snapshot,
+	SOURCES_PER_WORKSPACE,
+	type SourceAction,
+} from "@gateweave/track-protocol";
 import type { WorkspaceDO } from "@gateweave/track-sync-server";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { createDb } from "../src/server/db";
 import { applyD1Migration, faulty, migratedD1 } from "../src/server/db/faulty-d1";
-import { applySourceAction } from "../src/server/source-admin";
+import { applySourceAction, type SourceCommand } from "../src/server/source-admin";
 import { findSourceByKey, sourceKeys } from "../src/server/source-keys";
 import { serverFunctions } from "./server-functions";
 import { startTrack } from "./track-worker";
@@ -36,8 +41,15 @@ async function setup() {
 	});
 	const injected = faulty(track.db as unknown as D1Database);
 	const db = createDb(injected.database);
-	const manage = (command: Parameters<WorkspaceDO["manageSource"]>[1]) =>
-		track.rpc<ReturnType<WorkspaceDO["manageSource"]>>(id, "manageSource", owner.id, command);
+	const manage = (command: SourceCommand) =>
+		track.rpc<ReturnType<WorkspaceDO["manageSource"] | WorkspaceDO["revokeSourceKey"]>>(
+			id,
+			command.kind === "prepareRevoke" || command.kind === "keyRevoked"
+				? "revokeSourceKey"
+				: "manageSource",
+			owner.id,
+			command,
+		);
 	const apply = (action: SourceAction) => applySourceAction(db, id, manage, action);
 	const made = await apply({
 		kind: "create",
@@ -285,3 +297,73 @@ it("R52: upgrading D1 adds only the empty key table and its indexes to an existi
 		await dispose();
 	}
 });
+
+it.each([false, true])(
+	"A21: retry audits a D1 revocation once after object failure (committed=%s)",
+	async (committed) => {
+		const { db, id, manage, apply, key, initial, owner } = await setup();
+		const action = { kind: "revokeKey", id: key.sourceId, keyId: key.id } as const;
+		await expect(
+			applySourceAction(
+				db,
+				id,
+				async (command) => {
+					if (command.kind === "keyRevoked") {
+						expect(await findSourceByKey(db, initial)).toBeNull();
+						if (committed) await manage(command);
+						throw Error("Audit unavailable");
+					}
+					return manage(command);
+				},
+				action,
+			),
+		).rejects.toThrow("Audit unavailable");
+		expect(await apply(action)).toMatchObject({ ok: true });
+		expect(await apply(action)).toMatchObject({ ok: true });
+		const log = await track.rpc<{ ok: true; value: AuditPage }>(id, "auditLog", owner, {});
+		expect(log.value.events.filter((e) => e.action === "source.keyRevoked")).toMatchObject([
+			{ target: { id: key.sourceId }, detail: { keyId: key.id } },
+		]);
+	},
+);
+
+it.each([false, true])(
+	"A21: settings list a partially created key after failed cleanup (source removed=%s)",
+	async (removed) => {
+		const { db, id, injected, manage, apply, key } = await setup();
+		const { cookie } = await addAdmin(id, "partial-source-key-" + removed);
+		injected.state.only = /delete from "source_key"/i;
+
+		await expect(
+			applySourceAction(
+				db,
+				id,
+				async (command) => {
+					if (removed && command.kind === "checkKey") {
+						const result = await manage(command);
+						expect(await apply({ kind: "delete", id: key.sourceId })).toMatchObject({ ok: true });
+						return result;
+					}
+					if (command.kind === "keyCreated") {
+						injected.state.failures = 1;
+						if (removed) return manage(command);
+						return { ok: false, reason: "not_found", message: "Source unavailable" };
+					}
+					return manage(command);
+				},
+				{ kind: "makeKey", id: key.sourceId },
+			),
+		).rejects.toThrow();
+		const remaining = (await sourceKeys(db, id)).find((row) => row.id !== key.id);
+		if (!remaining) throw Error("Missing partially created key");
+		expect((await serverFn("getSourceSettings", "GET", id, { cookie })).result).toMatchObject({
+			keys: expect.arrayContaining([remaining]),
+		});
+		expect(await apply({ kind: "revokeKey", id: key.sourceId, keyId: remaining.id })).toMatchObject(
+			{
+				ok: true,
+			},
+		);
+		expect(await sourceKeys(db, id)).toEqual(removed ? [] : [key]);
+	},
+);

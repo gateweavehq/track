@@ -171,6 +171,36 @@ it("R5: an existing D1 key cannot write while its source is paused or missing", 
 	}
 });
 
+it("R3: paused and missing sources spend the bad-key address allowance and return the same body", async () => {
+	const address = "192.0.2.73";
+	const bad = await send("bad", "{}", address);
+	const body = await bad.text();
+	await track.rpc(slug, "manageSource", owner.id, { kind: "pause", id: source.id, paused: true });
+	try {
+		for (let i = 1; i <= BAD_KEYS_PER_ADDRESS.hour; i++) {
+			if (i === 2)
+				await track.db
+					.prepare("UPDATE source_key SET source_id=? WHERE id=?")
+					.bind("missing", "key-1")
+					.run();
+			const response = await send(secret, "{}", address);
+			expect(response.status).toBe(404);
+			expect(await response.text()).toBe(body);
+			expect(response.headers.has("retry-after")).toBe(i === BAD_KEYS_PER_ADDRESS.hour);
+		}
+	} finally {
+		await track.db
+			.prepare("UPDATE source_key SET source_id=? WHERE id=?")
+			.bind(source.id, "key-1")
+			.run();
+		await track.rpc(slug, "manageSource", owner.id, {
+			kind: "pause",
+			id: source.id,
+			paused: false,
+		});
+	}
+});
+
 it("R6: a demo isolate refuses even a key and source that exist", async () => {
 	const response = await track.fetchIn(1, endpoint, {
 		method: "POST",

@@ -5,6 +5,8 @@ import { userText } from "./text";
 export const EVENT_MAX_BYTES = 16 * 1024;
 // U1 measures the payload with 4,000 characters of body text.
 export const EVENT_BODY_MAX = 4_000;
+// Allow sender clocks to lead the object by up to five minutes.
+export const EVENT_CLOCK_SKEW_MS = 5 * 60_000;
 // U2 measures Guard's largest scan.
 export const CALLS_PER_MINUTE = 60;
 // The connect endpoints already count bad calls per address over both windows.
@@ -53,7 +55,7 @@ const origin = link
 	)
 	.transform((value) => value.slice(0, -1));
 
-export const sourceSettingsSchema = z.strictObject({
+const settingsFields = {
 	name: userText
 		.trim()
 		.min(1)
@@ -61,8 +63,14 @@ export const sourceSettingsSchema = z.strictObject({
 		.regex(/^[^\r\n]+$/),
 	product: z.enum(SOURCE_PRODUCTS),
 	teamId: userText.min(1).max(64),
-	lowestSeverity: z.enum(SOURCE_THRESHOLDS).default("high"),
-	closeWhenCleared: z.boolean().default(false),
+	lowestSeverity: z.enum(SOURCE_THRESHOLDS),
+	closeWhenCleared: z.boolean(),
+};
+export const sourceUpdateSchema = z.strictObject(settingsFields).partial();
+export const sourceSettingsSchema = z.strictObject({
+	...settingsFields,
+	lowestSeverity: settingsFields.lowestSeverity.default("high"),
+	closeWhenCleared: settingsFields.closeWhenCleared.default(false),
 	linkOrigins: z.array(origin),
 });
 export type SourceSettings = z.infer<typeof sourceSettingsSchema>;
@@ -74,11 +82,7 @@ export const sourceEventSchema = z.strictObject({
 	sentAt: z.iso.datetime({ offset: true }).refine((date) => !/\.\d{4}/.test(date)),
 	severity: z.enum(SIGNAL_SEVERITIES),
 	// Ordinary issues, including an import of this one, accept up to 512 characters.
-	title: userText
-		.trim()
-		.min(1)
-		.max(512)
-		.refine((title) => escapeSourceText(title).length <= 512, "The escaped title is too long"),
+	title: z.string().transform(plainSourceTitle).pipe(userText.min(1).max(512)),
 	type: userText.min(1).optional(),
 	subject: userText.min(1).optional(),
 	body: userText.max(EVENT_BODY_MAX).optional(),
@@ -108,6 +112,13 @@ export interface Signal {
 	changedAt: number;
 }
 
+function plainSourceTitle(title: string) {
+	return title
+		.replace(/[\r\n\u2028\u2029]+/gu, " ")
+		.replace(/[\p{Cc}\u200b]/gu, "")
+		.trim();
+}
+
 export function escapeSourceText(text: string): string {
 	// GitHub-flavored Markdown autolinks again after interpreting backslash escapes. Break its
 	// three literal patterns before escaping the punctuation for links, images and mentions.
@@ -119,15 +130,25 @@ export function escapeSourceText(text: string): string {
 		.replace(/[\r\n]+/g, " ");
 }
 
+export function sourceLimitNotice(name: string, limit: string) {
+	return {
+		title: plainSourceTitle(`${name} reached ${limit}`),
+		description: `Track refused an event from ${escapeSourceText(name)} because it reached ${limit}.`,
+	};
+}
+
+export function sourceReopenComment(name: string) {
+	return escapeSourceText(name) + " reported this signal open again.";
+}
+
 export function sourceIssueText(event: SourceEvent, source: Pick<Source, "name">) {
-	const title = escapeSourceText(event.title);
 	const attribution = `Reported by ${escapeSourceText(source.name)}, a connected product, not a member`;
 	// A longer fence than any in the body also keeps our mention scanner inside the block.
 	const body = event.body ?? "";
 	const longest = Array.from(body.matchAll(/~+/g), (match) => match[0].length);
 	const fence = "~".repeat(Math.max(2, ...longest) + 1);
 	return {
-		title,
+		title: event.title,
 		description: body ? `${attribution}\n\n${fence}\n${body}\n${fence}` : attribution,
 	};
 }

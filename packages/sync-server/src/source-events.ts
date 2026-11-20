@@ -2,8 +2,8 @@ import {
 	ASSIGNED_PER_DAY,
 	BYTES_PER_DAY,
 	CALLS_PER_MINUTE,
+	EVENT_CLOCK_SKEW_MS,
 	EVENT_MAX_BYTES,
-	escapeSourceText,
 	ISSUES_PER_DAY,
 	type IssuePriority,
 	isClosedCategory,
@@ -17,10 +17,12 @@ import {
 	type Source,
 	sourceEventSchema,
 	sourceIssueText,
+	sourceLimitNotice,
+	sourceReopenComment,
 	WORKSPACE_ISSUES_PER_DAY,
 	WRITES_PER_DAY,
 } from "@gateweave/track-protocol";
-import { and, count, eq, isNull, lte, min } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { recordActivity } from "./activity";
 import { syncArchive } from "./archive";
 import * as schema from "./db/schema";
@@ -216,26 +218,14 @@ function refuse(
 	} as const;
 	if (source.lastRefusedAt !== null && source.lastRefusedAt > changes.now - DAY)
 		return { ...changes.result(), response };
-	const usage = source.usage.filter((entry) => entry.at > changes.now - DAY);
-	const times = workspaceIssues(db, changes.now);
-	const title = `${escapeSourceText(source.name)} reached ${limit}`;
-	const bytes = new TextEncoder().encode(title).length;
-	if (
-		usage.filter((entry) => entry.filed).length >= ISSUES_PER_DAY ||
-		times.length >= WORKSPACE_ISSUES_PER_DAY ||
-		usage.length >= WRITES_PER_DAY ||
-		usage.reduce((total, entry) => total + entry.bytes, bytes) > BYTES_PER_DAY
-	)
-		return { ...changes.result(), response };
+	const notice = sourceLimitNotice(source.name, limit);
 	const team = db.select().from(schema.teams).where(eq(schema.teams.id, source.teamId)).get();
 	const first = liveStatuses(teamStatuses(db, source.teamId))[0];
 	if (!team || !first || isClosedCategory(first.category)) return { ...changes.result(), response };
 	// The refusal notice is the single exception to refusing the event without filing anything.
-	fileIssue(db, changes, team, first.key, title, null, 0, null);
-	usage.push({ at: changes.now, bytes, filed: true, assigned: false, reopened: null });
-	countWorkspaceIssue(db, times, changes.now);
+	fileIssue(db, changes, team, first.key, notice.title, notice.description, 0, null);
 	db.update(schema.sources)
-		.set({ usage, lastRefusedAt: changes.now })
+		.set({ lastRefusedAt: changes.now })
 		.where(eq(schema.sources.id, source.id))
 		.run();
 	return finish(db, changes, source, response);
@@ -261,22 +251,27 @@ export function processSourceEvent(
 	if (!source || source.paused || source.removing)
 		return { ...changes.result(), response: { status: 404 } };
 	const calls = source.callTimes.filter((at) => at > now - 60_000);
-	if (calls.length >= CALLS_PER_MINUTE)
-		return refuse(db, changes, source, "CALLS_PER_MINUTE", (calls[0] ?? now) + 60_000);
-	const event = parsedEvent(raw);
+	const recent = [...calls, now].slice(-CALLS_PER_MINUTE);
 	// Admission accounting never takes a workspace version, even for late or unchanged events.
 	db.update(schema.sources)
-		.set({ callTimes: [...calls, now] })
+		.set({ callTimes: recent })
 		.where(eq(schema.sources.id, source.id))
 		.run();
-	if (!event) return { ...changes.result(), response: { status: 400 } };
+	if (calls.length >= CALLS_PER_MINUTE)
+		return refuse(db, changes, source, "CALLS_PER_MINUTE", (recent[0] ?? now) + 60_000);
+	const event = parsedEvent(raw);
+	if (!event || Date.parse(event.sentAt) > now + EVENT_CLOCK_SKEW_MS)
+		return { ...changes.result(), response: { status: 400 } };
 	const found = db
 		.select()
 		.from(schema.signals)
 		.where(and(eq(schema.signals.sourceId, source.id), eq(schema.signals.key, event.key)))
 		.get();
-	const expired = found?.clearedAt != null && found.clearedAt <= now - SIGNAL_KEPT_DAYS * DAY;
-	let expiredId = expired ? found.id : undefined;
+	const expired =
+		found &&
+		found.state !== "open" &&
+		(found.clearedAt ?? found.changedAt) <= now - SIGNAL_KEPT_DAYS * DAY;
+	const expiredId = expired ? found.id : undefined;
 	const prior = expired ? undefined : found;
 	let issue = prior?.issueId
 		? db
@@ -313,29 +308,13 @@ export function processSourceEvent(
 	const reject = (limit: string, reset: number = now + DAY) =>
 		refuse(db, changes, source, limit, reset);
 	if (usage.length >= WRITES_PER_DAY) return reject("WRITES_PER_DAY", (usage[0]?.at ?? now) + DAY);
-	if (!found) {
-		const n =
-			db
-				.select({ n: count() })
-				.from(schema.signals)
-				.where(eq(schema.signals.sourceId, source.id))
-				.get()?.n ?? 0;
-		if (n >= LIVE_SIGNALS) {
-			// A scheduled expiry may be waiting for its alarm. Reclaim its space in this write.
-			expiredId = db
-				.select({ id: schema.signals.id })
-				.from(schema.signals)
-				.where(
-					and(
-						eq(schema.signals.sourceId, source.id),
-						eq(schema.signals.state, "cleared"),
-						lte(schema.signals.clearedAt, now - SIGNAL_KEPT_DAYS * DAY),
-					),
-				)
-				.limit(1)
-				.get()?.id;
-			if (!expiredId) return reject("LIVE_SIGNALS");
-		}
+	if (event.state === "open" && prior?.state !== "open") {
+		const open = db
+			.select({ n: count() })
+			.from(schema.signals)
+			.where(and(eq(schema.signals.sourceId, source.id), eq(schema.signals.state, "open")))
+			.get();
+		if (open && open.n >= LIVE_SIGNALS) return reject("LIVE_SIGNALS");
 	}
 	const recurring = prior !== undefined && prior.state !== "open" && event.state === "open";
 	const priority = PRIORITY[event.severity];
@@ -347,7 +326,8 @@ export function processSourceEvent(
 	const first = statuses[0];
 	const willFile = !!(filing && team && first && !isClosedCategory(first.category));
 	const openStatus = statuses.find((s) => !isClosedCategory(s.category));
-	const reopening = !!(recurring && issue && openStatus);
+	const current = statuses.find((s) => s.key === issue?.status);
+	const reopening = !!(recurring && current && isClosedCategory(current.category) && openStatus);
 	const previousReopens = usage.filter((entry) => prior && entry.reopened === prior.id);
 	if (reopening && previousReopens.length >= REOPENS_PER_KEY_PER_DAY)
 		return reject("REOPENS_PER_KEY_PER_DAY", (previousReopens[0]?.at ?? now) + DAY);
@@ -358,9 +338,7 @@ export function processSourceEvent(
 	if (willFile && workspaceTimes.length >= WORKSPACE_ISSUES_PER_DAY)
 		return reject("WORKSPACE_ISSUES_PER_DAY", (workspaceTimes[0] ?? now) + DAY);
 	const text = willFile ? sourceIssueText(event, source) : null;
-	const comment = reopening
-		? `${escapeSourceText(source.name)} reported this signal open again.`
-		: null;
+	const comment = reopening ? sourceReopenComment(source.name) : null;
 	const url =
 		event.url && source.linkOrigins.includes(new URL(event.url).origin) ? event.url : null;
 	const bytes = new TextEncoder().encode(
@@ -417,7 +395,6 @@ export function processSourceEvent(
 		);
 		countWorkspaceIssue(db, workspaceTimes, now);
 	} else if (issue && prior) {
-		const current = statuses.find((s) => s.key === issue?.status);
 		const clearing = event.state !== "open" && prior.state !== event.state;
 		const close =
 			clearing &&
@@ -455,7 +432,12 @@ export function processSourceEvent(
 		firstAt: prior?.firstAt ?? now,
 		changedAt: now,
 		lastSentAt: sentAt,
-		clearedAt: event.state === "cleared" ? (prior?.clearedAt ?? now) : null,
+		clearedAt:
+			event.state === "open"
+				? null
+				: prior?.state === event.state
+					? (prior.clearedAt ?? prior.changedAt)
+					: now,
 	};
 	db.insert(schema.signals)
 		.values(signal)
@@ -486,17 +468,16 @@ export function processSourceEvent(
 	});
 }
 
-export function pruneClearedSignals(db: Db, now: number) {
+// Older dismissed rows carry the last known dismissal time only in changed_at.
+const inactive = inArray(schema.signals.state, ["cleared", "dismissed"]);
+const inactiveSince = sql<number>`coalesce(${schema.signals.clearedAt}, ${schema.signals.changedAt})`;
+
+export function pruneExpiredSignals(db: Db, now: number) {
 	const changes = new ChangeSet(db, SOURCE_ACTOR_ID, now);
 	const expired = db
 		.select({ id: schema.signals.id })
 		.from(schema.signals)
-		.where(
-			and(
-				eq(schema.signals.state, "cleared"),
-				lte(schema.signals.clearedAt, now - SIGNAL_KEPT_DAYS * DAY),
-			),
-		)
+		.where(and(inactive, lte(inactiveSince, now - SIGNAL_KEPT_DAYS * DAY)))
 		.limit(expiryBatch)
 		.all();
 	for (const { id } of expired) {
@@ -508,9 +489,9 @@ export function pruneClearedSignals(db: Db, now: number) {
 
 export function nextSignalExpiry(db: Db): number | null {
 	const first = db
-		.select({ at: min(schema.signals.clearedAt) })
+		.select({ at: sql<number | null>`min(${inactiveSince})` })
 		.from(schema.signals)
-		.where(eq(schema.signals.state, "cleared"))
+		.where(inactive)
 		.get()?.at;
 	return first == null ? null : first + SIGNAL_KEPT_DAYS * DAY;
 }

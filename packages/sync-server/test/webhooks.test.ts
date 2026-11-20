@@ -303,7 +303,6 @@ describe("delivery", () => {
 		expect(request?.headers["content-type"]).toBe("application/json");
 		const verified = new Verifier(secret).verify(request?.body ?? "", request?.headers ?? {});
 		expect(verified).toEqual(payloadOf(request));
-		expect(payloadOf(request).data).not.toHaveProperty("issue.signal");
 		expect(payloadOf(request)).toMatchObject({
 			type: "issue.created",
 			data: {
@@ -329,6 +328,17 @@ describe("delivery", () => {
 			attempts: 1,
 			responseStatus: 204,
 		});
+	});
+
+	it("R50: an ordinary issue webhook omits the signal field", async () => {
+		const received = receiver();
+		const workspace = await workspaceWithTeams();
+		await createHook(workspace);
+		await createIssue(workspace, owner, "ordinary");
+		await deliver(workspace);
+		const payload = payloadOf(received[0]);
+		expect(payload.data).toHaveProperty("issue.id", "ordinary");
+		expect(payload.data).not.toHaveProperty("issue.signal");
 	});
 
 	it("fails verification with another secret", async () => {

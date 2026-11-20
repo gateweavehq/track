@@ -137,7 +137,7 @@ it("R12: report text cannot end its fence or mention a member", async () => {
 	const body = "~~~\n# Header\n[@Owner](mention:owner)\n![x](https://example.com)";
 	await send({ title: "# [x](https://example.com)", body });
 	const row = await issue();
-	expect(row.title).toBe("\\# \\[x\\]\\(https\u200b\\:\\/\\/example\\.com\\)");
+	expect(row.title).toBe("# [x](https://example.com)");
 	expect(row.description).toBe(
 		`Reported by Guard, a connected product, not a member\n\n~~~~\n${body}\n~~~~`,
 	);
@@ -283,7 +283,7 @@ it("R21: an offline status edit conflicts with the source's close", async () => 
 });
 
 it("R22: returning signals reopen the same issue with one source comment up to the cap", async () => {
-	const { send, mutate, issue, snapshot } = await setup();
+	const { send, mutate, issue, snapshot } = await setup({ closeWhenCleared: true });
 	await send();
 	const row = await issue();
 	await mutate({
@@ -376,39 +376,111 @@ it("R26: a filed issue webhook names the system actor and carries signal metadat
 	});
 });
 
-it("R27: rolling write, text, issue and workspace budgets refuse the next event", async () => {
-	for (const limit of ["writes", "bytes", "issues", "workspace", "live"]) {
-		const { ws, send, sourceId, snapshot } = await setup();
-		await runInDurableObject(ws, (_, state) => {
-			const now = Date.now();
-			const sql = state.storage.sql;
-			const size = limit === "writes" ? WRITES_PER_DAY : limit === "issues" ? ISSUES_PER_DAY : 1;
-			const usage = Array.from({ length: size }, () => ({
-				at: now,
-				bytes: limit === "bytes" ? BYTES_PER_DAY : 0,
-				filed: limit === "issues",
-				assigned: false,
-				reopened: null,
-			}));
-			sql.exec("UPDATE sources SET usage=? WHERE id=?", JSON.stringify(usage), sourceId);
-			if (limit === "workspace")
-				sql.exec(
-					"INSERT INTO meta (key,value) VALUES (?,?)",
-					"source_issue_times",
-					JSON.stringify(Array(WORKSPACE_ISSUES_PER_DAY).fill(now)),
-				);
-			if (limit === "live")
-				for (let i = 0; i < LIVE_SIGNALS; i++)
-					sql.exec(
-						"INSERT INTO signals (id,source_id,key,severity,state,first_at,changed_at,last_sent_at) VALUES (?,?,?,'low','open',0,0,0)",
-						String(i),
-						sourceId,
-						String(i),
-					);
-		});
-		expect(await send(), limit).toMatchObject({ status: 429, retryAfter: expect.any(Number) });
-		expect((await snapshot()).signals.find((row) => row.key === "build")).toBeUndefined();
+it.each([
+	"CALLS_PER_MINUTE",
+	"WRITES_PER_DAY",
+	"BYTES_PER_DAY",
+	"ISSUES_PER_DAY",
+	"WORKSPACE_ISSUES_PER_DAY",
+	"LIVE_SIGNALS",
+	"REOPENS_PER_KEY_PER_DAY",
+])("A16: %s files only one unbudgeted notice", async (limit) => {
+	const { ws, send, snapshot, sourceId } = await setup({ closeWhenCleared: true });
+	if (limit === "REOPENS_PER_KEY_PER_DAY") {
+		await send();
+		await send({ state: "cleared" });
 	}
+	await ws.createWebhook(
+		owner,
+		{ id: "ws", slug: "test", origin: "https://track.test" },
+		{
+			url: "https://hooks.test/track",
+			teamId: null,
+			agentId: null,
+			events: ["issue.created", "issue.updated", "comment.created"],
+		},
+	);
+	await runInDurableObject(ws, (_, state) => {
+		const now = Date.now();
+		const sql = state.storage.sql;
+		const size =
+			limit === "WRITES_PER_DAY"
+				? WRITES_PER_DAY
+				: limit === "ISSUES_PER_DAY"
+					? ISSUES_PER_DAY
+					: limit === "REOPENS_PER_KEY_PER_DAY"
+						? REOPENS_PER_KEY_PER_DAY
+						: 1;
+		const reopened =
+			limit === "REOPENS_PER_KEY_PER_DAY"
+				? sql.exec<{ id: string }>("SELECT id FROM signals").one().id
+				: null;
+		const usage = Array.from({ length: size }, () => ({
+			at: now,
+			bytes: limit === "BYTES_PER_DAY" ? BYTES_PER_DAY : 0,
+			filed: limit === "ISSUES_PER_DAY",
+			assigned: false,
+			reopened,
+		}));
+		sql.exec(
+			"UPDATE sources SET usage=?, call_times=?, last_heard_at=null WHERE id=?",
+			JSON.stringify(usage),
+			JSON.stringify(limit === "CALLS_PER_MINUTE" ? Array(CALLS_PER_MINUTE).fill(now - 5000) : []),
+			sourceId,
+		);
+		if (limit === "WORKSPACE_ISSUES_PER_DAY")
+			sql.exec(
+				"INSERT INTO meta(key,value) VALUES (?,?)",
+				"source_issue_times",
+				JSON.stringify(Array(WORKSPACE_ISSUES_PER_DAY).fill(now)),
+			);
+		if (limit === "LIVE_SIGNALS")
+			for (let i = 0; i < LIVE_SIGNALS; i++)
+				sql.exec(
+					"INSERT INTO signals (id,source_id,key,severity,state,first_at,changed_at,last_sent_at) VALUES (?,?,?,'low','open',0,0,0)",
+					String(i),
+					sourceId,
+					String(i),
+				);
+	});
+	const counters = () =>
+		runInDurableObject(ws, (_, state) => {
+			const sql = state.storage.sql;
+			return {
+				usage: sql.exec("SELECT usage FROM sources").one(),
+				workspace: sql.exec("SELECT value FROM meta WHERE key='source_issue_times'").toArray(),
+				calls: JSON.parse(
+					sql.exec<{ calls: string }>("SELECT call_times AS calls FROM sources").one().calls,
+				) as number[],
+				deliveries: sql.exec("SELECT id FROM webhook_deliveries").toArray(),
+			};
+		});
+	const start = await counters();
+	const before = await snapshot();
+	expect(await send()).toMatchObject({ status: 429, retryAfter: expect.any(Number) });
+	const after = await snapshot();
+	expect(after.version).toBe(before.version + 1);
+	expect(after.signals).toEqual(before.signals);
+	expect(after.sources).toEqual(before.sources);
+	expect(after.comments).toEqual(before.comments);
+	expect(after.issues).toHaveLength(before.issues.length + 1);
+	const notice = after.issues.find((i) => !before.issues.some((old) => old.id === i.id));
+	expect(notice).toMatchObject({ title: "Guard reached " + limit, assigneeId: null });
+	expect(
+		await runInDurableObject(ws, (_, state) =>
+			state.storage.sql
+				.exec("SELECT entity,entity_id FROM oplog WHERE version>?", before.version)
+				.toArray(),
+		),
+	).toEqual([{ entity: "issue", entity_id: notice?.id }]);
+	expect(await send()).toMatchObject({ status: 429 });
+	expect(await snapshot()).toEqual(after);
+	const end = await counters();
+	expect(end.deliveries).toHaveLength(start.deliveries.length + 1);
+	expect(end.usage).toEqual(start.usage);
+	expect(end.workspace).toEqual(start.workspace);
+	expect(end.calls).toHaveLength(limit === "CALLS_PER_MINUTE" ? CALLS_PER_MINUTE : 2);
+	expect(end.calls.slice(-2).every((at) => at > (start.calls[0] ?? 0))).toBe(true);
 });
 
 it("R28: an exhausted call window returns a retry time and repeated refusals write nothing", async () => {
@@ -446,21 +518,24 @@ it("R29: the first refusal reports the exhausted limit once and never assigns it
 	expect(after.signals).toHaveLength(0);
 });
 
-it("R30: a cleared signal expires and a later open files anew", async () => {
-	const { ws, send, snapshot } = await setup();
-	await send();
-	await send({ state: "cleared" });
-	await runInDurableObject(ws, async (_, state) => {
-		state.storage.sql.exec(
-			"UPDATE signals SET cleared_at=?",
-			Date.now() - SIGNAL_KEPT_DAYS * 86_400_000,
-		);
-		await state.storage.setAlarm(Date.now());
-	});
-	await runDurableObjectAlarm(ws);
-	expect((await snapshot()).signals).toHaveLength(0);
-	expect(answer(await send()).issue?.key).toBe("ENG-2");
-});
+it.each(["cleared", "dismissed"] as const)(
+	"R30: a %s signal expires and a later open files anew",
+	async (state) => {
+		const { ws, send, snapshot } = await setup();
+		await send();
+		await send({ state });
+		await runInDurableObject(ws, async (_, state) => {
+			state.storage.sql.exec(
+				"UPDATE signals SET cleared_at=? WHERE cleared_at IS NOT NULL",
+				Date.now() - SIGNAL_KEPT_DAYS * 86_400_000,
+			);
+			await state.storage.setAlarm(Date.now());
+		});
+		await runDurableObjectAlarm(ws);
+		expect((await snapshot()).signals).toHaveLength(0);
+		expect(answer(await send()).issue?.key).toBe("ENG-2");
+	},
+);
 
 it("R25: an interrupted signal insert rolls back the issue, counter and all versions", async () => {
 	const { ws, send, snapshot, sourceId } = await setup();
@@ -561,12 +636,102 @@ it("R18: an assignee who became a regular member receives no new source issue", 
 	expect((await issue()).assigneeId).toBeNull();
 });
 
-it("R7: a title must still fit an ordinary issue after escaping, even below threshold", async () => {
+it("R7: a title must still fit an ordinary issue as plain text, even below threshold", async () => {
 	const { send, snapshot } = await setup();
 	const before = await snapshot();
 	for (const severity of ["high", "low"] as const) {
-		expect(await send({ title: "#".repeat(257), severity })).toEqual({ status: 400 });
+		expect(await send({ title: "#".repeat(513), severity })).toEqual({ status: 400 });
 	}
 	expect(await snapshot()).toEqual(before);
-	expect(answer(await send({ title: "#".repeat(256) })).filed).toBe(true);
+	expect(answer(await send({ title: "#".repeat(512) })).filed).toBe(true);
+});
+
+it("A19: a future timestamp cannot claim a signal key", async () => {
+	const { send, snapshot } = await setup();
+	const before = await snapshot();
+	expect(await send({ sentAt: "9999-01-01T00:00:00Z" })).toEqual({ status: 400 });
+	expect(await snapshot()).toEqual(before);
+	expect(answer(await send()).filed).toBe(true);
+});
+
+it("A20: search returns the exact plain issue title", async () => {
+	const { ws, send, issue } = await setup();
+	const title = "CVE-2025-1234 in lodash.merge (high)";
+	await send({ title });
+	expect((await issue()).title).toBe(title);
+	expect(await ws.issues({ text: title, limit: 10 })).toMatchObject([{ title }]);
+	await send({ key: "control", title: "One\r\ntwo\u0007\u200b." });
+	expect(await ws.issues({ text: "two", limit: 10 })).toMatchObject([{ title: "One two." }]);
+});
+
+it("A17: a returning signal leaves an In Progress issue and its reopen count alone", async () => {
+	const { send, snapshot, mutate, issue } = await setup();
+	await send();
+	const row = await issue();
+	expect(
+		(
+			await mutate({
+				name: "issue.update",
+				args: { id: row.id, baseVersion: row.version, patch: { status: "in_progress" } },
+			})
+		).ok,
+	).toBe(true);
+	await send({ state: "cleared" });
+	const before = await snapshot();
+	expect(answer(await send()).state).toBe("open");
+	const after = await snapshot();
+	expect((await issue()).status).toBe("in_progress");
+	expect(after.comments).toEqual(before.comments);
+	expect(after.signals[0]).toMatchObject({ state: "open", reopens: 0 });
+});
+
+it("A18: 500 dismissals leave room for a new open key", async () => {
+	const { ws, send, sourceId } = await setup();
+	await runInDurableObject(ws, (instance, state) => {
+		const sentAt = new Date().toISOString();
+		for (let i = 0; i < LIVE_SIGNALS; i++) {
+			// Model batches arriving a day apart without waiting for the rolling budgets.
+			if (i % CALLS_PER_MINUTE === 0)
+				state.storage.sql.exec("UPDATE sources SET call_times='[]',usage='[]'");
+			const event = {
+				key: String(i),
+				state: "dismissed",
+				severity: "low",
+				sentAt,
+				title: "Closed finding",
+			};
+			expect(instance.sourceEvent(sourceId, JSON.stringify(event), workspaceUrl).status).toBe(200);
+		}
+	});
+	expect(answer(await send()).filed).toBe(true);
+});
+
+it("A18: the alarm reclaims a dismissal stored without a retention timestamp", async () => {
+	const { ws, send, snapshot } = await setup();
+	await send({ state: "dismissed" });
+	await runInDurableObject(ws, async (_, state) => {
+		state.storage.sql.exec(
+			"UPDATE signals SET cleared_at=null,changed_at=?",
+			Date.now() - SIGNAL_KEPT_DAYS * 86_400_000,
+		);
+		await state.storage.setAlarm(Date.now());
+	});
+	expect(await runDurableObjectAlarm(ws)).toBe(true);
+	expect((await snapshot()).signals).toEqual([]);
+});
+
+it("A16: a closed first status prevents a refusal notice", async () => {
+	const { ws, send, snapshot } = await setup();
+	await runInDurableObject(ws, (_, state) => {
+		state.storage.sql.exec(
+			"UPDATE statuses SET removed_at=1 WHERE category IN ('backlog','unstarted','started')",
+		);
+		state.storage.sql.exec(
+			"UPDATE sources SET call_times=?",
+			JSON.stringify(Array(CALLS_PER_MINUTE).fill(Date.now())),
+		);
+	});
+	const before = await snapshot();
+	expect(await send()).toMatchObject({ status: 429 });
+	expect(await snapshot()).toEqual(before);
 });
