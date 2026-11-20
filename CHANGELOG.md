@@ -8,6 +8,43 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.44.0] - 2026-11-20
+
+Products that find things, such as Gateweave Guard, can now report them straight into Track, which
+files, closes and reopens issues from what they send. This release adds a D1 migration and one in
+each workspace, and changes the sync protocol, so open tabs reload their local copy; unsent edits
+are kept.
+
+### Added
+
+- **Sources.** An owner or admin makes a source in Settings, Sources, for a product that reports
+  findings, and gives it a key (`gws_…`). The product posts each finding's state to `/api/events`:
+  open, cleared or dismissed, with a severity. Track keeps one signal per finding, and:
+  - files an issue in the source's team once an open signal reaches the source's lowest severity
+    (high unless you choose), marked as reported by a connected product, not a member;
+  - assigns it to an agent member, if the source names one;
+  - raises its priority when the severity rises;
+  - completes it when the signal is cleared, or cancels it when the finding is dismissed, if the
+    source says so, and only while nobody has started it;
+  - reopens it with a comment when the signal comes back.
+
+  Events are ordered by when the product saw them, so one that arrives late changes nothing, and
+  a repeat is a no-op. Limits hold per source: 60 calls a minute, 300 writes and 30 issues a day,
+  and 500 live signals; a source that reaches one gets a single notice issue that day. A source
+  can be paused, hold two keys at once while you rotate them, and be deleted, which keeps its
+  issues. A key you take back is refused at once, even by an event already on its way.
+  ([#354](https://github.com/gateweavehq/track/pull/354))
+
+### If you run your own
+
+- **Update, and reload open tabs.** The protocol version rises from 27 to 28. A tab on 0.40.0 or
+  later keeps its unsent edits across the reload.
+- `pnpm run deploy` applies the D1 migration (`0016_source_key`). Each workspace adds its sources
+  and signals when it next wakes.
+- Nothing else changes until an admin makes a source. A product that reports needs Track's
+  address and a source key; Sources in `docs/architecture.md` describes what it sends and how
+  Track answers.
+
 ## [0.43.0] - 2026-11-20
 
 A pull request can now be one part of a larger issue without closing it, and a deployment that
