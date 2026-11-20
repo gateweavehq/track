@@ -41,7 +41,6 @@ it("keeps a key on screen until a new key replaces it", () => {
 	const shown = "gws_first";
 	// Pausing another source, or making one whose first key failed, brings no new key.
 	expect(shownKey(shown, {})).toBe(shown);
-	const partial = { keyMissing: true as const };
-	expect(shownKey(shown, partial)).toBe(shown);
+	expect(shownKey(shown, { keyMissing: true })).toBe(shown);
 	expect(shownKey(shown, { secret: "gws_second" })).toBe("gws_second");
 });

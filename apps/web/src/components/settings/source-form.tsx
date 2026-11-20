@@ -19,7 +19,7 @@ export const selectClass = "block h-9 w-full rounded-md border border-input bg-b
  * The key to keep on screen after an action. A key is shown once, so only a new one replaces it,
  * and only "Done" puts it away: any other answer leaves it for the admin to copy.
  */
-export function shownKey(shown: string, answer: { secret?: string }): string {
+export function shownKey(shown: string, answer: { secret?: string; keyMissing?: true }): string {
 	return answer.secret ?? shown;
 }
 
