@@ -31,10 +31,11 @@ There is no migration and no change to the sync protocol.
   - **Limits:** each source restores at most 2,000 signals, and an import adds signals only while
     the workspace holds at most 8 MiB of them. A signal never comes back larger than a report could
     have made it.
-  - **Order after a move:** an event a product sent before the export gets the signal's current
-    state back, even with a clock up to five minutes fast. One sent more than five minutes after
-    the export applies. Within those five minutes the two can't be told apart, so an event then
-    also gets the current state, and the product's next report after them applies.
+  - **Order after a move:** Track orders a product's events by the time each one carries. An event
+    dated before the export gets the signal's current state back, even from a clock up to five
+    minutes fast. One dated more than five minutes after the export applies. Within those five
+    minutes the two can't be told apart, so an event dated then also gets the current state, and
+    the product's next report applies.
 
   ([#361](https://github.com/gateweavehq/track/pull/361))
 
