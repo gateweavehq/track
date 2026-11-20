@@ -13,8 +13,15 @@ import {
 } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import { type ExportSource, workspaceToJson } from "#/lib/export";
+import { readCsvImport } from "./csv";
 import { readJsonImport } from "./json";
-import { type ImportTarget, importId, planImport } from "./plan";
+import {
+	type ImportProgress,
+	type ImportTarget,
+	importId,
+	planImport,
+	restoreImportSources,
+} from "./plan";
 
 // The JSON export, read back into another workspace: what one Track writes, another takes in.
 
@@ -508,4 +515,236 @@ describe("readJsonImport", () => {
 		expect(source.issues.map((each) => each.title)).not.toContain("Old");
 		expect(notes).toContainEqual(expect.stringContaining("1 archived issue stays behind"));
 	});
+});
+
+it("a one-team export carries only that team's sources and signals", async () => {
+	const sources = [eng, ops].map((t) => ({
+		id: "source-" + t.id,
+		teamId: t.id,
+		name: t.name,
+		product: "guard" as const,
+		lowestSeverity: "high" as const,
+		closeWhenCleared: false,
+		linkOrigins: [],
+		assigneeId: null,
+		paused: false,
+		lastHeardAt: null,
+	}));
+	const signals = sources.map((s) => ({
+		id: "s" + s.id,
+		sourceId: s.id,
+		key: s.name,
+		type: null,
+		subject: null,
+		severity: "high" as const,
+		state: "open" as const,
+		url: null,
+		issueId: s.teamId === eng.id ? "i1" : "i2",
+		reopens: 0,
+		firstAt: 1,
+		changedAt: 1,
+	}));
+	const file = workspaceToJson({ ...exported, sources, signals }, ops.id);
+	const { source } = readJsonImport(file);
+	const plan = await planImport(source, elsewhere(), "home-eng", { keepTeams: true });
+	const created = argsOf(plan.mutations, "team.create").find((t) => t.key === ops.key);
+	expect(created).toBeDefined();
+	expect(plan.sources).toMatchObject([
+		{ source: { id: "source-t2", teamId: created?.id }, signals: [{ key: ops.name }] },
+	]);
+});
+
+it("restores in source order with each source's signals in their file order", async () => {
+	const doc = JSON.parse(workspaceToJson(exported));
+	const settings = {
+		teamId: eng.id,
+		name: "Guard",
+		product: "guard",
+		linkOrigins: [],
+		lowestSeverity: "high",
+		closeWhenCleared: false,
+		assigneeId: null,
+	};
+	doc.sources = [
+		{ ...settings, id: "b" },
+		{ ...settings, id: "a" },
+	];
+	doc.signals = ["a", "b", "a", "b"].map((sourceId, i) => ({
+		sourceId,
+		key: String(i),
+		issueId: String(i),
+		type: null,
+		subject: null,
+		severity: "high",
+		state: "cleared",
+		url: null,
+		reopens: 0,
+		firstAt: 1,
+		changedAt: 1,
+	}));
+	doc.issues = doc.signals.map((row: { issueId: string }) => ({
+		...doc.issues[0],
+		id: row.issueId,
+	}));
+	const plan = await planImport(
+		readJsonImport(JSON.stringify(doc)).source,
+		elsewhere(),
+		"home-eng",
+	);
+	expect(
+		plan.sources.map(({ source, signals }) => [source.id, signals.map((row) => row.key)]),
+	).toEqual([
+		["b", ["1", "3"]],
+		["a", ["0", "2"]],
+	]);
+});
+
+it("a file from before sources imports the same issue mutations", async () => {
+	const json = workspaceToJson(exported);
+	const { sources, signals, ...older } = JSON.parse(json);
+	expect(sources).toEqual([]);
+	expect(signals).toEqual([]);
+	const { source } = readJsonImport(JSON.stringify(older));
+	const plan = await planImport(source, elsewhere(), "home-eng");
+	expect(plan.issues).toBe(2);
+	expect(plan.sources).toEqual([]);
+	expect(argsOf(plan.mutations, "issue.create").map((issue) => issue.id)).toEqual(
+		await Promise.all(["track:i1", "track:i2"].map(importId)),
+	);
+});
+
+it("chooses the oldest duplicate JSON issue and the last matching CSV parent as in v0.45", async () => {
+	const doc = JSON.parse(workspaceToJson(exported));
+	const first = doc.issues[0];
+	doc.issues = [
+		{ ...first, title: "Later", createdAt: 2 },
+		{ ...first, title: "Earlier", createdAt: 1 },
+	];
+	const json = readJsonImport(JSON.stringify(doc)).source;
+	const csv = readCsvImport(
+		"Key,Title,Parent\nchild,Child,parent\nparent,First,\nparent,Last,",
+	).source;
+	for (const [source, titles] of [
+		[json, ["Earlier"]],
+		[csv, ["Last", "Child"]],
+	] as const) {
+		const plan = await planImport(source, elsewhere(), "home-eng");
+		expect(argsOf(plan.mutations, "issue.create").map((row) => row.title)).toEqual(titles);
+	}
+});
+
+it("imports a real comment following a blank comment with the same id", async () => {
+	const doc = JSON.parse(workspaceToJson(exported));
+	doc.comments.unshift({ ...doc.comments[0], body: " " });
+	const plan = await planImport(
+		readJsonImport(JSON.stringify(doc)).source,
+		elsewhere(),
+		"home-eng",
+	);
+	expect(argsOf(plan.mutations, "comment.create").map((row) => row.body)).toEqual([
+		"_Grace wrote in Acme:_\n\nOn it.",
+	]);
+});
+
+it("imports an update after an omitted project's update with the same id", async () => {
+	const doc = JSON.parse(workspaceToJson(exported));
+	doc.projects.unshift({ ...doc.projects[0], id: "unused", name: "Unused" });
+	doc.projectUpdates.unshift({ ...doc.projectUpdates[0], projectId: "unused" });
+	const plan = await planImport(
+		readJsonImport(JSON.stringify(doc)).source,
+		elsewhere(),
+		"home-eng",
+	);
+	expect(argsOf(plan.mutations, "projectUpdate.create").map((row) => row.body)).toEqual([
+		"_Grace wrote in Acme:_\n\nThe outage slowed us down.",
+	]);
+});
+
+it("submits a same-id relation after a no-op on an already related pair", async () => {
+	const doc = JSON.parse(workspaceToJson(exported));
+	const [relation] = doc.relations;
+	doc.relations.push({ ...relation, id: "next" }, { ...relation, id: "next", type: "related" });
+	const plan = await planImport(
+		readJsonImport(JSON.stringify(doc)).source,
+		elsewhere(),
+		"home-eng",
+	);
+	expect(argsOf(plan.mutations, "relation.create").map((row) => [row.id, row.type])).toEqual(
+		await Promise.all(
+			doc.relations.map(async (r: { id: string; type: string }) => [
+				await importId("track:" + r.id),
+				r.type,
+			]),
+		),
+	);
+});
+
+it("submits same-id comments oldest first when the file lists the newer one first", async () => {
+	const doc = JSON.parse(workspaceToJson(exported));
+	doc.comments.unshift({ ...doc.comments[0], body: "Follow-up", createdAt: 100 });
+	const plan = await planImport(
+		readJsonImport(JSON.stringify(doc)).source,
+		elsewhere(),
+		"home-eng",
+	);
+	expect(argsOf(plan.mutations, "comment.create").map((row) => row.body)).toEqual([
+		"_Grace wrote in Acme:_\n\nOn it.",
+		"_Grace wrote in Acme:_\n\nFollow-up",
+	]);
+});
+
+it("submits repeated relations and project updates and gates source restore on issue creates", async () => {
+	const doc = JSON.parse(workspaceToJson(exported));
+	doc.relations.push({ ...doc.relations[0], type: "related" });
+	doc.projectUpdates.push({ ...doc.projectUpdates[0], body: "Second" });
+	doc.sources = [
+		{
+			id: "source",
+			teamId: eng.id,
+			name: "Guard",
+			product: "guard",
+			linkOrigins: [],
+			lowestSeverity: "high",
+			closeWhenCleared: false,
+			assigneeId: null,
+		},
+	];
+	const plan = await planImport(
+		readJsonImport(JSON.stringify(doc)).source,
+		elsewhere(),
+		"home-eng",
+	);
+	expect(plan.repeatedNotes).toEqual([]);
+	expect(argsOf(plan.mutations, "projectUpdate.create")).toHaveLength(2);
+	expect(argsOf(plan.mutations, "relation.create")).toHaveLength(2);
+	const comment = plan.mutations.find((m) => m.name === "comment.create");
+	const issue = plan.mutations.find((m) => m.name === "issue.create");
+	if (!comment || !issue) throw Error("Missing planned create");
+	for (const [mutation, message, blocked] of [
+		[comment, "Issue not found", false],
+		[issue, "Issue id already exists", false],
+		[issue, "Team not found", true],
+	] as const) {
+		const result: ImportProgress = { done: 1, total: 1, failed: [{ mutation, message }] };
+		let called = false;
+		await restoreImportSources(plan, result, async () => {
+			called = true;
+			return {
+				ok: true,
+				value: {
+					restored: 1,
+					bound: 0,
+					dropped: 0,
+					present: 0,
+					otherTeam: 0,
+					alreadyLinked: 0,
+					overLimit: 0,
+				},
+			};
+		});
+		expect(called).toBe(!blocked);
+		expect(result.sourceResult).toContain(
+			blocked ? "refused changes are resolved" : "1 source restored",
+		);
+	}
 });

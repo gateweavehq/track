@@ -35,6 +35,12 @@ it("R11: a source accepts only whole HTTP link origins and normalizes their host
 		linkOrigins: ["https://Reports.Example:443/"],
 	};
 	expect(sourceSettingsSchema.parse(form).linkOrigins).toEqual(["https://reports.example"]);
+	expect(
+		sourceSettingsSchema.safeParse({
+			...form,
+			linkOrigins: Array(1000).fill("https://reports.example"),
+		}).success,
+	).toBe(true);
 	for (const origin of [
 		"https://reports.example/path",
 		"https://reports.example/?q=x",

@@ -1,7 +1,8 @@
 import { KEYS_PER_SOURCE, type SourceAction } from "@gateweave/track-protocol";
 import type { WorkspaceDO } from "@gateweave/track-sync-server";
-import type { Database } from "./db";
-import { makeSourceKey, removeSourceKeys, sourceKeys } from "./source-keys";
+import { inArray, sql } from "drizzle-orm";
+import { type Database, schema } from "./db";
+import { makeSourceKey, newSourceKey, removeSourceKeys, sourceKeys } from "./source-keys";
 
 export type SourceCommand =
 	| Parameters<WorkspaceDO["manageSource"]>[1]
@@ -19,8 +20,8 @@ export async function applySourceAction(
 	manage: (command: SourceCommand) => Promise<Outcome>,
 	action: SourceAction,
 ): Promise<SourceChangeResult> {
-	async function issueKey(id: string) {
-		const key = await makeSourceKey(db, workspaceId, id);
+	async function issueKey(id: string, keyId?: string) {
+		const key = await makeSourceKey(db, workspaceId, id, newSourceKey(keyId));
 		if (!key)
 			return {
 				ok: false as const,
@@ -28,7 +29,7 @@ export async function applySourceAction(
 			};
 		let audit: Outcome;
 		try {
-			audit = await manage({ kind: "keyCreated", id });
+			audit = await manage({ kind: "keyCreated", id, keyId: key.id });
 		} catch (error) {
 			await removeSourceKeys(db, workspaceId, id, key.id);
 			throw error;
@@ -53,8 +54,27 @@ export async function applySourceAction(
 			return { ok: true, value: { keyMissing: true } };
 		}
 		case "makeKey": {
+			// Observe candidate ids before the generation check. A delayed rotation must
+			// never delete keys created by a replacement after that check.
+			const candidates = action.id.startsWith("import-")
+				? await sourceKeys(db, workspaceId, action.id)
+				: [];
 			const allowed = await manage({ kind: "checkKey", id: action.id });
-			return allowed.ok ? issueKey(action.id) : allowed;
+			if (allowed.ok && "generation" in allowed.value && allowed.value.generation) {
+				const prefix = allowed.value.generation;
+				const stale = candidates.filter((key) => !key.id.startsWith(prefix)).map((key) => key.id);
+				if (stale.length)
+					await removeSourceKeys(
+						db,
+						workspaceId,
+						action.id,
+						undefined,
+						inArray(schema.sourceKey.id, stale),
+					);
+			}
+			return allowed.ok
+				? issueKey(action.id, "keyId" in allowed.value ? allowed.value.keyId : undefined)
+				: allowed;
 		}
 		case "revokeKey": {
 			const { id, keyId } = action;
@@ -83,11 +103,22 @@ export async function deleteSource(
 	db: Database,
 	workspaceId: string,
 	id: string,
-	manage: (command: { kind: "prepareRemoval" | "finishRemoval"; id: string }) => Promise<Outcome>,
+	manage: (command: {
+		kind: "prepareRemoval" | "finishRemoval";
+		id: string;
+		generation?: string;
+	}) => Promise<Outcome>,
 ): Promise<SourceChangeResult> {
 	const sealed = await manage({ kind: "prepareRemoval", id });
 	if (!sealed.ok) return sealed;
-	await removeSourceKeys(db, workspaceId, id);
-	const removed = await manage({ kind: "finishRemoval", id });
+	const generation = "generation" in sealed.value ? sealed.value.generation : undefined;
+	await removeSourceKeys(
+		db,
+		workspaceId,
+		id,
+		undefined,
+		generation ? sql`${schema.sourceKey.id} glob ${generation + "*"}` : undefined,
+	);
+	const removed = await manage({ kind: "finishRemoval", id, generation });
 	return removed.ok ? { ok: true, value: {} } : removed;
 }

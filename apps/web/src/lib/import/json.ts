@@ -1,9 +1,16 @@
 import {
 	DEFAULT_STATUSES,
+	exportedSourceSchema,
+	fitsRestoreOrigins,
 	ISSUE_PRIORITIES,
 	PROJECT_HEALTHS,
 	PROJECT_STATUSES,
 	RELATION_TYPES,
+	RESTORE_SIGNAL_BYTES,
+	RESTORE_SIGNALS,
+	restoredSignalSchema,
+	restoreSignalBytes,
+	type SourceRestore,
 	STATUS_CATEGORIES,
 	statusId,
 } from "@gateweave/track-protocol";
@@ -24,6 +31,11 @@ import type {
 // import is the importer's.
 
 const ref = z.string().min(1);
+const issueReference = z.object({ id: ref });
+const signalReference = z.object({
+	sourceId: ref,
+	issueId: z.string().optional().catch(undefined),
+});
 const nullableRef = ref.nullable().catch(null);
 
 const exportedIssue = z.object({
@@ -56,6 +68,8 @@ const wholeArchivedIssue = exportedIssue.extend({
 
 /** What the import reads of an export. Unknown fields are ignored; later versions may add some. */
 const exportFile = z.object({
+	// Restored sources order their senders' events after it. Only they need it.
+	exportedAt: z.iso.datetime({ offset: true }).optional().catch(undefined),
 	workspace: z.object({ name: z.string() }).partial().optional(),
 	teams: z.array(z.object({ id: ref, key: z.string(), name: z.string() })),
 	// Exports made before teams had their own statuses have none: their keys are the built-in ones.
@@ -101,6 +115,8 @@ const exportFile = z.object({
 				.catch(null),
 		)
 		.catch([]),
+	sources: z.array(exportedSourceSchema).default([]),
+	signals: z.array(z.unknown()).default([]),
 	issues: z.array(exportedIssue),
 	comments: z
 		.array(
@@ -189,10 +205,76 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 		});
 		teamStatuses.set(team.key, list);
 	}
+	const exportedAt = file.exportedAt ?? "";
+	if (file.sources.length && !exportedAt)
+		throw new Error("This export could not be read: exportedAt is not as Track writes it.");
+	const sources = new Map(
+		file.sources.map((source) => [
+			source.id,
+			{
+				exportedAt,
+				source,
+				signals: [] as SourceRestore["signals"],
+				settingsTooLarge: !fitsRestoreOrigins(source.linkOrigins),
+				drops: {
+					outsideFile: 0,
+					otherTeam: 0,
+					repeatedIssue: 0,
+					invalid: 0,
+					alreadyLinked: 0,
+					overLimit: 0,
+				},
+				team: teams.get(source.teamId) ?? null,
+			},
+		]),
+	);
+	if (sources.size !== file.sources.length) throw new Error("This export repeats a source id.");
+	const issueTeams = new Map(allIssues.map((issue) => [issue.id, issue.teamId]));
+	const seen = new Set<string>();
+	const ambiguous = new Set<string>();
+	for (const row of [...file.issues, ...file.archivedIssues]) {
+		const issue = issueReference.safeParse(row);
+		if (!issue.success) continue;
+		const form = issue.data.id.toWellFormed();
+		if (seen.has(form)) ambiguous.add(form);
+		seen.add(form);
+	}
+	const signalBytes = new Map<string, number>();
+	const linked = new Set<string>();
+	for (const raw of file.signals) {
+		const owner = signalReference.safeParse(raw);
+		const restore = owner.success && sources.get(owner.data.sourceId);
+		if (!restore) throw new Error("This export contains a signal with no source.");
+		if (restore.settingsTooLarge) continue;
+		if (owner.data?.issueId && ambiguous.has(owner.data.issueId.toWellFormed())) {
+			restore.drops.repeatedIssue++;
+			continue;
+		}
+		const parsed = restoredSignalSchema.safeParse(raw);
+		if (!parsed.success) {
+			restore.drops.invalid++;
+			continue;
+		}
+		const signal = parsed.data;
+		if (!signal.issueId || !issueTeams.has(signal.issueId)) restore.drops.outsideFile++;
+		else if (issueTeams.get(signal.issueId) !== restore.source.teamId) restore.drops.otherTeam++;
+		else if (linked.has(signal.issueId)) restore.drops.alreadyLinked++;
+		else if (restore.signals.length >= RESTORE_SIGNALS) restore.drops.overLimit++;
+		else {
+			const bytes = (signalBytes.get(signal.sourceId) ?? 2) + restoreSignalBytes(signal);
+			if (bytes > RESTORE_SIGNAL_BYTES) {
+				restore.drops.overLimit++;
+				continue;
+			}
+			signalBytes.set(signal.sourceId, bytes);
+			restore.signals.push(signal);
+			linked.add(signal.issueId);
+		}
+	}
 	const members = new Map(file.members.map((member) => [member.id, member]));
 	const labels = new Map(file.labels.map((label) => [label.id, label]));
 	const projects = new Map(file.projects.map((project) => [project.id, project]));
-	const issueIds = new Set(allIssues.map((issue) => issue.id));
+
 	const person = (id: string | null) => {
 		const member = id ? members.get(id) : undefined;
 		return member ? { name: member.name, email: member.email } : null;
@@ -200,7 +282,7 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 
 	const comments = new Map<string, ImportedComment[]>();
 	for (const comment of file.comments) {
-		if (!issueIds.has(comment.issueId)) continue;
+		if (!issueTeams.has(comment.issueId)) continue;
 		const list = comments.get(comment.issueId) ?? [];
 		list.push({
 			sourceId: sourceId(comment.id),
@@ -223,7 +305,7 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 			assignee: person(issue.assigneeId),
 			project: (issue.projectId && projects.get(issue.projectId)?.name) || null,
 			parentSourceId:
-				issue.parentId && issueIds.has(issue.parentId) ? sourceId(issue.parentId) : null,
+				issue.parentId && issueTeams.has(issue.parentId) ? sourceId(issue.parentId) : null,
 			team: team ? { key: team.key, name: team.name } : null,
 			startDate: issue.startDate,
 			dueDate: issue.dueDate,
@@ -275,7 +357,7 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 			})),
 			relations: file.relations
 				.filter(
-					(relation) => issueIds.has(relation.issueId) && issueIds.has(relation.relatedIssueId),
+					(relation) => issueTeams.has(relation.issueId) && issueTeams.has(relation.relatedIssueId),
 				)
 				.map((relation) => ({
 					sourceId: sourceId(relation.id),
@@ -284,6 +366,7 @@ export function readJsonImport(text: string): { source: ImportSource; notes: str
 					relatedIssueSourceId: sourceId(relation.relatedIssueId),
 				})),
 			teamStatuses,
+			sources: [...sources.values()],
 		},
 		notes,
 	};

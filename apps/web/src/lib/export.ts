@@ -5,6 +5,8 @@ import {
 	type Comment,
 	type Cycle,
 	compareStatuses,
+	exportedSignalSchema,
+	exportedSourceSchema,
 	type Issue,
 	type IssueRelation,
 	isActiveIssue,
@@ -12,6 +14,8 @@ import {
 	type Member,
 	type Project,
 	type ProjectUpdate,
+	type Signal,
+	type Source,
 	type SyncedIssue,
 	type Team,
 	type WorkflowStatus,
@@ -55,6 +59,8 @@ export const CSV_COLUMNS = [
 /** What an export reads: the replica's tables, read more than once, and whose workspace they are. */
 export interface ExportSource {
 	workspace: { slug: string; name: string };
+	sources?: readonly Source[];
+	signals?: readonly Signal[];
 	teams: readonly Team[];
 	statuses: readonly WorkflowStatus[];
 	members: readonly Member[];
@@ -89,6 +95,8 @@ export function exportSourceFrom(
 	return {
 		workspace,
 		teams: [...state.teams.values()],
+		sources: [...state.sources.values()],
+		signals: [...state.signals.values()],
 		statuses: [...state.statuses.values()],
 		members: [...state.members.values()],
 		labels: [...state.labels.values()],
@@ -335,6 +343,8 @@ export function workspaceToJson(
 	exportedAt = new Date(),
 ): string {
 	const slice = sliceOf(source, teamId);
+	const sources = (source.sources ?? []).filter((row) => teamId === null || row.teamId === teamId);
+	const ids = new Set(sources.map((row) => row.id));
 	return JSON.stringify(
 		{
 			format: EXPORT_FORMAT,
@@ -347,6 +357,10 @@ export function workspaceToJson(
 			teams: slice.teams.map(
 				({ intakeFormKey: _, intakeEmailKey: __, intakeFollowers: ___, ...team }) => team,
 			),
+			sources: sources.map((row) => exportedSourceSchema.parse(row)),
+			signals: (source.signals ?? [])
+				.filter((row) => ids.has(row.sourceId))
+				.map((row) => exportedSignalSchema.parse(row)),
 			statuses: slice.statuses,
 			members: slice.members.map(({ id, name, email, role }) => ({ id, name, email, role })),
 			labels: slice.labels,

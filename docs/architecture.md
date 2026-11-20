@@ -2202,7 +2202,9 @@ Source keys stay out of the workspace replica. Owners and admins manage them in
 the Sources page in Settings. To rotate a key, make a second key, switch the sender, then revoke the
 old key. The settings gateway checks D1 membership and the object checks the admin again.
 Removal seals the source so a key made during removal cannot write, deletes its keys in D1, then removes the signals and source
-through a gateway-only object call. Issues already filed remain in their teams.
+through a gateway-only object call. For a restored source, both the key deletion and the final
+object call are scoped to the generation named by the seal. Issues already filed remain in their
+teams.
 During a connection seal or Settings removal, a valid source key receives 503 with
 `Retry-After: 60`. Missing sources, workspaces and invalid keys receive 404.
 
@@ -2210,6 +2212,25 @@ Revoking a key records its id in the object before D1 forgets the key, and the i
 source is removed. So a request that found the key before the revocation, and held its body back
 past it, is still refused. A newer report that repeats both state and severity moves the signal's ordering time
 without taking a version, so a clear sent before it, arriving late, changes nothing.
+
+A JSON export carries each selected team's source settings and signals from the replica, never a
+key. A restored source starts paused and keyless: make a key and resume it in Settings to continue
+reporting against the imported issues. Each restore puts a fresh generation prefix in the object's
+metadata. The object gives a rotation its key id with that prefix and checks it again when the key
+is made and on every event, so neither a pending rotation nor a delayed event of a deleted source
+reaches its replacement. Settings lists keys of earlier generations under “Keys for removed
+sources”, and a rotation removes the stale ids it observed before counting a restored source's
+keys. The file holds Track's receipt times, not the sender's. Restore caps them at the object's
+clock, moves a first report that is later than the last change back to it (as an object clock that
+stepped back can leave them), and uses the last change as an inactive signal's clear time. A restored signal's sender order
+starts five minutes after the file's `exportedAt` (or the restore, if that is earlier), the clock
+skew a live event is allowed. So an event sent before the export, even by a fast clock or replayed
+with the new key, receives the signal's current state, while one sent to the old workspace after
+the export, and replayed later, is newer than the file and applies. Within five minutes of the
+export, a new event can't be told from an old one, so it too receives the current state; the
+sender's next event after that applies. Restore believes the file's `exportedAt`, as it believes
+the file's issues: an earlier time only lets older events apply, as if the file were older, and
+only an owner or admin can import. The lifetime reopen count stops at 1,000,000.
 
 ### GitHub
 
@@ -2308,12 +2329,37 @@ Worker, and nothing stores it. Then `planImport` matches labels and projects by 
 the missing ones, and people by email, then name. A status is matched by name among the team's
 statuses, and otherwise becomes the team's first status of the same category, which each
 importer reads from its source (Linear's state types, GitHub's open and closed, a CSV's words). It writes parents before their sub-issues and
-the oldest issues first, so numbers follow the source's order. Nothing on the server knows about
-imports, so validation, permissions and fan-out are the ordinary ones.
+the oldest issues first, so numbers follow the source's order. These are ordinary mutations, with
+the ordinary validation, permissions and fan-out, and only owners and admins can import. Restoring
+sources, below, is the one step the server knows about.
 
 - **A JSON export moves a workspace or a team** to another workspace, such as from a self-hosted
   copy to Gateweave Cloud: issues with their comments, parents and relations, labels and
   projects with their colors and details, and the updates of the projects its issues are in.
+  Source settings and signals come with their team. After the issues are saved, the import
+  restores the sources through the object, paused and keyless, with their signals bound to the
+  imported issues. A signal binds only to an issue that is in the file and in its source's team
+  (checked before import too, when teams are combined), that still exists in that team, and that
+  has no signal yet; the first signal for an issue in the file wins. Repeated file issue ids,
+  including ids that encode to the same UTF-8 bytes, bind nothing, and with sources present the
+  planner submits at most one issue create per derived id. A restored signal is never larger than
+  one the event path can store, and a 16 KiB event can still name its key: the fields Track stores
+  as sent (key, type, subject, severity, state) must fit in the smallest event that carries them,
+  and the URL, which Track stores in its normal form, may take up to three bytes for each byte of
+  a 16 KiB event (`STORED_EVENT_URL_MAX_BYTES`). If a signal's issue has no row at all, as when
+  its create failed, the object refuses the whole source with nothing written, and importing the
+  same file again restores it; an issue deleted, in another team or already linked only drops
+  its signal. A file with sources must carry `exportedAt`. Each source restores in one transaction
+  of at most 2,000 signals and 8 MiB of serialized rows, and a restore adds signals only while the
+  workspace's signal field values stay within 8 MiB, measured in UTF-8 bytes inside the
+  transaction (live events have their own daily limits). Sources restore in the file's source
+  order, and each source's signals in file order; signals beyond the remaining budget are counted
+  as over the limit. The 16 KiB limit on serialized link origins applies only to restore. The
+  result counts repeated issue ids, missing issues, issues in another team, issues already linked,
+  invalid signals, signals over the limit, and sources skipped for a missing team (with the file's
+  own teams) or oversized settings. A repeated import skips existing sources before matching their
+  teams, even after a rename. An issue create refused for any reason but an existing id holds the
+  sources back, so the import can be repeated.
   The import can keep the file's teams, matched by key or created, instead of putting everything
   in one team; it then also adds each team's live statuses that the team here lacks. Otherwise
   statuses are matched as above: the file names each issue's status and its category. History

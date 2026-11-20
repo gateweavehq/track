@@ -44,7 +44,7 @@ export function sourceKeys(db: Database, workspaceId: string, sourceId?: string)
 		.all();
 }
 
-export function newSourceKey() {
+export function newSourceKey(id: string = crypto.randomUUID()) {
 	const bytes = crypto.getRandomValues(new Uint8Array(32));
 	const secret =
 		"gws_" +
@@ -52,7 +52,7 @@ export function newSourceKey() {
 			.replace(/\+/g, "-")
 			.replace(/\//g, "_")
 			.replace(/=+$/, "");
-	return { id: crypto.randomUUID(), secret };
+	return { id, secret };
 }
 
 export async function makeSourceKey(

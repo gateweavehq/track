@@ -10,6 +10,7 @@ export default defineConfig({
 				test: { name: "unit", include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.ts"] },
 			},
 			{
+				resolve: { tsconfigPaths: true },
 				// The built Worker in workerd (see test/track-worker.ts). Building takes a while.
 				test: {
 					name: "worker",
