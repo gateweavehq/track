@@ -155,8 +155,13 @@ import {
 	type SourceEventResult,
 } from "./source-events";
 import {
+	expireConnectSeals,
+	finishConnectedSourceRemoval,
 	type KeyRevocation,
+	liveConnectSeal,
 	manageSource,
+	releaseConnectedSource,
+	removeConnectedSource,
 	revokeSourceKey,
 	type SourceAdminAction,
 	SourceLimit,
@@ -343,6 +348,7 @@ export class WorkspaceDO extends DurableObject {
 	snapshot(member: MemberProfile): Snapshot {
 		const profile = memberProfile.parse(member);
 		this.#write(() => upsertMember(this.#db, profile, Date.now()));
+		this.#write(() => expireConnectSeals(this.#db, Date.now()));
 		return readSnapshot(this.#db, profile.id);
 	}
 
@@ -566,7 +572,23 @@ export class WorkspaceDO extends DurableObject {
 				message: "Only workspace admins can manage sources",
 			};
 		}
+		this.#write(() => expireConnectSeals(this.#db, Date.now()));
 		return { ok: true, value: this.#db.select().from(schema.sources).all().map(toSource) };
+	}
+
+	/** Gateway only. A connection may take back an unused source after undo or a failed exchange. */
+	removeConnectedSource(sourceId: string, holder: string) {
+		return this.#write(() => removeConnectedSource(this.#db, sourceId, holder, Date.now())).status;
+	}
+
+	releaseConnectedSource(sourceId: string, holder: string) {
+		this.#write(() => releaseConnectedSource(this.#db, sourceId, holder, Date.now()));
+	}
+
+	finishConnectedSourceRemoval(sourceId: string, holder: string, reason: string) {
+		return this.#write(() =>
+			finishConnectedSourceRemoval(this.#db, sourceId, holder, reason, Date.now()),
+		).removed;
 	}
 
 	/** A D1 key can outlive its source after a failed cleanup. Revoking it still requires an admin. */
@@ -581,8 +603,10 @@ export class WorkspaceDO extends DurableObject {
 		try {
 			this.#write(() => {
 				const now = Date.now();
+				const changes = new ChangeSet(this.#db, memberId, now);
+				liveConnectSeal(this.#db, changes, command.id);
 				revokeSourceKey(this.#db, memberId, command, now);
-				return new ChangeSet(this.#db, memberId, now).result();
+				return changes.result();
 			});
 			return { ok: true, value: { id: command.id } };
 		} catch (error) {

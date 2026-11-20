@@ -271,8 +271,10 @@ export async function startTrack(
 		vars = {},
 		isolateVars = [],
 		outbound: standIn,
+		connectBoundary,
 	}: {
 		isolates?: number;
+		connectBoundary?: (step: string, id: string) => Promise<boolean>;
 		demo?: boolean;
 		/** What a branch's Preview lacks. */
 		withoutDatabase?: boolean;
@@ -288,6 +290,12 @@ export async function startTrack(
 	const received: ReceivedWebhook[] = [];
 	const logs: WorkerLog[] = [];
 	const modules = builtModules();
+	if (connectBoundary)
+		modules.unshift({
+			type: "ESModule",
+			path: join(serverDir, "connect-test.js"),
+			contents: readFileSync(join(import.meta.dirname, "connect-workspace.mjs"), "utf8"),
+		});
 	const secret = randomBytes(32).toString("base64url");
 	const names = Array.from({ length: isolates }, (_, i) => (i === 0 ? "track" : `track-${i + 1}`));
 	// Miniflare 5 still takes its documented v4 options through this converter.
@@ -330,7 +338,18 @@ export async function startTrack(
 					},
 					// Nor any bucket for attached files.
 					...(!demo && {
-						serviceBindings: { EMAIL: "outbox" },
+						serviceBindings: {
+							EMAIL: "outbox",
+							...(connectBoundary && {
+								connectBoundary: async (request: Request) => {
+									const proceed = await connectBoundary(
+										new URL(request.url).pathname.slice(1),
+										await request.text(),
+									);
+									return new Response(null, { status: proceed ? 204 : 503 });
+								},
+							}),
+						},
 						r2Buckets: { FILES: "track-files" },
 					}),
 					d1Databases: { [withoutDatabase ? "UNBOUND_DB" : "DB"]: "track-test" },
@@ -489,12 +508,12 @@ export async function startTrack(
 			return (await bucket.list({ prefix })).objects.map((object) => object.key);
 		},
 		/** Runs the Worker's Cron Trigger once, as Cloudflare would. */
-		async runScheduled() {
+		async runScheduled(now = Date.now()) {
 			// Miniflare's Fetcher type leaves out the scheduled() workerd adds to every Worker stub.
 			const worker = (await mf.getWorker(names[0])) as unknown as {
 				scheduled(event: { cron: string; scheduledTime: Date }): Promise<unknown>;
 			};
-			await worker.scheduled({ cron: "*/30 * * * *", scheduledTime: new Date() });
+			await worker.scheduled({ cron: "*/30 * * * *", scheduledTime: new Date(now) });
 		},
 		/** A workspace's teams and members as its Durable Object holds them now. */
 		async directory(workspaceId: string): Promise<{ teams: unknown[]; members: unknown[] }> {

@@ -69,15 +69,25 @@ export async function applySourceAction(
 			return audit.ok ? done : audit;
 		}
 		case "delete": {
-			const sealed = await manage({ kind: "prepareRemoval", id: action.id });
-			if (!sealed.ok) return sealed;
-			await removeSourceKeys(db, workspaceId, action.id);
-			const removed = await manage({ kind: "finishRemoval", id: action.id });
-			return removed.ok ? done : removed;
+			return deleteSource(db, workspaceId, action.id, manage);
 		}
 		default: {
 			const changed = await manage(action);
 			return changed.ok ? done : changed;
 		}
 	}
+}
+
+/** Seal before deleting keys, then finish through the same admin who started the removal. */
+export async function deleteSource(
+	db: Database,
+	workspaceId: string,
+	id: string,
+	manage: (command: { kind: "prepareRemoval" | "finishRemoval"; id: string }) => Promise<Outcome>,
+): Promise<SourceChangeResult> {
+	const sealed = await manage({ kind: "prepareRemoval", id });
+	if (!sealed.ok) return sealed;
+	await removeSourceKeys(db, workspaceId, id);
+	const removed = await manage({ kind: "finishRemoval", id });
+	return removed.ok ? { ok: true, value: {} } : removed;
 }

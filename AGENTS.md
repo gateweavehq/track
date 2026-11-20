@@ -91,8 +91,26 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    The events gateway (`apps/web/src/server/events.ts`, `POST /api/events`) admits a source by its
    bearer key hash in D1 and its active source row in the workspace object, which also refuses a
    key revoked since the lookup. It reads no cookies.
-   Only the admin settings gateway removes a source: it seals the source so a key made during removal cannot write, deletes its D1 keys,
-   then removes its signals and source through the object. Issues stay in the workspace.
+   The admin settings gateway seals the source so a key made during removal cannot write, deletes
+   its D1 keys, then removes its signals and source through the object. Issues stay in the workspace.
+   An owner or admin can also approve a source at `/connect/source`. Allow records its ids and
+   deadline in a pending row. The object refuses a late create on its clock, and the key insert
+   checks the deadline on the Worker's clock. Each subsequent D1 write, including key insert or
+   delete, compares the exact pending or claimed row value in the statement. Every claim has a
+   fresh nonce. Sweeps start after the deadline and retain a missing pending source's row for
+   another hour for clock skew. Source undo expires at `undoUntil` after three days. It first
+   records a durable claim. A live claim answers a repeat undo with success, and either another
+   undo or the daily sweep can resume an expired one.
+   In `connect.ts`, failed Allow, take-back and undo first seal through the gateway-only
+   `removeConnectedSource`, which checks last-heard time, signals, usage and last-refused time
+   even on a retry of its own marker. The seal names the key and the holder's nonce. Only that
+   holder can finish or release it. Competing claims wait for the next sweep. After two minutes
+   on the object's clock, it restores the previous paused setting. Settings removal can take over.
+   During either seal the gateway answers 503 with `Retry-After: 60` (“try again”). Only a
+   holder of the source's own key reaches that answer, so it reveals nothing to other callers. Then the gateway reads D1's keys. Pending permits
+   zero keys or just the approval key. Ready and undo require exactly that key. A mismatch calls
+   `releaseConnectedSource` by marker to restore the previous paused setting. Only `connect.ts`
+   calls that gateway method. A missing source permits deleting only the named key.
    The unsubscribe link in an inbox email (`apps/web/src/server/unsubscribe.ts`) carries no
    session either: its token, signed with `BETTER_AUTH_SECRET`, names the member, and it can only
    turn their email off. A team's public request form (`apps/web/src/server/intake-form.ts`) and
@@ -112,9 +130,9 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    only those, through the object's gateway-only `removeConnectedWebhooksOf(agentId)`, which
    names no member and which only `connect.ts` calls: its rollback after an approval fails,
    that undo after checking the token, and the take-back of a code that is refused or never
-   traded (an exchange that fails after deleting its row, and the sweep of expired rows on an
-   approval and in the Worker's daily run, which act only on ids read from a row they just
-   deleted). Both POST routes are counted per client address. A backup Worker, such as Gateweave Backup's, reaches the objects only through
+   traded (a refused exchange marks the row spent and claims it, and the sweep of expired rows on an
+   approval and in the Worker's daily run claims each due row. Cleanup acts on the claimed ids
+   before deleting the row. Claims expire after ten minutes and a claimed or spent code cannot open). Both POST routes are counted per client address. A backup Worker, such as Gateweave Backup's, reaches the objects only through
    the named `Backup` entrypoint (`apps/web/src/server/backup.ts`), which has no route: a service
    binding from a Worker in the same account is its access. It lists workspaces in D1 and sends
    only reads, which the object checks and always rolls back (`packages/sync-server/src/backup.ts`).

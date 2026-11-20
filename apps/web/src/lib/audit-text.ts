@@ -97,6 +97,10 @@ export function auditSentence(event: AuditEvent, people: People): string {
 			return `deleted a comment by ${person(detail.author)} on ${label}`;
 		case "source.created":
 			return `added the source ${label}`;
+		case "source.connected":
+			return `approved a connection from ${text("origin") || "another server"} that added the source ${label}`;
+		case "source.takenBack":
+			return `took back the source ${label} (${text("reason")})`;
 		case "source.updated":
 			return `changed the source ${label}`;
 		case "source.paused":

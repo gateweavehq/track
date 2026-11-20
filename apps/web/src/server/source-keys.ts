@@ -1,5 +1,5 @@
 import { KEYS_PER_SOURCE } from "@gateweave/track-protocol";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { Database } from "./db";
 import { schema } from "./db";
 
@@ -31,15 +31,20 @@ export async function findSourceByKey(db: Database, key: string | null) {
 	);
 }
 
-export function sourceKeys(db: Database, workspaceId: string) {
+export function sourceKeys(db: Database, workspaceId: string, sourceId?: string) {
 	return db
 		.select({ id: sourceKey.id, sourceId: sourceKey.sourceId, start: sourceKey.start })
 		.from(sourceKey)
-		.where(eq(sourceKey.organizationId, workspaceId))
+		.where(
+			and(
+				eq(sourceKey.organizationId, workspaceId),
+				sourceId === undefined ? undefined : eq(sourceKey.sourceId, sourceId),
+			),
+		)
 		.all();
 }
 
-export async function makeSourceKey(db: Database, workspaceId: string, sourceId: string) {
+export function newSourceKey() {
 	const bytes = crypto.getRandomValues(new Uint8Array(32));
 	const secret =
 		"gws_" +
@@ -47,18 +52,33 @@ export async function makeSourceKey(db: Database, workspaceId: string, sourceId:
 			.replace(/\+/g, "-")
 			.replace(/\//g, "_")
 			.replace(/=+$/, "");
+	return { id: crypto.randomUUID(), secret };
+}
+
+export async function makeSourceKey(
+	db: Database,
+	workspaceId: string,
+	sourceId: string,
+	{ id, secret } = newSourceKey(),
+	condition?: () => SQL,
+) {
 	const hash = await digest(secret);
-	const id = crypto.randomUUID();
 	// Checking the count and inserting in one statement keeps simultaneous rotations inside the limit.
 	const result =
 		await db.run(sql`insert into ${sourceKey} (id, organization_id, source_id, hash, start)
 		select ${id}, ${workspaceId}, ${sourceId}, ${hash}, ${secret.slice(0, 12)}
 		where (select count(*) from ${sourceKey} where ${sourceKey.organizationId} = ${workspaceId}
-			and ${sourceKey.sourceId} = ${sourceId}) < ${KEYS_PER_SOURCE}`);
+			and ${sourceKey.sourceId} = ${sourceId}) < ${KEYS_PER_SOURCE} and ${condition?.() ?? sql`1`}`);
 	return result.meta.changes === 1 ? { id, secret } : null;
 }
 
-export function removeSourceKeys(db: Database, workspaceId: string, sourceId: string, id?: string) {
+export function removeSourceKeys(
+	db: Database,
+	workspaceId: string,
+	sourceId: string,
+	id?: string,
+	condition?: SQL,
+) {
 	return db
 		.delete(sourceKey)
 		.where(
@@ -66,6 +86,7 @@ export function removeSourceKeys(db: Database, workspaceId: string, sourceId: st
 				eq(sourceKey.organizationId, workspaceId),
 				eq(sourceKey.sourceId, sourceId),
 				id === undefined ? undefined : eq(sourceKey.id, id),
+				condition,
 			),
 		)
 		.run();

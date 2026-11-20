@@ -1,5 +1,12 @@
-import { createHash, createHmac, hkdfSync } from "node:crypto";
-import type { AuditPage } from "@gateweave/track-protocol";
+import {
+	createCipheriv,
+	createDecipheriv,
+	createHash,
+	createHmac,
+	hkdfSync,
+	randomBytes,
+} from "node:crypto";
+import { type AuditPage, SOURCES_PER_WORKSPACE } from "@gateweave/track-protocol";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { serverFunctions } from "./server-functions";
@@ -17,8 +24,12 @@ const PASSWORD = "a-long-test-password";
 
 let track: Awaited<ReturnType<typeof startTrack>>;
 
+let boundary: ((step: string, id: string) => Promise<boolean>) | undefined;
 beforeAll(async () => {
-	track = await startTrack(origin, { vars: { CONNECT_ORIGINS: "https://known.test" } });
+	track = await startTrack(origin, {
+		vars: { CONNECT_ORIGINS: "https://known.test" },
+		connectBoundary: async (step, id) => (await boundary?.(step, id)) ?? true,
+	});
 });
 
 afterAll(async () => {
@@ -1106,11 +1117,11 @@ describe("taking back a connection whose code is not used", () => {
 		expect(event?.detail).toMatchObject({ origin: asker });
 	});
 
-	it("still takes back after a sign-in elsewhere cleared the table of what had run out", async () => {
+	it("still takes back after an older Worker cleared expired verifications", async () => {
 		const { owner, workspaceId, slug } = await setUp("kept-past-cleanup");
 		await allow(owner, slug, newVerifier());
 		await expireCodes();
-		// What Better Auth runs whenever it looks a verification up, a sign-in for one: every row
+		// During rollout, an older Worker may still run Better Auth’s bulk cleanup: every row
 		// past its `expires_at` goes. Here as it would two minutes on, when the code's minute is
 		// over; a code's row is not past its `expires_at` for days.
 		await track.db
@@ -1315,5 +1326,1321 @@ describe("taking back a connection whose code is not used", () => {
 		expect(await refused.json()).toEqual(NO_CODE);
 		expect(await codeRows()).toEqual([]);
 		expect(await agentCount(workspaceId)).toBe(2);
+	});
+});
+
+function gate() {
+	const entered = Promise.withResolvers<void>();
+	const released = Promise.withResolvers<void>();
+	return {
+		reached: entered.promise,
+		resume: released.resolve,
+		pause() {
+			entered.resolve();
+			return released.promise;
+		},
+	};
+}
+
+describe("connecting a source", () => {
+	type Fixture = Awaited<ReturnType<typeof setUp>>;
+	const sourceQuery = (verifier: string) =>
+		new URLSearchParams({
+			product: "guard",
+			name: "Guard EU",
+			return: "https://known.test/done",
+			links: "https://known.test,https://reports.test",
+			state: "007",
+			challenge: challengeOf(verifier),
+		}).toString();
+	const input = (f: Fixture, verifier: string) => ({
+		query: sourceQuery(verifier),
+		workspace: f.slug,
+		teamId: f.teamId,
+		decision: "allow",
+		lowestSeverity: "high",
+		closeWhenCleared: true,
+		assigneeId: null,
+	});
+	const decide = (
+		f: Fixture,
+		verifier: string,
+		changes: Record<string, unknown> = {},
+		cookie = f.owner.cookie,
+	) =>
+		serverFn<Approval>(
+			"approveSourceConnection",
+			"POST",
+			{ ...input(f, verifier), ...changes },
+			{ cookie },
+		);
+	async function approved(f: Fixture, changes: Record<string, unknown> = {}) {
+		const verifier = newVerifier();
+		const { result } = await decide(f, verifier, changes);
+		expect(result.ok, result.message).toBe(true);
+		const url = new URL(result.redirect ?? "");
+		expect(url.origin + url.pathname).toBe("https://known.test/done");
+		expect(url.searchParams.get("state")).toBe("007");
+		const code = url.searchParams.get("code") ?? "";
+		expect(code).toMatch(/^[\w-]{43}$/);
+		return { code, verifier };
+	}
+	async function settings(f: Fixture) {
+		return (
+			await serverFn<{ sources: { id: string }[]; keys: { id: string; sourceId: string }[] }>(
+				"getSourceSettings",
+				"GET",
+				f.slug,
+				{ cookie: f.owner.cookie },
+			)
+		).result;
+	}
+	async function trade(f: Fixture, changes: Record<string, unknown> = {}) {
+		const { code, verifier } = await approved(f, changes);
+		const response = await exchange(code, verifier);
+		expect(response.status).toBe(200);
+		const answer = (await response.json()) as {
+			sourceKey: string;
+			source: { id: string };
+			endpoint: string;
+			undo: string;
+			undoUntil: string;
+		};
+		return { answer, code, verifier };
+	}
+	const event = () =>
+		JSON.stringify({
+			key: "finding",
+			state: "open",
+			sentAt: new Date().toISOString(),
+			severity: "high",
+			title: "Finding",
+		});
+	async function rowsFor(f: Fixture) {
+		const rows: { identifier: string; value: string }[] = await codeRows();
+		return rows.filter((row) => JSON.parse(row.value).workspaceId === f.workspaceId);
+	}
+	const expire = (f: Fixture) =>
+		track.db
+			.prepare(
+				"UPDATE verification SET value=json_set(value,'$.sweepAt',0,'$.goodUntil',0) WHERE identifier GLOB 'track-connect:*' AND json_extract(value,'$.workspaceId')=?",
+			)
+			.bind(f.workspaceId)
+			.run();
+
+	it.each(["agent", "source"] as const)(
+		"keeps the raw %s page query through sign-in and approval",
+		async (kind) => {
+			const f = await setUp("raw-" + kind);
+			const verifier = newVerifier();
+			const params = new URLSearchParams(
+				kind === "agent" ? connectQuery(verifier) : sourceQuery(verifier),
+			);
+			params.set("state", "1e3");
+			const path = "/connect/" + kind + "?" + params;
+			const login = await track.fetch(origin + path, { redirect: "manual" });
+			expect(
+				new URL(login.headers.get("location") ?? "", origin).searchParams.get("redirect"),
+			).toBe(path);
+			const headers = { cookie: f.owner.cookie };
+			const continuation = await track.fetch(
+				new URL(login.headers.get("location") ?? "", origin).href,
+				{ headers, redirect: "manual" },
+			);
+			expect(new URL(continuation.headers.get("location") ?? "", origin).href).toBe(origin + path);
+			for (const field of kind === "agent" ? ["name", "state"] : ["name"]) {
+				const response = await track.fetch(origin + path + "&" + field + "=again", { headers });
+				expect(await response.text()).toContain("The request names the same thing twice.");
+			}
+			const html = await (await track.fetch(origin + path, { headers })).text();
+			const query = html.match(/"(\?[^"]*state=1e3[^"]*)"/)?.[1];
+			expect(query).toBe("?" + params);
+			if (!query) throw Error("Missing query in page data");
+			const result =
+				kind === "agent"
+					? await approve(f.owner, query, { workspace: f.slug, decision: "cancel" })
+					: await decide(f, verifier, { query, decision: "cancel" });
+			expect(new URL(result.result.redirect ?? "").searchParams.get("state")).toBe("1e3");
+		},
+	);
+
+	it("defaults close when cleared to the product's policy", async () => {
+		const f = await setUp("source-defaults");
+		for (const product of ["guard", "ci"]) {
+			const query = new URLSearchParams(sourceQuery(newVerifier()));
+			query.set("product", product);
+			const html = await (
+				await track.fetch(origin + "/connect/source?" + query, {
+					headers: { cookie: f.owner.cookie },
+				})
+			).text();
+			const checkbox = html.match(/<input[^>]*type="checkbox"[^>]*>/)?.[0];
+			expect(checkbox).toBeDefined();
+			expect(checkbox?.includes("checked")).toBe(product === "guard");
+		}
+	});
+
+	it("gives the asking server three days to undo and the signed expiry in UTC", async () => {
+		const f = await setUp("source-expiry");
+		const before = Date.now();
+		const { answer } = await trade(f);
+		const expires = Date.parse(answer.undoUntil);
+		expect(expires).toBeGreaterThanOrEqual(before + 3 * 86400_000 - 1000);
+		expect(expires).toBeLessThanOrEqual(Date.now() + 3 * 86400_000);
+		expect(answer.undoUntil).toBe(new Date(expires).toISOString());
+		expect(Number(answer.undo.split(".").at(-2)) * 1000).toBe(expires);
+		// The test Worker can receive the same request on either side of its signed deadline.
+		for (const offset of [-1, 0, 1]) {
+			const response = await track.fetch(origin + "/api/connect/undo", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"cf-connecting-ip": freshAddress(),
+					"test-now": String(expires + offset),
+				},
+				body: JSON.stringify({ undo: answer.undo }),
+			});
+			expect(response.status).toBe(offset < 0 ? 200 : 400);
+			expect(await response.json()).toEqual(offset < 0 ? { ok: true } : { error: "invalid_undo" });
+		}
+		expect((await settings(f)).sources).toHaveLength(0);
+	});
+
+	it("returns the same undo body for a retained and a removed source", async () => {
+		const f = await setUp("undo-bodies");
+		const kept = await trade(f);
+		await serverFn(
+			"changeSource",
+			"POST",
+			{ workspace: f.slug, action: { kind: "makeKey", id: kept.answer.source.id } },
+			{ cookie: f.owner.cookie },
+		);
+		const removed = await trade(f);
+		const a = await undo(kept.answer.undo);
+		const b = await undo(removed.answer.undo);
+		expect([a.status, b.status]).toEqual([200, 200]);
+		expect(await a.text()).toBe(await b.text());
+		expect((await settings(f)).sources).toMatchObject([{ id: kept.answer.source.id }]);
+	});
+
+	it("refuses a pending source even when its sealed answer is complete", async () => {
+		const f = await setUp("pending-answer");
+		const { code, verifier } = await approved(f);
+		const [row] = await rowsFor(f);
+		await track.db
+			.prepare(
+				"UPDATE verification SET value=json_set(value,'$.state','pending') WHERE identifier=?",
+			)
+			.bind(row?.identifier)
+			.run();
+		expect((await exchange(code, verifier)).status).toBe(400);
+		expect(await settings(f)).toEqual({ sources: [], keys: [] });
+	});
+
+	it("hands a source key to exactly one concurrent exchange", async () => {
+		const f = await setUp("source-race");
+		const { code, verifier } = await approved(f);
+		const responses = await Promise.all([exchange(code, verifier), exchange(code, verifier)]);
+		expect(responses.map((r) => r.status).sort()).toEqual([200, 400]);
+		expect((await settings(f)).keys).toHaveLength(1);
+	});
+
+	it("keeps a missing pending source recoverable when Allow stops after inserting its key", async () => {
+		const f = await setUp("late-source");
+		let retained = false;
+		boundary = async (step) => {
+			if (step === "before-create") {
+				await track.runScheduled(Date.now() + 120_000);
+				retained = (await rowsFor(f)).length === 1;
+			}
+			return step !== "before-keyCreated" && !(retained && step === "before-seal");
+		};
+		try {
+			expect((await decide(f, newVerifier())).result.ok).toBe(false);
+		} finally {
+			boundary = undefined;
+		}
+		expect(retained).toBe(true);
+		expect((await settings(f)).keys).toHaveLength(1);
+		await track.runScheduled(Date.now() + 120_000);
+		expect(await settings(f)).toEqual({ sources: [], keys: [] });
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
+	it("a stale gone sweep leaves the exchanged key with its source", async () => {
+		const f = await setUp("stale-gone");
+		const creating = gate();
+		const gone = gate();
+		let first = true;
+		boundary = async (step) => {
+			if (step === "before-create") await creating.pause();
+			if (step === "after-gone" && first) {
+				first = false;
+				await gone.pause();
+			}
+			return true;
+		};
+		try {
+			const allowing = approved(f);
+			await creating.reached;
+			const later = Date.now() + 120_000;
+			const sweepA = track.runScheduled(later);
+			await gone.reached;
+			await track.runScheduled(later + 600_001);
+			creating.resume();
+			const { code, verifier } = await allowing;
+			const response = await exchange(code, verifier);
+			expect(response.status).toBe(200);
+			const { source, sourceKey } = (await response.json()) as {
+				source: { id: string };
+				sourceKey: string;
+			};
+			gone.resume();
+			await sweepA;
+			expect(await settings(f)).toMatchObject({
+				sources: [{ id: source.id }],
+				keys: [{ sourceId: source.id }],
+			});
+			expect(
+				(
+					await track.fetch(origin + "/api/events", {
+						method: "POST",
+						headers: { authorization: "Bearer " + sourceKey, "content-type": "application/json" },
+						body: event(),
+					})
+				).status,
+			).toBe(200);
+			expect(await rowsFor(f)).toEqual([]);
+		} finally {
+			creating.resume();
+			gone.resume();
+			boundary = undefined;
+		}
+	});
+
+	it("a sweep after the pending read fences the approval key insert", async () => {
+		const f = await setUp("insert-fence");
+		let reachedKey = false;
+		boundary = async (step) => {
+			if (step === "after-create") await track.runScheduled(Date.now() + 120_000);
+			if (step === "before-keyCreated") reachedKey = true;
+			return true;
+		};
+		try {
+			expect((await decide(f, newVerifier())).result.ok).toBe(false);
+		} finally {
+			boundary = undefined;
+		}
+		expect(reachedKey).toBe(false);
+		await track.runScheduled();
+		expect(await settings(f)).toEqual({ sources: [], keys: [] });
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
+	it.each(["before seal", "before read", "after read"])(
+		"Settings Make key %s and undo agree in both stores",
+		async (ordering) => {
+			const f = await setUp("make-" + ordering.replace(" ", "-"));
+			const { answer } = await trade(f);
+			const id = answer.source.id;
+			if (ordering === "before seal") {
+				await serverFn(
+					"changeSource",
+					"POST",
+					{ workspace: f.slug, action: { kind: "pause", id, paused: true } },
+					{ cookie: f.owner.cookie },
+				);
+				expect((await settings(f)).sources).toMatchObject([{ id, paused: true }]);
+			}
+			const original = await settings(f);
+			const makeKey = async () =>
+				(
+					await serverFn<{ ok: boolean; message?: string }>(
+						"changeSource",
+						"POST",
+						{ workspace: f.slug, action: { kind: "makeKey", id } },
+						{ cookie: f.owner.cookie },
+					)
+				).result;
+			const checked = gate();
+			const inserted = gate();
+			let issuing: ReturnType<typeof makeKey>;
+			boundary = async (step) => {
+				if (step === "after-checkKey") await checked.pause();
+				if (step === "before-keyCreated" && ordering === "before read") await inserted.pause();
+				if (step === "before-seal" && ordering === "before seal") {
+					checked.resume();
+					await issuing;
+				}
+				if (step === "after-sealed" && ordering === "before read") {
+					checked.resume();
+					await inserted.reached;
+				}
+				if (step === "before-finish" || step === "before-release") {
+					checked.resume();
+					inserted.resume();
+					await issuing;
+				}
+				return true;
+			};
+			try {
+				issuing = makeKey();
+				await checked.reached;
+				expect((await undo(answer.undo)).status).toBe(200);
+				const result = await issuing;
+				const after = await settings(f);
+				if (ordering === "before seal") {
+					expect(result.ok).toBe(true);
+					expect(after.sources).toEqual(original.sources);
+					expect(after.keys).toHaveLength(2);
+					expect(after.keys).toEqual(expect.arrayContaining(original.keys));
+				} else {
+					expect(result).toMatchObject({ ok: false, message: "Source not found" });
+					expect(after).toEqual(ordering === "after read" ? { sources: [], keys: [] } : original);
+				}
+			} finally {
+				checked.resume();
+				inserted.resume();
+				boundary = undefined;
+			}
+		},
+	);
+
+	it("a durable undo claim retries the key delete after the object finished", async () => {
+		const f = await setUp("durable-undo");
+		const { answer } = await trade(f);
+		const before = await settings(f);
+		await track.db
+			.prepare(
+				"CREATE TRIGGER refuse_undo_delete BEFORE DELETE ON source_key BEGIN SELECT RAISE(ABORT,'test'); END",
+			)
+			.run();
+		try {
+			expect((await undo(answer.undo)).status).toBe(500);
+		} finally {
+			await track.db.prepare("DROP TRIGGER refuse_undo_delete").run();
+		}
+		expect(await settings(f)).toEqual({ sources: [], keys: before.keys });
+		const claimed = await rowsFor(f);
+		expect(claimed).toHaveLength(1);
+		expect((await undo(answer.undo)).status).toBe(200);
+		expect(await rowsFor(f)).toEqual(claimed);
+		expect((await settings(f)).keys).toEqual(before.keys);
+		await track.runScheduled(Date.now() + 601_000);
+		expect(await settings(f)).toEqual({ sources: [], keys: [] });
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
+	it("a second undo can take over an expired undo claim", async () => {
+		const f = await setUp("undo-takeover");
+		const { answer } = await trade(f);
+		const finishing = gate();
+		let first = true;
+		boundary = async (step) => {
+			if (step === "before-finish" && first) {
+				first = false;
+				await finishing.pause();
+			}
+			return true;
+		};
+		try {
+			const previous = undo(answer.undo);
+			await finishing.reached;
+			await track.rpc(f.workspaceId, "setObjectTime", Date.now() + 601_000);
+			const response = await track.fetch(origin + "/api/connect/undo", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"cf-connecting-ip": freshAddress(),
+					"test-now": String(Date.now() + 601_000),
+				},
+				body: JSON.stringify({ undo: answer.undo }),
+			});
+			expect(response.status).toBe(200);
+			expect(await settings(f)).toEqual({ sources: [], keys: [] });
+			expect(await rowsFor(f)).toEqual([]);
+			finishing.resume();
+			expect((await previous).status).toBe(200);
+		} finally {
+			finishing.resume();
+			boundary = undefined;
+		}
+	});
+
+	async function makeSettingsKey(f: Fixture, id: string) {
+		const { result } = await serverFn<{ ok: boolean; value: { secret: string } }>(
+			"changeSource",
+			"POST",
+			{ workspace: f.slug, action: { kind: "makeKey", id } },
+			{ cookie: f.owner.cookie },
+		);
+		expect(result.ok).toBe(true);
+		return result.value.secret;
+	}
+
+	function sendEvent(secret: string, body: string) {
+		return track.fetch(origin + "/api/events", {
+			method: "POST",
+			headers: { authorization: "Bearer " + secret, "content-type": "application/json" },
+			body,
+		});
+	}
+
+	it("a delayed finish cannot delete a source sealed by a later undo", async () => {
+		const f = await setUp("late-finish");
+		const { answer } = await trade(f);
+		const finish = gate();
+		const release = gate();
+		let waitForFinish = true;
+		let waitForRelease = false;
+		boundary = async (step) => {
+			if (step === "before-finish" && waitForFinish) {
+				waitForFinish = false;
+				await finish.pause();
+			}
+			if (step === "before-release" && waitForRelease) {
+				waitForRelease = false;
+				await release.pause();
+			}
+			return true;
+		};
+		try {
+			const stale = undo(answer.undo);
+			await finish.reached;
+			await track.rpc(f.workspaceId, "setObjectTime", Date.now() + 120_001);
+			await makeSettingsKey(f, answer.source.id);
+			const adopted = await settings(f);
+			expect(adopted.keys).toHaveLength(2);
+			await track.runScheduled(Date.now() + 601_000);
+			expect(await rowsFor(f)).toEqual([]);
+			waitForRelease = true;
+			const later = undo(answer.undo);
+			await release.reached;
+			finish.resume();
+			expect((await stale).status).toBe(200);
+			release.resume();
+			expect((await later).status).toBe(200);
+			expect(await settings(f)).toEqual(adopted);
+			expect((await sendEvent(answer.sourceKey, event())).status).toBe(200);
+		} finally {
+			finish.resume();
+			release.resume();
+			boundary = undefined;
+		}
+	});
+
+	it.each([
+		["exchange", false],
+		["undo", false],
+		["exchange", true],
+		["undo", true],
+	] as const)("recovers a delayed %s seal (release interrupted: %s)", async (kind, interrupted) => {
+		const f = await setUp("delay-" + kind + "-" + Number(interrupted));
+		const token = kind === "undo" ? (await trade(f)).answer.undo : undefined;
+		const code = token === undefined ? (await approved(f)).code : undefined;
+		const [source] = (await settings(f)).sources;
+		if (!source) throw Error("Missing source");
+		const secret = await makeSettingsKey(f, source.id);
+		const sealing = gate();
+		let first = true;
+		let recovered = false;
+		boundary = async (step) => {
+			if (step === "before-seal" && first) {
+				first = false;
+				await sealing.pause();
+			}
+			return !(interrupted && recovered && step === "before-release");
+		};
+		try {
+			const now = Date.now();
+			await track.rpc(f.workspaceId, "setObjectTime", now);
+			const stale = token !== undefined ? undo(token) : exchange(code ?? "", newVerifier());
+			await sealing.reached;
+			await track.runScheduled(now + 601_000);
+			expect(await rowsFor(f)).toEqual([]);
+			recovered = true;
+			sealing.resume();
+			await stale;
+			const body = event();
+			if (interrupted) {
+				const sealed = await sendEvent(secret, body);
+				expect(sealed.status).toBe(503);
+				expect(sealed.headers.get("Retry-After")).toBe("60");
+				await track.rpc(f.workspaceId, "setObjectTime", now + 120_000);
+			}
+			expect((await sendEvent(secret, body)).status).toBe(200);
+			const unpaused = await serverFn<{ ok: boolean }>(
+				"changeSource",
+				"POST",
+				{ workspace: f.slug, action: { kind: "pause", id: source.id, paused: false } },
+				{ cookie: f.owner.cookie },
+			);
+			expect(unpaused.result.ok).toBe(true);
+			expect((await settings(f)).keys).toHaveLength(2);
+		} finally {
+			sealing.resume();
+			boundary = undefined;
+		}
+	});
+
+	it("asks the sender to retry the same event after release", async () => {
+		const f = await setUp("sealed-retry");
+		const { answer } = await trade(f);
+		const [key] = (await settings(f)).keys;
+		if (!key) throw Error("Missing key");
+		const holder = key.id + ":" + crypto.randomUUID();
+		const id = key.sourceId;
+		expect(await track.rpc(f.workspaceId, "removeConnectedSource", id, holder)).toBe("sealed");
+		const body = event();
+		const retry = await sendEvent(answer.sourceKey, body);
+		expect(retry.status).toBe(503);
+		expect(retry.headers.get("retry-after")).toBe("60");
+		await track.rpc(f.workspaceId, "releaseConnectedSource", id, holder);
+		expect((await sendEvent(answer.sourceKey, body)).status).toBe(200);
+		await track.rpc(f.workspaceId, "manageSource", f.owner.id, { kind: "prepareRemoval", id });
+		const settingsRemoval = await sendEvent(answer.sourceKey, body);
+		expect(settingsRemoval.status).toBe(503);
+		expect(settingsRemoval.headers.get("retry-after")).toBe("60");
+	});
+
+	it("measures pending grace when the sweep asks about the source", async () => {
+		const f = await setUp("grace-at-ask");
+		const clockOffset = (offset: number) =>
+			track.fetch(origin + "/test-sweep-clock", { headers: { "test-now": String(offset) } });
+		boundary = async (step) => {
+			if (step === "before-create") {
+				const [row] = await rowsFor(f);
+				const { sweepAt } = JSON.parse(row?.value ?? "{}");
+				await track.runScheduled(sweepAt + 3600_000 - 1);
+			}
+			if (step === "after-gone") await clockOffset(2);
+			if (step === "before-keyCreated") {
+				boundary = async (step) => step !== "before-seal";
+				return false;
+			}
+			return true;
+		};
+		try {
+			expect((await decide(f, newVerifier())).result.ok).toBe(false);
+			expect(await rowsFor(f)).toHaveLength(1);
+			expect((await settings(f)).keys).toHaveLength(1);
+		} finally {
+			await clockOffset(0);
+			boundary = undefined;
+		}
+		await track.runScheduled(Date.now() + 120_000);
+		expect(await settings(f)).toEqual({ sources: [], keys: [] });
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
+	it("preserves an unfinished undo behind 200 older due rows through the daily prune", async () => {
+		const f = await setUp("undo-backlog");
+		const { answer } = await trade(f);
+		await track.db
+			.prepare(
+				"CREATE TRIGGER keep_undo_key BEFORE DELETE ON source_key BEGIN SELECT RAISE(ABORT, 'test'); END",
+			)
+			.run();
+		try {
+			expect((await undo(answer.undo)).status).toBe(500);
+		} finally {
+			await track.db.prepare("DROP TRIGGER keep_undo_key").run();
+		}
+		const [row] = await rowsFor(f);
+		if (!row) throw Error("Missing undo claim");
+		const now = Date.now();
+		await track.db
+			.prepare(
+				"UPDATE verification SET expires_at=?,created_at=?,value=json_set(value,'$.claimedUntil',?) WHERE identifier=?",
+			)
+			.bind(now - 1, now - 4 * 86400_000, now - 86400_000, row.identifier)
+			.run();
+		await track.db
+			.prepare(`WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<200)
+			INSERT INTO verification(id,identifier,value,created_at,expires_at)
+			SELECT 'backlog-'||i,'track-connect:backlog-'||i,'{}',?,? FROM n`)
+			.bind(now - 5 * 86400_000, now - 2 * 86400_000)
+			.run();
+		const lookup = await track.fetch(
+			origin + "/api/auth/reset-password/unused?callbackURL=" + encodeURIComponent(origin),
+			{ redirect: "manual", headers: { "test-now": String(now + 86400_000) } },
+		);
+		expect(lookup.headers.get("location")).toContain("INVALID_TOKEN");
+		expect(await rowsFor(f)).toHaveLength(1);
+		await track.runScheduled();
+		expect(await rowsFor(f)).toHaveLength(1);
+		await track.runScheduled();
+		expect(await rowsFor(f)).toEqual([]);
+		expect(await settings(f)).toEqual({ sources: [], keys: [] });
+	});
+
+	it("leaves a competing claim for a later sweep and refuses an expired finish", async () => {
+		const f = await setUp("lease-busy");
+		const { answer } = await trade(f);
+		const id = answer.source.id;
+		const now = Date.now();
+		await track.rpc(f.workspaceId, "setObjectTime", now);
+		await track.rpc(f.workspaceId, "manageSource", f.owner.id, { kind: "pause", id, paused: true });
+		const holder = "another-claim";
+		expect(await track.rpc(f.workspaceId, "removeConnectedSource", id, holder)).toBe("sealed");
+		expect((await undo(answer.undo)).status).toBe(200);
+		expect(await rowsFor(f)).toHaveLength(1);
+		await track.rpc(f.workspaceId, "setObjectTime", now + 120_000);
+		expect(await track.rpc(f.workspaceId, "finishConnectedSourceRemoval", id, holder, "undo")).toBe(
+			false,
+		);
+		expect((await settings(f)).sources).toMatchObject([{ id, paused: true }]);
+		const unpaused = await track.rpc(f.workspaceId, "manageSource", f.owner.id, {
+			kind: "pause",
+			id,
+			paused: false,
+		});
+		expect(unpaused).toMatchObject({ ok: true, value: { paused: false } });
+		await track.runScheduled(now + 601_000);
+		expect(await settings(f)).toEqual({ sources: [], keys: [] });
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
+	it("discards a 30-day-old connect row with a future deadline and logs only its ids", async () => {
+		const f = await setUp("age-limit");
+		await approved(f);
+		const [row] = await rowsFor(f);
+		if (!row) throw Error("Missing approval");
+		const made = JSON.parse(row.value);
+		await track.db
+			.prepare("UPDATE verification SET created_at=? WHERE identifier=?")
+			.bind(Date.now() - 31 * 86400_000, row.identifier)
+			.run();
+		const from = track.logs.length;
+		await track.runScheduled();
+		expect(await rowsFor(f)).toEqual([]);
+		const [log] = track.logs
+			.slice(from)
+			.filter((log) => log.message.startsWith("connect: expired after 30 days"));
+		expect(log?.message).toContain(made.sourceId);
+		expect(log?.message).toContain(made.keyId);
+		expect(log?.message).not.toContain(made.ct);
+		expect(log?.message).not.toContain(made.origin);
+	});
+
+	it("a zero-key agent retry finishes the membership sync", async () => {
+		const f = await setUp("zero-key-retry");
+		await allow(f.owner, f.slug, newVerifier());
+		const [row] = await rowsFor(f);
+		const { agentId } = JSON.parse(row?.value ?? "{}");
+		boundary = async (step) => step !== "before-removeMember";
+		try {
+			await expire(f);
+			await track.runScheduled();
+		} finally {
+			boundary = undefined;
+		}
+		expect(await agentCount(f.workspaceId)).toBe(0);
+		expect((await directoryAgent(f.workspaceId, agentId))?.removedAt).toBeNull();
+		await track.runScheduled(Date.now() + 3601_000);
+		expect((await directoryAgent(f.workspaceId, agentId))?.removedAt).toBeGreaterThan(0);
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
+	it("exchanges historical agent ciphertext with neither kind field", async () => {
+		const f = await setUp("historical-code");
+		const verifier = newVerifier();
+		const { code } = await allow(f.owner, f.slug, verifier);
+		const [row] = await rowsFor(f);
+		if (!row) throw Error("Missing code");
+		const outer = JSON.parse(row.value);
+		const purpose = "track-connect-code-v1";
+		const key = Buffer.from(hkdfSync("sha256", track.authSecret, code, purpose, 32));
+		const aad = Buffer.from([purpose, row.identifier, outer.challenge].join(":"));
+		const ciphertext = Buffer.from(outer.ct, "base64url");
+		const decrypt = createDecipheriv("aes-256-gcm", key, Buffer.from(outer.iv, "base64url"));
+		decrypt.setAAD(aad);
+		decrypt.setAuthTag(ciphertext.subarray(-16));
+		const inner = JSON.parse(
+			Buffer.concat([decrypt.update(ciphertext.subarray(0, -16)), decrypt.final()]).toString(),
+		);
+		delete inner.kind;
+		delete outer.kind;
+		const iv = randomBytes(12);
+		const encrypt = createCipheriv("aes-256-gcm", key, iv);
+		encrypt.setAAD(aad);
+		outer.iv = iv.toString("base64url");
+		outer.ct = Buffer.concat([
+			encrypt.update(JSON.stringify(inner)),
+			encrypt.final(),
+			encrypt.getAuthTag(),
+		]).toString("base64url");
+		await track.db
+			.prepare("UPDATE verification SET value=? WHERE identifier=?")
+			.bind(JSON.stringify(outer), row.identifier)
+			.run();
+		const { returnOrigin: _origin, ...answer } = inner;
+		expect(await exchanged(code, verifier)).toEqual(answer);
+	});
+
+	it.each(["spent", "claimedUntil"])("refuses a ready code with only %s set", async (field) => {
+		const f = await setUp("refuse-" + field.toLowerCase());
+		const { code, verifier } = await approved(f);
+		const [row] = await rowsFor(f);
+		await track.db
+			.prepare("UPDATE verification SET value=json_set(value,?,1) WHERE identifier=?")
+			.bind("$." + field, row?.identifier)
+			.run();
+		const before = await rowsFor(f);
+		const response = await exchange(code, verifier);
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual(NO_CODE);
+		expect(await rowsFor(f)).toEqual(before);
+		await expire(f);
+		await track.runScheduled();
+	});
+
+	it("renews D1 retention when the sweep claims a row", async () => {
+		const f = await setUp("claim-retention");
+		await approved(f);
+		const [row] = await rowsFor(f);
+		await expire(f);
+		await track.db
+			.prepare("UPDATE verification SET expires_at=1 WHERE identifier=?")
+			.bind(row?.identifier)
+			.run();
+		boundary = async (step) => step !== "before-seal";
+		const now = Date.now();
+		try {
+			await track.runScheduled(now);
+		} finally {
+			boundary = undefined;
+		}
+		const kept = await track.db
+			.prepare("SELECT expires_at FROM verification WHERE identifier=?")
+			.bind(row?.identifier)
+			.first<{ expires_at: number }>();
+		expect(kept?.expires_at).toBeGreaterThanOrEqual(now + 3 * 86400_000);
+		await track.runScheduled(now + 601_000);
+	});
+
+	it("cleans only the approval key inserted after Settings deleted the source", async () => {
+		const f = await setUp("source-gone");
+		const other = crypto.randomUUID();
+		let removed = false;
+		boundary = async (step, id) => {
+			if (step === "after-create") {
+				const answer = await serverFn<{ ok: boolean }>(
+					"changeSource",
+					"POST",
+					{ workspace: f.slug, action: { kind: "delete", id } },
+					{ cookie: f.owner.cookie },
+				);
+				removed = answer.result.ok;
+				await track.db
+					.prepare(
+						"INSERT INTO source_key(id, organization_id, source_id, hash, start) VALUES(?,?,?,?,?)",
+					)
+					.bind(other, f.workspaceId, id, crypto.randomUUID(), "other")
+					.run();
+			}
+			return true;
+		};
+		try {
+			expect((await decide(f, newVerifier())).result.ok).toBe(false);
+		} finally {
+			boundary = undefined;
+		}
+		expect(removed).toBe(true);
+		await expire(f);
+		await track.runScheduled();
+		const rows = await track.db
+			.prepare("SELECT id FROM source_key WHERE organization_id=?")
+			.bind(f.workspaceId)
+			.all();
+		expect(rows.results).toEqual([{ id: other }]);
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
+	it("retains an adopted source when assignment fails during Allow", async () => {
+		const f = await setUp("source-adopted");
+		const admin = await signUp("Second source admin");
+		await addMember(f.workspaceId, admin, "admin");
+		await track.rpc(f.workspaceId, "syncMember", profile(admin, "admin"));
+		let eventStatus = 0;
+		boundary = async (step, id) => {
+			if (step === "before-assign") {
+				const { result } = await serverFn<{ ok: boolean; value: { secret: string } }>(
+					"changeSource",
+					"POST",
+					{ workspace: f.slug, action: { kind: "makeKey", id } },
+					{ cookie: admin.cookie },
+				);
+				const accepted = await track.fetch(origin + "/api/events", {
+					method: "POST",
+					headers: {
+						authorization: "Bearer " + result.value.secret,
+						"content-type": "application/json",
+						"cf-connecting-ip": freshAddress(),
+					},
+					body: event(),
+				});
+				eventStatus = accepted.status;
+			}
+			return true;
+		};
+		try {
+			expect((await decide(f, newVerifier(), { assigneeId: f.owner.id })).result.ok).toBe(false);
+		} finally {
+			boundary = undefined;
+		}
+		expect(eventStatus).toBe(200);
+		await expire(f);
+		await track.runScheduled();
+		const after = await settings(f);
+		expect(after.sources).toHaveLength(1);
+		expect(after.keys).toHaveLength(2);
+		expect(
+			(
+				await track.rpc<{ signals: unknown[] }>(
+					f.workspaceId,
+					"snapshot",
+					profile(f.owner, "owner"),
+				)
+			).signals,
+		).toHaveLength(1);
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
+	it.each(["pending", "ready"] as const)(
+		"checks the %s key set again on its own seal",
+		async (state) => {
+			const f = await setUp("key-set-" + state);
+			await approved(f);
+			const [row] = await rowsFor(f);
+			const [key] = (await settings(f)).keys;
+			if (!row || !key) throw Error("Missing approval");
+			if (state === "pending")
+				await track.db
+					.prepare(
+						"UPDATE verification SET value=json_set(value,'$.state','pending') WHERE identifier=?",
+					)
+					.bind(row.identifier)
+					.run();
+			await expire(f);
+			const observed: { before?: Awaited<ReturnType<typeof settings>> } = {};
+			boundary = async (step) => {
+				if (step !== "before-seal") return true;
+				boundary = undefined;
+				const [claim] = await rowsFor(f);
+				const holder = key.id + ":" + JSON.parse(claim?.value ?? "{}").claimNonce;
+				expect(await track.rpc(f.workspaceId, "removeConnectedSource", key.sourceId, holder)).toBe(
+					"sealed",
+				);
+				if (state === "ready")
+					await track.db.prepare("DELETE FROM source_key WHERE id=?").bind(key.id).run();
+				else
+					await track.db
+						.prepare(
+							"INSERT INTO source_key(id,organization_id,source_id,hash,start) VALUES(?,?,?,?,?)",
+						)
+						.bind(crypto.randomUUID(), f.workspaceId, key.sourceId, crypto.randomUUID(), "another")
+						.run();
+				observed.before = await settings(f);
+				return true;
+			};
+			try {
+				await track.runScheduled();
+			} finally {
+				boundary = undefined;
+			}
+			const { before } = observed;
+			if (!before) throw Error("Sweep did not reach the seal");
+			expect(await rowsFor(f)).toHaveLength(0);
+			expect(await settings(f)).toEqual({
+				...before,
+				sources: before.sources.map((source) => ({ ...source, paused: false })),
+			});
+		},
+	);
+
+	it("finishes a pending rollback after its D1 key was deleted", async () => {
+		const f = await setUp("rollback-finish");
+		boundary = async (step) => step !== "before-finish";
+		try {
+			expect((await decide(f, newVerifier(), { assigneeId: f.owner.id })).result.ok).toBe(false);
+		} finally {
+			boundary = undefined;
+		}
+		expect(await settings(f)).toMatchObject({ sources: [{ paused: true }], keys: [] });
+		expect(await rowsFor(f)).toHaveLength(1);
+		await track.rpc(f.workspaceId, "setObjectTime", Date.now() + 121_000);
+		await expire(f);
+		await track.runScheduled();
+		expect(await settings(f)).toEqual({ sources: [], keys: [] });
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
+	it.each(["sweep", "refusal"])(
+		"recovers an interrupted %s claim after its lease",
+		async (reason) => {
+			const f = await setUp("claim-" + reason);
+			const { code, verifier } = await approved(f);
+			let atSeal: { claimedUntil: number; spent?: boolean } | undefined;
+			boundary = async (step) => {
+				if (step !== "before-seal") return true;
+				const [row] = await rowsFor(f);
+				atSeal = JSON.parse(row?.value ?? "{}");
+				return false;
+			};
+			const before = Date.now();
+			try {
+				if (reason === "sweep") {
+					await expire(f);
+					await track.runScheduled();
+				} else expect((await exchange(code, newVerifier())).status).toBe(400);
+			} finally {
+				boundary = undefined;
+			}
+			expect(atSeal?.claimedUntil).toBeGreaterThanOrEqual(before + 600_000);
+			expect(atSeal?.claimedUntil).toBeLessThanOrEqual(Date.now() + 600_000);
+			if (reason === "refusal") expect(atSeal?.spent).toBe(true);
+			expect((await exchange(code, verifier)).status).toBe(400);
+			await track.runScheduled();
+			expect((await settings(f)).sources).toHaveLength(1);
+			const [row] = await rowsFor(f);
+			await track.db
+				.prepare(
+					"UPDATE verification SET value=json_set(value,'$.claimedUntil',1,'$.sweepAt',0) WHERE identifier=?",
+				)
+				.bind(row?.identifier)
+				.run();
+			expect((await exchange(code, verifier)).status).toBe(400);
+			await track.runScheduled();
+			expect(await settings(f)).toEqual({ sources: [], keys: [] });
+			expect(await rowsFor(f)).toEqual([]);
+		},
+	);
+
+	it("offers the named source, binds its agent and team, and hands the key out once", async () => {
+		const f = await setUp("source-offer");
+		const agent = (await (
+			await authApi("/agents/create", f.owner.cookie, {
+				organizationId: f.workspaceId,
+				name: "Reviewer",
+			})
+		).json()) as { agent: { id: string } };
+		const cookie = f.owner.cookie;
+		const query = sourceQuery(newVerifier());
+		const page = await track.fetch(`${origin}/connect/source?${query}`, { headers: { cookie } });
+		expect(page.status).toBe(200);
+		const html = await page.text();
+		expect(html).toContain("a known address, not verified as the named product");
+		expect(html).toContain("lead away from the asking address");
+		expect(
+			(await serverFn("getSourceConnectOffer", "GET", query, { cookie })).result,
+		).toMatchObject({
+			ok: true,
+			asker: "https://known.test",
+			known: true,
+			product: "guard",
+			name: "Guard EU",
+			otherLinkOrigins: ["https://reports.test"],
+			workspaces: [{ slug: f.slug }],
+		});
+		expect(
+			(await serverFn("getSourceConnectChoices", "GET", f.slug, { cookie })).result,
+		).toMatchObject({
+			agents: [{ id: agent.agent.id }],
+			teams: expect.arrayContaining([expect.objectContaining({ id: f.teamId })]),
+		});
+		const { answer, code, verifier } = await trade(f, { assigneeId: agent.agent.id });
+		expect(answer).toEqual({
+			sourceKey: expect.stringMatching(/^gws_[\w-]{43}$/),
+			endpoint: origin + "/api/events",
+			source: { id: expect.any(String), name: "Guard EU", product: "guard" },
+			workspace: { id: f.workspaceId, slug: f.slug, name: f.slug },
+			team: { id: f.teamId, key: "ENG", name: "Engineering" },
+			undoUntil: expect.any(String),
+			undo: expect.any(String),
+		});
+		expect(await settings(f)).toMatchObject({
+			sources: [
+				{
+					id: answer.source.id,
+					assigneeId: agent.agent.id,
+					lowestSeverity: "high",
+					closeWhenCleared: true,
+				},
+			],
+			keys: [{ sourceId: answer.source.id }],
+		});
+		expect(await auditOf(f.workspaceId, f.owner)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					action: "source.connected",
+					actorId: f.owner.id,
+					detail: { origin: "https://known.test" },
+				}),
+			]),
+		);
+		expect((await exchange(code, verifier)).status).toBe(400);
+		expect((await undo(answer.undo)).status).toBe(200);
+		expect(await settings(f)).toEqual({ sources: [], keys: [] });
+		expect(await agentCount(f.workspaceId)).toBe(1);
+	});
+
+	it("cancels, and refuses a member, a missing session, a foreign Origin and the demo", async () => {
+		const f = await setUp("source-access");
+		const v = newVerifier();
+		expect((await decide(f, v, { decision: "cancel" })).result).toEqual({
+			ok: true,
+			redirect: "https://known.test/done?error=denied&state=007",
+		});
+		const member = await signUp("Source member");
+		await addMember(f.workspaceId, member, "member");
+		for (const cookie of [member.cookie, ""]) {
+			expect((await decide(f, v, {}, cookie)).result.ok).toBe(false);
+			expect(
+				(await serverFn("getSourceConnectChoices", "GET", f.slug, { cookie })).result,
+			).toBeNull();
+		}
+		const foreign = await serverFn<Approval>("approveSourceConnection", "POST", input(f, v), {
+			cookie: f.owner.cookie,
+			from: asker,
+		});
+		expect(foreign.status === 403 || foreign.result?.ok === false).toBe(true);
+		const demo = await startTrack(origin, { demo: true });
+		try {
+			const fn = serverFunctions(origin, demo.fetch, freshAddress);
+			expect(
+				(await fn<Approval>("approveSourceConnection", "POST", input(f, v))).result.message,
+			).toMatch(/does not accept source events/);
+		} finally {
+			await demo.dispose();
+		}
+		expect(await settings(f)).toEqual({ sources: [], keys: [] });
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
+	it.each(["event", "second key"] as const)("undo leaves a source after %s", async (because) => {
+		const f = await setUp("source-kept-" + because.replace(" ", "-"));
+		const { answer } = await trade(f);
+		if (because === "event") {
+			const accepted = await track.fetch(answer.endpoint, {
+				method: "POST",
+				headers: {
+					authorization: "Bearer " + answer.sourceKey,
+					"content-type": "application/json",
+					"cf-connecting-ip": freshAddress(),
+				},
+				body: event(),
+			});
+			expect(accepted.status).toBe(200);
+		} else {
+			expect(
+				(
+					await serverFn(
+						"changeSource",
+						"POST",
+						{ workspace: f.slug, action: { kind: "makeKey", id: answer.source.id } },
+						{ cookie: f.owner.cookie },
+					)
+				).result,
+			).toMatchObject({ ok: true });
+		}
+		expect((await undo(answer.undo)).status).toBe(200);
+		const after = await settings(f);
+		expect(after.sources).toHaveLength(1);
+		expect(after.keys).toHaveLength(because === "event" ? 1 : 2);
+	});
+
+	it("requires the matching purpose for both undo token formats", async () => {
+		const f = await setUp("source-purpose");
+		const { answer } = await trade(f);
+		const v = newVerifier();
+		const agent = await exchanged((await allow(f.owner, f.slug, v)).code, v);
+		for (const [token, purpose] of [
+			[answer.undo, "track-connect-undo-v1"],
+			[agent.undo, "track-connect-source-undo-v1"],
+		] as const) {
+			const parts = token.split(".").slice(0, -1);
+			const key = hkdfSync("sha256", Buffer.from(track.authSecret), Buffer.alloc(0), purpose, 64);
+			const signature = createHmac("sha256", Buffer.from(key))
+				.update([purpose, ...parts].join(":"))
+				.digest("base64url");
+			const response = await undo([...parts, signature].join("."));
+			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({ error: "invalid_undo" });
+		}
+		expect((await settings(f)).sources).toHaveLength(1);
+		expect(await agentCount(f.workspaceId)).toBe(1);
+	});
+
+	it("sweeps unused source codes, retaining a source that received an event", async () => {
+		const f = await setUp("source-sweep");
+		await approved(f);
+		const [first] = (await settings(f)).keys;
+		if (!first) throw new Error("Missing key");
+		expect(
+			await track.rpc(
+				f.workspaceId,
+				"sourceEvent",
+				first.sourceId,
+				first.id,
+				event(),
+				origin + "/" + f.slug,
+			),
+		).toMatchObject({ status: 200 });
+		await approved(f);
+		await expire(f);
+		await track.runScheduled();
+		expect(await settings(f)).toMatchObject({
+			sources: [{ id: first.sourceId }],
+			keys: [{ id: first.id }],
+		});
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
+	it("dispatches take-back by kind, including older agent rows without a kind", async () => {
+		const f = await setUp("source-kind");
+		const agent = await allow(f.owner, f.slug, newVerifier());
+		const source = await approved(f);
+		const [key] = (await settings(f)).keys;
+		const rows = await rowsFor(f);
+		const agentRow = rows.find((r) => JSON.parse(r.value).kind === "agent");
+		const sourceRow = rows.find((r) => JSON.parse(r.value).kind === "source");
+		if (!key || !agentRow || !sourceRow) throw new Error("Missing approvals");
+		const agentId = JSON.parse(agentRow.value).agentId as string;
+		await track.db
+			.prepare("UPDATE verification SET value=json_set(value,'$.agentId',?) WHERE identifier=?")
+			.bind(agentId, sourceRow.identifier)
+			.run();
+		expect((await exchange(source.code, newVerifier())).status).toBe(400);
+		expect(await agentCount(f.workspaceId)).toBe(1);
+		await approved(f);
+		const [remaining] = (await settings(f)).keys;
+		if (!remaining) throw new Error("Missing second source");
+		await track.db
+			.prepare(
+				"UPDATE verification SET value=json_set(json_remove(value,'$.kind'),'$.sourceId',?,'$.state','pending') WHERE identifier=?",
+			)
+			.bind(remaining.sourceId, agentRow.identifier)
+			.run();
+		expect((await exchange(agent.code, newVerifier())).status).toBe(400);
+		expect(await agentCount(f.workspaceId)).toBe(0);
+		expect((await settings(f)).sources).toMatchObject([{ id: remaining.sourceId }]);
+	});
+
+	it.each(["without key", "with key", "before create"] as const)(
+		"recovers a pending approval %s",
+		async (stage) => {
+			const f = await setUp("source-pending-" + stage.replace(" ", "-"));
+			const { code, verifier } = await approved(f);
+			const [row] = await rowsFor(f);
+			if (!row) throw new Error("Missing approval");
+			const { kind, workspaceId, sourceId, keyId, origin } = JSON.parse(row.value);
+			if (stage === "before create") {
+				await serverFn(
+					"changeSource",
+					"POST",
+					{ workspace: f.slug, action: { kind: "delete", id: sourceId } },
+					{ cookie: f.owner.cookie },
+				);
+			} else if (stage === "without key") {
+				await track.db.prepare("DELETE FROM source_key WHERE id=?").bind(keyId).run();
+			}
+			await track.db
+				.prepare("UPDATE verification SET value=? WHERE identifier=?")
+				.bind(
+					JSON.stringify({
+						kind,
+						workspaceId,
+						sourceId,
+						keyId,
+						origin,
+						state: "pending",
+						goodUntil: 0,
+						sweepAt: 0,
+					}),
+					row.identifier,
+				)
+				.run();
+			if (stage === "with key") {
+				const refused = await exchange(code, verifier);
+				expect(refused.status).toBe(400);
+				expect(await refused.json()).toEqual(NO_CODE);
+			} else await track.runScheduled();
+			expect(await rowsFor(f)).toEqual([]);
+			expect(await settings(f)).toEqual({ sources: [], keys: [] });
+		},
+	);
+
+	it("rolls back a refusal writing the pending row, issuing the key, assigning or marking ready", async () => {
+		const f = await setUp("source-rollback");
+		const attempt = () => decide(f, newVerifier());
+		const clean = async (response: Awaited<ReturnType<typeof attempt>>) => {
+			expect(response.result.ok).toBe(false);
+			expect(await settings(f)).toEqual({ sources: [], keys: [] });
+			expect(await rowsFor(f)).toEqual([]);
+		};
+		await clean(await breaking("verification", "NEW.identifier GLOB 'track-connect:*'", attempt));
+		await clean(await breaking("source_key", "1", attempt));
+		await clean(await decide(f, newVerifier(), { assigneeId: f.owner.id }));
+		await track.db
+			.prepare(
+				"CREATE TRIGGER refuse_ready BEFORE UPDATE ON verification WHEN NEW.identifier GLOB 'track-connect:*' BEGIN SELECT RAISE(ABORT,'broken for a test'); END",
+			)
+			.run();
+		try {
+			await clean(await attempt());
+		} finally {
+			await track.db.prepare("DROP TRIGGER refuse_ready").run();
+		}
+	});
+
+	it("leaves existing sources alone when the object refuses creation", async () => {
+		const f = await setUp("source-full");
+		for (let i = 0; i < SOURCES_PER_WORKSPACE; i++) {
+			expect(
+				await track.rpc(f.workspaceId, "manageSource", f.owner.id, {
+					kind: "create",
+					input: { teamId: f.teamId, product: "ci", name: "Build", linkOrigins: [] },
+				}),
+			).toMatchObject({ ok: true });
+		}
+		const before = await settings(f);
+		expect((await decide(f, newVerifier())).result.ok).toBe(false);
+		expect(await settings(f)).toEqual(before);
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
+	it("finishes an Allow rollback interrupted after the admin seal", async () => {
+		const f = await setUp("source-interrupted");
+		await track.db
+			.prepare(
+				"CREATE TRIGGER keep_key BEFORE DELETE ON source_key BEGIN SELECT RAISE(ABORT,'broken for a test'); END",
+			)
+			.run();
+		try {
+			expect((await decide(f, newVerifier(), { assigneeId: f.owner.id })).result.ok).toBe(false);
+			expect((await settings(f)).sources).toMatchObject([{ paused: true }]);
+			expect(await rowsFor(f)).toHaveLength(1);
+		} finally {
+			await track.db.prepare("DROP TRIGGER keep_key").run();
+		}
+		await track.rpc(f.workspaceId, "setObjectTime", Date.now() + 121_000);
+		await expire(f);
+		await track.runScheduled();
+		expect(await settings(f)).toEqual({ sources: [], keys: [] });
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
+	it("charges the same person's agent and source approvals to one allowance", async () => {
+		const f = await setUp("source-allowance");
+		await allow(f.owner, f.slug, newVerifier());
+		for (let i = 0; i < 9; i++) await approved(f);
+		expect((await decide(f, newVerifier())).result).toMatchObject({
+			ok: false,
+			message: expect.stringMatching(/too often/),
+		});
+		expect(
+			(await approve(f.owner, connectQuery(newVerifier()), { workspace: f.slug })).result,
+		).toMatchObject({ ok: false, message: expect.stringMatching(/too often/) });
 	});
 });

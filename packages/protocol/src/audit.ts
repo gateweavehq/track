@@ -26,6 +26,8 @@ export const GATEWAY_AUDIT_ACTIONS = [
 	"agent.created",
 	/** An agent and its webhook made through a connection another server asked for: `origin`, `webhook`. */
 	"agent.connected",
+	/** A source and its key made by approval: `origin`. */
+	"source.connected",
 	/** `from` and `to`. */
 	"agent.renamed",
 	"agent.deleted",
@@ -56,6 +58,7 @@ export const WORKSPACE_AUDIT_ACTIONS = [
 	/** The label is the URL's host: a URL's path can be its secret. */
 	"webhook.created",
 	"source.created",
+	"source.takenBack",
 	"source.updated",
 	"source.paused",
 	"source.deleted",

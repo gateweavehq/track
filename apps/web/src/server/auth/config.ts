@@ -118,6 +118,9 @@ export function createAuth(config: AuthConfig) {
 		secret: config.secret,
 		baseURL: config.baseURL,
 		database: drizzleAdapter(config.db, { provider: "sqlite", schema }),
+		// Track prunes ordinary verifications daily. An unfiltered bulk delete on lookup
+		// would also erase a connection whose cleanup is waiting for the next sweep.
+		verification: { disableCleanup: true },
 		telemetry: { enabled: false },
 		// Where a return from GitHub or the provider goes when it fails with nothing to say where it
 		// set out from: a state used already or never issued, or no state at all. Better Auth's own

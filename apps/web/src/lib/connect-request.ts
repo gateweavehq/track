@@ -1,4 +1,9 @@
-import { WEBHOOK_EVENTS, type WebhookEventType } from "@gateweave/track-protocol";
+import {
+	type SourceProduct,
+	sourceSettingsSchema,
+	WEBHOOK_EVENTS,
+	type WebhookEventType,
+} from "@gateweave/track-protocol";
 
 /**
  * What another server asks of `/connect/agent` ("Connecting an agent in one step" in
@@ -36,7 +41,19 @@ export interface ConnectRequest {
 
 export type ConnectCheck = { ok: true; request: ConnectRequest } | { ok: false; problem: string };
 
-const refuse = (problem: string): ConnectCheck => ({ ok: false, problem });
+const refuse = (problem: string) => ({ ok: false as const, problem });
+
+function repeated(params: URLSearchParams, keys: readonly string[]) {
+	return keys.some((key) => params.getAll(key).length > 1);
+}
+
+function checkProof(params: URLSearchParams) {
+	const state = params.get("state") ?? "";
+	if (!STATE.test(state)) return refuse("The request's state is missing or malformed.");
+	const challenge = params.get("challenge") ?? "";
+	if (!CHALLENGE.test(challenge)) return refuse("The request's challenge is missing or malformed.");
+	return { ok: true as const, state, challenge };
+}
 
 /** The default name for an agent made for a purpose. */
 export function defaultAgentName(purpose: ConnectPurpose): string {
@@ -49,18 +66,13 @@ export function defaultAgentName(purpose: ConnectPurpose): string {
  */
 export function checkConnectRequest(query: string, trackOrigin: string): ConnectCheck {
 	const params = new URLSearchParams(query);
-	for (const key of KEYS) {
-		// The same name twice: which one a server meant is anyone's guess, so neither is taken.
-		if (params.getAll(key).length > 1) return refuse("The request names the same thing twice.");
-	}
+	if (repeated(params, KEYS)) return refuse("The request names the same thing twice.");
 	const get = (key: (typeof KEYS)[number]) => params.get(key) ?? "";
 
 	const purpose = get("purpose");
 	if (!isPurpose(purpose)) return refuse("The request does not say what the agent is for.");
-	const state = get("state");
-	if (!STATE.test(state)) return refuse("The request's state is missing or malformed.");
-	const challenge = get("challenge");
-	if (!CHALLENGE.test(challenge)) return refuse("The request's challenge is missing or malformed.");
+	const proof = checkProof(params);
+	if (!proof.ok) return proof;
 
 	const name = get("name").trim();
 	if (name.length > MAX_AGENT_NAME_LENGTH) {
@@ -88,9 +100,67 @@ export function checkConnectRequest(query: string, trackOrigin: string): Connect
 			webhook: webhook.href,
 			events,
 			returnTo: returnTo.href,
-			state,
-			challenge,
+			state: proof.state,
+			challenge: proof.challenge,
 			origin: webhook.origin,
+		},
+	};
+}
+
+const sourceFields = sourceSettingsSchema.pick({ product: true, name: true, linkOrigins: true });
+const SOURCE_KEYS = ["product", "name", "links", "return", "state", "challenge"];
+
+interface SourceConnectRequest {
+	product: SourceProduct;
+	name: string;
+	linkOrigins: string[];
+	otherLinkOrigins: string[];
+	returnTo: string;
+	origin: string;
+	state: string;
+	challenge: string;
+}
+
+/** The return address identifies the asker. Links on a source's issues can lead elsewhere. */
+export function checkSourceConnectRequest(
+	query: string,
+	trackOrigin: string,
+): { ok: true; request: SourceConnectRequest } | { ok: false; problem: string } {
+	const params = new URLSearchParams(query);
+	if (repeated(params, SOURCE_KEYS)) return refuse("The request names the same thing twice.");
+	const proof = checkProof(params);
+	if (!proof.ok) return proof;
+	const returnTo = checkAddress(params.get("return") ?? "", "return", new URL(trackOrigin));
+	if (typeof returnTo === "string") return refuse(returnTo);
+
+	const links = params.get("links")?.split(",") ?? [returnTo.origin];
+	if (links.length > 5) return refuse("The request names more than five link origins.");
+	const product = params.get("product");
+	const settings = sourceFields.safeParse({
+		product,
+		name: params.get("name")?.trim() || product,
+		linkOrigins: links.map((link) => link.trim()),
+	});
+	if (!settings.success) {
+		const field = settings.error.issues[0]?.path[0];
+		if (field === "product") return refuse("The request names an unknown product.");
+		if (field === "name")
+			return refuse("The source name must fit on one line of 1 to 64 characters.");
+		return refuse(
+			"Each link must be an http or https origin without credentials, path, query or fragment.",
+		);
+	}
+	const linkOrigins = [...new Set(settings.data.linkOrigins)];
+	return {
+		ok: true,
+		request: {
+			...settings.data,
+			linkOrigins,
+			otherLinkOrigins: linkOrigins.filter((link) => link !== returnTo.origin),
+			returnTo: returnTo.href,
+			origin: returnTo.origin,
+			state: proof.state,
+			challenge: proof.challenge,
 		},
 	};
 }

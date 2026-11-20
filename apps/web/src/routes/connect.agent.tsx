@@ -5,7 +5,12 @@ import { LegalLinks } from "#/components/legal-links";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
-import { approveAgentConnection, getConnectOffer, getConnectTeams } from "#/lib/connect";
+import {
+	approveAgentConnection,
+	getConnectOffer,
+	getConnectTeams,
+	rawConnectQuery,
+} from "#/lib/connect";
 import { approvalFailureMessage } from "#/lib/connect-request";
 import { getLegalLinks, getSession } from "#/lib/session";
 import { useDocumentTitle } from "#/lib/title";
@@ -18,14 +23,12 @@ export const Route = createFileRoute("/connect/agent")({
 	validateSearch: z.looseObject({}),
 	beforeLoad: async ({ location }) => {
 		if (!(await getSession()))
-			throw redirect({ to: "/login", search: { redirect: location.href } });
+			throw redirect({ to: "/login", search: { redirect: location.pathname + rawConnectQuery() } });
 	},
-	loader: async ({ location }) => {
-		const [offer, legal] = await Promise.all([
-			getConnectOffer({ data: location.searchStr }),
-			getLegalLinks(),
-		]);
-		return { offer, legal, query: location.searchStr };
+	loader: async () => {
+		const query = rawConnectQuery();
+		const [offer, legal] = await Promise.all([getConnectOffer({ data: query }), getLegalLinks()]);
+		return { offer, legal, query };
 	},
 	component: ConnectPage,
 });

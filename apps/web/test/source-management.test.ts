@@ -122,7 +122,9 @@ it("R33: a failed D1 revocation seals the source until retry removes the keys an
 	injected.state.failures = 1;
 	await expect(apply({ kind: "delete", id: key.sourceId })).rejects.toThrow();
 	expect(await findSourceByKey(db, initial)).toMatchObject({ sourceId: key.sourceId });
-	expect((await send(initial)).status).toBe(404);
+	const sealed = await send(initial);
+	expect(sealed.status).toBe(503);
+	expect(sealed.headers.get("retry-after")).toBe("60");
 	expect(await apply({ kind: "makeKey", id: key.sourceId })).toMatchObject({ ok: false });
 	expect(await apply({ kind: "delete", id: key.sourceId })).toMatchObject({ ok: true });
 	expect(await findSourceByKey(db, initial)).toBeNull();
