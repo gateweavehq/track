@@ -21,6 +21,8 @@ import {
 	type ProjectStatus,
 	type ProjectUpdate,
 	type RelationType,
+	type RestoreCounts,
+	type SourceRestore,
 	type StatusCategory,
 	type SyncedIssue,
 	statusId,
@@ -35,13 +37,26 @@ import { defaultLabelColor, findLabelByName } from "#/lib/labels";
 // Importing issues from another tracker. Each importer (CSV, JSON, GitHub, Linear) reads its source
 // into an `ImportSource`; everything after that is shared here: matching labels, projects and
 // people, and turning the source into the same mutations people make, sent at a pace the sync
-// client keeps up with. Nothing new on the server but the original dates an admin may keep.
+// client keeps up with. Source restoration follows the mutation acknowledgements.
+
+type SignalDrops = {
+	repeatedIssue: number;
+	invalid: number;
+	outsideFile: number;
+	otherTeam: number;
+	alreadyLinked: number;
+	overLimit: number;
+};
 
 /** What an importer read: issues in the shape Track needs, with names where Track has ids. */
 export interface ImportSource {
 	/** Where the issues came from, for notes in the imported text: "GitHub", "Linear", "CSV". */
 	name: string;
 	issues: ImportedIssue[];
+	sources?: (SourceRestore & { drops: SignalDrops; settingsTooLarge: boolean } & Pick<
+			ImportedIssue,
+			"team"
+		>)[];
 	/** Colors for labels the source names (`#rrggbb`), where it has them, by name in any case. */
 	labelColors?: ReadonlyMap<string, string>;
 	/** What the source says about the projects its issues name, for those that get created. */
@@ -164,6 +179,7 @@ export interface ReadOptions {
 
 /** The part of a workspace an import reads, to match names and skip what is there. */
 export interface ImportTarget {
+	sources?: Iterable<{ id: string }>;
 	/** Archived ones as their slim rows: enough to skip what an earlier run brought in. */
 	issues: ReadonlyMap<string, SyncedIssue>;
 	comments: ReadonlyMap<string, Comment>;
@@ -179,6 +195,7 @@ export interface ImportTarget {
 
 export function importTargetFrom(state: SyncState): ImportTarget {
 	return {
+		sources: state.sources.values(),
 		issues: state.issues,
 		comments: state.comments,
 		relations: state.relations,
@@ -192,6 +209,11 @@ export function importTargetFrom(state: SyncState): ImportTarget {
 }
 
 export interface ImportPlan {
+	sources: (SourceRestore & { drops: SignalDrops })[];
+	presentSources: number;
+	missingTeams: number;
+	largeSettings: number;
+	repeatedNotes: string[];
 	/**
 	 * In the order they must be sent: each issue after the team, labels and project it needs and
 	 * after its parent, followed by its comments; then the relations between them.
@@ -249,8 +271,9 @@ export async function planImport(
 	const newProjects: string[] = [];
 
 	const teamIds = new Map<string, string>();
-	const teamFor = (issue: ImportedIssue) => {
-		if (!keepTeams || !issue.team) return teamId;
+	const teamFor = (issue: Pick<ImportedIssue, "team">) => {
+		if (!keepTeams) return teamId;
+		if (!issue.team) return null;
 		const key = issue.team.key.trim().toUpperCase();
 		const cached = teamIds.get(key);
 		if (cached) return cached;
@@ -265,7 +288,7 @@ export async function planImport(
 		const name = cutText(cleanText(issue.team.name).trim(), 64).trim() || key;
 		const create: MutationInput = { name: "team.create", args: { id, key, name } };
 		// A key the server would refuse sends the issue to the one team instead.
-		if (!mutationSchema.safeParse(create).success) return teamId;
+		if (!mutationSchema.safeParse(create).success) return null;
 		mutations.push(create);
 		newTeams.push(`${name} (${key})`);
 		teamIds.set(key, id);
@@ -404,17 +427,20 @@ export async function planImport(
 	let comments = 0;
 	let relations = 0;
 	let skipped = 0;
+	const plannedIssueIds = source.sources?.length ? new Set<string>() : null;
+	let repeatedIssues = 0;
 	const toArchive: string[] = [];
 	let sortOrder = lastSortOrder(target.issues.values());
 	for (const issue of inImportOrder(source.issues)) {
 		const id = ids.get(issue.sourceId);
 		if (!id) continue;
-		if (target.issues.has(id)) skipped++;
+		if (plannedIssueIds?.has(id)) repeatedIssues++;
+		else if (target.issues.has(id)) skipped++;
 		else {
 			const assignee = issue.assignee ? findMember(members, issue.assignee) : null;
 			const parentId = issue.parentSourceId ? (ids.get(issue.parentSourceId) ?? null) : null;
 			sortOrder = generateKeyBetween(sortOrder, null);
-			const issueTeamId = teamFor(issue);
+			const issueTeamId = teamFor(issue) ?? teamId;
 			const status = statusFor(issueTeamId, issue.status);
 			mutations.push({
 				name: "issue.create",
@@ -444,6 +470,7 @@ export async function planImport(
 					...(issue.createdAt !== null && { createdAt: issue.createdAt }),
 				},
 			});
+			plannedIssueIds?.add(id);
 			issues++;
 			// Only a closed issue can be archived. Without a status of its own it gets the team's
 			// first, which is open.
@@ -522,7 +549,38 @@ export async function planImport(
 	// Archived last, once everything that belongs to them is in.
 	for (const id of toArchive)
 		mutations.push({ name: "issue.archive", args: { id, archived: true } });
+	const present = new Set(Array.from(target.sources ?? [], (row) => row.id));
+	const sources: ImportPlan["sources"] = [];
+	let presentSources = 0;
+	let missingTeams = 0;
+	let largeSettings = 0;
+	for (const row of source.sources ?? []) {
+		if (present.has(await importId("track-source:" + row.source.id))) {
+			presentSources++;
+			continue;
+		}
+		if (row.settingsTooLarge) {
+			largeSettings++;
+			continue;
+		}
+		const destinationTeam = teamFor(row);
+		if (!destinationTeam) missingTeams++;
+		else
+			sources.push({
+				exportedAt: row.exportedAt,
+				source: { ...row.source, teamId: destinationTeam },
+				signals: row.signals,
+				drops: row.drops,
+			});
+	}
 	return {
+		sources,
+		presentSources,
+		largeSettings,
+		repeatedNotes: repeatedIssues
+			? [`${repeatedIssues} repeated issue${repeatedIssues === 1 ? "" : "s"} skipped.`]
+			: [],
+		missingTeams,
 		mutations,
 		issues,
 		comments,
@@ -621,6 +679,7 @@ function validEstimate(value: number | null): number | null {
 }
 
 export interface ImportProgress {
+	sourceResult?: string;
 	/** Mutations the server has answered. */
 	done: number;
 	total: number;
@@ -663,4 +722,95 @@ export async function runImport(
 	}
 	await Promise.all(waiting);
 	return progress;
+}
+
+/** Run after the mutation acknowledgements, including when a previous import made all the issues. */
+export async function restoreImportSources(
+	plan: ImportPlan,
+	result: ImportProgress,
+	restore: (
+		input: SourceRestore,
+	) => Promise<{ ok: true; value: RestoreCounts } | { ok: false; message: string }>,
+	signal?: AbortSignal,
+) {
+	if (
+		signal?.aborted ||
+		(!plan.sources.length && !plan.presentSources && !plan.missingTeams && !plan.largeSettings)
+	)
+		return;
+	if (
+		result.failed.some(
+			({ mutation, message }) =>
+				mutation.name === "issue.create" && message !== "Issue id already exists",
+		)
+	) {
+		result.sourceResult =
+			"Import again after the refused changes are resolved to restore sources and signals.";
+		return;
+	}
+	const counts = {
+		restored: 0,
+		present: plan.presentSources,
+		bound: 0,
+		dropped: 0,
+		outsideFile: 0,
+		otherTeam: 0,
+		alreadyLinked: 0,
+		overLimit: 0,
+		repeatedIssue: 0,
+		invalid: 0,
+	};
+	let message = "";
+	try {
+		for (const { drops, ...input } of plan.sources) {
+			if (signal?.aborted) break;
+			const answer = await restore(input);
+			if (!answer.ok) {
+				message = answer.message;
+				break;
+			}
+			counts.restored += answer.value.restored;
+			counts.present += answer.value.present;
+			counts.overLimit += answer.value.overLimit;
+			counts.bound += answer.value.bound;
+			counts.dropped += answer.value.dropped;
+			counts.otherTeam += answer.value.otherTeam;
+			counts.alreadyLinked += answer.value.alreadyLinked;
+			if (answer.value.restored) {
+				counts.repeatedIssue += drops.repeatedIssue;
+				counts.invalid += drops.invalid;
+				counts.outsideFile += drops.outsideFile;
+				counts.otherTeam += drops.otherTeam;
+				counts.alreadyLinked += drops.alreadyLinked;
+				counts.overLimit += drops.overLimit;
+				counts.dropped +=
+					drops.repeatedIssue +
+					drops.invalid +
+					drops.outsideFile +
+					drops.otherTeam +
+					drops.alreadyLinked +
+					drops.overLimit;
+			}
+		}
+	} catch {
+		message = "Could not finish restoring sources. Import the same file again.";
+	}
+	result.sourceResult = [
+		`${counts.restored} ${counts.restored === 1 ? "source" : "sources"} restored, ${counts.present} already present, ${counts.bound} ${counts.bound === 1 ? "signal" : "signals"} bound, ${counts.dropped} dropped.`,
+		counts.outsideFile &&
+			`${counts.outsideFile} ${counts.outsideFile === 1 ? "issue" : "issues"} not in the file.`,
+		counts.otherTeam &&
+			`${counts.otherTeam} ${counts.otherTeam === 1 ? "issue" : "issues"} in another team.`,
+		counts.alreadyLinked &&
+			`${counts.alreadyLinked} ${counts.alreadyLinked === 1 ? "issue" : "issues"} already linked.`,
+		counts.overLimit && `${counts.overLimit} over the limit.`,
+		counts.repeatedIssue && `${counts.repeatedIssue} dropped (issue id repeated in the file).`,
+		counts.invalid && `${counts.invalid} invalid signal${counts.invalid === 1 ? "" : "s"}.`,
+		plan.largeSettings && `${plan.largeSettings} skipped (settings too large).`,
+		plan.missingTeams &&
+			`${plan.missingTeams} ${plan.missingTeams === 1 ? "source" : "sources"} skipped (team missing).`,
+		message,
+	]
+		.filter(Boolean)
+		.join(" ");
 }

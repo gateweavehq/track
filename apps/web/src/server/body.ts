@@ -1,11 +1,12 @@
-/** Stops at `max` bytes. With strict UTF-8, an invalid encoding also returns null. */
+/** Stops when the byte budget is exceeded. With strict UTF-8, an invalid encoding also returns null. */
 export async function readText(
 	request: Request,
-	max: number,
+	budget: number | ((bytes: number) => boolean),
 	strictUtf8 = false,
 ): Promise<string | null> {
+	const fits = typeof budget === "number" ? (bytes: number) => bytes <= budget : budget;
 	const declared = Number(request.headers.get("Content-Length"));
-	if (declared > max) return null;
+	if (!Number.isNaN(declared) && !fits(declared)) return null;
 	if (!request.body) return "";
 	const chunks: Uint8Array[] = [];
 	let length = 0;
@@ -14,7 +15,7 @@ export async function readText(
 		const { done, value } = await reader.read();
 		if (done) break;
 		length += value.byteLength;
-		if (length > max) {
+		if (!fits(length)) {
 			await reader.cancel();
 			return null;
 		}

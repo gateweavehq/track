@@ -33,9 +33,11 @@ import {
 	type Proposal,
 	type PullRequest,
 	type RejectReason,
+	type RestoreCounts,
 	type ServerMessage,
 	type Snapshot,
 	type Source,
+	type SourceRestore,
 	statusKey,
 	type Webhook,
 	type WebhookInput,
@@ -162,6 +164,8 @@ import {
 	manageSource,
 	releaseConnectedSource,
 	removeConnectedSource,
+	restoreGenerationOf,
+	restoreSource,
 	revokeSourceKey,
 	type SourceAdminAction,
 	SourceLimit,
@@ -563,7 +567,7 @@ export class WorkspaceDO extends DurableObject {
 		return results;
 	}
 
-	sourcesForAdmin(memberId: string): WebhookResult<Source[]> {
+	sourcesForAdmin(memberId: string): WebhookResult<(Source & { generation?: string })[]> {
 		const member = activeMember(this.#db, memberId);
 		if (!member || !isAdminRole(member.role)) {
 			return {
@@ -573,7 +577,14 @@ export class WorkspaceDO extends DurableObject {
 			};
 		}
 		this.#write(() => expireConnectSeals(this.#db, Date.now()));
-		return { ok: true, value: this.#db.select().from(schema.sources).all().map(toSource) };
+		return {
+			ok: true,
+			value: this.#db
+				.select()
+				.from(schema.sources)
+				.all()
+				.map((row) => ({ ...toSource(row), generation: restoreGenerationOf(this.#db, row.id) })),
+		};
 	}
 
 	/** Gateway only. A connection may take back an unused source after undo or a failed exchange. */
@@ -616,10 +627,29 @@ export class WorkspaceDO extends DurableObject {
 	}
 
 	/** Gateway only. The caller has already verified this member's current role in D1. */
+	restoreSource(memberId: string, command: SourceRestore): WebhookResult<RestoreCounts> {
+		const member = activeMember(this.#db, memberId);
+		if (!member || !isAdminRole(member.role))
+			return {
+				ok: false,
+				reason: "forbidden",
+				message: "Sources and signals need an owner or admin to import.",
+			};
+		try {
+			const result = this.#write(() => restoreSource(this.#db, memberId, command, Date.now()));
+			return { ok: true, value: result.counts };
+		} catch (error) {
+			if (!(error instanceof MutationRejected)) throw error;
+			return { ok: false, reason: error.reason, message: error.message };
+		}
+	}
+
 	manageSource(
 		memberId: string,
 		command: SourceAdminAction,
-	): WebhookResult<Source> | { ok: false; reason: "invalid"; message: string; retryAfter: number } {
+	):
+		| WebhookResult<Source & { keyId?: string; generation?: string }>
+		| { ok: false; reason: "invalid"; message: string; retryAfter: number } {
 		const member = activeMember(this.#db, memberId);
 		if (!member || !isAdminRole(member.role)) {
 			return {

@@ -1,4 +1,4 @@
-import { EVENT_MAX_BYTES } from "@gateweave/track-protocol";
+import { fitsEventBudget } from "@gateweave/track-protocol";
 import { appOrigin, db } from "./auth";
 import { countedByWhoSentIt } from "./auth/workers-address";
 import { readText } from "./body";
@@ -38,7 +38,7 @@ export async function handleEvent(request: Request): Promise<Response> {
 	if (!found) return refuseKey(request);
 
 	const base = new URL(`/${encodeURIComponent(found.slug)}`, appOrigin(request));
-	const raw = await readText(request, EVENT_MAX_BYTES, true);
+	const raw = await readText(request, fitsEventBudget, true);
 	const result = await workspaceStub(found).sourceEvent(
 		found.sourceId,
 		found.keyId,

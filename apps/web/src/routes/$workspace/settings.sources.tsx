@@ -37,7 +37,9 @@ function SourceSettings() {
 	const admin = isAdmin(useMyRole());
 	const { workspace } = Route.useParams();
 	const { sources, keys } = Route.useLoaderData();
-	const orphanKeys = keys.filter((key) => !sources.some((source) => source.id === key.sourceId));
+	const orphanKeys = keys.filter(
+		(key) => "stale" in key || !sources.some((source) => source.id === key.sourceId),
+	);
 	const router = useRouter();
 	const [adding, setAdding] = useState(false);
 	const [secret, setSecret] = useState("");
@@ -91,7 +93,7 @@ function SourceSettings() {
 				<SourceRow
 					key={source.id}
 					source={source}
-					keys={keys.filter((key) => key.sourceId === source.id)}
+					keys={keys.filter((key) => key.sourceId === source.id && !("stale" in key))}
 					run={run}
 				/>
 			))}
@@ -170,6 +172,11 @@ function SourceRow({ source, keys, run }: { source: Source; keys: SourceKey[]; r
 				</div>
 			)}
 			<h4 className="text-sm font-medium">Keys</h4>
+			{paused && !keys.length && (
+				<p className="text-sm text-muted-foreground">
+					Make a key and resume this source to receive events.
+				</p>
+			)}
 			<KeyList keys={keys} run={run} />
 			<Button
 				variant="outline"

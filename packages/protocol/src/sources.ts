@@ -3,6 +3,11 @@ import { userText } from "./text";
 
 // U1 measures the largest webhook delivery for this request size.
 export const EVENT_MAX_BYTES = 16 * 1024;
+export const RESTORE_SIGNALS = 2_000;
+export const RESTORE_SIGNAL_BYTES = 8 * 1024 * 1024;
+// Space for replicated signal fields within an unpaged workspace snapshot.
+export const WORKSPACE_RESTORE_SIGNAL_BYTES = 8 * 1024 * 1024;
+export const MAX_REOPENS = 1_000_000;
 // U1 measures the payload with 4,000 characters of body text.
 export const EVENT_BODY_MAX = 4_000;
 // Allow sender clocks to lead the object by up to five minutes.
@@ -55,6 +60,20 @@ const origin = link
 	)
 	.transform((value) => value.slice(0, -1));
 
+// UTF-8 length. A lone surrogate counts three bytes, as the U+FFFD that encoding writes for it.
+function utf8Bytes(text: string) {
+	let bytes = 0;
+	for (const char of text) {
+		const code = char.charCodeAt(0);
+		bytes += char.length === 2 ? 4 : code < 0x80 ? 1 : code < 0x800 ? 2 : 3;
+	}
+	return bytes;
+}
+
+function jsonBytes(value: unknown) {
+	return utf8Bytes(JSON.stringify(value));
+}
+
 const settingsFields = {
 	name: userText
 		.trim()
@@ -89,6 +108,108 @@ export const sourceEventSchema = z.strictObject({
 	url: link.optional(),
 });
 export type SourceEvent = z.infer<typeof sourceEventSchema>;
+
+const reference = userText.min(1).max(64);
+export const exportedSourceSchema = z.object({
+	...sourceSettingsSchema.shape,
+	lowestSeverity: settingsFields.lowestSeverity,
+	closeWhenCleared: settingsFields.closeWhenCleared,
+	id: reference,
+	assigneeId: reference.nullable(),
+});
+export const exportedSignalSchema = z.object({
+	sourceId: reference,
+	key: sourceEventSchema.shape.key,
+	type: sourceEventSchema.shape.type.unwrap().nullable(),
+	subject: sourceEventSchema.shape.subject.unwrap().nullable(),
+	severity: sourceEventSchema.shape.severity,
+	state: sourceEventSchema.shape.state,
+	url: link.nullable(),
+	issueId: reference.nullable(),
+	reopens: z.int().min(0).max(MAX_REOPENS),
+	firstAt: z.int().nonnegative(),
+	changedAt: z.int().nonnegative(),
+});
+// Include the array separator and reserve room for the gateway's two derived import ids.
+export function restoreSignalBytes(signal: z.infer<typeof exportedSignalSchema>) {
+	const derivedIdLength = "import-".length + 32;
+	return (
+		jsonBytes(signal) +
+		1 +
+		Math.max(0, derivedIdLength - signal.sourceId.length) +
+		(signal.issueId === null ? 0 : Math.max(0, derivedIdLength - signal.issueId.length))
+	);
+}
+
+export function fitsRestoreOrigins(origins: string[]) {
+	return jsonBytes(origins) <= 16 * 1024;
+}
+
+export function fitsEventBudget(size: number) {
+	return size <= EVENT_MAX_BYTES;
+}
+
+// A URL's normal form writes each UTF-8 byte of its path, query or fragment as at most three
+// bytes (`%E7`), and a punycode host stays within that. An event's URL is under 16 KiB.
+export const STORED_EVENT_URL_MAX_BYTES = 3 * EVENT_MAX_BYTES;
+
+// A restored signal is never larger than one the event path can store, and its key can be
+// reached by an event. Track stores key, type, subject, severity and state as sent, and
+// JSON.stringify is their shortest encoding, so the smallest event carrying them is exact: the
+// shortest title and sending time, and no URL. Track stores the URL in its normal form, which an
+// event need not repeat (the next event's URL replaces it), so it is held to the stored bound.
+export const restoredSignalSchema = exportedSignalSchema
+	.extend({
+		url: exportedSignalSchema.shape.url.refine(
+			(url) => url === null || utf8Bytes(url) <= STORED_EVENT_URL_MAX_BYTES,
+			"Signal URL exceeds what an event can store",
+		),
+	})
+	.refine(
+		(row) =>
+			fitsEventBudget(
+				jsonBytes({
+					key: row.key,
+					title: "x",
+					severity: row.severity,
+					state: row.state,
+					type: row.type ?? undefined,
+					subject: row.subject ?? undefined,
+					sentAt: "2000-01-01T00:00:00Z",
+				}),
+			),
+		"Signal exceeds the event size limit",
+	);
+
+export const RESTORE_ISSUE_MISSING =
+	"An issue for this source is not saved yet. Import the same file again to restore it.";
+
+export const sourceRestoreSchema = z.object({
+	// Sender order restarts after this, so an event sent before the export stays old.
+	exportedAt: z.iso.datetime({ offset: true }),
+	source: exportedSourceSchema.refine(
+		(source) => fitsRestoreOrigins(source.linkOrigins),
+		"Link origins exceed 16 KiB",
+	),
+	signals: z
+		.array(restoredSignalSchema)
+		.max(RESTORE_SIGNALS)
+		.refine(
+			(rows) =>
+				rows.reduce((bytes, row) => bytes + restoreSignalBytes(row), 2) <= RESTORE_SIGNAL_BYTES,
+			"Signals exceed the restore byte limit",
+		),
+});
+export type SourceRestore = z.infer<typeof sourceRestoreSchema>;
+export interface RestoreCounts {
+	restored: number;
+	present: number;
+	bound: number;
+	dropped: number;
+	otherTeam: number;
+	alreadyLinked: number;
+	overLimit: number;
+}
 
 export interface Source extends SourceSettings {
 	id: string;

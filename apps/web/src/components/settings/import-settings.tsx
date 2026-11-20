@@ -5,7 +5,7 @@ import { type ComponentType, type FormEvent, useEffect, useId, useRef, useState 
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
-import { isAdmin, useMyRole } from "#/components/workspace/context";
+import { isAdmin, useMyRole, useWorkspace } from "#/components/workspace/context";
 import { readCsvImport } from "#/lib/import/csv";
 import { parseRepository, readGitHubImport } from "#/lib/import/github";
 import { readJsonImport } from "#/lib/import/json";
@@ -17,9 +17,11 @@ import {
 	importTargetFrom,
 	planImport,
 	type ReadOptions,
+	restoreImportSources,
 	runImport,
 } from "#/lib/import/plan";
 import { useTeams } from "#/lib/queries";
+import { restoreSource } from "#/lib/sources";
 import { cn } from "#/lib/utils";
 
 /** What a source's form hands over: the issues it read, and anything worth telling about them. */
@@ -432,13 +434,19 @@ function ReviewAndRun({
 }) {
 	const client = useSyncClient();
 	const teams = useTeams();
+	const { slug } = useWorkspace();
 	const selectId = useId();
 	const [teamId, setTeamId] = useState(teams[0]?.id ?? "");
 	// The teams the source keeps its issues in, such as a Track export's, offered as a choice.
 	const [sourceTeams] = useState(() => [
-		...new Set(loaded.source.issues.flatMap((issue) => (issue.team ? [issue.team.key] : []))),
+		...new Set(
+			[...loaded.source.issues, ...(loaded.source.sources ?? [])].flatMap((issue) =>
+				issue.team ? [issue.team.key] : [],
+			),
+		),
 	]);
-	const [keepTeams, setKeepTeams] = useState(sourceTeams.length > 0);
+	const hasSourceTeams = sourceTeams.length > 0 || Boolean(loaded.source.sources?.length);
+	const [keepTeams, setKeepTeams] = useState(hasSourceTeams);
 	const [plan, setPlan] = useState<ImportPlan | null>(null);
 	const [progress, setProgress] = useState<ImportProgress | null>(null);
 	const abort = useRef<AbortController | null>(null);
@@ -474,6 +482,12 @@ function ReviewAndRun({
 		};
 		setProgress({ done: 0, total: plan.mutations.length, failed: [] });
 		const result = await runImport(mutate, plan.mutations, setProgress, controller.signal);
+		await restoreImportSources(
+			plan,
+			result,
+			(input) => restoreSource({ data: { workspace: slug, input } }),
+			controller.signal,
+		);
 		onDone(plan, result, controller.signal.aborted);
 	}
 
@@ -504,8 +518,10 @@ function ReviewAndRun({
 					}}
 					className={SELECT_CLASS}
 				>
-					{sourceTeams.length > 0 && (
-						<option value={SOURCE_TEAMS}>Their own teams ({sourceTeams.join(", ")})</option>
+					{hasSourceTeams && (
+						<option value={SOURCE_TEAMS}>
+							Their own teams{sourceTeams.length > 0 && ` (${sourceTeams.join(", ")})`}
+						</option>
 					)}
 					{teams.map((team) => (
 						<option key={team.id} value={team.id}>
@@ -540,7 +556,16 @@ function ReviewAndRun({
 				</div>
 			) : (
 				<div className="flex flex-wrap gap-2">
-					<Button disabled={!plan || plan.mutations.length === 0} onClick={() => void start()}>
+					<Button
+						disabled={
+							!plan ||
+							(plan.mutations.length === 0 &&
+								!plan.sources.length &&
+								!plan.missingTeams &&
+								!plan.largeSettings)
+						}
+						onClick={() => void start()}
+					>
 						<Upload />
 						{plan && plan.issues > 0 ? `Import ${countOf(plan.issues, "issue")}` : "Import"}
 					</Button>
@@ -554,7 +579,12 @@ function ReviewAndRun({
 }
 
 function PlanSummary({ sourceName, plan }: { sourceName: string; plan: ImportPlan }) {
-	if (plan.mutations.length === 0) {
+	if (
+		plan.mutations.length === 0 &&
+		!plan.sources.length &&
+		!plan.missingTeams &&
+		!plan.largeSettings
+	) {
 		return <p>Everything here was imported before. There is nothing new to bring in.</p>;
 	}
 	return (
@@ -562,6 +592,20 @@ function PlanSummary({ sourceName, plan }: { sourceName: string; plan: ImportPla
 			<p>
 				From {sourceName}: {contents(plan)}.
 			</p>
+			{plan.sources.length > 0 && (
+				<p className="text-muted-foreground">
+					The file also contains {countOf(plan.sources.length, "source")}.
+				</p>
+			)}
+			{plan.largeSettings > 0 && (
+				<p>{countOf(plan.largeSettings, "source")} skipped (settings too large).</p>
+			)}
+			{plan.repeatedNotes.map((note) => (
+				<p key={note}>{note}</p>
+			))}
+			{plan.missingTeams > 0 && (
+				<p>{countOf(plan.missingTeams, "source")} skipped (team missing).</p>
+			)}
 			{plan.archived > 0 && (
 				<p className="text-muted-foreground">
 					{countOf(plan.archived, "issue")} will be archived, as in {sourceName}.
@@ -609,6 +653,14 @@ function ImportResult({
 						? `Imported ${contents(plan)}.`
 						: `Imported, but the server refused ${countOf(failed.length, "change")}.`}
 			</p>
+			{plan.repeatedNotes.map((note) => (
+				<p key={note}>{note}</p>
+			))}
+			{progress.sourceResult && (
+				<p className="text-sm" role="status">
+					{progress.sourceResult}
+				</p>
+			)}
 			{failed.length > 0 && (
 				<ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
 					{failed.slice(0, 5).map((failure, index) => (

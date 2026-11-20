@@ -1,4 +1,4 @@
-import { sourceAction } from "@gateweave/track-protocol";
+import { sourceAction, sourceRestoreSchema } from "@gateweave/track-protocol";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest, setResponseHeader, setResponseStatus } from "@tanstack/react-start/server";
 import { z } from "zod";
@@ -23,4 +23,11 @@ export const changeSource = createServerFn({ method: "POST" })
 			setResponseHeader("Retry-After", String(result.retryAfter));
 		}
 		return result;
+	});
+
+export const restoreSource = createServerFn({ method: "POST" })
+	.validator(z.object({ workspace, input: sourceRestoreSchema }))
+	.handler(async ({ data }) => {
+		const { restoreImportedSource } = await import("#/server/sources");
+		return restoreImportedSource(data.workspace, getRequest(), data.input);
 	});

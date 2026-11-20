@@ -3,13 +3,14 @@ import {
 	BYTES_PER_DAY,
 	CALLS_PER_MINUTE,
 	EVENT_CLOCK_SKEW_MS,
-	EVENT_MAX_BYTES,
+	fitsEventBudget,
 	ISSUES_PER_DAY,
 	type IssuePriority,
 	isClosedCategory,
 	LAST_HEARD_EVERY,
 	LIVE_SIGNALS,
 	liveStatuses,
+	MAX_REOPENS,
 	REOPENS_PER_KEY_PER_DAY,
 	SIGNAL_KEPT_DAYS,
 	type Signal,
@@ -30,7 +31,7 @@ import { notify } from "./inbox";
 import { ChangeSet, type WriteResult } from "./log";
 import { sortOrderAfterAll } from "./recurring";
 import { indexComment, indexIssue } from "./search";
-import { keyRevoked, liveConnectSeal } from "./source-management";
+import { keyRevoked, liveConnectSeal, matchesRestore } from "./source-management";
 import { type Db, toComment, toIssue, toSignal, toSource } from "./state";
 import { teamStatuses } from "./statuses";
 import { queueDeliveries } from "./webhooks";
@@ -60,7 +61,7 @@ export type SourceEventResult =
 type Outcome = WriteResult & { response: SourceEventResult };
 
 function parsedEvent(raw: string | null) {
-	if (raw === null || new TextEncoder().encode(raw).length > EVENT_MAX_BYTES) return null;
+	if (raw === null || !fitsEventBudget(new TextEncoder().encode(raw).byteLength)) return null;
 	try {
 		return sourceEventSchema.safeParse(JSON.parse(raw)).data ?? null;
 	} catch {
@@ -251,7 +252,7 @@ export function processSourceEvent(
 	const changes = new ChangeSet(db, SOURCE_ACTOR_ID, now);
 	liveConnectSeal(db, changes, sourceId);
 	const source = db.select().from(schema.sources).where(eq(schema.sources.id, sourceId)).get();
-	if (!source || keyRevoked(db, source.id, keyId))
+	if (!source || !matchesRestore(db, sourceId, keyId) || keyRevoked(db, source.id, keyId))
 		return { ...changes.result(), response: { status: 404 } };
 	if (source.removing) return { ...changes.result(), response: { status: 503 } };
 	if (source.paused) return { ...changes.result(), response: { status: 404 } };
@@ -446,7 +447,7 @@ export function processSourceEvent(
 		state: event.state,
 		url,
 		issueId: issue?.id ?? prior?.issueId ?? null,
-		reopens: (prior?.reopens ?? 0) + Number(reopening),
+		reopens: Math.min(MAX_REOPENS, (prior?.reopens ?? 0) + Number(reopening)),
 		firstAt: prior?.firstAt ?? now,
 		changedAt: now,
 		lastSentAt: sentAt,

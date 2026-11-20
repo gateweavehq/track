@@ -1,18 +1,24 @@
 import {
 	type AuditAction,
+	EVENT_CLOCK_SKEW_MS,
+	LIVE_SIGNALS,
+	RESTORE_ISSUE_MISSING,
 	SOURCES_PER_WORKSPACE,
 	type Source,
 	type SourceAction,
+	type SourceRestore,
 	sourceAction,
+	sourceRestoreSchema,
 	sourceSettingsSchema,
+	WORKSPACE_RESTORE_SIGNAL_BYTES,
 } from "@gateweave/track-protocol";
 import { and, count, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "./audit";
-import { auditEvents, meta, signals, sources, teams } from "./db/schema";
+import { auditEvents, issues, meta, signals, sources, teams } from "./db/schema";
 import { ChangeSet } from "./log";
 import { MutationRejected } from "./rejected";
-import { activeMember, type Db, toSource } from "./state";
+import { activeMember, type Db, toSignal, toSource } from "./state";
 
 export class SourceLimit extends MutationRejected {
 	constructor() {
@@ -35,10 +41,32 @@ export function keyRevoked(db: Db, sourceId: string, keyId: string): boolean {
 		.get();
 	return row?.value === sourceId;
 }
-const internalAction = z.strictObject({
-	kind: z.enum(["prepareRemoval", "finishRemoval", "checkKey", "keyCreated"]),
-	id,
-});
+
+// Key ids carry the restore that issued them across the D1 lookup and both halves of a rotation.
+const restoreGeneration = "source-restore-generation:";
+export function restoreGenerationOf(db: Db, sourceId: string) {
+	return sourceId.startsWith("import-")
+		? db
+				.select()
+				.from(meta)
+				.where(eq(meta.key, restoreGeneration + sourceId))
+				.get()?.value
+		: undefined;
+}
+
+export function matchesRestore(db: Db, sourceId: string, keyId?: string) {
+	const prefix = restoreGenerationOf(db, sourceId);
+	return !prefix || keyId?.startsWith(prefix) === true;
+}
+
+const internalAction = z.union([
+	z.strictObject({ kind: z.literal("keyCreated"), id, keyId: id.optional() }),
+	z.strictObject({
+		kind: z.enum(["prepareRemoval", "checkKey"]),
+		id,
+	}),
+	z.strictObject({ kind: z.literal("finishRemoval"), id, generation: id.optional() }),
+]);
 const keyRevocation = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("prepareRevoke"), id, keyId: id, listed: z.boolean() }),
 	z.strictObject({ kind: z.literal("keyRevoked"), id, keyId: id }),
@@ -102,6 +130,16 @@ export type SourceAdminAction =
 	| Extract<SourceAction, { kind: "create" | "update" | "assign" | "pause" }>
 	| z.infer<typeof internalAction>;
 
+function requireTeam(db: Db, teamId: string) {
+	if (!db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).get())
+		throw new MutationRejected("not_found", "Team not found");
+}
+
+function requireSourceCapacity(db: Db) {
+	if ((db.select({ n: count() }).from(sources).get()?.n ?? 0) >= SOURCES_PER_WORKSPACE)
+		throw new SourceLimit();
+}
+
 export function manageSource(db: Db, memberId: string, command: SourceAdminAction, now: number) {
 	const parsed = z.union([gatewayCreate, sourceAction, internalAction]).safeParse(command);
 	if (!parsed.success) throw new MutationRejected("invalid", "Invalid source settings");
@@ -118,19 +156,12 @@ export function manageSource(db: Db, memberId: string, command: SourceAdminActio
 			now,
 		);
 	}
-	function requireTeam(teamId: string) {
-		if (!db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId)).get()) {
-			throw new MutationRejected("not_found", "Team not found");
-		}
-	}
+
 	if (action.kind === "create") {
 		if ("notAfter" in action && now > action.notAfter)
 			throw new MutationRejected("invalid", "Source approval expired");
-		requireTeam(action.input.teamId);
-		const found = db.select({ n: count() }).from(sources).get();
-		if ((found?.n ?? 0) >= SOURCES_PER_WORKSPACE) {
-			throw new SourceLimit();
-		}
+		requireTeam(db, action.input.teamId);
+		requireSourceCapacity(db);
 		const sourceId = "id" in action ? action.id : crypto.randomUUID();
 		if (db.select({ id: sources.id }).from(sources).where(eq(sources.id, sourceId)).get())
 			throw new MutationRejected("invalid", "Source id already exists");
@@ -166,7 +197,7 @@ export function manageSource(db: Db, memberId: string, command: SourceAdminActio
 		case "update": {
 			if (action.kind === "update") {
 				if (!Object.keys(action.input).length) break;
-				if (action.input.teamId !== undefined) requireTeam(action.input.teamId);
+				if (action.input.teamId !== undefined) requireTeam(db, action.input.teamId);
 			}
 			if (
 				action.kind === "assign" &&
@@ -207,21 +238,189 @@ export function manageSource(db: Db, memberId: string, command: SourceAdminActio
 					audit(source, "source.paused");
 				}
 			}
-			break;
+			return {
+				...changes.result(),
+				source: { ...source, generation: restoreGenerationOf(db, row.id) },
+			};
 		case "finishRemoval":
+			if (restoreGenerationOf(db, row.id) !== action.generation)
+				throw new MutationRejected("not_found", "Source not found");
 			if (!row.removing) throw new MutationRejected("invalid", "Revoke the source's keys first");
 			deleteSource(db, changes, source.id);
 			audit(source, "source.deleted");
 			break;
-		case "checkKey":
+		case "checkKey": {
+			const prefix = restoreGenerationOf(db, row.id);
+			if (prefix)
+				return {
+					...changes.result(),
+					source: {
+						...source,
+						generation: prefix,
+						keyId: prefix + crypto.randomUUID().replaceAll("-", ""),
+					},
+				};
 			break;
+		}
 		case "keyCreated":
+			if (!matchesRestore(db, row.id, action.keyId))
+				throw new MutationRejected("not_found", "Source not found");
 			audit(source, "source.keyCreated");
 			break;
 		default:
 			throw new MutationRejected("invalid", "This action needs the settings gateway");
 	}
 	return { ...changes.result(), source };
+}
+
+/** The gateway has derived the destination ids. Check every row against this workspace. */
+export function restoreSource(db: Db, memberId: string, command: SourceRestore, now: number) {
+	const parsed = sourceRestoreSchema.safeParse(command);
+	if (!parsed.success) throw new MutationRejected("invalid", "Invalid source or signal");
+	const { source, signals: rows, exportedAt } = parsed.data;
+	// Every event a sender dated before the export, even by a clock running ahead, stays older. A
+	// future export time from a crafted file counts as now.
+	const senderFloor = Math.min(Date.parse(exportedAt), now) + EVENT_CLOCK_SKEW_MS;
+	const importedId = /^import-[a-f0-9]{32}$/;
+	if (!importedId.test(source.id))
+		throw new MutationRejected("invalid", "Invalid restored source id");
+	const changes = new ChangeSet(db, memberId, now);
+	const counts = {
+		restored: 0,
+		present: 0,
+		bound: 0,
+		dropped: 0,
+		otherTeam: 0,
+		alreadyLinked: 0,
+		overLimit: 0,
+	};
+	if (db.select({ id: sources.id }).from(sources).where(eq(sources.id, source.id)).get()) {
+		counts.present++;
+		return { ...changes.result(), counts };
+	}
+	requireTeam(db, source.teamId);
+	requireSourceCapacity(db);
+	const assigneeId =
+		source.assigneeId && activeMember(db, source.assigneeId)?.role === "agent"
+			? source.assigneeId
+			: null;
+	const restored = db
+		.insert(sources)
+		.values({ ...source, assigneeId, paused: true })
+		.returning()
+		.get();
+	db.insert(meta)
+		.values({ key: restoreGeneration + source.id, value: crypto.randomUUID().replaceAll("-", "") })
+		.run();
+	changes.put("source", toSource(restored));
+	const keys = new Set<string>();
+	// Count only replica fields. SQLite casts integers to their decimal text for this measure.
+	const fields = [
+		signals.id,
+		signals.sourceId,
+		signals.key,
+		signals.type,
+		signals.subject,
+		signals.severity,
+		signals.state,
+		signals.url,
+		signals.issueId,
+		signals.reopens,
+		signals.firstAt,
+		signals.changedAt,
+	];
+	const fieldBytes = sql.join(
+		fields.map((col) => sql`coalesce(length(cast(${col} as blob)), 0)`),
+		sql` + `,
+	);
+	let bytes =
+		db
+			.select({ total: sql<number>`coalesce(sum(${fieldBytes}), 0)` })
+			.from(signals)
+			.get()?.total ?? 0;
+	const encoder = new TextEncoder();
+	let live = 0;
+	for (const signal of rows) {
+		if (
+			signal.sourceId !== source.id ||
+			keys.has(signal.key) ||
+			(signal.issueId !== null && !importedId.test(signal.issueId)) ||
+			(signal.url && !source.linkOrigins.includes(new URL(signal.url).origin))
+		)
+			throw new MutationRejected("invalid", "Invalid signal for this source");
+		keys.add(signal.key);
+		const issue =
+			signal.issueId &&
+			db
+				.select({ id: issues.id, teamId: issues.teamId, deletedAt: issues.deletedAt })
+				.from(issues)
+				.where(eq(issues.id, signal.issueId))
+				.get();
+		// The importer sends signals only for issues it made or found. One with no row was refused or
+		// is not saved yet, so refuse the whole source: a repeat import makes the issue and restores.
+		if (signal.issueId && !issue) throw new MutationRejected("invalid", RESTORE_ISSUE_MISSING);
+		if (!issue || issue.deletedAt !== null || issue.teamId !== source.teamId) {
+			counts.dropped++;
+			if (issue && issue.deletedAt === null) counts.otherTeam++;
+			continue;
+		}
+		if (
+			db
+				.select({ id: signals.id })
+				.from(signals)
+				.where(eq(signals.issueId, issue.id))
+				.limit(1)
+				.get()
+		) {
+			counts.dropped++;
+			counts.alreadyLinked++;
+			continue;
+		}
+		const replica = {
+			...signal,
+			id: crypto.randomUUID(),
+			// A clock that stepped back can leave a genuine change before its first report.
+			firstAt: Math.min(signal.firstAt, signal.changedAt, now),
+			changedAt: Math.min(signal.changedAt, now),
+		};
+		const incoming = Object.values(replica).reduce<number>(
+			(n, value) => n + (value === null ? 0 : encoder.encode(String(value)).length),
+			0,
+		);
+		if (bytes + incoming > WORKSPACE_RESTORE_SIGNAL_BYTES) {
+			counts.overLimit++;
+			counts.dropped++;
+			continue;
+		}
+		bytes += incoming;
+		if (signal.state === "open" && ++live > LIVE_SIGNALS)
+			throw new MutationRejected("invalid", "Too many open signals for this source");
+		const row = db
+			.insert(signals)
+			.values({
+				...replica,
+				// The file keeps receipt times, not the sender's, so sender order restarts after the
+				// export: an older event, even replayed with the new key, gets the current state.
+				lastSentAt: senderFloor,
+				// The replica omits the clear time. Using the last change keeps inactive signals at least as long.
+				clearedAt: signal.state === "open" ? null : Math.min(signal.changedAt, now),
+			})
+			.returning()
+			.get();
+		changes.put("signal", toSignal(row));
+		counts.bound++;
+	}
+	counts.restored++;
+	recordAudit(
+		db,
+		{
+			actorId: memberId,
+			action: "source.created",
+			target: { type: "source", id: source.id, label: source.name },
+		},
+		now,
+	);
+	return { ...changes.result(), counts, wake: true };
 }
 
 const connectionSeal = "source-connect-seal:";
@@ -285,6 +484,9 @@ function deleteSource(db: Db, changes: ChangeSet, sourceId: string) {
 		db.delete(meta)
 			.where(and(sql`${meta.key} GLOB ${prefix + "*"}`, eq(meta.value, sourceId)))
 			.run();
+	db.delete(meta)
+		.where(eq(meta.key, restoreGeneration + sourceId))
+		.run();
 	db.delete(sources).where(eq(sources.id, sourceId)).run();
 	changes.delete("source", sourceId);
 	db.delete(meta)
