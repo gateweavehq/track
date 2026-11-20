@@ -8,6 +8,48 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.45.0] - 2026-11-20
+
+A product can now be connected as a source with one approval, instead of a key copied by hand.
+There is no migration and no change to the sync protocol.
+
+### Added
+
+- **Connecting a source by approval.** A product such as Gateweave Guard sends an owner or admin to
+  `/connect/source`. They choose the workspace and the team, then choose **Allow**.
+  - **The key:** Track makes the source and its key. It hands the key to the product once, through
+    a one-time code bound to the product's PKCE verifier (`POST /api/connect/exchange`). Nobody
+    sees or copies the key.
+  - **Taking it back:** for three days the product can undo the connection
+    (`POST /api/connect/undo`). Track removes the source only if it has done nothing in the
+    workspace and nobody has changed its keys: an admin's new key or revocation keeps it.
+  - **Interruptions:** every step survives a crash or a slow request, and the daily run finishes
+    what one left half done.
+
+  ([#359](https://github.com/gateweavehq/track/pull/359))
+
+### Changed
+
+- **Retry for a sealed source.** An event sent to a source while it is being taken back gets `503`
+  with `Retry-After: 60`, where it got `404`, so the product sends it again.
+- **Expired one-time values.** Expired password-reset tokens, sign-in states and authorization
+  codes are now deleted only by the daily run. Each is still refused once it has expired.
+
+### Fixed
+
+- **The query on `/connect/agent`** is now read exactly as the browser sent it. A repeated `name`
+  got through, and a state such as `1e3` came back as `1000`.
+
+### If you run your own
+
+- **Just update.** Open tabs keep working: the protocol stays at 28, and there is no D1 or
+  workspace migration.
+- **Nothing changes until a product asks to connect.** Guard 0.6.0 or later offers the button when
+  its Track is 0.45.0 or later; older products still take a pasted key.
+- **Rolling back to 0.44.0 or earlier:** first stop new connections and let unfinished ones finish,
+  then delete the `track-connect:` verification rows. "Connecting a source in one step" in
+  `docs/architecture.md` gives the steps.
+
 ## [0.44.0] - 2026-11-20
 
 Products that find things, such as Gateweave Guard, can now report them straight into Track, which
