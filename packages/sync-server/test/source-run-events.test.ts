@@ -1,4 +1,5 @@
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import { LIVE_RUNS } from "@gateweave/track-protocol";
 import { describe, expect, it } from "vitest";
 import type { MemberProfile } from "../src";
 import { freshWorkspace } from "./client";
@@ -187,6 +188,95 @@ describe("run events", () => {
 		]) {
 			expect((await send(body)).status).toBe(400);
 		}
+	});
+
+	it("binds a run a later report names and takes its corrected start", async () => {
+		const { send, snapshot } = await setup();
+		await send(run({ issue: undefined, key: "fix-eng-9", startedAt: "2026-11-01T10:00:00Z" }));
+		let whole = await snapshot();
+		expect(whole.signals[0]).toMatchObject({
+			issueId: null,
+			startedAt: Date.parse("2026-11-01T10:00:00Z"),
+		});
+		// The next report names the issue and corrects the start; both land on the same row.
+		const bound = await send(
+			run({ key: "fix-eng-9", issue: "ENG-1", startedAt: "2026-11-01T09:00:00Z" }),
+		);
+		expect(bound).toMatchObject({
+			status: 200,
+			answer: { state: "running", filed: false, issue: { key: "ENG-1" } },
+		});
+		whole = await snapshot();
+		expect(whole.signals).toHaveLength(1);
+		expect(whole.signals[0]).toMatchObject({
+			issueId: "issue-1",
+			startedAt: Date.parse("2026-11-01T09:00:00Z"),
+		});
+	});
+
+	it("an identical report still moves the run's contact times", async () => {
+		const { ws, send, snapshot } = await setup();
+		await send(run({ state: "running" }));
+		// Age the row and the source past the last-heard interval, so the repeat must move them.
+		const aged = Date.now() - 2 * 60 * 60 * 1000;
+		await runInDurableObject(ws, (_, state) => {
+			state.storage.sql.exec(
+				"UPDATE signals SET last_contact_at = ?, last_sent_at = ? WHERE kind = 'run'",
+				aged,
+				aged,
+			);
+			state.storage.sql.exec("UPDATE sources SET last_heard_at = ?", aged);
+		});
+		const before = (await snapshot()).signals[0];
+		const result = await send(run({ state: "running" }));
+		expect(result).toMatchObject({ status: 200, answer: { state: "running" } });
+		const whole = await snapshot();
+		expect(whole.signals).toHaveLength(1);
+		expect(whole.signals[0]?.lastContactAt).toBeGreaterThan(before?.lastContactAt ?? 0);
+		expect(whole.sources[0]?.lastHeardAt).toBeGreaterThan(aged);
+	});
+
+	it("holds a finished run to the live cap when it starts again", async () => {
+		const { ws, sourceId, send, snapshot } = await setup();
+		// A full house: LIVE_RUNS unfinished runs and one finished, written straight into storage.
+		const aged = Date.now() - 60_000;
+		await runInDurableObject(ws, (_, state) => {
+			for (let i = 0; i < LIVE_RUNS; i++)
+				state.storage.sql.exec(
+					"INSERT INTO signals (id, source_id, kind, key, severity, state, reopens, first_at, changed_at, last_sent_at) VALUES (?, ?, 'run', ?, 'unknown', 'running', 0, ?, ?, ?)",
+					`run-${i}`,
+					sourceId,
+					`run-${i}`,
+					aged,
+					aged,
+					aged,
+				);
+			state.storage.sql.exec(
+				"INSERT INTO signals (id, source_id, kind, key, severity, state, reopens, first_at, changed_at, last_sent_at, ended_at) VALUES (?, ?, 'run', 'run-finished', 'unknown', 'passed', 0, ?, ?, ?, ?)",
+				"run-finished",
+				sourceId,
+				aged,
+				aged,
+				aged,
+				aged,
+			);
+		});
+		// A new run and a finished one starting again are both over the cap.
+		expect(await send(run({ key: "run-new", issue: "ENG-1" }))).toMatchObject({ status: 429 });
+		expect(await send(run({ key: "run-finished", issue: "ENG-1" }))).toMatchObject({
+			status: 429,
+		});
+		// Progress on a run already counted is not a new claim, so it still writes.
+		expect(await send(run({ key: "run-0", issue: "ENG-1", progress: "1 of 2" }))).toMatchObject({
+			status: 200,
+			answer: { state: "running", filed: false },
+		});
+		const whole = await snapshot();
+		expect(whole.signals).toHaveLength(LIVE_RUNS + 1);
+		expect(whole.signals.find((signal) => signal.key === "run-0")).toMatchObject({
+			state: "running",
+			progress: "1 of 2",
+		});
 	});
 
 	it("the alarm reclaims a finished run after 30 days but keeps an unfinished one", async () => {

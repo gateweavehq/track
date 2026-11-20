@@ -50,6 +50,8 @@ export const SIGNAL_STATES = ["open", "cleared", "dismissed"] as const;
 export const SIGNAL_KINDS = ["alert", "run"] as const;
 /** A run's lifecycle: queued work, then how it ended. */
 export const RUN_STATES = ["queued", "running", "passed", "failed", "cancelled"] as const;
+/** The run states that still hold a live slot; the rest are finished. */
+export const UNFINISHED_RUN_STATES = ["queued", "running"] as const;
 /** Every state a signals row can hold: an alert's, or a run's. */
 export const SIGNAL_STORED_STATES = [...SIGNAL_STATES, ...RUN_STATES] as const;
 /** Who executes a run, as the issue row names it. */
@@ -118,6 +120,9 @@ export const sourceSettingsSchema = z.strictObject({
 export type SourceSettings = z.infer<typeof sourceSettingsSchema>;
 
 const eventTime = z.iso.datetime({ offset: true }).refine((date) => !/\.\d{4}/.test(date));
+// A stored timestamp is a nonnegative epoch millisecond, so a run clock set before 1970 is
+// refused here rather than failing every export that carries the row.
+const storedEventTime = eventTime.refine((date) => Date.parse(date) >= 0);
 
 const eventFields = {
 	key: userText.min(1),
@@ -136,8 +141,8 @@ const eventFields = {
 	// A run may name the issue it works on, by key such as `ENG-12`; it never files one.
 	issue: userText.min(1).max(64).optional(),
 	progress: userText.max(200).optional(),
-	startedAt: eventTime.optional(),
-	endedAt: eventTime.optional(),
+	startedAt: storedEventTime.optional(),
+	endedAt: storedEventTime.optional(),
 	executor: z.enum(RUN_EXECUTORS).optional(),
 	agent: userText.max(64).optional(),
 	waitReason: z.enum(RUN_WAIT_REASONS).optional(),
@@ -272,7 +277,20 @@ export const restoredSignalSchema = exportedSignalSchema
 				}),
 			),
 		"Signal exceeds the event size limit",
-	);
+	)
+	.superRefine((row, ctx) => {
+		// An old file's rows are alerts; a run's state never passes for one, or the reverse.
+		const states: readonly string[] = row.kind === "run" ? RUN_STATES : SIGNAL_STATES;
+		if (!states.includes(row.state))
+			ctx.addIssue({
+				code: "custom",
+				message:
+					row.kind === "run"
+						? "A run's state is queued, running, passed, failed or cancelled"
+						: "An alert's state is open, cleared or dismissed",
+				path: ["state"],
+			});
+	});
 
 export const RESTORE_ISSUE_MISSING =
 	"An issue for this source is not saved yet. Import the same file again to restore it.";

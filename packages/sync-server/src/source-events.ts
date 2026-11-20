@@ -25,6 +25,7 @@ import {
 	sourceIssueText,
 	sourceLimitNotice,
 	sourceReopenComment,
+	UNFINISHED_RUN_STATES,
 	WORKSPACE_ISSUES_PER_DAY,
 	WRITES_PER_DAY,
 } from "@gateweave/track-protocol";
@@ -44,7 +45,6 @@ import { queueDeliveries } from "./webhooks";
 const DAY = 86_400_000;
 const PRIORITY = { critical: 1, high: 2, medium: 3, low: 4, unknown: 0 } as const;
 const FINISHED_RUNS = ["passed", "failed", "cancelled"] as const;
-const UNFINISHED_RUNS = ["queued", "running"] as const;
 const isAlertState = (state: string): state is SignalState =>
 	(SIGNAL_STATES as readonly string[]).includes(state);
 
@@ -286,69 +286,14 @@ function processRunEvent(
 		// The binding is set once: naming another issue is a sender bug, not a move.
 		if (issue && prior.issueId && issue.id !== prior.issueId)
 			return answer(prior, "This run is already bound to another issue.");
-		const url =
-			event.url && source.linkOrigins.includes(new URL(event.url).origin)
-				? event.url
-				: (prior.url ?? null);
-		// A repeat of the same state with the same details keeps the row; a newer clock still
-		// orders later ones, and progress under one state ("running", "3 of 5") always writes.
-		const same =
-			prior.state === event.state &&
-			(prior.progress ?? null) === (event.progress ?? null) &&
-			(prior.waitReason ?? null) === (event.waitReason ?? null) &&
-			(prior.waitDetail ?? null) === (event.waitDetail ?? null) &&
-			(prior.executor ?? null) === (event.executor ?? null) &&
-			(prior.agentName ?? null) === (event.agent ?? null) &&
-			(prior.url ?? null) === url;
-		if (same) {
-			if (sentAt > prior.lastSentAt)
-				db.update(schema.signals)
-					.set({ lastSentAt: sentAt })
-					.where(eq(schema.signals.id, prior.id))
-					.run();
-			return answer(prior);
-		}
-	} else if ((UNFINISHED_RUNS as readonly string[]).includes(event.state)) {
-		const live = db
-			.select({ n: count() })
-			.from(schema.signals)
-			.where(
-				and(
-					eq(schema.signals.sourceId, source.id),
-					eq(schema.signals.kind, "run"),
-					inArray(schema.signals.state, [...UNFINISHED_RUNS]),
-				),
-			)
-			.get();
-		if (live && live.n >= LIVE_RUNS) return reject("LIVE_RUNS");
 	}
 	const finished = (FINISHED_RUNS as readonly string[]).includes(event.state);
 	const url =
 		event.url && source.linkOrigins.includes(new URL(event.url).origin)
 			? event.url
 			: (prior?.url ?? null);
-	const bytes = new TextEncoder().encode(
-		[
-			event.key,
-			event.type,
-			event.subject,
-			event.state,
-			url,
-			event.progress,
-			event.agent,
-			event.executor,
-			event.waitReason,
-			event.waitDetail,
-		].join(""),
-	).length;
-	let excess = bytes + usage.reduce((total, entry) => total + entry.bytes, 0) - BYTES_PER_DAY;
-	if (excess > 0) {
-		for (const entry of usage) {
-			excess -= entry.bytes;
-			if (excess <= 0) return reject("BYTES_PER_DAY", entry.at + DAY);
-		}
-		return reject("BYTES_PER_DAY");
-	}
+	// What the row would hold after this report, with sticky fields normalized, so a repeat is
+	// judged by what it would change rather than by what it says again.
 	const signal: SignalRow = {
 		id: prior?.id ?? crypto.randomUUID(),
 		sourceId: source.id,
@@ -378,6 +323,82 @@ function processRunEvent(
 		waitDetail: event.waitDetail ?? null,
 		lastContactAt: now,
 	};
+	if (prior) {
+		// A repeat of the same state with the same details keeps the row; a newer clock still
+		// orders later ones, and progress under one state ("running", "3 of 5") always writes.
+		const unchanged =
+			prior.state === signal.state &&
+			(prior.type ?? null) === signal.type &&
+			(prior.subject ?? null) === signal.subject &&
+			(prior.progress ?? null) === signal.progress &&
+			(prior.startedAt ?? null) === signal.startedAt &&
+			(prior.endedAt ?? null) === signal.endedAt &&
+			(prior.executor ?? null) === signal.executor &&
+			(prior.agentName ?? null) === signal.agentName &&
+			(prior.waitReason ?? null) === signal.waitReason &&
+			(prior.waitDetail ?? null) === signal.waitDetail &&
+			(prior.url ?? null) === signal.url &&
+			(prior.issueId ?? null) === signal.issueId;
+		if (unchanged) {
+			// The runner is alive even when nothing changed: move its contact times and tell the
+			// replica, the way a changed report would.
+			const heard = source.lastHeardAt === null || source.lastHeardAt <= now - LAST_HEARD_EVERY;
+			db.update(schema.signals)
+				.set({ lastSentAt: sentAt, lastContactAt: now })
+				.where(eq(schema.signals.id, prior.id))
+				.run();
+			changes.put("signal", toSignal({ ...prior, lastSentAt: sentAt, lastContactAt: now }));
+			if (heard) {
+				db.update(schema.sources)
+					.set({ lastHeardAt: now })
+					.where(eq(schema.sources.id, source.id))
+					.run();
+				changes.put("source", toSource({ ...source, lastHeardAt: now }));
+			}
+			return answer({ ...prior, lastSentAt: sentAt, lastContactAt: now });
+		}
+	}
+	// A finished run coming back to unfinished holds a live slot again, so the cap counts it
+	// like a new row; a run already unfinished stays allowed at the cap.
+	if (
+		(UNFINISHED_RUN_STATES as readonly string[]).includes(event.state) &&
+		(!prior || (FINISHED_RUNS as readonly string[]).includes(prior.state))
+	) {
+		const live = db
+			.select({ n: count() })
+			.from(schema.signals)
+			.where(
+				and(
+					eq(schema.signals.sourceId, source.id),
+					eq(schema.signals.kind, "run"),
+					inArray(schema.signals.state, [...UNFINISHED_RUN_STATES]),
+				),
+			)
+			.get();
+		if (live && live.n >= LIVE_RUNS) return reject("LIVE_RUNS");
+	}
+	const bytes = new TextEncoder().encode(
+		[
+			event.key,
+			event.type,
+			event.subject,
+			event.state,
+			url,
+			event.progress,
+			event.agent,
+			event.executor,
+			event.waitReason,
+			event.waitDetail,
+		].join(""),
+	).length;
+	let excess = bytes + usage.reduce((total, entry) => total + entry.bytes, 0) - BYTES_PER_DAY;
+	if (excess > 0) {
+		for (const entry of usage) {
+			excess -= entry.bytes;
+			if (excess <= 0) return reject("BYTES_PER_DAY", entry.at + DAY);
+		}
+		return reject("BYTES_PER_DAY");
+	}
 	db.insert(schema.signals)
 		.values(signal)
 		.onConflictDoUpdate({ target: schema.signals.id, set: signal })
