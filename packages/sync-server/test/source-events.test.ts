@@ -435,6 +435,47 @@ it("U1: the largest event's issue.created delivery fits Agents' 64 KiB request c
 	expect(bytes(payload)).toBeLessThan(64 * 1024);
 });
 
+it("a reopen's issue.updated delivery names the source, the status it left and the open signal", async () => {
+	const { ws, send, mutate, issue } = await setup({ closeWhenCleared: true });
+	await send();
+	const row = await issue();
+	await mutate({
+		name: "issue.update",
+		args: { id: row.id, baseVersion: row.version, patch: { status: "done" } },
+	});
+	await send({ state: "cleared" });
+	const made = await ws.createWebhook(
+		owner,
+		{ id: "ws", slug: "test", origin: "https://track.test" },
+		{ url: "https://hooks.test/track", teamId: null, agentId: null, events: ["issue.updated"] },
+	);
+	expect(made.ok).toBe(true);
+	expect(answer(await send()).issue?.key).toBe("ENG-1");
+	const payloads = await runInDurableObject(ws, (_, state) =>
+		state.storage.sql
+			.exec<{ payload: string }>("SELECT payload FROM webhook_deliveries")
+			.toArray()
+			.map((delivery) => JSON.parse(delivery.payload)),
+	);
+	// Gateweave Agents starts an issue's assigned agent again on exactly these three: the source as
+	// actor, the status among the fields the change touched, and the signal open (`sourceReopened`
+	// in its triggers model).
+	expect(payloads).toEqual([
+		expect.objectContaining({
+			type: "issue.updated",
+			data: expect.objectContaining({
+				actor: { id: "source", type: "system", name: "Guard" },
+				issue: expect.objectContaining({
+					key: "ENG-1",
+					status: "backlog",
+					signal: expect.objectContaining({ key: "build", state: "open" }),
+				}),
+				updatedFrom: expect.objectContaining({ status: "done" }),
+			}),
+		}),
+	]);
+});
+
 it("R26: a filed issue webhook names the system actor and carries signal metadata", async () => {
 	const { ws, send, sourceId } = await setup();
 	const made = await ws.createWebhook(
