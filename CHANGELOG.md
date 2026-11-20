@@ -8,6 +8,49 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.46.0] - 2026-11-20
+
+A JSON export now carries each team's connected sources and their signals. A product's findings
+stay tied to their issues when a workspace moves, and its next report no longer files duplicates.
+There is no migration and no change to the sync protocol.
+
+### Added
+
+- **Sources and signals travel with a JSON export.** The file gains each selected team's source
+  settings and signals. It never carries a key. Any member can export, as before.
+  - **On import:** after the issues are saved, an owner or admin's import restores each source,
+    paused and with no key, and binds its signals to the imported issues. Make a key and resume
+    the source in Settings › Sources, and give the product the new key in place of its old one; it
+    then carries on against the same issues.
+  - **What binds:** a signal binds only to an issue that is in the file and in its source's team,
+    and that has no signal yet. Ids repeated in the file bind nothing, and the import says how
+    many signals it dropped and why.
+  - **Repeating it is safe:** importing the same file again changes nothing that is already there.
+    If an issue's create didn't land, its source waits, and importing the same file again restores
+    it.
+  - **Limits:** each source restores at most 2,000 signals, and an import adds signals only while
+    the workspace holds at most 8 MiB of them. A signal never comes back larger than a report could
+    have made it.
+  - **Order after a move:** Track orders a product's events by the time each one carries. An event
+    dated before the export gets the signal's current state back, even from a clock up to five
+    minutes fast. One dated more than five minutes after the export applies. Within those five
+    minutes the two can't be told apart, so an event dated then also gets the current state, and
+    the product's next report applies.
+
+  ([#361](https://github.com/gateweavehq/track/pull/361))
+
+### Changed
+
+- **Issue webhooks** find a source's signal by its issue, so an imported issue's payload carries
+  its signal too.
+
+### If you run your own
+
+- **Just update.** Open tabs keep working: the protocol stays at 28, and there is no D1 or
+  workspace migration.
+- **Older files and older copies.** A file exported before 0.46.0 has no sources and imports as
+  before. A Track older than 0.46.0 ignores the sources in a newer file.
+
 ## [0.45.0] - 2026-11-20
 
 A product can now be connected as a source with one approval, instead of a key copied by hand.
