@@ -1903,6 +1903,61 @@ describe("connecting a source", () => {
 		expect(settingsRemoval.headers.get("retry-after")).toBe("60");
 	});
 
+	it("sweeps a late create after rollback found the source absent", async () => {
+		const f = await setUp("rollback-late-create");
+		let id = "";
+		let notAfter = 0;
+		let keyId = "";
+		boundary = async (step, sourceId) => {
+			if (step !== "before-create") return true;
+			id = sourceId;
+			const [pending] = await rowsFor(f);
+			({ sweepAt: notAfter, keyId } = JSON.parse(pending?.value ?? "{}"));
+			return false;
+		};
+		try {
+			expect((await decide(f, newVerifier())).result.ok).toBe(false);
+		} finally {
+			boundary = undefined;
+		}
+		// Deliver the interrupted RPC after the rollback has read the object as empty.
+		expect(
+			await track.rpc(f.workspaceId, "manageSource", f.owner.id, {
+				kind: "create",
+				id,
+				notAfter,
+				input: { teamId: f.teamId, product: "guard", name: "Guard", linkOrigins: [] },
+			}),
+		).toMatchObject({ ok: true });
+		// Include the matching D1 key in the partial state the next sweep must reconcile.
+		await track.db
+			.prepare("INSERT INTO source_key(id,organization_id,source_id,hash,start) VALUES(?,?,?,?,?)")
+			.bind(keyId, f.workspaceId, id, crypto.randomUUID(), "test")
+			.run();
+		expect(await settings(f)).toMatchObject({ sources: [{ id }], keys: [{ id: keyId }] });
+		await track.runScheduled(notAfter + 1);
+		expect(await settings(f)).toEqual({ sources: [], keys: [] });
+		expect(await rowsFor(f)).toEqual([]);
+	});
+
+	it("keeps the source when undo lands between the two key revocation writes", async () => {
+		const f = await setUp("undo-revoked");
+		const { answer } = await trade(f);
+		const before = await settings(f);
+		const [key] = before.keys;
+		if (!key) throw Error("Missing approval key");
+		expect(
+			await track.rpc(f.workspaceId, "revokeSourceKey", f.owner.id, {
+				kind: "prepareRevoke",
+				id: key.sourceId,
+				keyId: key.id,
+				listed: true,
+			}),
+		).toMatchObject({ ok: true });
+		expect((await undo(answer.undo)).status).toBe(200);
+		expect(await settings(f)).toEqual(before);
+	});
+
 	it("measures pending grace when the sweep asks about the source", async () => {
 		const f = await setUp("grace-at-ask");
 		const clockOffset = (offset: number) =>
@@ -2023,6 +2078,60 @@ describe("connecting a source", () => {
 		expect(log?.message).not.toContain(made.origin);
 	});
 
+	it.each(["replacement", "original"])(
+		"stale cleanup preserves a reclaimed agent with its %s key and webhooks",
+		async (remaining) => {
+			const f = await setUp("stale-agent-" + remaining);
+			await allow(f.owner, f.slug, newVerifier());
+			const hooks = await webhooksOf(f.workspaceId, f.owner);
+			expect(hooks).toHaveLength(1);
+			await expire(f);
+			const [approval] = await rowsFor(f);
+			const { keyId } = JSON.parse(approval?.value ?? "{}");
+			const replacement = crypto.randomUUID();
+			const claimed = gate();
+			let first = true;
+			boundary = async (step) => {
+				if (step === "after-workspace-check" && first) {
+					first = false;
+					await claimed.pause();
+				}
+				return true;
+			};
+			const now = Date.now();
+			const stale = track.runScheduled(now);
+			try {
+				await claimed.reached;
+				await track.db
+					.prepare(
+						"INSERT INTO agent_key(id,user_id,organization_id,start,hash,created_at) SELECT ?,user_id,organization_id,start,?,created_at FROM agent_key WHERE id=?",
+					)
+					.bind(replacement, crypto.randomUUID(), keyId)
+					.run();
+				if (remaining === "replacement")
+					await track.db.prepare("DELETE FROM agent_key WHERE id=?").bind(keyId).run();
+				await track.runScheduled(now + 600_001);
+				expect(await rowsFor(f)).toEqual([]);
+				// If the admin discards the additional key, only claim ownership still protects the agent.
+				if (remaining === "original")
+					await track.db.prepare("DELETE FROM agent_key WHERE id=?").bind(replacement).run();
+				claimed.resume();
+				await stale;
+				expect(await agentCount(f.workspaceId)).toBe(1);
+				expect(
+					await track.db
+						.prepare("SELECT id FROM agent_key WHERE organization_id=?")
+						.bind(f.workspaceId)
+						.first(),
+				).toEqual({ id: remaining === "replacement" ? replacement : keyId });
+				expect(await webhooksOf(f.workspaceId, f.owner)).toEqual(hooks);
+			} finally {
+				claimed.resume();
+				boundary = undefined;
+			}
+		},
+	);
+
 	it("a zero-key agent retry finishes the membership sync", async () => {
 		const f = await setUp("zero-key-retry");
 		await allow(f.owner, f.slug, newVerifier());
@@ -2037,8 +2146,10 @@ describe("connecting a source", () => {
 		}
 		expect(await agentCount(f.workspaceId)).toBe(0);
 		expect((await directoryAgent(f.workspaceId, agentId))?.removedAt).toBeNull();
+		expect(await webhooksOf(f.workspaceId, f.owner)).toHaveLength(1);
 		await track.runScheduled(Date.now() + 3601_000);
 		expect((await directoryAgent(f.workspaceId, agentId))?.removedAt).toBeGreaterThan(0);
+		expect(await webhooksOf(f.workspaceId, f.owner)).toEqual([]);
 		expect(await rowsFor(f)).toEqual([]);
 	});
 

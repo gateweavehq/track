@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { isAdminRole, type SourceProduct, type SourceThreshold } from "@gateweave/track-protocol";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
 	type ConnectPurpose,
@@ -185,24 +185,32 @@ function existingWorkspace(workspaceId: string) {
 		.get();
 }
 
-/**
- * Takes back what a connection made: the webhooks that name the agent first, then the agent, then
- * the membership sync. Safe to repeat. Throws when it could not finish. The audit event is
- * Track's own, whatever `detail` is added.
- */
-async function takeBack(workspaceId: string, agentId: string, detail: Record<string, string> = {}) {
+/** A claim guards cleanup of an untraded code. A signed agent undo has no claim. */
+async function takeBack(
+	workspaceId: string,
+	agentId: string,
+	detail: Record<string, string> = {},
+	condition?: SQL,
+) {
 	// The workspace must still exist in D1 before its object is reached, which reaching it makes.
 	const workspace = await existingWorkspace(workspaceId);
 	if (!workspace) return;
-	// The webhook first: with it gone, nothing is sent to an agent that no longer exists.
 	const stub = await findWorkspaceStub(db, workspaceId);
-	// Every webhook that names the agent, which can only be one made for it: it covers one this
-	// caller does not know of.
-	await stub.removeConnectedWebhooksOf(agentId);
-	const removed = await removeAgentOf(db, workspaceId, agentId);
-	// Whether or not this call removed it: an earlier one may have deleted the rows and then
-	// failed to tell the object, and a retry would otherwise never tell it.
+	// Signed undo removes the webhooks first. Claimed cleanup must win the D1 delete first.
+	if (!condition) await stub.removeConnectedWebhooksOf(agentId);
+	const removed = await removeAgentOf(db, workspaceId, agentId, condition);
+	if (removed === null && condition) {
+		// A surviving user means the claim or the keys changed. A missing user means a retry
+		// still owes the object both calls after a previous D1 delete.
+		const present = await db
+			.select({ id: schema.user.id })
+			.from(schema.user)
+			.where(eq(schema.user.id, agentId))
+			.get();
+		if (present) return;
+	}
 	await syncMembership(db, workspaceId, agentId);
+	if (condition) await stub.removeConnectedWebhooksOf(agentId);
 	if (removed !== null) {
 		await reportAudit(db, workspaceId, {
 			actorId: null,
@@ -300,7 +308,7 @@ async function cleanClaim(row: CodeRow, reason: string) {
 				return;
 			}
 		} else if (made) {
-			await takeBackAgent(made, reason);
+			await takeBackAgent(row, made, reason);
 		}
 		await db.delete(verification).where(sameRow(row)).run();
 	} catch (error) {
@@ -328,37 +336,26 @@ async function cleanClaim(row: CodeRow, reason: string) {
 	}
 }
 
-async function takeBackAgent(made: Extract<MadeFor, { kind: "agent" }>, reason: string) {
-	// An admin who found the agent in Settings and gave it a key of their own, or whose key was
-	// used, has taken it over: it is theirs now, and stays.
-	const keys = await db
-		.select({ id: schema.agentKey.id, lastUsedAt: schema.agentKey.lastUsedAt })
-		.from(schema.agentKey)
-		.where(
-			and(
-				eq(schema.agentKey.userId, made.agentId),
-				eq(schema.agentKey.organizationId, made.workspaceId),
-			),
-		)
-		.all();
-	// Told by the connection's own key: another key, a used key, or that key revoked (with or
-	// without a new one in its place) all mean someone has been managing the agent.
-	const [only] = keys;
-	const untouched =
-		keys.length === 1 &&
-		only !== undefined &&
-		only.lastUsedAt === null &&
-		(made.keyId === undefined || only.id === made.keyId);
-	if (!untouched) {
-		// A previous attempt may have deleted D1 membership and lost the final RPC.
-		if (keys.length === 0 && (await existingWorkspace(made.workspaceId)))
-			await syncMembership(db, made.workspaceId, made.agentId);
-		return;
-	}
-	await takeBack(made.workspaceId, made.agentId, {
-		reason,
-		...(made.origin && { origin: made.origin }),
-	});
+async function takeBackAgent(
+	row: CodeRow,
+	made: Extract<MadeFor, { kind: "agent" }>,
+	reason: string,
+) {
+	const { agentKey } = schema;
+	// Historical approvals did not record the key id. They still require one unused key.
+	const untouched = sql`(select count(*) = 1 and count(${agentKey.lastUsedAt}) = 0
+		${made.keyId === undefined ? sql.empty() : sql`and max(${agentKey.id}) = ${made.keyId}`}
+		from ${agentKey} where ${agentKey.userId} = ${made.agentId}
+		and ${agentKey.organizationId} = ${made.workspaceId})`;
+	await takeBack(
+		made.workspaceId,
+		made.agentId,
+		{
+			reason,
+			...(made.origin && { origin: made.origin }),
+		},
+		and(holds(row), untouched),
+	);
 }
 
 /** A lease survives a Worker restart. Its exact row value fences completion by an older worker. */
@@ -979,7 +976,8 @@ export async function decideSourceConnection(
 	} catch {
 		try {
 			// A lost ready reply or a sweep transfers ownership away from this pending value.
-			if (!mayHaveSource || (await takeBackSource(row, pending, "approval failed")) !== "retry")
+			const status = mayHaveSource ? await takeBackSource(row, pending, "approval failed") : "gone";
+			if (status !== "retry" && status !== "withinGrace")
 				await db.delete(verification).where(sameRow(row)).run();
 		} catch {
 			// The pending row stays for the sweep if either store was unavailable.

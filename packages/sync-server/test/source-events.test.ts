@@ -923,6 +923,22 @@ it("A16: a closed first status prevents a refusal notice", async () => {
 	expect(await snapshot()).toEqual(before);
 });
 
+it("a revocation after sealing prevents the live holder from finishing removal", async () => {
+	const { ws, sourceId, snapshot } = await setup();
+	const holder = "key-1:claim";
+	expect(await ws.removeConnectedSource(sourceId, holder)).toBe("sealed");
+	expect(
+		await ws.revokeSourceKey(owner.id, {
+			kind: "prepareRevoke",
+			id: sourceId,
+			keyId: "key-1",
+			listed: true,
+		}),
+	).toMatchObject({ ok: true });
+	expect(await ws.finishConnectedSourceRemoval(sourceId, holder, "undo")).toBe(false);
+	expect((await snapshot()).sources).toMatchObject([{ id: sourceId, paused: false }]);
+});
+
 it("taking back a source seals it against events, and only that connection can finish its seal", async () => {
 	const { ws, send, sourceId, snapshot } = await setup();
 	expect(await ws.removeConnectedSource("absent", "key-1")).toBe("gone");

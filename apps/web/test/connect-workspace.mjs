@@ -1,5 +1,7 @@
 // Loaded only by the connection tests. The gateway still reaches the real SQLite object.
 // Pausing an RPC on either side of the write lets the test run another gateway or the cron.
+
+import { env } from "cloudflare:workers";
 import { AsyncLocalStorage } from "node:async_hooks";
 import worker, { WorkspaceDO as Workspace } from "./index.js";
 
@@ -12,6 +14,21 @@ let sweepClockOffset = 0;
 Date.now = () => {
 	const now = time.getStore();
 	return typeof now === "object" ? now.start + sweepClockOffset : (now ?? clock());
+};
+
+// Hold the workspace existence check that precedes a cleanup's destructive steps.
+const statements = Object.getPrototypeOf(env.DB.prepare("SELECT 1"));
+const raw = statements.raw;
+statements.raw = async function (...args) {
+	const rows = await raw.apply(this, args);
+	if (
+		time.getStore()?.start &&
+		this.statement === 'select "id" from "organization" where "organization"."id" = ?' &&
+		rows.length
+	) {
+		await env.connectBoundary.fetch("https://test/after-workspace-check", { method: "POST" });
+	}
+	return rows;
 };
 
 export default {

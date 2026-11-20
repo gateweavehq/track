@@ -888,8 +888,8 @@ only configuration. The manual way, under Settings, stays.
 7. **Codes never traded.** A code whose tab was closed, or whose asking server was down, expires
    and would leave its agent and webhook behind. So rows of this kind past their time are swept:
    each is claimed for ten minutes with a conditional update. An expired claim can be claimed
-   again. What its readable ids name is taken back with the same function undo uses (the
-   webhooks that name the agent, then the agent, then the membership sync), with an
+   again. The D1 delete checks the exact claim and the unused key, and deletes the agent with
+   its membership and keys. Cleanup then syncs membership and removes the agent's webhooks, with an
    `agent.deleted` audit event by Track itself that names the asking origin and the reason. A
    sweep deletes its claimed row after cleanup and acts only on ids read from that claim, so it never touches an agent whose
    code was traded (its row is gone) or one made by hand. Which rows are due is read from
@@ -904,10 +904,10 @@ only configuration. The manual way, under Settings, stays.
    the sweep reads `sweepAt` only from a value that is (`json_valid`), and compares the prefix
    exactly. An agent that someone took over by hand in the meantime is left alone: the row names the key
    the connection made, and only while that is the agent's one key, never used, is the agent
-   taken back. After a rollback to v0.39.0, which
-   judges a code by `expiresAt`, delete the `track-connect:` rows: a row this version wrote
-   would otherwise be good there for three days instead of a minute (it still needs the code
-   and its verifier).
+   taken back. Before rolling back to v0.39.0, resolve unfinished connections and delete the
+   `track-connect:` verification rows as described under [Connecting a source in one step](#connecting-a-source-in-one-step).
+   That version judges a code by `expiresAt`, so a row this version wrote would otherwise be
+   good there for three days instead of a minute (it still needs the code and its verifier).
 
 Both routes count calls per client address in a `RateLimiter` Durable Object (20 at once,
 refilling over an hour, within 100 a day, shared by the two), by the zone a Worker comes from
@@ -971,15 +971,17 @@ address says nothing about who makes the named product. The public demo refuses 
    daily sweep can take over, including when the object finished but the D1 key delete failed.
    Each claim has a fresh random nonce and renews D1 retention. Every subsequent D1 write,
    including deletion of a key whose source has gone, compares the exact approval or claim
-   value in the same statement. A worker that loses ownership releases its own seal. The connect
-   sweep handles its verification rows oldest due first. The general daily prune skips them.
-   After 30 days the connect sweep discards a row and logs its ids.
+   value in the same statement. The connect sweep handles its verification rows oldest due first.
+   The general daily prune skips them. After 30 days the connect sweep discards a row and logs its ids.
 5. Failed Allow, take-back and undo seal the source in the object before reading its D1 keys.
    In the seal transaction the object checks last-heard time, signals, usage and last-refused
-   time. A refusal may already have filed a notice. A matching marker allows a retry to check
-   again. The marker combines key id and claim nonce (Allow's nonce during rollback). A different
-   claimant backs off until the next sweep. Only the matching holder can release or finish, and
-   the seal expires after two minutes on the object's clock, restoring the previous paused setting.
+   time. Both seal and finish check whether the approval key has been revoked. A refusal may
+   already have filed a notice. A matching marker allows a retry to check again. The marker
+   combines key id and claim nonce (Allow's nonce during rollback). A different claimant backs
+   off until the next sweep. D1 claim ownership is separate from ownership of the object's seal.
+   A worker that detects it has lost the D1 claim releases its own seal. The object independently
+   checks its live seal and allows only its holder to release or finish. After two minutes on the
+   object's clock, the seal expires and restores the previous paused setting.
    Settings removal can take over. An accepted event wins if it arrives first. During either
    seal the gateway answers 503 with `Retry-After: 60` so the sender can try again. Only a
    holder of the source's own key reaches this answer, so it reveals nothing to other callers.
@@ -993,8 +995,10 @@ address says nothing about who makes the named product. The public demo refuses 
 **Threat model.** Anyone controlling the asking address who obtains approval can use the key to
 file, clear and reopen signals in the chosen team within its daily limits. With an agent assigned,
 a report can wake that agent and put the sender's text into its input. The approval page calls
-this out because that text can contain instructions. When rolling back to an older Track, delete
-the `track-connect:` verification rows first, as for agent connections.
+this out because that text can contain instructions. Before rolling back to an older Track, resolve
+unfinished connections, including approvals awaiting exchange and unfinished undos. Let the
+current Worker's daily run finish them, or reconcile the sources and keys in Settings. Then
+delete the `track-connect:` verification rows before rolling back, as for agent connections.
 
 ### Backups
 

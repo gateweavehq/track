@@ -292,6 +292,11 @@ function deleteSource(db: Db, changes: ChangeSet, sourceId: string) {
 		.run();
 }
 
+// The gateway joins the approval key id and its nonce with a colon. Older holders name just the key.
+function approvalKey(holder: string) {
+	return holder.split(":", 1)[0] ?? holder;
+}
+
 export function removeConnectedSource(db: Db, sourceId: string, holder: string, now: number) {
 	const changes = new ChangeSet(db, null, now);
 	const result = (status: "sealed" | "heard" | "gone" | "kept" | "busy") => ({
@@ -302,6 +307,10 @@ export function removeConnectedSource(db: Db, sourceId: string, holder: string, 
 	const row = db.select().from(sources).where(eq(sources.id, sourceId)).get();
 	if (!row) return result("gone");
 	if (seal && seal.holder !== holder) return result("busy");
+	if (keyRevoked(db, sourceId, approvalKey(holder))) {
+		if (seal) clearSeal(db, changes, sourceId, seal.paused);
+		return result("kept");
+	}
 	if (row.removing && !seal) return result("kept");
 	// A 400 or 429 never counts as an accepted event, but a refusal can file a notice. A clear
 	// for an unknown key changes nothing: during take-back nobody has the key, and during undo
@@ -341,6 +350,10 @@ export function finishConnectedSourceRemoval(
 	const row = db.select().from(sources).where(eq(sources.id, sourceId)).get();
 	if (!row?.removing || !seal || seal.holder !== holder)
 		return { ...changes.result(), removed: false };
+	if (keyRevoked(db, sourceId, approvalKey(holder))) {
+		clearSeal(db, changes, sourceId, seal.paused);
+		return { ...changes.result(), removed: false };
+	}
 	deleteSource(db, changes, sourceId);
 	recordAudit(
 		db,
