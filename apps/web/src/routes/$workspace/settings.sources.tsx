@@ -7,6 +7,7 @@ import {
 	type SourceAction,
 	SourceForm,
 	selectClass,
+	shownKey,
 } from "#/components/settings/source-form";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -49,7 +50,7 @@ function SourceSettings() {
 				toast.error(result.message);
 				return false;
 			}
-			setSecret(result.value.secret ?? "");
+			setSecret((shown) => shownKey(shown, result.value));
 			if ("keyMissing" in result.value)
 				toast.error("The source was made, but its key was not. Use Make key on it.");
 			await router.invalidate();

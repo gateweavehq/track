@@ -2,7 +2,7 @@
 import type { Source } from "@gateweave/track-protocol";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { SourceForm } from "./source-form";
+import { SourceForm, shownKey } from "./source-form";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 vi.mock("#/lib/queries", () => ({ useTeams: () => [{ id: "team-1", name: "Ops" }] }));
@@ -35,4 +35,13 @@ it("sends only what the person changed, though another admin changed the source 
 		id: "source-a",
 		input: { name: "Guard EU" },
 	});
+});
+
+it("keeps a key on screen until a new key replaces it", () => {
+	const shown = "gws_first";
+	// Pausing another source, or making one whose first key failed, brings no new key.
+	expect(shownKey(shown, {})).toBe(shown);
+	const partial = { keyMissing: true as const };
+	expect(shownKey(shown, partial)).toBe(shown);
+	expect(shownKey(shown, { secret: "gws_second" })).toBe("gws_second");
 });

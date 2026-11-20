@@ -15,6 +15,14 @@ export type SourceAction = Parameters<typeof changeSource>[0]["data"]["action"];
 export type Run = (action: SourceAction) => Promise<boolean>;
 export const selectClass = "block h-9 w-full rounded-md border border-input bg-background px-3";
 
+/**
+ * The key to keep on screen after an action. A key is shown once, so only a new one replaces it,
+ * and only "Done" puts it away: any other answer leaves it for the admin to copy.
+ */
+export function shownKey(shown: string, answer: { secret?: string }): string {
+	return answer.secret ?? shown;
+}
+
 /** Makes a source, or changes one: an update sends only the fields the person changed. */
 export function SourceForm({
 	source: live,
