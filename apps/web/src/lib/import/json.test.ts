@@ -533,6 +533,7 @@ it("a one-team export carries only that team's sources and signals", async () =>
 	const signals = sources.map((s) => ({
 		id: "s" + s.id,
 		sourceId: s.id,
+		kind: "alert" as const,
 		key: s.name,
 		type: null,
 		subject: null,
@@ -543,6 +544,14 @@ it("a one-team export carries only that team's sources and signals", async () =>
 		reopens: 0,
 		firstAt: 1,
 		changedAt: 1,
+		progress: null,
+		startedAt: null,
+		endedAt: null,
+		executor: null,
+		agentName: null,
+		waitReason: null,
+		waitDetail: null,
+		lastContactAt: null,
 	}));
 	const file = workspaceToJson({ ...exported, sources, signals }, ops.id);
 	const { source } = readJsonImport(file);

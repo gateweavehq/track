@@ -9,7 +9,7 @@ it("R7: source events require the finite state and severity lists and a millisec
 		severity: "high",
 		sentAt: "2026-10-30T10:00:00Z",
 	};
-	expect(sourceEventSchema.parse(valid)).toEqual(valid);
+	expect(sourceEventSchema.parse(valid)).toEqual({ ...valid, kind: "alert" });
 	for (const change of [
 		{ key: "" },
 		{ title: "" },
@@ -52,8 +52,53 @@ it("R11: a source accepts only whole HTTP link origins and normalizes their host
 	}
 });
 
-it("R51: protocol 28 adds sources and signals to the replicated entities", () => {
-	expect(PROTOCOL_VERSION).toBe(28);
+it("R51: protocol 29 adds run signals to the sources' signals", () => {
+	expect(PROTOCOL_VERSION).toBe(29);
 	expect(ENTITY_NAMES).toContain("source");
 	expect(ENTITY_NAMES).toContain("signal");
+});
+
+it("run events carry the run's lifecycle and details, and refuse what only alerts have", () => {
+	const run = {
+		key: "fix-eng-12",
+		kind: "run",
+		state: "running",
+		title: "Fix ENG-12",
+		sentAt: "2026-10-30T10:00:00Z",
+		issue: "ENG-12",
+		progress: "3 of 5 checks",
+		executor: "local-runner",
+		agent: "Codex",
+		waitReason: "waiting-for-slot",
+	};
+	const parsed = sourceEventSchema.parse(run);
+	expect(parsed.kind).toBe("run");
+	expect(parsed.severity).toBeUndefined();
+	for (const change of [
+		{ state: "open" },
+		{ state: "cleared" },
+		{ severity: "high" },
+		{ body: "notes" },
+		{ executor: "laptop" },
+		{ waitReason: "bored" },
+	]) {
+		expect(sourceEventSchema.safeParse({ ...run, ...change }).success).toBe(false);
+	}
+	// An alert keeps its own contract: severity required, run fields refused.
+	const alert = {
+		key: "incident",
+		state: "open",
+		severity: "high",
+		title: "Queue is full",
+		sentAt: "2026-10-30T10:00:00Z",
+	};
+	expect(sourceEventSchema.safeParse({ ...alert, progress: "3 of 5" }).success).toBe(false);
+	expect(
+		sourceEventSchema.safeParse({
+			key: alert.key,
+			state: alert.state,
+			title: alert.title,
+			sentAt: alert.sentAt,
+		}).success,
+	).toBe(false);
 });

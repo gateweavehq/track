@@ -200,6 +200,7 @@ it("restore enforces team, role and live signal limits in one transaction", asyn
 	const signal = {
 		key: "first",
 		sourceId: id,
+		kind: "alert" as const,
 		issueId,
 		type: null,
 		subject: null,
@@ -269,6 +270,7 @@ it("orders an unchanged heartbeat and delayed clear by the new sender's clock, a
 	const states = ["open", "cleared", "dismissed"] as const;
 	const rows = states.map((state, i) => ({
 		sourceId: id,
+		kind: "alert" as const,
 		key: state,
 		issueId: "import-" + String(i).repeat(32),
 		state,
@@ -377,6 +379,7 @@ it("later restores bind only the signals fitting the workspace snapshot byte bud
 	const subject = "界".repeat(4000);
 	const rows = Array.from({ length: 720 }, (_, i) => ({
 		key: String(i).padStart(3, "0"),
+		kind: "alert" as const,
 		issueId: "import-" + i.toString(16).padStart(32, "0"),
 		subject,
 		state: "dismissed" as const,
@@ -428,6 +431,7 @@ async function issueRows(ws: Awaited<ReturnType<typeof workspace>>, rows: [strin
 
 const restoredRow = (sourceId: string, key: string, issueId: string) => ({
 	sourceId,
+	kind: "alert" as const,
 	key,
 	issueId,
 	type: null as string | null,

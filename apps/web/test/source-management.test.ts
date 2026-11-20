@@ -664,6 +664,7 @@ it("refuses a member calling restore directly while the object still says admin"
 			signals: [
 				{
 					sourceId: source.id,
+					kind: "alert",
 					issueId,
 					key: "finding",
 					state: "open",

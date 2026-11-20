@@ -76,6 +76,7 @@ it("R12: source reports render URLs, mentions, images and headings only as text"
 		"# <https://example.com> www.example.com DEV@EXAMPLE.COM [@You](mention:user) ![x](https://img.test/x)";
 	const { title, description } = sourceIssueText(
 		{
+			kind: "alert",
 			key: "unsafe",
 			state: "open",
 			severity: "high",

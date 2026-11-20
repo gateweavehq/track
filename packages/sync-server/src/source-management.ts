@@ -314,10 +314,12 @@ export function restoreSource(db: Db, memberId: string, command: SourceRestore, 
 		.run();
 	changes.put("source", toSource(restored));
 	const keys = new Set<string>();
+	const keyOf = (signal: { kind: string; key: string }) => `${signal.kind}\u0000${signal.key}`;
 	// Count only replica fields. SQLite casts integers to their decimal text for this measure.
 	const fields = [
 		signals.id,
 		signals.sourceId,
+		signals.kind,
 		signals.key,
 		signals.type,
 		signals.subject,
@@ -328,6 +330,14 @@ export function restoreSource(db: Db, memberId: string, command: SourceRestore, 
 		signals.reopens,
 		signals.firstAt,
 		signals.changedAt,
+		signals.progress,
+		signals.startedAt,
+		signals.endedAt,
+		signals.executor,
+		signals.agentName,
+		signals.waitReason,
+		signals.waitDetail,
+		signals.lastContactAt,
 	];
 	const fieldBytes = sql.join(
 		fields.map((col) => sql`coalesce(length(cast(${col} as blob)), 0)`),
@@ -343,12 +353,12 @@ export function restoreSource(db: Db, memberId: string, command: SourceRestore, 
 	for (const signal of rows) {
 		if (
 			signal.sourceId !== source.id ||
-			keys.has(signal.key) ||
+			keys.has(keyOf(signal)) ||
 			(signal.issueId !== null && !importedId.test(signal.issueId)) ||
 			(signal.url && !source.linkOrigins.includes(new URL(signal.url).origin))
 		)
 			throw new MutationRejected("invalid", "Invalid signal for this source");
-		keys.add(signal.key);
+		keys.add(keyOf(signal));
 		const issue =
 			signal.issueId &&
 			db

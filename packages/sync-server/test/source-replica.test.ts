@@ -42,6 +42,7 @@ const source: Source = {
 const signal: Signal = {
 	id: "first",
 	sourceId: source.id,
+	kind: "alert",
 	key: "main",
 	type: null,
 	subject: null,
@@ -52,6 +53,14 @@ const signal: Signal = {
 	reopens: 0,
 	firstAt: 100,
 	changedAt: 100,
+	progress: null,
+	startedAt: null,
+	endedAt: null,
+	executor: null,
+	agentName: null,
+	waitReason: null,
+	waitDetail: null,
+	lastContactAt: null,
 };
 async function populated() {
 	const workspace = await withTeam();

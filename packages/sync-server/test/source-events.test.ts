@@ -197,6 +197,7 @@ it("R13: the replica carries only signal metadata", async () => {
 		[
 			"id",
 			"sourceId",
+			"kind",
 			"key",
 			"type",
 			"subject",
@@ -207,6 +208,14 @@ it("R13: the replica carries only signal metadata", async () => {
 			"reopens",
 			"firstAt",
 			"changedAt",
+			"progress",
+			"startedAt",
+			"endedAt",
+			"executor",
+			"agentName",
+			"waitReason",
+			"waitDetail",
+			"lastContactAt",
 		].sort(),
 	);
 });

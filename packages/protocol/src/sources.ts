@@ -30,6 +30,10 @@ export const REOPENS_PER_KEY_PER_DAY = 3;
 export const ASSIGNED_PER_DAY = 10;
 // U2 measures the number of findings a source keeps open.
 export const LIVE_SIGNALS = 500;
+// Runs are shorter-lived than alerts: a finished one leaves the replica after 30 days.
+export const RUN_KEPT_DAYS = 30;
+// Unfinished runs one source holds at once.
+export const LIVE_RUNS = 200;
 // No measurement fixes the number of sources yet.
 export const SOURCES_PER_WORKSPACE = 20;
 // No measurement fixes the number of concurrent keys yet.
@@ -43,10 +47,29 @@ export const SOURCE_PRODUCTS = ["guard", "status", "backup", "agents", "ci", "ot
 export const SOURCE_THRESHOLDS = ["critical", "high", "medium", "low"] as const;
 export const SIGNAL_SEVERITIES = [...SOURCE_THRESHOLDS, "unknown"] as const;
 export const SIGNAL_STATES = ["open", "cleared", "dismissed"] as const;
+export const SIGNAL_KINDS = ["alert", "run"] as const;
+/** A run's lifecycle: queued work, then how it ended. */
+export const RUN_STATES = ["queued", "running", "passed", "failed", "cancelled"] as const;
+/** Every state a signals row can hold: an alert's, or a run's. */
+export const SIGNAL_STORED_STATES = [...SIGNAL_STATES, ...RUN_STATES] as const;
+/** Who executes a run, as the issue row names it. */
+export const RUN_EXECUTORS = ["agents-hosted", "local-runner", "cloud"] as const;
+/** Why a queued or waiting run waits, structured so the issue row can say what unblocks it. */
+export const RUN_WAIT_REASONS = [
+	"waiting-for-slot",
+	"runner-offline",
+	"needs-mapping",
+	"budget-limit",
+	"retry",
+] as const;
 export type SourceProduct = (typeof SOURCE_PRODUCTS)[number];
 export type SourceThreshold = (typeof SOURCE_THRESHOLDS)[number];
 export type SignalSeverity = (typeof SIGNAL_SEVERITIES)[number];
 export type SignalState = (typeof SIGNAL_STATES)[number];
+export type SignalKind = (typeof SIGNAL_KINDS)[number];
+export type RunState = (typeof RUN_STATES)[number];
+export type RunExecutor = (typeof RUN_EXECUTORS)[number];
+export type RunWaitReason = (typeof RUN_WAIT_REASONS)[number];
 
 const link = userText
 	.pipe(z.url({ protocol: /^https?$/, normalize: true }))
@@ -94,18 +117,78 @@ export const sourceSettingsSchema = z.strictObject({
 });
 export type SourceSettings = z.infer<typeof sourceSettingsSchema>;
 
-export const sourceEventSchema = z.strictObject({
+const eventTime = z.iso.datetime({ offset: true }).refine((date) => !/\.\d{4}/.test(date));
+
+const eventFields = {
 	key: userText.min(1),
-	state: z.enum(SIGNAL_STATES),
+	kind: z.enum(SIGNAL_KINDS).default("alert"),
+	state: z.enum(SIGNAL_STORED_STATES),
 	// Signal ordering uses epoch milliseconds, as do Track's other timestamps.
-	sentAt: z.iso.datetime({ offset: true }).refine((date) => !/\.\d{4}/.test(date)),
-	severity: z.enum(SIGNAL_SEVERITIES),
+	sentAt: eventTime,
+	// Required for an alert, refused for a run: enforced below.
+	severity: z.enum(SIGNAL_SEVERITIES).optional(),
 	// Ordinary issues, including an import of this one, accept up to 512 characters.
 	title: z.string().transform(plainSourceTitle).pipe(userText.min(1).max(512)),
 	type: userText.min(1).optional(),
 	subject: userText.min(1).optional(),
 	body: userText.max(EVENT_BODY_MAX).optional(),
 	url: link.optional(),
+	// A run may name the issue it works on, by key such as `ENG-12`; it never files one.
+	issue: userText.min(1).max(64).optional(),
+	progress: userText.max(200).optional(),
+	startedAt: eventTime.optional(),
+	endedAt: eventTime.optional(),
+	executor: z.enum(RUN_EXECUTORS).optional(),
+	agent: userText.max(64).optional(),
+	waitReason: z.enum(RUN_WAIT_REASONS).optional(),
+	waitDetail: userText.max(200).optional(),
+};
+
+/** Fields only a run carries; an alert that sends one is refused. */
+const RUN_ONLY_FIELDS = [
+	"issue",
+	"progress",
+	"startedAt",
+	"endedAt",
+	"executor",
+	"agent",
+	"waitReason",
+	"waitDetail",
+] as const;
+
+export const sourceEventSchema = z.strictObject(eventFields).superRefine((event, ctx) => {
+	if (event.kind === "alert") {
+		if (event.severity === undefined)
+			ctx.addIssue({
+				code: "custom",
+				message: "An alert needs a severity",
+				path: ["severity"],
+			});
+		for (const field of RUN_ONLY_FIELDS)
+			if (event[field] !== undefined)
+				ctx.addIssue({
+					code: "custom",
+					message: `An alert has no ${field}`,
+					path: [field],
+				});
+		if (!(SIGNAL_STATES as readonly string[]).includes(event.state))
+			ctx.addIssue({
+				code: "custom",
+				message: "An alert's state is open, cleared or dismissed",
+				path: ["state"],
+			});
+		return;
+	}
+	if (event.severity !== undefined)
+		ctx.addIssue({ code: "custom", message: "A run has no severity", path: ["severity"] });
+	if (event.body !== undefined)
+		ctx.addIssue({ code: "custom", message: "A run has no body", path: ["body"] });
+	if (!(RUN_STATES as readonly string[]).includes(event.state))
+		ctx.addIssue({
+			code: "custom",
+			message: "A run's state is queued, running, passed, failed or cancelled",
+			path: ["state"],
+		});
 });
 export type SourceEvent = z.infer<typeof sourceEventSchema>;
 
@@ -119,16 +202,26 @@ export const exportedSourceSchema = z.object({
 });
 export const exportedSignalSchema = z.object({
 	sourceId: reference,
+	// Files written before runs existed carry no kind; they are alerts.
+	kind: z.enum(SIGNAL_KINDS).default("alert"),
 	key: sourceEventSchema.shape.key,
 	type: sourceEventSchema.shape.type.unwrap().nullable(),
 	subject: sourceEventSchema.shape.subject.unwrap().nullable(),
-	severity: sourceEventSchema.shape.severity,
+	severity: sourceEventSchema.shape.severity.unwrap(),
 	state: sourceEventSchema.shape.state,
 	url: link.nullable(),
 	issueId: reference.nullable(),
 	reopens: z.int().min(0).max(MAX_REOPENS),
 	firstAt: z.int().nonnegative(),
 	changedAt: z.int().nonnegative(),
+	progress: userText.max(200).nullish(),
+	startedAt: z.int().nonnegative().nullish(),
+	endedAt: z.int().nonnegative().nullish(),
+	executor: z.enum(RUN_EXECUTORS).nullish(),
+	agentName: userText.max(64).nullish(),
+	waitReason: z.enum(RUN_WAIT_REASONS).nullish(),
+	waitDetail: userText.max(200).nullish(),
+	lastContactAt: z.int().nonnegative().nullish(),
 });
 // Include the array separator and reserve room for the gateway's two derived import ids.
 export function restoreSignalBytes(signal: z.infer<typeof exportedSignalSchema>) {
@@ -221,16 +314,27 @@ export interface Source extends SourceSettings {
 export interface Signal {
 	id: string;
 	sourceId: string;
+	kind: SignalKind;
 	key: string;
 	type: string | null;
 	subject: string | null;
 	severity: SignalSeverity;
-	state: SignalState;
+	state: SignalState | RunState;
 	url: string | null;
 	issueId: string | null;
 	reopens: number;
 	firstAt: number;
 	changedAt: number;
+	/** A run's short progress line; null for alerts and runs that report none. */
+	progress: string | null;
+	startedAt: number | null;
+	endedAt: number | null;
+	executor: RunExecutor | null;
+	agentName: string | null;
+	waitReason: RunWaitReason | null;
+	waitDetail: string | null;
+	/** When the server last accepted an event for the signal. */
+	lastContactAt: number | null;
 }
 
 function plainSourceTitle(title: string) {
