@@ -1,5 +1,12 @@
 import { expect, it } from "vitest";
-import { ENTITY_NAMES, PROTOCOL_VERSION, sourceEventSchema, sourceSettingsSchema } from "../src";
+import {
+	ENTITY_NAMES,
+	exportedSignalSchema,
+	PROTOCOL_VERSION,
+	restoredSignalSchema,
+	sourceEventSchema,
+	sourceSettingsSchema,
+} from "../src";
 
 it("R7: source events require the finite state and severity lists and a millisecond-orderable timestamp", () => {
 	const valid = {
@@ -9,7 +16,7 @@ it("R7: source events require the finite state and severity lists and a millisec
 		severity: "high",
 		sentAt: "2026-10-30T10:00:00Z",
 	};
-	expect(sourceEventSchema.parse(valid)).toEqual(valid);
+	expect(sourceEventSchema.parse(valid)).toEqual({ ...valid, kind: "alert" });
 	for (const change of [
 		{ key: "" },
 		{ title: "" },
@@ -52,8 +59,121 @@ it("R11: a source accepts only whole HTTP link origins and normalizes their host
 	}
 });
 
-it("R51: protocol 28 adds sources and signals to the replicated entities", () => {
-	expect(PROTOCOL_VERSION).toBe(28);
+it("R51: protocol 29 adds run signals to the sources' signals", () => {
+	expect(PROTOCOL_VERSION).toBe(29);
 	expect(ENTITY_NAMES).toContain("source");
 	expect(ENTITY_NAMES).toContain("signal");
+});
+
+it("run events carry the run's lifecycle and details, and refuse what only alerts have", () => {
+	const run = {
+		key: "fix-eng-12",
+		kind: "run",
+		state: "running",
+		title: "Fix ENG-12",
+		sentAt: "2026-10-30T10:00:00Z",
+		issue: "ENG-12",
+		progress: "3 of 5 checks",
+		executor: "local-runner",
+		agent: "Codex",
+		waitReason: "waiting-for-slot",
+	};
+	const parsed = sourceEventSchema.parse(run);
+	expect(parsed.kind).toBe("run");
+	expect(parsed.severity).toBeUndefined();
+	for (const change of [
+		{ state: "open" },
+		{ state: "cleared" },
+		{ severity: "high" },
+		{ body: "notes" },
+		{ executor: "laptop" },
+		{ waitReason: "bored" },
+	]) {
+		expect(sourceEventSchema.safeParse({ ...run, ...change }).success).toBe(false);
+	}
+	// An alert keeps its own contract: severity required, run fields refused.
+	const alert = {
+		key: "incident",
+		state: "open",
+		severity: "high",
+		title: "Queue is full",
+		sentAt: "2026-10-30T10:00:00Z",
+	};
+	expect(sourceEventSchema.safeParse({ ...alert, progress: "3 of 5" }).success).toBe(false);
+	expect(
+		sourceEventSchema.safeParse({
+			key: alert.key,
+			state: alert.state,
+			title: alert.title,
+			sentAt: alert.sentAt,
+		}).success,
+	).toBe(false);
+});
+
+it("run timestamps must survive export, and a restored signal's state must fit its kind", () => {
+	const run = {
+		key: "fix-eng-12",
+		kind: "run",
+		state: "running",
+		title: "Fix ENG-12",
+		sentAt: "2026-10-30T10:00:00Z",
+	};
+	for (const change of [
+		{ startedAt: "1969-12-31T23:59:59.999Z" },
+		{ endedAt: "1969-12-31T23:59:59.999Z" },
+	]) {
+		expect(sourceEventSchema.safeParse({ ...run, ...change }).success).toBe(false);
+	}
+	for (const change of [
+		{ startedAt: "2026-10-30T09:00:00Z" },
+		{ startedAt: "2026-10-30T09:00:00+02:00" },
+	]) {
+		expect(sourceEventSchema.safeParse({ ...run, ...change }).success).toBe(true);
+	}
+	const row = {
+		sourceId: "source",
+		key: "build",
+		type: null,
+		subject: null,
+		severity: "unknown",
+		url: null,
+		issueId: null,
+		reopens: 0,
+		firstAt: 1,
+		changedAt: 1,
+	};
+	// A row with no kind is an alert: a run state on one is refused, and the reverse too.
+	expect(
+		restoredSignalSchema.safeParse({
+			...row,
+			kind: "alert",
+			state: "running",
+			title: "x",
+		}).success,
+	).toBe(false);
+	expect(
+		restoredSignalSchema.safeParse({
+			...row,
+			kind: "run",
+			state: "open",
+			title: "x",
+		}).success,
+	).toBe(false);
+	expect(exportedSignalSchema.safeParse({ ...row, kind: "run", state: "passed" }).success).toBe(
+		true,
+	);
+	expect(exportedSignalSchema.safeParse({ ...row, kind: "alert", state: "open" }).success).toBe(
+		true,
+	);
+	expect(
+		restoredSignalSchema.safeParse({
+			...row,
+			kind: "run",
+			state: "passed",
+			title: "x",
+		}).success,
+	).toBe(true);
+	expect(
+		restoredSignalSchema.safeParse({ ...row, kind: "alert", state: "open", title: "x" }).success,
+	).toBe(true);
 });

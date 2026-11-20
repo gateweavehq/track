@@ -1,6 +1,7 @@
 import {
 	type AuditAction,
 	EVENT_CLOCK_SKEW_MS,
+	LIVE_RUNS,
 	LIVE_SIGNALS,
 	RESTORE_ISSUE_MISSING,
 	SOURCES_PER_WORKSPACE,
@@ -10,6 +11,7 @@ import {
 	sourceAction,
 	sourceRestoreSchema,
 	sourceSettingsSchema,
+	UNFINISHED_RUN_STATES,
 	WORKSPACE_RESTORE_SIGNAL_BYTES,
 } from "@gateweave/track-protocol";
 import { and, count, eq, sql } from "drizzle-orm";
@@ -314,10 +316,12 @@ export function restoreSource(db: Db, memberId: string, command: SourceRestore, 
 		.run();
 	changes.put("source", toSource(restored));
 	const keys = new Set<string>();
+	const keyOf = (signal: { kind: string; key: string }) => `${signal.kind}\u0000${signal.key}`;
 	// Count only replica fields. SQLite casts integers to their decimal text for this measure.
 	const fields = [
 		signals.id,
 		signals.sourceId,
+		signals.kind,
 		signals.key,
 		signals.type,
 		signals.subject,
@@ -328,6 +332,14 @@ export function restoreSource(db: Db, memberId: string, command: SourceRestore, 
 		signals.reopens,
 		signals.firstAt,
 		signals.changedAt,
+		signals.progress,
+		signals.startedAt,
+		signals.endedAt,
+		signals.executor,
+		signals.agentName,
+		signals.waitReason,
+		signals.waitDetail,
+		signals.lastContactAt,
 	];
 	const fieldBytes = sql.join(
 		fields.map((col) => sql`coalesce(length(cast(${col} as blob)), 0)`),
@@ -340,15 +352,16 @@ export function restoreSource(db: Db, memberId: string, command: SourceRestore, 
 			.get()?.total ?? 0;
 	const encoder = new TextEncoder();
 	let live = 0;
+	let unfinished = 0;
 	for (const signal of rows) {
 		if (
 			signal.sourceId !== source.id ||
-			keys.has(signal.key) ||
+			keys.has(keyOf(signal)) ||
 			(signal.issueId !== null && !importedId.test(signal.issueId)) ||
 			(signal.url && !source.linkOrigins.includes(new URL(signal.url).origin))
 		)
 			throw new MutationRejected("invalid", "Invalid signal for this source");
-		keys.add(signal.key);
+		keys.add(keyOf(signal));
 		const issue =
 			signal.issueId &&
 			db
@@ -364,11 +377,13 @@ export function restoreSource(db: Db, memberId: string, command: SourceRestore, 
 			if (issue && issue.deletedAt === null) counts.otherTeam++;
 			continue;
 		}
+		// Alerts share an issue one at a time; a run rides beside them, and runs ride together.
 		if (
+			signal.kind === "alert" &&
 			db
 				.select({ id: signals.id })
 				.from(signals)
-				.where(eq(signals.issueId, issue.id))
+				.where(and(eq(signals.issueId, issue.id), eq(signals.kind, "alert")))
 				.limit(1)
 				.get()
 		) {
@@ -395,6 +410,12 @@ export function restoreSource(db: Db, memberId: string, command: SourceRestore, 
 		bytes += incoming;
 		if (signal.state === "open" && ++live > LIVE_SIGNALS)
 			throw new MutationRejected("invalid", "Too many open signals for this source");
+		if (
+			signal.kind === "run" &&
+			(UNFINISHED_RUN_STATES as readonly string[]).includes(signal.state) &&
+			++unfinished > LIVE_RUNS
+		)
+			throw new MutationRejected("invalid", "Too many unfinished runs for this source");
 		const row = db
 			.insert(signals)
 			.values({

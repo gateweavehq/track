@@ -8,18 +8,24 @@ import {
 	type IssuePriority,
 	isClosedCategory,
 	LAST_HEARD_EVERY,
+	LIVE_RUNS,
 	LIVE_SIGNALS,
 	liveStatuses,
 	MAX_REOPENS,
 	REOPENS_PER_KEY_PER_DAY,
+	RUN_KEPT_DAYS,
 	SIGNAL_KEPT_DAYS,
+	SIGNAL_STATES,
 	type Signal,
+	type SignalState,
 	SOURCE_ACTOR_ID,
 	type Source,
+	type SourceEvent,
 	sourceEventSchema,
 	sourceIssueText,
 	sourceLimitNotice,
 	sourceReopenComment,
+	UNFINISHED_RUN_STATES,
 	WORKSPACE_ISSUES_PER_DAY,
 	WRITES_PER_DAY,
 } from "@gateweave/track-protocol";
@@ -38,6 +44,9 @@ import { queueDeliveries } from "./webhooks";
 
 const DAY = 86_400_000;
 const PRIORITY = { critical: 1, high: 2, medium: 3, low: 4, unknown: 0 } as const;
+const FINISHED_RUNS = ["passed", "failed", "cancelled"] as const;
+const isAlertState = (state: string): state is SignalState =>
+	(SIGNAL_STATES as readonly string[]).includes(state);
 
 // Kept independently of the sources so removal and replacement cannot reset the workspace allowance.
 const workspaceCounter = "source_issue_times";
@@ -175,6 +184,236 @@ function issueLink(db: Db, issue: Issue | undefined, workspaceUrl: string) {
 	return { key, url: `${workspaceUrl}/issue/${encodeURIComponent(key)}` };
 }
 
+/** The issue a run names by key, such as `ENG-12`, or undefined when no live issue has it. */
+function findIssueByKey(db: Db, key: string): Issue | undefined {
+	const match = /^([A-Za-z0-9]+)-(\d+)$/.exec(key.trim());
+	const teamKey = match?.[1];
+	const numberText = match?.[2];
+	if (!teamKey || !numberText) return undefined;
+	const team = db
+		.select({ id: schema.teams.id })
+		.from(schema.teams)
+		.where(eq(schema.teams.key, teamKey.toUpperCase()))
+		.get();
+	if (!team) return undefined;
+	return db
+		.select()
+		.from(schema.issues)
+		.where(
+			and(
+				eq(schema.issues.teamId, team.id),
+				eq(schema.issues.number, Number(numberText)),
+				isNull(schema.issues.deletedAt),
+			),
+		)
+		.get();
+}
+
+function signalIssue(db: Db, signal: SignalRow): Issue | undefined {
+	if (!signal.issueId) return undefined;
+	return db
+		.select()
+		.from(schema.issues)
+		.where(and(eq(schema.issues.id, signal.issueId), isNull(schema.issues.deletedAt)))
+		.get();
+}
+
+/**
+ * A run event updates one run signal and never files, comments on or moves an issue. The run
+ * names its issue by key; the binding is set once, and a report that cannot bind writes nothing,
+ * so the sender can fix the name and resend.
+ */
+function processRunEvent(
+	db: Db,
+	changes: ChangeSet,
+	source: SourceRow,
+	event: SourceEvent,
+	workspaceUrl: string,
+	now: number,
+): Outcome {
+	const usage = source.usage.filter((entry) => entry.at > now - DAY);
+	const reject = (limit: string, reset: number = now + DAY) =>
+		refuse(db, changes, source, limit, reset);
+	if (usage.length >= WRITES_PER_DAY) return reject("WRITES_PER_DAY", (usage[0]?.at ?? now) + DAY);
+	let issue: Issue | undefined;
+	if (event.issue !== undefined) {
+		issue = findIssueByKey(db, event.issue);
+		if (!issue)
+			return {
+				...changes.result(),
+				response: {
+					status: 200,
+					answer: { state: event.state, filed: false, issue: null, reason: "No such issue." },
+				},
+			};
+	}
+	const sentAt = Date.parse(event.sentAt);
+	const found = db
+		.select()
+		.from(schema.signals)
+		.where(
+			and(
+				eq(schema.signals.sourceId, source.id),
+				eq(schema.signals.kind, "run"),
+				eq(schema.signals.key, event.key),
+			),
+		)
+		.get();
+	// A finished run leaves after RUN_KEPT_DAYS; a later report of the same key starts a new one.
+	const expired =
+		found &&
+		(FINISHED_RUNS as readonly string[]).includes(found.state) &&
+		found.changedAt <= now - RUN_KEPT_DAYS * DAY;
+	const prior = expired ? undefined : found;
+	if (expired) {
+		db.delete(schema.signals).where(eq(schema.signals.id, found.id)).run();
+		changes.delete("signal", found.id);
+	}
+	const answer = (signal: SignalRow, reason?: string): Outcome => ({
+		...finish(db, changes, source, {
+			status: 200,
+			answer: {
+				state: signal.state,
+				filed: false,
+				issue: issueLink(db, signalIssue(db, signal), workspaceUrl),
+				...(reason && { reason }),
+			},
+		}),
+	});
+	if (prior) {
+		// A report sent before the last accepted one cannot move the run back.
+		if (sentAt <= prior.lastSentAt) return answer(prior);
+		// The binding is set once: naming another issue is a sender bug, not a move.
+		if (issue && prior.issueId && issue.id !== prior.issueId)
+			return answer(prior, "This run is already bound to another issue.");
+	}
+	const finished = (FINISHED_RUNS as readonly string[]).includes(event.state);
+	const url =
+		event.url && source.linkOrigins.includes(new URL(event.url).origin)
+			? event.url
+			: (prior?.url ?? null);
+	// What the row would hold after this report, with sticky fields normalized, so a repeat is
+	// judged by what it would change rather than by what it says again.
+	const signal: SignalRow = {
+		id: prior?.id ?? crypto.randomUUID(),
+		sourceId: source.id,
+		kind: "run",
+		key: event.key,
+		type: event.type ?? null,
+		subject: event.subject ?? null,
+		severity: "unknown",
+		state: event.state,
+		url,
+		issueId: issue?.id ?? prior?.issueId ?? null,
+		reopens: 0,
+		firstAt: prior?.firstAt ?? now,
+		changedAt: now,
+		lastSentAt: sentAt,
+		clearedAt: null,
+		progress: event.progress ?? null,
+		startedAt: event.startedAt ? Date.parse(event.startedAt) : (prior?.startedAt ?? null),
+		endedAt: finished
+			? event.endedAt
+				? Date.parse(event.endedAt)
+				: (prior?.endedAt ?? now)
+			: null,
+		executor: event.executor ?? prior?.executor ?? null,
+		agentName: event.agent ?? prior?.agentName ?? null,
+		waitReason: event.waitReason ?? null,
+		waitDetail: event.waitDetail ?? null,
+		lastContactAt: now,
+	};
+	if (prior) {
+		// A repeat of the same state with the same details keeps the row; a newer clock still
+		// orders later ones, and progress under one state ("running", "3 of 5") always writes.
+		const unchanged =
+			prior.state === signal.state &&
+			(prior.type ?? null) === signal.type &&
+			(prior.subject ?? null) === signal.subject &&
+			(prior.progress ?? null) === signal.progress &&
+			(prior.startedAt ?? null) === signal.startedAt &&
+			(prior.endedAt ?? null) === signal.endedAt &&
+			(prior.executor ?? null) === signal.executor &&
+			(prior.agentName ?? null) === signal.agentName &&
+			(prior.waitReason ?? null) === signal.waitReason &&
+			(prior.waitDetail ?? null) === signal.waitDetail &&
+			(prior.url ?? null) === signal.url &&
+			(prior.issueId ?? null) === signal.issueId;
+		if (unchanged) {
+			// The runner is alive even when nothing changed: move its contact times and tell the
+			// replica, the way a changed report would.
+			const heard = source.lastHeardAt === null || source.lastHeardAt <= now - LAST_HEARD_EVERY;
+			db.update(schema.signals)
+				.set({ lastSentAt: sentAt, lastContactAt: now })
+				.where(eq(schema.signals.id, prior.id))
+				.run();
+			changes.put("signal", toSignal({ ...prior, lastSentAt: sentAt, lastContactAt: now }));
+			if (heard) {
+				db.update(schema.sources)
+					.set({ lastHeardAt: now })
+					.where(eq(schema.sources.id, source.id))
+					.run();
+				changes.put("source", toSource({ ...source, lastHeardAt: now }));
+			}
+			return answer({ ...prior, lastSentAt: sentAt, lastContactAt: now });
+		}
+	}
+	// A finished run coming back to unfinished holds a live slot again, so the cap counts it
+	// like a new row; a run already unfinished stays allowed at the cap.
+	if (
+		(UNFINISHED_RUN_STATES as readonly string[]).includes(event.state) &&
+		(!prior || (FINISHED_RUNS as readonly string[]).includes(prior.state))
+	) {
+		const live = db
+			.select({ n: count() })
+			.from(schema.signals)
+			.where(
+				and(
+					eq(schema.signals.sourceId, source.id),
+					eq(schema.signals.kind, "run"),
+					inArray(schema.signals.state, [...UNFINISHED_RUN_STATES]),
+				),
+			)
+			.get();
+		if (live && live.n >= LIVE_RUNS) return reject("LIVE_RUNS");
+	}
+	const bytes = new TextEncoder().encode(
+		[
+			event.key,
+			event.type,
+			event.subject,
+			event.state,
+			url,
+			event.progress,
+			event.agent,
+			event.executor,
+			event.waitReason,
+			event.waitDetail,
+		].join(""),
+	).length;
+	let excess = bytes + usage.reduce((total, entry) => total + entry.bytes, 0) - BYTES_PER_DAY;
+	if (excess > 0) {
+		for (const entry of usage) {
+			excess -= entry.bytes;
+			if (excess <= 0) return reject("BYTES_PER_DAY", entry.at + DAY);
+		}
+		return reject("BYTES_PER_DAY");
+	}
+	db.insert(schema.signals)
+		.values(signal)
+		.onConflictDoUpdate({ target: schema.signals.id, set: signal })
+		.run();
+	changes.put("signal", toSignal(signal));
+	const heard = source.lastHeardAt === null || source.lastHeardAt <= now - LAST_HEARD_EVERY;
+	usage.push({ at: now, bytes, filed: false, assigned: false, reopened: null });
+	db.update(schema.sources)
+		.set({ usage, ...(heard && { lastHeardAt: now }) })
+		.where(eq(schema.sources.id, source.id))
+		.run();
+	if (heard) changes.put("source", toSource({ ...source, lastHeardAt: now }));
+	return answer(signal);
+}
+
 function finish(
 	db: Db,
 	changes: ChangeSet,
@@ -268,10 +507,20 @@ export function processSourceEvent(
 	const event = parsedEvent(raw);
 	if (!event || Date.parse(event.sentAt) > now + EVENT_CLOCK_SKEW_MS)
 		return { ...changes.result(), response: { status: 400 } };
+	if (event.kind === "run") return processRunEvent(db, changes, source, event, workspaceUrl, now);
+	// The schema already refuses these; the column's wider type needs the narrowing.
+	if (event.severity === undefined || !isAlertState(event.state))
+		return { ...changes.result(), response: { status: 400 } };
 	const found = db
 		.select()
 		.from(schema.signals)
-		.where(and(eq(schema.signals.sourceId, source.id), eq(schema.signals.key, event.key)))
+		.where(
+			and(
+				eq(schema.signals.sourceId, source.id),
+				eq(schema.signals.kind, "alert"),
+				eq(schema.signals.key, event.key),
+			),
+		)
 		.get();
 	const expired =
 		found &&
@@ -331,7 +580,13 @@ export function processSourceEvent(
 		const open = db
 			.select({ n: count() })
 			.from(schema.signals)
-			.where(and(eq(schema.signals.sourceId, source.id), eq(schema.signals.state, "open")))
+			.where(
+				and(
+					eq(schema.signals.sourceId, source.id),
+					eq(schema.signals.kind, "alert"),
+					eq(schema.signals.state, "open"),
+				),
+			)
 			.get();
 		if (open && open.n >= LIVE_SIGNALS) return reject("LIVE_SIGNALS");
 	}
@@ -429,7 +684,7 @@ export function processSourceEvent(
 		const raised =
 			priority !== 0 && (PRIORITY[prior.severity] === 0 || priority < PRIORITY[prior.severity]);
 		issue = updateIssue(db, changes, source, issue, target?.key, raised ? priority : 0, reopening);
-		if (clearing)
+		if (clearing && isAlertState(prior.state))
 			recordActivity(db, changes, issue, SOURCE_ACTOR_ID, {
 				type: "signal",
 				from: prior.state,
@@ -440,6 +695,7 @@ export function processSourceEvent(
 	const signal: SignalRow = {
 		id: prior?.id ?? crypto.randomUUID(),
 		sourceId: source.id,
+		kind: "alert",
 		key: event.key,
 		type: event.type ?? null,
 		subject: event.subject ?? null,
@@ -457,6 +713,14 @@ export function processSourceEvent(
 				: prior?.state === event.state
 					? (prior.clearedAt ?? prior.changedAt)
 					: now,
+		progress: null,
+		startedAt: null,
+		endedAt: null,
+		executor: null,
+		agentName: null,
+		waitReason: null,
+		waitDetail: null,
+		lastContactAt: now,
 	};
 	db.insert(schema.signals)
 		.values(signal)
@@ -490,6 +754,7 @@ export function processSourceEvent(
 // Older dismissed rows carry the last known dismissal time only in changed_at.
 const inactive = inArray(schema.signals.state, ["cleared", "dismissed"]);
 const inactiveSince = sql<number>`coalesce(${schema.signals.clearedAt}, ${schema.signals.changedAt})`;
+const finishedRun = inArray(schema.signals.state, [...FINISHED_RUNS]);
 
 export function pruneExpiredSignals(db: Db, now: number) {
 	const changes = new ChangeSet(db, SOURCE_ACTOR_ID, now);
@@ -503,14 +768,40 @@ export function pruneExpiredSignals(db: Db, now: number) {
 		db.delete(schema.signals).where(eq(schema.signals.id, id)).run();
 		changes.delete("signal", id);
 	}
+	// Finished runs leave after RUN_KEPT_DAYS, sooner than alerts; unfinished ones stay.
+	const runs = db
+		.select({ id: schema.signals.id })
+		.from(schema.signals)
+		.where(
+			and(
+				eq(schema.signals.kind, "run"),
+				finishedRun,
+				lte(schema.signals.changedAt, now - RUN_KEPT_DAYS * DAY),
+			),
+		)
+		.limit(expiryBatch)
+		.all();
+	for (const { id } of runs) {
+		db.delete(schema.signals).where(eq(schema.signals.id, id)).run();
+		changes.delete("signal", id);
+	}
 	return changes.result();
 }
 
 export function nextSignalExpiry(db: Db): number | null {
-	const first = db
+	const alertFirst = db
 		.select({ at: sql<number | null>`min(${inactiveSince})` })
 		.from(schema.signals)
 		.where(inactive)
 		.get()?.at;
-	return first == null ? null : first + SIGNAL_KEPT_DAYS * DAY;
+	const runFirst = db
+		.select({ at: sql<number | null>`min(${schema.signals.changedAt})` })
+		.from(schema.signals)
+		.where(and(eq(schema.signals.kind, "run"), finishedRun))
+		.get()?.at;
+	const times = [
+		alertFirst == null ? null : alertFirst + SIGNAL_KEPT_DAYS * DAY,
+		runFirst == null ? null : runFirst + RUN_KEPT_DAYS * DAY,
+	].filter((at): at is number => at !== null);
+	return times.length === 0 ? null : Math.min(...times);
 }

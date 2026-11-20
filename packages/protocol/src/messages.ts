@@ -25,7 +25,7 @@ import type { Signal, Source } from "./sources";
 import type { WorkflowStatus } from "./statuses";
 
 /** Bump on any breaking change to messages or entity shapes. */
-export const PROTOCOL_VERSION = 28;
+export const PROTOCOL_VERSION = 29;
 
 /**
  * How long the server remembers that a mutation id was applied. A resend within this time is

@@ -2,6 +2,7 @@ import { runInDurableObject } from "cloudflare:test";
 import {
 	EVENT_CLOCK_SKEW_MS,
 	exportedSignalSchema,
+	LIVE_RUNS,
 	LIVE_SIGNALS,
 	RESTORE_ISSUE_MISSING,
 	SOURCES_PER_WORKSPACE,
@@ -200,6 +201,7 @@ it("restore enforces team, role and live signal limits in one transaction", asyn
 	const signal = {
 		key: "first",
 		sourceId: id,
+		kind: "alert" as const,
 		issueId,
 		type: null,
 		subject: null,
@@ -269,6 +271,7 @@ it("orders an unchanged heartbeat and delayed clear by the new sender's clock, a
 	const states = ["open", "cleared", "dismissed"] as const;
 	const rows = states.map((state, i) => ({
 		sourceId: id,
+		kind: "alert" as const,
 		key: state,
 		issueId: "import-" + String(i).repeat(32),
 		state,
@@ -377,6 +380,7 @@ it("later restores bind only the signals fitting the workspace snapshot byte bud
 	const subject = "界".repeat(4000);
 	const rows = Array.from({ length: 720 }, (_, i) => ({
 		key: String(i).padStart(3, "0"),
+		kind: "alert" as const,
 		issueId: "import-" + i.toString(16).padStart(32, "0"),
 		subject,
 		state: "dismissed" as const,
@@ -428,6 +432,7 @@ async function issueRows(ws: Awaited<ReturnType<typeof workspace>>, rows: [strin
 
 const restoredRow = (sourceId: string, key: string, issueId: string) => ({
 	sourceId,
+	kind: "alert" as const,
 	key,
 	issueId,
 	type: null as string | null,
@@ -633,4 +638,93 @@ it("restores a stored URL up to what an event can store, as stored", async () =>
 	});
 	const stored = (await ws.snapshot(owner)).signals.map((signal) => signal.url).sort();
 	expect(stored).toEqual([...urls].sort());
+});
+
+const restoredRun = (
+	sourceId: string,
+	key: string,
+	issueId: string,
+	state: "queued" | "running" | "passed" = "running",
+) => ({
+	...restoredRow(sourceId, key, issueId),
+	kind: "run" as const,
+	severity: "unknown" as const,
+	state,
+});
+
+it("an alert and runs of one issue restore together, while a second alert still drops", async () => {
+	const ws = await workspace();
+	const id = "import-" + "8".repeat(32);
+	const second = "import-" + "a".repeat(32);
+	const [issueId, otherIssue] = ["import-" + "9".repeat(32), "import-" + "b".repeat(32)];
+	await issueRows(ws, [
+		[issueId, "backlog"],
+		[otherIssue, "backlog"],
+	]);
+	// An alert, a live run and a finished one ride on one issue.
+	expect(
+		await ws.restoreSource(owner.id, {
+			exportedAt,
+			source: { ...input, id, assigneeId: null },
+			signals: [
+				restoredRow(id, "alert-1", issueId),
+				restoredRun(id, "run-1", issueId),
+				restoredRun(id, "run-2", issueId, "passed"),
+			],
+		}),
+	).toMatchObject({ ok: true, value: { bound: 3, dropped: 0 } });
+	// From another source, a run joins them, a fresh issue takes one alert, and its second drops.
+	expect(
+		await ws.restoreSource(owner.id, {
+			exportedAt,
+			source: { ...input, id: second, assigneeId: null },
+			signals: [
+				restoredRun(second, "run-3", issueId),
+				restoredRow(second, "alert-2", otherIssue),
+				restoredRow(second, "alert-3", otherIssue),
+			],
+		}),
+	).toMatchObject({ ok: true, value: { bound: 2, dropped: 1, alreadyLinked: 1 } });
+});
+
+it("a restored signal's state must fit its kind", async () => {
+	const ws = await workspace();
+	const id = "import-" + "c".repeat(32);
+	const issueId = "import-" + "d".repeat(32);
+	await issueRows(ws, [[issueId, "backlog"]]);
+	const source = { ...input, id, assigneeId: null };
+	for (const bad of [
+		// An alert's states never pass for a run, and a run's never for an alert.
+		{ ...restoredRow(id, "bad-1", issueId), state: "running" as const },
+		{ ...restoredRun(id, "bad-2", issueId), state: "open" as const },
+	]) {
+		expect(await ws.restoreSource(owner.id, { exportedAt, source, signals: [bad] })).toMatchObject({
+			ok: false,
+			reason: "invalid",
+		});
+		expect((await ws.snapshot(owner)).sources).toEqual([]);
+	}
+});
+
+it("a restore holds unfinished runs to the live-run limit", async () => {
+	const ws = await workspace();
+	const id = "import-" + "e".repeat(32);
+	const issueId = "import-" + "f".repeat(32);
+	await issueRows(ws, [[issueId, "backlog"]]);
+	const source = { ...input, id, assigneeId: null };
+	const rows = Array.from({ length: LIVE_RUNS + 1 }, (_, i) =>
+		restoredRun(id, `run-${i}`, issueId),
+	);
+	expect(await ws.restoreSource(owner.id, { exportedAt, source, signals: rows })).toMatchObject({
+		ok: false,
+		reason: "invalid",
+	});
+	expect((await ws.snapshot(owner)).sources).toEqual([]);
+	expect(
+		await ws.restoreSource(owner.id, {
+			exportedAt,
+			source,
+			signals: rows.slice(0, LIVE_RUNS),
+		}),
+	).toMatchObject({ ok: true, value: { bound: LIVE_RUNS, dropped: 0 } });
 });
