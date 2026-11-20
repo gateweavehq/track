@@ -273,6 +273,12 @@ export function processSourceEvent(
 		(found.clearedAt ?? found.changedAt) <= now - SIGNAL_KEPT_DAYS * DAY;
 	const expiredId = expired ? found.id : undefined;
 	const prior = expired ? undefined : found;
+	if (!prior && event.state !== "open") {
+		return {
+			...changes.result(),
+			response: { status: 200, answer: { state: event.state, filed: false, issue: null } },
+		};
+	}
 	let issue = prior?.issueId
 		? db
 				.select()

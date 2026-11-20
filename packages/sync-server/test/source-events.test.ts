@@ -592,6 +592,7 @@ it("R22: the returning signal follows the issue to its current team's first open
 
 it("R30: changing severity while cleared does not restart retention", async () => {
 	const { ws, send } = await setup();
+	await send();
 	await send({ state: "cleared" });
 	const earlier = Date.now() - 86_400_000;
 	await runInDurableObject(ws, (_, state) => {
@@ -688,19 +689,24 @@ it("A17: a returning signal leaves an In Progress issue and its reopen count alo
 it("A18: 500 dismissals leave room for a new open key", async () => {
 	const { ws, send, sourceId } = await setup();
 	await runInDurableObject(ws, (instance, state) => {
-		const sentAt = new Date().toISOString();
+		const now = Date.now();
 		for (let i = 0; i < LIVE_SIGNALS; i++) {
 			// Model batches arriving a day apart without waiting for the rolling budgets.
-			if (i % CALLS_PER_MINUTE === 0)
+			if ((2 * i) % CALLS_PER_MINUTE === 0)
 				state.storage.sql.exec("UPDATE sources SET call_times='[]',usage='[]'");
 			const event = {
 				key: String(i),
-				state: "dismissed",
+				state: "open",
 				severity: "low",
-				sentAt,
+				sentAt: new Date(now).toISOString(),
 				title: "Closed finding",
 			};
 			expect(instance.sourceEvent(sourceId, JSON.stringify(event), workspaceUrl).status).toBe(200);
+			event.state = "dismissed";
+			event.sentAt = new Date(now + 1).toISOString();
+			expect(
+				answer(instance.sourceEvent(sourceId, JSON.stringify(event), workspaceUrl)).state,
+			).toBe("dismissed");
 		}
 	});
 	expect(answer(await send()).filed).toBe(true);
@@ -708,6 +714,7 @@ it("A18: 500 dismissals leave room for a new open key", async () => {
 
 it("A18: the alarm reclaims a dismissal stored without a retention timestamp", async () => {
 	const { ws, send, snapshot } = await setup();
+	await send();
 	await send({ state: "dismissed" });
 	await runInDurableObject(ws, async (_, state) => {
 		state.storage.sql.exec(
@@ -718,6 +725,48 @@ it("A18: the alarm reclaims a dismissal stored without a retention timestamp", a
 	});
 	expect(await runDurableObjectAlarm(ws)).toBe(true);
 	expect((await snapshot()).signals).toEqual([]);
+});
+
+it("A24: 600 unknown dismissals and a clear consume only calls, then a first open files", async () => {
+	const { ws, send, snapshot, sourceId } = await setup();
+	const before = await snapshot();
+	await runInDurableObject(ws, (instance, state) => {
+		const sentAt = new Date().toISOString();
+		for (let i = 0; i < 600; i++) {
+			// Start the next minute without waiting for the rolling window.
+			if (i % CALLS_PER_MINUTE === 0) state.storage.sql.exec("UPDATE sources SET call_times='[]'");
+			const event = {
+				key: String(i),
+				state: "dismissed",
+				severity: "high",
+				title: "Finding",
+				sentAt,
+			};
+			expect(answer(instance.sourceEvent(sourceId, JSON.stringify(event), workspaceUrl))).toEqual({
+				state: "dismissed",
+				filed: false,
+				issue: null,
+			});
+		}
+		const { calls, writes } = state.storage.sql
+			.exec(
+				"SELECT json_array_length(call_times) AS calls, json_array_length(usage) AS writes FROM sources",
+			)
+			.one();
+		expect({ calls, writes }).toEqual({ calls: CALLS_PER_MINUTE, writes: 0 });
+		state.storage.sql.exec("UPDATE sources SET call_times='[]'");
+	});
+	expect(answer(await send({ key: "0", state: "cleared" }))).toEqual({
+		state: "cleared",
+		filed: false,
+		issue: null,
+	});
+	expect(await snapshot()).toEqual(before);
+	expect(answer(await send({ key: "0" }))).toEqual({
+		state: "open",
+		filed: true,
+		issue: { key: "ENG-1", url: `${workspaceUrl}/issue/ENG-1` },
+	});
 });
 
 it("A16: a closed first status prevents a refusal notice", async () => {

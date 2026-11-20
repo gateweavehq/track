@@ -20,6 +20,7 @@ export class SourceLimit extends MutationRejected {
 }
 
 const id = z.string().min(1).max(64);
+const revokePrefix = "source-revoke:";
 const internalAction = z.strictObject({
 	kind: z.enum(["prepareRemoval", "finishRemoval", "checkKey", "keyCreated"]),
 	id,
@@ -33,7 +34,7 @@ export type KeyRevocation = z.infer<typeof keyRevocation>;
 export function revokeSourceKey(db: Db, memberId: string, command: KeyRevocation, now: number) {
 	const action = keyRevocation.parse(command);
 	const { id, keyId } = action;
-	const pending = "source-revoke:" + keyId;
+	const pending = revokePrefix + keyId;
 	const completed = db
 		.select({ id: auditEvents.id })
 		.from(auditEvents)
@@ -180,6 +181,9 @@ export function manageSource(db: Db, memberId: string, command: SourceAdminActio
 				.all()) {
 				changes.delete("signal", removed.id);
 			}
+			db.delete(meta)
+				.where(and(sql`${meta.key} GLOB ${revokePrefix + "*"}`, eq(meta.value, row.id)))
+				.run();
 			db.delete(sources).where(eq(sources.id, row.id)).run();
 			changes.delete("source", row.id);
 			audit(source, "source.deleted");

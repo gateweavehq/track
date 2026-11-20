@@ -114,6 +114,18 @@ it("R33: a failed D1 revocation seals the source until retry removes the keys an
 	expect(snap.issues).toHaveLength(1);
 });
 
+it("removing a source deletes the revoke proof left by a failed D1 key deletion", async () => {
+	const { id, injected, apply, key } = await setup();
+	injected.state.only = /delete from "source_key"/i;
+	injected.state.failures = 1;
+	await expect(apply({ kind: "revokeKey", id: key.sourceId, keyId: key.id })).rejects.toThrow();
+	const proofs = () =>
+		track.rpc(id, "backupRead", ["SELECT key, value FROM meta WHERE key GLOB 'source-revoke:*'"]);
+	expect(await proofs()).toEqual([[{ key: `source-revoke:${key.id}`, value: key.sourceId }]]);
+	expect(await apply({ kind: "delete", id: key.sourceId })).toMatchObject({ ok: true });
+	expect(await proofs()).toEqual([[]]);
+});
+
 let address = 0;
 const freshAddress = () => `203.0.113.${++address}`;
 const serverFn = serverFunctions(origin, (url, init) => track.fetch(url, init), freshAddress);
