@@ -1,7 +1,7 @@
 # The Gateweave ecosystem
 
-> **Status: draft proposal.** This describes where the product family could go and the
-> architecture that would let it get there. Nothing here is built yet except Track itself.
+> **Status:** The product table shows where each product stands. The sections that follow also
+> describe proposals for the shared platform.
 
 [Gateweave](https://gateweave.com) is the umbrella for a family of open-source business tools that
 run natively on Cloudflare. Gateweave Track, the issue tracker in this repository, is the first.
@@ -31,7 +31,8 @@ Every product follows the same principles as Track:
 | **Agents** | Coding agents' setups, and agents and teams that run on their own | Early access ([gateweavehq/agents](https://github.com/gateweavehq/agents)) |
 | **ID**     | Single sign-on, passkeys and access to internal apps              | Early access ([gateweavehq/id](https://github.com/gateweavehq/id))         |
 | **Guard**  | Security in one place for teams on Cloudflare; it only reads      | Early access ([gateweavehq/guard](https://github.com/gateweavehq/guard))   |
-| **Mail**   | Mailboxes for people and agents, aliases and transactional email  | Next, being designed; email-to-issue and inbox email ship in Track         |
+| **Mail**   | Mailboxes for people and agents on your own domain                | Early access ([gateweavehq/mail](https://github.com/gateweavehq/mail))     |
+| **Backup** | D1, Durable Object and R2 backups, encrypted and restore-tested   | In use, pre-release ([docs](https://docs.gateweave.com/backup/))           |
 | **CRM**    | Contacts, companies and deals                                     | Proposed                                                                   |
 | **ERP**    | Invoicing, inventory and orders, one module at a time             | Later                                                                      |
 
