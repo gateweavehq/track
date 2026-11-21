@@ -120,6 +120,13 @@
       "when": 1795163689553,
       "tag": "0016_source_key",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1795252942238,
+      "tag": "0017_workspace_deletion",
+      "breakpoints": true
     }
   ]
 }

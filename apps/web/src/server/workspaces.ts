@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import type { GatewayAuditEvent, MemberRole, PersonRole } from "@gateweave/track-protocol";
 import type { MemberProfile } from "@gateweave/track-sync-server";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, isNull, notExists } from "drizzle-orm";
 import type { Database } from "./db";
 import { schema } from "./db";
 import { configuredJurisdiction, objectsIn } from "./jurisdiction";
@@ -58,8 +58,10 @@ export async function placeNewWorkspace(db: Database, workspaceId: string): Prom
 }
 
 /**
- * Permanently deletes a deleted workspace's data: its object, and the sealed one it moved from,
- * if that is still there. Then forgets where they were.
+ * Permanently deletes a deleted workspace's data: its object, the sealed one it moved from if that
+ * is still there, and its files. Then forgets where they were, and the note that they were still
+ * to go ("Deleting a workspace" in docs/architecture.md). Each step can run again, and the rows
+ * go last, so one that fails leaves what a retry needs.
  */
 export async function destroyWorkspace(db: Database, workspaceId: string): Promise<void> {
 	const location = await db
@@ -71,19 +73,48 @@ export async function destroyWorkspace(db: Database, workspaceId: string): Promi
 	if (location?.movedFrom != null) {
 		await objectsIn(env.WORKSPACE, location.movedFrom).getByName(workspaceId).destroy();
 	}
-	if (location) {
-		await db
-			.delete(schema.workspaceLocation)
-			.where(eq(schema.workspaceLocation.workspaceId, workspaceId))
-			.run();
+	await deleteWorkspaceFiles(workspaceId);
+	// A move that finished meanwhile has noted another place, with a copy there. The row as read goes;
+	// one changed since stays, and so does the note, so the next try destroys what it names.
+	const { workspaceLocation: place, workspaceDeletion: note } = schema;
+	const forgetNote = db
+		.delete(note)
+		.where(
+			and(
+				eq(note.workspaceId, workspaceId),
+				notExists(
+					db
+						.select({ workspaceId: place.workspaceId })
+						.from(place)
+						.where(eq(place.workspaceId, workspaceId)),
+				),
+			),
+		);
+	if (!location) {
+		await forgetNote.run();
+		return;
 	}
+	await db.batch([
+		db
+			.delete(place)
+			.where(
+				and(
+					eq(place.workspaceId, workspaceId),
+					eq(place.jurisdiction, location.jurisdiction),
+					location.movedFrom === null
+						? isNull(place.movedFrom)
+						: eq(place.movedFrom, location.movedFrom),
+				),
+			),
+		forgetNote,
+	]);
 }
 
 /**
  * Deletes every file attached in a workspace. Its files share a prefix in the bucket, so they go
  * a page of keys at a time.
  */
-export async function deleteWorkspaceFiles(workspaceId: string) {
+async function deleteWorkspaceFiles(workspaceId: string) {
 	const bucket = env.FILES;
 	if (!bucket) return;
 	let cursor: string | undefined;

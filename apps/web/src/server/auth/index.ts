@@ -4,9 +4,8 @@ import { demoEnabled } from "../demo/mode";
 import { mailer } from "../email";
 import { forgetInWorkspaces } from "../erasure";
 import { allowPasswordTry, allowSpentTriesEmail, authRateLimits } from "../rate-limit";
+import { finishWorkspaceDeletion } from "../workspace-deletion";
 import {
-	deleteWorkspaceFiles,
-	destroyWorkspace,
 	endSessionsEverywhere,
 	findWorkspaceStub,
 	placeNewWorkspace,
@@ -81,11 +80,11 @@ function buildAuth() {
 		// made outside the deployment's jurisdiction, and the daily run moves it.
 		onWorkspaceCreated: (workspaceId) =>
 			logFailure(placeNewWorkspace(db, workspaceId), "placing a new workspace"),
+		// Nobody can reach the object or the files once the membership is gone, so their deletion need
+		// not hold up the response, however many files there are. The note written with the deletion
+		// keeps it until they are gone, and the daily run finishes one that fails.
 		onWorkspaceDeleted: async (workspaceId) => {
-			// Nobody can reach the files once the membership is gone, so the deletion need not hold
-			// up the response, however many there are.
-			waitUntil(logFailure(deleteWorkspaceFiles(workspaceId), "deleting a workspace's files"));
-			await logFailure(destroyWorkspace(db, workspaceId), "workspace deletion");
+			waitUntil(logFailure(finishWorkspaceDeletion(db, workspaceId), "workspace deletion"));
 		},
 		// What this misses stays noted, and the daily cron asks again.
 		onAccountDeleted: (userId) =>
