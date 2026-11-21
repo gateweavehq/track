@@ -50,9 +50,10 @@ export function runExecutorLabel(run: Pick<Signal, "executor" | "agentName">): s
 	return run.agentName === null ? executor : `${executor} · ${run.agentName}`;
 }
 
-/** Why a run waits, as "Runner offline · the machine slept", or null when it does not wait. */
+/** Why a run waits, as "Runner offline · the machine slept", or null when it says nothing. */
 export function runWaitLabel(run: Pick<Signal, "waitReason" | "waitDetail">): string | null {
-	if (run.waitReason === null) return null;
+	// A report may carry the detail without the reason; it is still the best explanation there is.
+	if (run.waitReason === null) return run.waitDetail;
 	const reason = RUN_WAIT_LABELS[run.waitReason];
 	return run.waitDetail === null ? reason : `${reason} · ${run.waitDetail}`;
 }

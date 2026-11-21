@@ -8,6 +8,7 @@ import {
 	type LucideIcon,
 	XCircle,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { formatRelative } from "#/lib/dates";
 import { useIssueRuns } from "#/lib/queries";
 import { isUnfinishedRun, type RunSignal, runExecutorLabel, runWaitLabel } from "#/lib/runs";
@@ -32,6 +33,7 @@ export function Runs({ issue }: { issue: Issue }) {
 
 /** The runs given, such as an archived issue's. Nothing when there are none. */
 export function RunList({ runs }: { runs: readonly RunSignal[] }) {
+	const now = useLiveClock(runs);
 	if (runs.length === 0) return null;
 	const live = runs.filter((run) => isUnfinishedRun(run.state));
 	const [latest, ...earlier] = runs.filter((run) => !isUnfinishedRun(run.state));
@@ -43,7 +45,7 @@ export function RunList({ runs }: { runs: readonly RunSignal[] }) {
 			</h2>
 			<ul className="rounded-lg border">
 				{shown.map((run) => (
-					<RunRow key={run.id} run={run} />
+					<RunRow key={run.id} run={run} now={now} />
 				))}
 			</ul>
 			{earlier.length > 0 && (
@@ -53,7 +55,7 @@ export function RunList({ runs }: { runs: readonly RunSignal[] }) {
 					</summary>
 					<ul className="mt-2 rounded-lg border">
 						{earlier.map((run) => (
-							<RunRow key={run.id} run={run} />
+							<RunRow key={run.id} run={run} now={now} />
 						))}
 					</ul>
 				</details>
@@ -62,12 +64,28 @@ export function RunList({ runs }: { runs: readonly RunSignal[] }) {
 	);
 }
 
-function RunRow({ run }: { run: RunSignal }) {
+/**
+ * The time relative labels are read against. A live run that stopped reporting still ages on
+ * screen, so the clock ticks while one is shown; a list of finished runs stays still, as every
+ * other relative time in the app does.
+ */
+function useLiveClock(runs: readonly RunSignal[]): number {
+	const live = runs.some((run) => isUnfinishedRun(run.state));
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		if (!live) return;
+		const timer = setInterval(() => setNow(Date.now()), 60_000);
+		return () => clearInterval(timer);
+	}, [live]);
+	return now;
+}
+
+function RunRow({ run, now }: { run: RunSignal; now: number }) {
 	const { label, icon: Icon, className } = STATE_META[run.state];
 	const executor = runExecutorLabel(run);
 	const waiting = isUnfinishedRun(run.state) ? runWaitLabel(run) : null;
 	return (
-		<li className="relative flex h-9 items-center gap-2 border-b px-2 text-sm last:border-b-0 hover:bg-accent/40">
+		<li className="relative flex min-h-9 items-center gap-2 border-b px-2 py-1 text-sm last:border-b-0 hover:bg-accent/40">
 			<Icon
 				role="img"
 				aria-label={label}
@@ -80,10 +98,14 @@ function RunRow({ run }: { run: RunSignal }) {
 					<span className="truncate text-muted-foreground">{run.progress}</span>
 				)}
 				{waiting !== null && (
-					<span className="truncate text-amber-600 dark:text-amber-500">{waiting}</span>
+					<span className="min-w-0 wrap-anywhere text-amber-600 dark:text-amber-500">
+						{waiting}
+					</span>
 				)}
 			</span>
-			<span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">{timing(run)}</span>
+			<span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+				{timing(run, now)}
+			</span>
 			{run.url !== null && (
 				<a
 					href={run.url}
@@ -100,13 +122,14 @@ function RunRow({ run }: { run: RunSignal }) {
 }
 
 /** What the row says about time: a live run's start and last contact, a finished one's end. */
-function timing(run: RunSignal): string {
+function timing(run: RunSignal, now: number): string {
 	if (isUnfinishedRun(run.state)) {
 		const parts: string[] = [];
 		if (run.state === "running" && run.startedAt !== null)
-			parts.push(`Started ${formatRelative(run.startedAt)}`);
-		if (run.lastContactAt !== null) parts.push(`Last contact ${formatRelative(run.lastContactAt)}`);
+			parts.push(`Started ${formatRelative(run.startedAt, now)}`);
+		if (run.lastContactAt !== null)
+			parts.push(`Last contact ${formatRelative(run.lastContactAt, now)}`);
 		return parts.join(" · ");
 	}
-	return `Ended ${formatRelative(run.endedAt ?? run.changedAt)}`;
+	return `Ended ${formatRelative(run.endedAt ?? run.changedAt, now)}`;
 }

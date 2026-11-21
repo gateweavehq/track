@@ -67,5 +67,9 @@ it("names what unblocks a waiting run", () => {
 	expect(runWaitLabel({ waitReason: "budget-limit", waitDetail: "workspace cap" })).toBe(
 		"Budget limit reached · workspace cap",
 	);
+	// The protocol lets a report carry the detail without the reason; it still explains the wait.
+	expect(runWaitLabel({ waitReason: null, waitDetail: "Waiting for operator approval" })).toBe(
+		"Waiting for operator approval",
+	);
 	expect(runWaitLabel({ waitReason: null, waitDetail: null })).toBeNull();
 });
