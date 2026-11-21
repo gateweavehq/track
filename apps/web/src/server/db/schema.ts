@@ -163,6 +163,23 @@ export const workspaceLocation = sqliteTable("workspace_location", {
 	movedAt: integer("moved_at"),
 });
 
+/**
+ * Deleted workspaces whose data may still be somewhere: the object, a sealed old copy, files
+ * ("Deleting a workspace" in docs/architecture.md). Deleting a workspace writes one in the same
+ * batch, it goes with the location row once all of that is gone, and the daily run finishes any
+ * left. Not a reference to the workspace, whose row is gone.
+ */
+export const workspaceDeletion = sqliteTable(
+	"workspace_deletion",
+	{
+		workspaceId: text("workspace_id").primaryKey(),
+		deletedAt: integer("deleted_at").notNull(),
+		/** When finishing it last failed. The daily run goes by it, so one that keeps failing waits. */
+		lastTriedAt: integer("last_tried_at"),
+	},
+	(table) => [index("workspaceDeletion_lastTriedAt_idx").on(table.lastTriedAt, table.deletedAt)],
+);
+
 /** A bearer key admits events to exactly one source. Only the hash and a short display prefix survive. */
 export const sourceKey = sqliteTable(
 	"source_key",

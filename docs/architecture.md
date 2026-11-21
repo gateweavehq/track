@@ -401,6 +401,30 @@ What stays, and the page says so before anyone confirms:
   Durable Object, and for D1 30 days on Workers Paid or 7 on Workers Free. Restoring a state from
   before the deletion brings the person back with it.
 
+### Deleting a workspace
+
+An owner deletes a workspace through Better Auth's `POST /api/auth/organization/delete`. Its data
+lives in three places D1 does not reach: its Durable Object, the sealed old copy if it moved less
+than a week ago, and its files. So the deletion is noted before any of it goes, and the note stays
+until all of it has.
+
+- **D1 goes in one batch.** `beforeDeleteOrganization` (`apps/web/src/server/auth/config.ts`)
+  writes a `workspace_deletion` row and deletes the organization row together. Members, keys,
+  invitations and the rest follow by cascade.
+- **The rest goes after the response.** `destroyWorkspace` (`apps/web/src/server/workspaces.ts`)
+  destroys the object, closing its sockets, then the old copy, then the files, a page of keys at a
+  time. Last, in one batch, it deletes the workspace's location row and its note. Every step can
+  run again, and a failure leaves both rows, so a retry still knows where the objects are. A move
+  that records another place meanwhile has made a copy there: the row it changed stays, and so
+  does the note, so the next try destroys that copy too.
+- **The daily run finishes what failed** (`apps/web/src/server/workspace-deletion.ts`), two a
+  run, those never tried first, after the general prune and before the moves. One that fails again goes to the back. Before that, it notes any
+  location row whose workspace is gone. That can be a deletion from before the notes existed, a row
+  deleted by hand, or a move that recorded a workspace deleted in the meantime. Location rows are
+  only written for workspaces that exist.
+- **A workspace that still exists is never destroyed**, whatever a note says. Its organization row
+  is what says it exists, so such a note is wrong: it is logged and dropped.
+
 ### Changing a name or password
 
 People change both on `/settings/account`, through Better Auth's `/update-user` and
