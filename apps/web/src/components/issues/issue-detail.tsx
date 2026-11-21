@@ -57,6 +57,7 @@ import {
 } from "./pickers";
 import { CopyBranchButton, PullRequests } from "./pull-requests";
 import { Relations } from "./relations";
+import { Runs } from "./runs";
 import { SubIssues } from "./sub-issues";
 
 export function IssueDetail({ issue, team }: { issue: ActiveIssue; team: Team }) {
@@ -156,6 +157,7 @@ export function IssueDetail({ issue, team }: { issue: ActiveIssue; team: Team })
 						<Relations issue={issue} />
 					</div>
 					<PullRequests issue={issue} />
+					<Runs issue={issue} />
 					<IssueProposals issue={issue} />
 					<IssueActivity issue={issue} />
 				</article>
