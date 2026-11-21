@@ -8,7 +8,7 @@ import {
 	type LucideIcon,
 	XCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatRelative } from "#/lib/dates";
 import { useIssueRuns } from "#/lib/queries";
 import { isUnfinishedRun, type RunSignal, runExecutorLabel, runWaitLabel } from "#/lib/runs";
@@ -65,16 +65,18 @@ export function RunList({ runs }: { runs: readonly RunSignal[] }) {
 }
 
 /**
- * The time relative labels are read against. A live run that stopped reporting still ages on
- * screen, so the clock ticks while one is shown; a list of finished runs stays still, as every
- * other relative time in the app does.
+ * The time relative labels are read against. It moves on when the runs change and, while a live
+ * run is shown, every minute, so a run that stopped reporting still ages on screen; a list of
+ * finished runs stays still, as every other relative time in the app does.
  */
 function useLiveClock(runs: readonly RunSignal[]): number {
 	const live = runs.some((run) => isUnfinishedRun(run.state));
-	const [now, setNow] = useState(() => Date.now());
+	const [tick, setTick] = useState(0);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the clock is read again whenever the runs change or the timer fires.
+	const now = useMemo(() => Date.now(), [runs, tick]);
 	useEffect(() => {
 		if (!live) return;
-		const timer = setInterval(() => setNow(Date.now()), 60_000);
+		const timer = setInterval(() => setTick((t) => t + 1), 60_000);
 		return () => clearInterval(timer);
 	}, [live]);
 	return now;
