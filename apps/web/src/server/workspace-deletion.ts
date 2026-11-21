@@ -1,4 +1,4 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, exists, sql } from "drizzle-orm";
 import type { Database } from "./db";
 import { schema } from "./db";
 import { destroyWorkspace } from "./workspaces";
@@ -30,7 +30,21 @@ export async function finishWorkspaceDeletion(db: Database, workspaceId: string)
 		.where(eq(organization.id, workspaceId))
 		.get();
 	if (live) {
-		await db.delete(workspaceDeletion).where(eq(workspaceDeletion.workspaceId, workspaceId)).run();
+		// Only while the row is still there: were the workspace deleted since, the note is its own.
+		await db
+			.delete(workspaceDeletion)
+			.where(
+				and(
+					eq(workspaceDeletion.workspaceId, workspaceId),
+					exists(
+						db
+							.select({ id: organization.id })
+							.from(organization)
+							.where(eq(organization.id, workspaceId)),
+					),
+				),
+			)
+			.run();
 		throw new Error("the workspace is still there, so its note went and nothing was deleted");
 	}
 	try {
