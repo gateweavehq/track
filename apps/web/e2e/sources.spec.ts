@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures";
-import { startWorkspace } from "./helpers";
+import { createIssue, issueRow, startWorkspace } from "./helpers";
 
 test("R17: an admin sets the assignee separately after seeing the source warning", async ({
 	page,
@@ -54,4 +54,43 @@ test("R17: an admin sets the assignee separately after seeing the source warning
 	await page.reload();
 	await expect(source).toBeVisible();
 	await expect(key).toHaveCount(0);
+});
+
+test("WEB-84: the issue shows why its hosted run could not start", async ({ page, request }) => {
+	const { slug } = await startWorkspace(page);
+	const title = "Check the staging configuration";
+	await createIssue(page, title);
+	await issueRow(page, title).click();
+	await expect(page).toHaveURL(`/${slug}/issue/ENG-1`);
+
+	await page.goto(`/${slug}/settings/sources`);
+	await page.getByRole("button", { name: "Add source" }).click();
+	await page.getByLabel("Name", { exact: true }).fill("Gateweave Agents");
+	await page.getByLabel("Product").selectOption("agents");
+	await page.getByRole("button", { name: "Create source" }).click();
+	const token = await page.getByLabel("Source key").inputValue();
+	await page.getByRole("button", { name: "Done" }).click();
+	await page.goto(`/${slug}/issue/ENG-1`);
+
+	const detail = "An admin needs to check the agent's model provider setup.";
+	const report = await request.post("/api/events", {
+		headers: { authorization: `Bearer ${token}` },
+		data: {
+			kind: "run",
+			state: "failed",
+			key: "work-eng-1",
+			sentAt: new Date().toISOString(),
+			title: "Hosted agent run",
+			issue: "ENG-1",
+			executor: "agents-hosted",
+			agent: "Track Work",
+			progress: "Run could not start",
+			waitDetail: detail,
+		},
+	});
+	expect(report.status()).toBe(200);
+	const runs = page.getByRole("region", { name: "Runs", exact: true });
+	await expect(runs.getByRole("img", { name: "Failed", exact: true })).toBeVisible();
+	await expect(runs.getByText("Run could not start", { exact: true })).toBeVisible();
+	await expect(runs.getByText(detail, { exact: true })).toBeVisible();
 });
