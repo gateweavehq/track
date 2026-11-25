@@ -19,6 +19,7 @@ import { Route as WorkspaceInboxRouteImport } from './routes/$workspace/inbox'
 import { Route as WorkspaceMyIssuesRouteImport } from './routes/$workspace/my-issues'
 import { Route as WorkspaceProjectsRouteImport } from './routes/$workspace/projects'
 import { Route as WorkspaceProposalsRouteImport } from './routes/$workspace/proposals'
+import { Route as WorkspaceRunsRouteImport } from './routes/$workspace/runs'
 import { Route as WorkspaceSettingsRouteImport } from './routes/$workspace/settings'
 import { Route as ConnectAgentRouteImport } from './routes/connect.agent'
 import { Route as ConnectSourceRouteImport } from './routes/connect.source'
@@ -98,6 +99,11 @@ const WorkspaceProjectsRoute = WorkspaceProjectsRouteImport.update({
 const WorkspaceProposalsRoute = WorkspaceProposalsRouteImport.update({
   id: '/proposals',
   path: '/proposals',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceRunsRoute = WorkspaceRunsRouteImport.update({
+  id: '/runs',
+  path: '/runs',
   getParentRoute: () => WorkspaceRoute,
 } as any)
 const WorkspaceSettingsRoute = WorkspaceSettingsRouteImport.update({
@@ -272,6 +278,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
   '/$workspace/projects': typeof WorkspaceProjectsRoute
   '/$workspace/proposals': typeof WorkspaceProposalsRoute
+  '/$workspace/runs': typeof WorkspaceRunsRoute
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/connect/agent': typeof ConnectAgentRoute
   '/connect/source': typeof ConnectSourceRoute
@@ -313,6 +320,7 @@ export interface FileRoutesByTo {
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
   '/$workspace/projects': typeof WorkspaceProjectsRoute
   '/$workspace/proposals': typeof WorkspaceProposalsRoute
+  '/$workspace/runs': typeof WorkspaceRunsRoute
   '/connect/agent': typeof ConnectAgentRoute
   '/connect/source': typeof ConnectSourceRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
@@ -355,6 +363,7 @@ export interface FileRoutesById {
   '/$workspace/my-issues': typeof WorkspaceMyIssuesRoute
   '/$workspace/projects': typeof WorkspaceProjectsRoute
   '/$workspace/proposals': typeof WorkspaceProposalsRoute
+  '/$workspace/runs': typeof WorkspaceRunsRoute
   '/$workspace/settings': typeof WorkspaceSettingsRouteWithChildren
   '/connect/agent': typeof ConnectAgentRoute
   '/connect/source': typeof ConnectSourceRoute
@@ -399,6 +408,7 @@ export interface FileRouteTypes {
     | '/$workspace/my-issues'
     | '/$workspace/projects'
     | '/$workspace/proposals'
+    | '/$workspace/runs'
     | '/$workspace/settings'
     | '/connect/agent'
     | '/connect/source'
@@ -440,6 +450,7 @@ export interface FileRouteTypes {
     | '/$workspace/my-issues'
     | '/$workspace/projects'
     | '/$workspace/proposals'
+    | '/$workspace/runs'
     | '/connect/agent'
     | '/connect/source'
     | '/invite/$invitationId'
@@ -481,6 +492,7 @@ export interface FileRouteTypes {
     | '/$workspace/my-issues'
     | '/$workspace/projects'
     | '/$workspace/proposals'
+    | '/$workspace/runs'
     | '/$workspace/settings'
     | '/connect/agent'
     | '/connect/source'
@@ -598,6 +610,13 @@ declare module '@tanstack/react-router' {
       path: '/proposals'
       fullPath: '/$workspace/proposals'
       preLoaderRoute: typeof WorkspaceProposalsRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/$workspace/runs': {
+      id: '/$workspace/runs'
+      path: '/runs'
+      fullPath: '/$workspace/runs'
+      preLoaderRoute: typeof WorkspaceRunsRouteImport
       parentRoute: typeof WorkspaceRoute
     }
     '/$workspace/settings': {
@@ -853,6 +872,7 @@ interface WorkspaceRouteChildren {
   WorkspaceMyIssuesRoute: typeof WorkspaceMyIssuesRoute
   WorkspaceProjectsRoute: typeof WorkspaceProjectsRoute
   WorkspaceProposalsRoute: typeof WorkspaceProposalsRoute
+  WorkspaceRunsRoute: typeof WorkspaceRunsRoute
   WorkspaceSettingsRoute: typeof WorkspaceSettingsRouteWithChildren
   WorkspaceIndexRoute: typeof WorkspaceIndexRoute
   WorkspaceCycleCycleIdRoute: typeof WorkspaceCycleCycleIdRoute
@@ -872,6 +892,7 @@ const WorkspaceRouteChildren: WorkspaceRouteChildren = {
   WorkspaceMyIssuesRoute: WorkspaceMyIssuesRoute,
   WorkspaceProjectsRoute: WorkspaceProjectsRoute,
   WorkspaceProposalsRoute: WorkspaceProposalsRoute,
+  WorkspaceRunsRoute: WorkspaceRunsRoute,
   WorkspaceSettingsRoute: WorkspaceSettingsRouteWithChildren,
   WorkspaceIndexRoute: WorkspaceIndexRoute,
   WorkspaceCycleCycleIdRoute: WorkspaceCycleCycleIdRoute,
@@ -907,3 +928,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
