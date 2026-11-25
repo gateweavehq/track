@@ -91,6 +91,11 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    The events gateway (`apps/web/src/server/events.ts`, `POST /api/events`) admits a source by its
    bearer key hash in D1 and its active source row in the workspace object, which also refuses a
    key revoked since the lookup. It reads no cookies.
+   The work-run gateway (`apps/web/src/server/work-runs.ts`, `POST /api/work-runs/…`) admits an
+   owner or admin's session from Track's own origin to register or reconcile an assignment's
+   work, and a current agent member's key to find, claim and report it. A report also carries
+   the token its claim handed over, whose hash the object keeps, and cannot change the attempt's
+   issue, workspace or repository. A source key cannot report a scoped attempt.
    The admin settings gateway seals the source so a key made during removal cannot write, deletes
    its D1 keys, then removes its signals and source through the object. Issues stay in the workspace.
    An owner or admin can also approve a source at `/connect/source`. Allow records its ids and
