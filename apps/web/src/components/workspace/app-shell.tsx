@@ -1,6 +1,7 @@
 import { useSyncClient } from "@gateweave/track-sync-client/react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
+	Activity,
 	ArrowLeftRight,
 	Bookmark,
 	Bot,
@@ -209,6 +210,15 @@ function Sidebar() {
 							{proposalCount}
 						</span>
 					)}
+				</Link>
+				<Link
+					to="/$workspace/runs"
+					params={{ workspace: slug }}
+					className={navLink}
+					activeProps={{ className: activeNavLink }}
+				>
+					<Activity className="size-4" />
+					Runs
 				</Link>
 				<Link
 					to="/$workspace/settings"

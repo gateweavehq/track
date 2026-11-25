@@ -8,9 +8,9 @@ import {
 	type LucideIcon,
 	XCircle,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
 import { formatRelative } from "#/lib/dates";
 import { useIssueRuns } from "#/lib/queries";
+import { useRunClock } from "#/lib/run-clock";
 import {
 	isUnfinishedRun,
 	type RunSignal,
@@ -39,7 +39,7 @@ export function Runs({ issue }: { issue: Issue }) {
 
 /** The runs given, such as an archived issue's. Nothing when there are none. */
 export function RunList({ runs }: { runs: readonly RunSignal[] }) {
-	const now = useLiveClock(runs);
+	const now = useRunClock(runs);
 	if (runs.length === 0) return null;
 	const live = runs.filter((run) => isUnfinishedRun(run.state));
 	const [latest, ...earlier] = runs.filter((run) => !isUnfinishedRun(run.state));
@@ -68,24 +68,6 @@ export function RunList({ runs }: { runs: readonly RunSignal[] }) {
 			)}
 		</section>
 	);
-}
-
-/**
- * The time relative labels are read against. It moves on when the runs change and, while a live
- * run is shown, every minute, so a run that stopped reporting still ages on screen; a list of
- * finished runs stays still, as every other relative time in the app does.
- */
-function useLiveClock(runs: readonly RunSignal[]): number {
-	const live = runs.some((run) => isUnfinishedRun(run.state));
-	const [tick, setTick] = useState(0);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the clock is read again whenever the runs change or the timer fires.
-	const now = useMemo(() => Date.now(), [runs, tick]);
-	useEffect(() => {
-		if (!live) return;
-		const timer = setInterval(() => setTick((t) => t + 1), 60_000);
-		return () => clearInterval(timer);
-	}, [live]);
-	return now;
 }
 
 function RunRow({ run, now }: { run: RunSignal; now: number }) {

@@ -16,6 +16,7 @@ import {
 	type PullRequest,
 	privateId,
 	type SavedView,
+	type Signal,
 	type Source,
 	type Subscription,
 	type SyncedIssue,
@@ -55,6 +56,13 @@ export function useTeamByKey(key: string): Team | undefined {
 			[upper],
 		),
 	);
+}
+
+const selectSignals = (state: SyncState) => state.signals;
+
+/** Every signal the workspace holds, alerts and runs (WEB-84). */
+export function useSignals(): ReadonlyMap<string, Signal> {
+	return useQuery(selectSignals);
 }
 
 const selectStatuses = (state: SyncState) => state.statuses;
