@@ -1921,17 +1921,22 @@ Through MCP, an owner or admin can use `open_panel` to ask up to five workspace 
 for independent positions on an issue. A workspace can have three open panels. Each seat uses
 `submit_position` once. While open, `get_panel` shows seats and admins who has submitted,
 and shows a seat its own text. Other members cannot read the panel yet. Positions live only
-in the workspace object's panel tables until reveal.
+in the workspace object's panel tables until reveal. Opening a panel posts a Track comment on the
+issue that names the panel id, the seats and the deadline, so a seat can find the panel and
+people can see that one is open. It holds no position text.
 
-The final submission or the deadline reveals all positions in one transaction. The alarm can
-publish up to a minute after the deadline, but submissions close at the deadline itself.
+The final submission or the deadline reveals all positions together, as one atomic write: one
+transaction and one broadcast. Several comments cannot share one version number, so the reveal
+comments get consecutive versions. The alarm can publish up to a minute after the deadline, but
+submissions close at the deadline itself.
 Track posts a summary naming absent seats, then comments under randomly assigned aliases.
 Any member can then read the aliased positions. If the issue was archived or deleted, the
 reveal is available through `get_panel` alone.
 
 The panel tables are server-only: they are not entities, so no snapshot, delta, oplog row, search
-index or webhook holds a position before the reveal, and `PROTOCOL_VERSION` is unchanged. A backup
-Worker that reads the object reads these tables like every other.
+index or webhook holds a position before the reveal, and `PROTOCOL_VERSION` is unchanged. The one
+deliberate exception is a backup: a backup Worker that reads the object reads these tables like
+every other, so a backup taken while a panel is open contains the submitted positions.
 
 ### Proposals
 

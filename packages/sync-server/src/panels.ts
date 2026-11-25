@@ -40,6 +40,39 @@ export interface PanelView extends Panel {
 	absent: string[] | null;
 }
 
+/** A uniform integer below `n`: draws above the largest whole multiple of `n` are redrawn. */
+export function randomBelow(n: number) {
+	const limit = 2 ** 32 - (2 ** 32 % n);
+	for (;;) {
+		const r = crypto.getRandomValues(new Uint32Array(1))[0] ?? limit;
+		if (r < limit) return r % n;
+	}
+}
+
+function memberName(db: Db, userId: string) {
+	return (
+		db.select({ name: members.name }).from(members).where(eq(members.userId, userId)).get()?.name ??
+		"Deleted member"
+	);
+}
+
+/** A Track-authored comment on the panel's issue, in the change set's batch. */
+function postComment(db: Db, changes: ChangeSet, issueId: string, id: string, body: string) {
+	const row = {
+		id,
+		issueId,
+		authorId: SYSTEM_ACTOR_ID,
+		body,
+		createdAt: changes.now,
+		updatedAt: changes.now,
+		deletedAt: null,
+	};
+	db.insert(comments).values(row).run();
+	indexComment(db, row);
+	changes.put("comment", toComment(row));
+	changes.events.push({ type: "comment.created", comment: row });
+}
+
 function readPanel(db: Db, id: string) {
 	const panel = db.select().from(panels).where(eq(panels.id, id)).get();
 	if (!panel) throw new MutationRejected("not_found", "Panel not found");
@@ -104,8 +137,17 @@ export function openPanel(db: Db, member: MemberRow, input: OpenPanelInput, now:
 	db.insert(panelSeats)
 		.values(input.seats.map((memberId) => ({ panelId: id, memberId })))
 		.run();
+	// Seats learn the panel id from this comment; it holds no position text.
+	const changes = new ChangeSet(db, SYSTEM_ACTOR_ID, now);
+	postComment(
+		db,
+		changes,
+		input.issueId,
+		crypto.randomUUID(),
+		`Panel opened (id \`${id}\`). Seats: ${input.seats.map((s) => memberName(db, s)).join(", ")}. Deadline: ${new Date(input.deadlineAt).toISOString()}. Each seat submits one position with \`submit_position\`; all positions are revealed together under aliases when the last one is in or the deadline passes.`,
+	);
 	return {
-		...new ChangeSet(db, null, now).result(),
+		...publish(db, changes),
 		wake: true,
 		response: getPanel(db, member, { panelId: id }),
 	};
@@ -153,8 +195,7 @@ export function revealPanel(
 		s.body === null ? [] : [{ memberId: s.memberId, body: s.body }],
 	);
 	for (let i = submitted.length - 1; i > 0; i--) {
-		const random = crypto.getRandomValues(new Uint32Array(1))[0] ?? 0;
-		const j = Math.floor((random / 2 ** 32) * (i + 1));
+		const j = randomBelow(i + 1);
 		const a = submitted[i];
 		const b = submitted[j];
 		if (a && b) {
@@ -162,13 +203,7 @@ export function revealPanel(
 			submitted[j] = a;
 		}
 	}
-	const absent = seats
-		.filter((s) => s.body === null)
-		.map(
-			(s) =>
-				db.select({ name: members.name }).from(members).where(eq(members.userId, s.memberId)).get()
-					?.name ?? "Deleted member",
-		);
+	const absent = seats.filter((s) => s.body === null).map((s) => memberName(db, s.memberId));
 	const bodies = [
 		`Panel revealed: ${submitted.length} of ${seats.length} seats submitted (${reason === "complete" ? "all in" : "deadline passed"}). Absent: ${absent.join(", ") || "none"}.`,
 	];
@@ -183,21 +218,8 @@ export function revealPanel(
 	if (findIssueRowById(db, panel.issueId)?.archivedAt !== null) return;
 	// Comments sort by creation time, then id. Keep this batch in its publication order.
 	const prefix = crypto.randomUUID();
-	for (const [index, body] of bodies.entries()) {
-		const row = {
-			id: `${prefix}-${index}`,
-			issueId: panel.issueId,
-			authorId: SYSTEM_ACTOR_ID,
-			body,
-			createdAt: now,
-			updatedAt: now,
-			deletedAt: null,
-		};
-		db.insert(comments).values(row).run();
-		indexComment(db, row);
-		changes.put("comment", toComment(row));
-		changes.events.push({ type: "comment.created", comment: row });
-	}
+	for (const [index, body] of bodies.entries())
+		postComment(db, changes, panel.issueId, `${prefix}-${index}`, body);
 }
 
 function publish(db: Db, changes: ChangeSet) {

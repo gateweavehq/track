@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { MemberProfile, WebhookResult } from "../src";
 import * as schema from "../src/db/schema";
 import { ChangeSet } from "../src/log";
-import { revealPanel } from "../src/panels";
+import { randomBelow, revealPanel } from "../src/panels";
 import { freshWorkspace, TestClient } from "./client";
 
 function member(id: string, role: MemberProfile["role"]): MemberProfile {
@@ -200,7 +200,7 @@ it("webhooks get the reveal comments and no hidden position", async () => {
 	ok(await submit(id, b, "second"));
 	ok(await submit(id, c, "third"));
 	const rows = await deliveries();
-	expect(rows.filter((r) => r.event === "comment.created")).toHaveLength(4);
+	expect(rows.filter((r) => r.event === "comment.created")).toHaveLength(5);
 	expect(JSON.stringify(rows)).toContain(secret);
 });
 it("only panel_seats stores the hidden text", async () => {
@@ -243,14 +243,15 @@ it("last submit publishes all aliased Track comments in one consecutive delta", 
 		absent: [],
 	});
 	const comments = await ws.comments(issueId);
-	expect(comments).toHaveLength(4);
+	expect(comments).toHaveLength(5);
 	expect(comments.every((row) => row.authorId === "system")).toBe(true);
-	expect(comments[0]?.body).toMatch(/3 of 3.*Absent: none/);
+	expect(comments[0]?.body).toContain("Panel opened");
+	expect(comments[1]?.body).toMatch(/3 of 3.*Absent: none/);
 	const positions = panel.positions ?? [];
 	expect(positions.map((p) => p.alias)).toEqual(["Position A", "Position B", "Position C"]);
 	expect(new Set(positions.map((p) => p.body))).toEqual(new Set([secret, "second", "third"]));
 	for (const p of positions) expect(Object.keys(p).sort()).toEqual(["alias", "body"]);
-	expect(comments.slice(1).map((r) => r.body)).toEqual(
+	expect(comments.slice(2).map((r) => r.body)).toEqual(
 		positions.map((p) => `**${p.alias}**\n\n${p.body}`),
 	);
 	const delta = await client.take(
@@ -274,9 +275,10 @@ it.each([0, 2])(
 		const id = await open();
 		await runDurableObjectAlarm(ws);
 		expect(ok(await get(id, a)).state).toBe("open");
-		expect(await runInDurableObject(ws, (_, state) => state.storage.getAlarm())).toBe(
-			input.deadlineAt,
-		);
+		// The opening comment may also plan an earlier alarm for its inbox push.
+		expect(
+			await runInDurableObject(ws, (_, state) => state.storage.getAlarm()),
+		).toBeLessThanOrEqual(input.deadlineAt);
 		if (n) {
 			ok(await submit(id, a, "first"));
 			ok(await submit(id, b, "second"));
@@ -289,8 +291,8 @@ it.each([0, 2])(
 			absent: n ? [c.id] : [a.id, b.id, c.id],
 		});
 		const comments = await ws.comments(issueId);
-		expect(comments).toHaveLength(n + 1);
-		expect(comments[0]?.body).toContain(
+		expect(comments).toHaveLength(n + 2);
+		expect(comments[1]?.body).toContain(
 			`Absent: ${(n ? [c] : [a, b, c]).map((m) => m.name).join(", ")}.`,
 		);
 		await runDurableObjectAlarm(ws);
@@ -313,7 +315,7 @@ it("a stale deadline reveal after the last submit writes no second batch", async
 			revealPanel(db, new ChangeSet(db, null, now), stale, "deadline", now);
 		}),
 	);
-	expect(await ws.comments(issueId)).toHaveLength(4);
+	expect(await ws.comments(issueId)).toHaveLength(5);
 });
 it.each(["archived", "deleted"])("reveals without comments on a %s issue", async (state) => {
 	const { ws, open, submit, mutate, get } = await setup();
@@ -326,9 +328,10 @@ it.each(["archived", "deleted"])("reveals without comments on a %s issue", async
 	);
 	for (const m of [a, b, c]) ok(await submit(id, m, m.name));
 	expect(ok(await get(id, reader)).positions).toHaveLength(3);
-	expect(
-		await runInDurableObject(ws, (_, s) => s.storage.sql.exec("select * from comments").toArray()),
-	).toEqual([]);
+	const rows = await runInDurableObject(ws, (_, s) =>
+		s.storage.sql.exec<{ body: string }>("select body from comments").toArray(),
+	);
+	expect(rows.map((r) => r.body)).toEqual([expect.stringContaining("Panel opened")]);
 });
 it("notifies issue subscribers only at reveal", async () => {
 	const { ws, open, submit, mutate } = await setup();
@@ -336,10 +339,37 @@ it("notifies issue subscribers only at reveal", async () => {
 	await mutate(c, { name: "issue.subscribe", args: { issueId, subscribed: true } });
 	ok(await submit(id, a, secret));
 	expect((await ws.snapshot(c)).inbox).toEqual([]);
-	expect((await ws.snapshot(owner)).inbox).toEqual([]);
+	// Only the opening comment, which holds no position text, has reached the owner so far.
+	expect((await ws.snapshot(owner)).inbox).toEqual([
+		expect.objectContaining({ issueId, actorId: "system", unread: 1 }),
+	]);
 	ok(await submit(id, b, "second"));
 	ok(await submit(id, c, "third"));
 	expect((await ws.snapshot(owner)).inbox).toContainEqual(
-		expect.objectContaining({ issueId, actorId: "system", unread: 4 }),
+		expect.objectContaining({ issueId, actorId: "system", unread: 5 }),
 	);
+});
+it("opening a panel posts a comment that names the id, the seats and the deadline", async () => {
+	const { ws, input, open, get } = await setup();
+	const id = await open();
+	const [comment, ...rest] = await ws.comments(issueId);
+	expect(rest).toEqual([]);
+	expect(comment?.authorId).toBe("system");
+	expect(comment?.body).toContain(id);
+	expect(comment?.body).toContain(new Date(input.deadlineAt).toISOString());
+	for (const m of [a, b, c]) expect(comment?.body).toContain(m.name);
+	expect(comment?.body).not.toContain(reader.name);
+	expect(ok(await get(id, a))).toMatchObject({ state: "open", own: null });
+});
+it("randomBelow redraws values from the uneven top of the range", () => {
+	const draws = [0xffffffff, 0xfffffffe, 7];
+	const spy = vi.spyOn(crypto, "getRandomValues").mockImplementation(((array: Uint32Array) => {
+		array[0] = draws.shift() ?? 0;
+		return array;
+	}) as typeof crypto.getRandomValues);
+	// 2 ** 32 % 3 is 1, so only 0xffffffff falls outside the whole multiples of 3.
+	expect(randomBelow(3)).toBe(0xfffffffe % 3);
+	expect(spy).toHaveBeenCalledTimes(2);
+	spy.mockRestore();
+	for (let n = 1; n <= 5; n++) expect(randomBelow(n)).toBeLessThan(n);
 });
