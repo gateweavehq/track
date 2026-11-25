@@ -8,6 +8,34 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.48.0] - 2026-11-25
+
+An owner or admin can now approve an agent's assignment for its runner on the issue page,
+instead of posting to the work-run gateway by hand. There is no protocol or migration change.
+
+### Added
+
+- **A Runner row on the issue page.** Owners and admins see it under Assignee when the issue is
+  assigned to an agent member. It is hidden on the demo, where work runs are off.
+  - **Reading it:** the row says whether the current assignment is approved, such as
+    "Cloud · acme/site" or "Not approved". Opened, an approval shows its repository, executor,
+    reporting source and how its last attempt went. The row asks Track again each time it opens.
+  - **Approving:** a short form takes the repository as `owner/repo`, one of the team's Agents
+    sources and the executor, Local runner or Cloud. A refusal from Track stays in the form, and
+    with no Agents source for the team, the row points to Settings → Sources.
+  - **Reassigning** the issue starts a new assignment, which reads as not approved.
+
+  ([#374](https://github.com/gateweavehq/track/pull/374))
+- **`POST /api/work-runs/approval`** reads an issue's current approval: its repository,
+  `sourceId`, executor and latest attempt, or `404` when the assignment has none. It takes an
+  owner or admin's session from Track's own origin, as `register` does.
+  ([#374](https://github.com/gateweavehq/track/pull/374))
+
+### If you run your own
+
+- **Nothing to do.** There is no protocol, migration or setting change, and rolling back to
+  0.47.1 only takes the row and the lookup away.
+
 ## [0.47.1] - 2026-11-25
 
 Two fixes from the first runner pilot. The sync protocol goes to 30, and there are two workspace
