@@ -63,6 +63,7 @@ afterEach(() => {
 it("WEB-87: approves an unapproved assignment for the runner, and then names where it goes", async () => {
 	const calls = gateway(
 		[404, { error: "Not found" }],
+		[404, { error: "Not found" }],
 		[
 			201,
 			{
@@ -81,8 +82,10 @@ it("WEB-87: approves an unapproved assignment for the runner, and then names whe
 	fireEvent.change(page.getByLabelText("Runs on"), { target: { value: "cloud" } });
 	fireEvent.click(page.getByRole("button", { name: "Approve" }));
 	expect(await page.findByRole("button", { name: "Cloud · acme/site" })).toBeTruthy();
+	const read = { url: "/api/work-runs/approval", body: { workspace: "acme", issue: "ENG-1" } };
 	expect(calls).toEqual([
-		{ url: "/api/work-runs/approval", body: { workspace: "acme", issue: "ENG-1" } },
+		read,
+		read,
 		{
 			url: "/api/work-runs/register",
 			body: {
@@ -96,19 +99,18 @@ it("WEB-87: approves an unapproved assignment for the runner, and then names whe
 	]);
 });
 
+const failed = {
+	requestId: "request-1",
+	repository: "acme/site",
+	executor: "local-runner",
+	sourceId: "source-1",
+	activeAttemptId: null,
+	lastAttemptId: "attempt-1",
+	lastAttemptState: "failed",
+};
+
 it("WEB-87: shows an existing approval, its source and how its last attempt ended", async () => {
-	gateway([
-		200,
-		{
-			requestId: "request-1",
-			repository: "acme/site",
-			executor: "local-runner",
-			sourceId: "source-1",
-			activeAttemptId: null,
-			lastAttemptId: "attempt-1",
-			lastAttemptState: "failed",
-		},
-	]);
+	gateway([200, failed], [200, failed]);
 	const page = row();
 	fireEvent.click(await page.findByRole("button", { name: "Local runner · acme/site" }));
 	expect(page.getByText("Approved for this assignment")).toBeTruthy();
@@ -119,6 +121,7 @@ it("WEB-87: shows an existing approval, its source and how its last attempt ende
 
 it("WEB-87: keeps a refused approval's reason on screen, and checks the repository first", async () => {
 	const calls = gateway(
+		[404, { error: "Not found" }],
 		[404, { error: "Not found" }],
 		[
 			409,
@@ -132,7 +135,7 @@ it("WEB-87: keeps a refused approval's reason on screen, and checks the reposito
 	expect((await page.findByRole("alert")).textContent).toBe(
 		"Name a GitHub repository as owner/repo.",
 	);
-	expect(calls).toHaveLength(1);
+	expect(calls).toHaveLength(2);
 	fireEvent.change(page.getByLabelText("Repository"), { target: { value: "acme/site" } });
 	fireEvent.click(page.getByRole("button", { name: "Approve" }));
 	await waitFor(() =>
@@ -145,7 +148,7 @@ it("WEB-87: keeps a refused approval's reason on screen, and checks the reposito
 
 it("WEB-87: without an Agents source for the team, it says where to add one", async () => {
 	sources.splice(0, sources.length);
-	gateway([404, { error: "Not found" }]);
+	gateway([404, { error: "Not found" }], [404, { error: "Not found" }]);
 	const page = row();
 	fireEvent.click(await page.findByRole("button", { name: "Not approved" }));
 	expect(page.getByRole("link", { name: "Sources" })).toBeTruthy();
@@ -153,9 +156,14 @@ it("WEB-87: without an Agents source for the team, it says where to add one", as
 });
 
 it("WEB-87: a failed read says so and can ask again", async () => {
-	gateway([503, { error: "This workspace is moving" }], [404, { error: "Not found" }]);
+	const calls = gateway(
+		[503, { error: "This workspace is moving" }],
+		[503, { error: "This workspace is moving" }],
+		[404, { error: "Not found" }],
+	);
 	const page = row();
 	fireEvent.click(await page.findByRole("button", { name: "Could not check" }));
+	await waitFor(() => expect(calls).toHaveLength(2));
 	expect(page.getByRole("alert").textContent).toBe("This workspace is moving");
 	fireEvent.click(page.getByRole("button", { name: "Try again" }));
 	expect(await page.findByRole("button", { name: "Not approved" })).toBeTruthy();
@@ -167,4 +175,69 @@ it("WEB-87: says how the last attempt went in plain words", () => {
 			pastTense(state as never),
 		),
 	).toEqual(["is queued", "is running", "passed", "failed", "was cancelled"]);
+});
+
+it("WEB-87: reads again on opening, so an approval made elsewhere or a new attempt shows", async () => {
+	gateway(
+		[404, { error: "Not found" }],
+		[
+			200,
+			{
+				...failed,
+				activeAttemptId: "attempt-2",
+				lastAttemptId: "attempt-2",
+				lastAttemptState: "running",
+			},
+		],
+	);
+	const page = row();
+	fireEvent.click(await page.findByRole("button", { name: "Not approved" }));
+	expect(await page.findByText("An attempt is under way.")).toBeTruthy();
+	expect(page.getByRole("button", { name: "Local runner · acme/site" })).toBeTruthy();
+});
+
+it("WEB-87: a failed refresh keeps the approval on screen", async () => {
+	const calls = gateway([200, failed], [503, { error: "This workspace is moving" }]);
+	const page = row();
+	fireEvent.click(await page.findByRole("button", { name: "Local runner · acme/site" }));
+	await waitFor(() => expect(calls).toHaveLength(2));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(page.getByText("The last attempt failed.")).toBeTruthy();
+	expect(page.queryByRole("alert")).toBeNull();
+});
+
+it("WEB-87: a read that answers after the approval does not undo it", async () => {
+	let answerRead: (response: Response) => void = () => {};
+	const calls: string[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn((url: string) => {
+			calls.push(url);
+			if (calls.length === 1) return Promise.resolve(Response.json({}, { status: 404 }));
+			if (calls.length === 2)
+				return new Promise<Response>((resolve) => {
+					answerRead = resolve;
+				});
+			return Promise.resolve(
+				Response.json(
+					{ ...failed, executor: "cloud", lastAttemptId: null, lastAttemptState: null },
+					{ status: 201 },
+				),
+			);
+		}),
+	);
+	const page = row();
+	fireEvent.click(await page.findByRole("button", { name: "Not approved" }));
+	fireEvent.change(page.getByLabelText("Repository"), { target: { value: "acme/site" } });
+	fireEvent.click(page.getByRole("button", { name: "Approve" }));
+	expect(await page.findByRole("button", { name: "Cloud · acme/site" })).toBeTruthy();
+	expect(calls).toEqual([
+		"/api/work-runs/approval",
+		"/api/work-runs/approval",
+		"/api/work-runs/register",
+	]);
+	// The read the opening started, from before the approval, now says there is none.
+	answerRead(Response.json({}, { status: 404 }));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(page.getByRole("button", { name: "Cloud · acme/site" })).toBeTruthy();
 });

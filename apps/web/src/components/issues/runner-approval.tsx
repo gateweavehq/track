@@ -10,6 +10,7 @@ import {
 	type ReactNode,
 	useCallback,
 	useEffect,
+	useRef,
 	useState,
 } from "react";
 import { toast } from "sonner";
@@ -53,22 +54,29 @@ export function RunnerApproval({
 	const [loaded, setLoaded] = useState<Loaded>({ status: "loading" });
 	const [open, setOpen] = useState(false);
 
-	// Asks Track once on mount, and again after a failed read. The cleanup drops a late answer.
+	// Asks Track on mount, on each opening (another tab may have approved it, or a runner moved
+	// on), and after a failed read. Only the latest question's answer counts, and a failed
+	// refresh keeps an answer already on screen.
+	const asked = useRef(0);
 	const load = useCallback(() => {
-		let current = true;
+		const question = ++asked.current;
 		void readApproval(slug, issueKey).then((answer) => {
-			if (!current) return;
-			setLoaded(
+			if (question !== asked.current) return;
+			setLoaded((shown) =>
 				answer.ok
 					? { status: "ready", approval: answer.approval }
-					: { status: "failed", message: answer.message },
+					: shown.status === "ready"
+						? shown
+						: { status: "failed", message: answer.message },
 			);
 		});
-		return () => {
-			current = false;
-		};
 	}, [slug, issueKey]);
-	useEffect(load, [load]);
+	useEffect(() => {
+		load();
+		return () => {
+			asked.current++;
+		};
+	}, [load]);
 
 	const summary =
 		loaded.status === "loading" ? (
@@ -84,7 +92,13 @@ export function RunnerApproval({
 		);
 
 	return (
-		<Popover open={open} onOpenChange={setOpen}>
+		<Popover
+			open={open}
+			onOpenChange={(next) => {
+				setOpen(next);
+				if (next && loaded.status !== "loading") load();
+			}}
+		>
 			<PopoverTrigger asChild>{children(summary)}</PopoverTrigger>
 			<PopoverContent className="w-80 space-y-3 p-3 text-sm" aria-label="Runner approval">
 				{loaded.status === "loading" && <p className="text-muted-foreground">Checking…</p>}
@@ -113,6 +127,8 @@ export function RunnerApproval({
 							issue={issue}
 							issueKey={issueKey}
 							approved={(approval) => {
+								// A read still under way started before this approval.
+								asked.current++;
 								setLoaded({ status: "ready", approval });
 								setOpen(false);
 								toast.success(`${issueKey} is approved for the runner`);
