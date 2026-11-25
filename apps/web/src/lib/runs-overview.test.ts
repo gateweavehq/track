@@ -1,6 +1,12 @@
 import type { Signal, SyncedIssue, Team } from "@gateweave/track-protocol";
 import { expect, it } from "vitest";
-import { overviewExecutors, overviewRuns, RECENTLY_FAILED_WITHIN } from "./runs-overview";
+import {
+	overviewExecutors,
+	overviewRepositories,
+	overviewRuns,
+	RECENTLY_FAILED_WITHIN,
+	runsOverviewSearch,
+} from "./runs-overview";
 
 const NOW = 1_800_000_000_000;
 
@@ -28,6 +34,7 @@ const signal = (over: Partial<Signal>): Signal =>
 		waitDetail: null,
 		lastContactAt: null,
 		attemptNo: null,
+		repository: null,
 		...over,
 	}) as Signal;
 
@@ -104,9 +111,54 @@ it("filters by executor", () => {
 		issues,
 		teams,
 		NOW,
-		"local-runner",
+		{ executor: "local-runner" },
 	);
 	expect(rows.running.map((row) => row.run.id)).toEqual(["local"]);
+});
+
+it("WEB-84: filters by repository, alone or with the executor", () => {
+	const runs = [
+		signal({ id: "site-local", repository: "acme/site", executor: "local-runner" }),
+		signal({ id: "site-cloud", repository: "acme/site", executor: "cloud" }),
+		signal({ id: "docs-local", repository: "acme/docs", executor: "local-runner" }),
+		// A product's own run has no repository, so a repository filter leaves it out.
+		signal({ id: "product", repository: null, executor: "local-runner" }),
+	];
+	const ids = (filter: Parameters<typeof overviewRuns>[4]) =>
+		overviewRuns(runs, issues, teams, NOW, filter).running.map((row) => row.run.id);
+	expect(ids({ repository: "acme/site" })).toEqual(["site-local", "site-cloud"]);
+	expect(ids({ repository: "acme/site", executor: "local-runner" })).toEqual(["site-local"]);
+	expect(ids({ repository: "acme/blog" })).toEqual([]);
+	expect(ids({})).toHaveLength(4);
+});
+
+it("WEB-84: offers the repositories of runs on the page, alphabetically, once each", () => {
+	const old = NOW - RECENTLY_FAILED_WITHIN - 1;
+	expect(
+		overviewRepositories(
+			[
+				signal({ repository: "acme/site" }),
+				signal({ repository: "acme/docs", state: "queued" }),
+				signal({ repository: "acme/site", state: "failed", endedAt: NOW }),
+				signal({ repository: null }),
+				// Runs that left the page, or never had an issue, offer theirs to no one.
+				signal({ repository: "acme/blog", state: "passed", endedAt: NOW }),
+				signal({ repository: "acme/old", state: "failed", endedAt: old }),
+				signal({ repository: "acme/unbound", issueId: null }),
+			],
+			NOW,
+		),
+	).toEqual(["acme/docs", "acme/site"]);
+});
+
+it("WEB-84: the address keeps a repository in the server's spelling and drops a malformed one", () => {
+	expect(runsOverviewSearch.parse({ repository: "Acme/Site" })).toEqual({
+		repository: "acme/site",
+	});
+	expect(runsOverviewSearch.parse({ repository: "not a repository" })).toEqual({});
+	expect(runsOverviewSearch.parse({ executor: "cloud", repository: 7 })).toEqual({
+		executor: "cloud",
+	});
 });
 
 it("lists the executors in use, in the protocol's order", () => {

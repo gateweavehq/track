@@ -26,6 +26,8 @@ export const WRITES_PER_DAY = 300;
 export const BYTES_PER_DAY = 2 * 1024 * 1024;
 // Status's flapping incidents in production set this limit.
 export const REOPENS_PER_KEY_PER_DAY = 3;
+export const AGENT_ATTEMPTS_BEFORE_HANDOFF = 2;
+export const AGENT_ATTEMPT_DAYS = 7;
 // Stay under Agents' 20 runs a day.
 export const ASSIGNED_PER_DAY = 10;
 // U2 measures the number of findings a source keeps open.
@@ -72,6 +74,17 @@ export type SignalKind = (typeof SIGNAL_KINDS)[number];
 export type RunState = (typeof RUN_STATES)[number];
 export type RunExecutor = (typeof RUN_EXECUTORS)[number];
 export type RunWaitReason = (typeof RUN_WAIT_REASONS)[number];
+
+/**
+ * A GitHub repository as `owner/name`, in one spelling: a work run's registration names one, and
+ * the attempts it hands out carry it to their run signals.
+ */
+export const githubRepository = z
+	.string()
+	.trim()
+	.toLowerCase()
+	.max(200)
+	.regex(/^[a-z0-9-]+\/(?!\.{1,2}$)[a-z0-9_.-]+$/);
 
 const link = userText
 	.pipe(z.url({ protocol: /^https?$/, normalize: true }))
@@ -230,6 +243,8 @@ export const exportedSignalSchema = z.object({
 	// Files written before attempts were numbered carry none. No upper bound: the claim counts on
 	// without one, and a refused signal would stop the whole export.
 	attemptNo: z.int().positive().nullish(),
+	// Files written before attempts carried their repository have none.
+	repository: githubRepository.nullish(),
 });
 // Include the array separator and reserve room for the gateway's two derived import ids.
 export function restoreSignalBytes(signal: z.infer<typeof exportedSignalSchema>) {
@@ -300,6 +315,19 @@ export const restoredSignalSchema = exportedSignalSchema
 				message: "An alert has no attempt number",
 				path: ["attemptNo"],
 			});
+		if (row.kind === "alert" && row.repository != null)
+			ctx.addIssue({
+				code: "custom",
+				message: "An alert has no repository",
+				path: ["repository"],
+			});
+		// Only a scoped attempt has a repository, and every scoped attempt has its number.
+		else if (row.repository != null && row.attemptNo == null)
+			ctx.addIssue({
+				code: "custom",
+				message: "A run with a repository has an attempt number",
+				path: ["attemptNo"],
+			});
 	});
 
 export const RESTORE_ISSUE_MISSING =
@@ -368,6 +396,11 @@ export interface Signal {
 	 * name it. Null for alerts and for runs a product reports, whose key is their name.
 	 */
 	attemptNo: number | null;
+	/**
+	 * The repository a scoped attempt works in, `owner/name`, from its registration, which a
+	 * report cannot change. Null for alerts and for runs a product reports.
+	 */
+	repository: string | null;
 }
 
 function plainSourceTitle(title: string) {
@@ -397,6 +430,14 @@ export function sourceLimitNotice(name: string, limit: string) {
 
 export function sourceReopenComment(name: string) {
 	return escapeSourceText(name) + " reported this signal open again.";
+}
+
+export function sourceHandoffComment(name: string, attempts: number[], ownerName: string) {
+	const times = attempts
+		.slice(-2)
+		.map((at) => new Date(at).toISOString())
+		.join(" and ");
+	return `${sourceReopenComment(name)} After agent attempts at ${times}, the agent was taken off and the issue was assigned to workspace owner ${escapeSourceText(ownerName)}.`;
 }
 
 export function sourceIssueText(event: SourceEvent, source: Pick<Source, "name">) {

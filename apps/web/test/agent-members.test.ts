@@ -329,12 +329,15 @@ it("binds one replayable work run to the administrator's issue and repository", 
 				url: "https://builds.example.test/run",
 				// WEB-86: the Runs card names an attempt by this number, not by its id.
 				attemptNo: 1,
+				// WEB-84: the Runs page filters by the registration's repository.
+				repository: "acme/site",
 			}),
 			expect.objectContaining({
 				id: retry.attemptId,
 				issueId: "assigned",
 				state: "queued",
 				attemptNo: 2,
+				repository: "acme/site",
 			}),
 		]),
 	);

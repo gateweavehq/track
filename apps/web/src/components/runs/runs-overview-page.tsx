@@ -24,7 +24,13 @@ import {
 	runTitle,
 	runWaitLabel,
 } from "#/lib/runs";
-import { type OverviewRow, overviewExecutors, overviewRuns } from "#/lib/runs-overview";
+import {
+	type OverviewRow,
+	overviewExecutors,
+	overviewRepositories,
+	overviewRuns,
+	type RunsOverviewFilter,
+} from "#/lib/runs-overview";
 import { cn } from "#/lib/utils";
 
 const STATE_META: Record<RunState, { label: string; icon: LucideIcon; className: string }> = {
@@ -34,6 +40,9 @@ const STATE_META: Record<RunState, { label: string; icon: LucideIcon; className:
 	failed: { label: "Failed", icon: XCircle, className: "text-destructive" },
 	cancelled: { label: "Cancelled", icon: CircleSlash, className: "text-muted-foreground" },
 };
+
+const FILTER_CLASS =
+	"h-8 min-w-0 max-w-48 rounded-md border bg-background px-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 const GROUPS = [
 	["running", "Running"],
@@ -47,12 +56,13 @@ const GROUPS = [
  * Each row links to the issue the run works on.
  */
 export function RunsOverviewPage({
-	executorFilter,
-	onExecutorFilterChange,
+	filter,
+	onFilterChange,
 }: {
-	executorFilter: RunExecutor | undefined;
-	onExecutorFilterChange: (executor: RunExecutor | undefined) => void;
+	filter: RunsOverviewFilter;
+	onFilterChange: (next: RunsOverviewFilter) => void;
 }) {
+	const { executor: executorFilter, repository: repositoryFilter } = filter;
 	const { slug } = useWorkspace();
 	const signals = useSignals();
 	const issues = useIssuesById();
@@ -67,26 +77,58 @@ export function RunsOverviewPage({
 			(executor) => executor === executorFilter || shown.includes(executor),
 		);
 	}, [signals, now, executorFilter]);
+	// Likewise the repositories, which only scoped attempts carry.
+	const repositories = useMemo(() => {
+		const shown = overviewRepositories(signals.values(), now);
+		return repositoryFilter === undefined || shown.includes(repositoryFilter)
+			? shown
+			: [...shown, repositoryFilter].sort();
+	}, [signals, now, repositoryFilter]);
 	const groups = useMemo(
-		() => overviewRuns(signals.values(), issues, teams, now, executorFilter),
-		[signals, issues, teams, now, executorFilter],
+		() =>
+			overviewRuns(signals.values(), issues, teams, now, {
+				executor: executorFilter,
+				repository: repositoryFilter,
+			}),
+		[signals, issues, teams, now, executorFilter, repositoryFilter],
 	);
 	const total = groups.running.length + groups.queued.length + groups.failed.length;
+	const executorLabel = executorFilter === undefined ? null : RUN_EXECUTOR_LABELS[executorFilter];
 
 	return (
 		<div className="flex h-full flex-col overflow-y-auto">
 			<header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3 sm:px-4">
 				<h1 className="truncate text-sm font-medium">Runs</h1>
 				<span className="text-sm text-muted-foreground tabular-nums">{total}</span>
-				{executors.length > 0 && (
-					<div className="ml-auto">
+				<div className="ml-auto flex min-w-0 items-center gap-2">
+					{repositories.length > 0 && (
+						<select
+							aria-label="Filter by repository"
+							value={repositoryFilter ?? ""}
+							onChange={(event) =>
+								onFilterChange({ ...filter, repository: event.target.value || undefined })
+							}
+							className={FILTER_CLASS}
+						>
+							<option value="">All repositories</option>
+							{repositories.map((repository) => (
+								<option key={repository} value={repository}>
+									{repository}
+								</option>
+							))}
+						</select>
+					)}
+					{executors.length > 0 && (
 						<select
 							aria-label="Filter by executor"
 							value={executorFilter ?? ""}
 							onChange={(event) =>
-								onExecutorFilterChange((event.target.value || undefined) as RunExecutor | undefined)
+								onFilterChange({
+									...filter,
+									executor: (event.target.value || undefined) as RunExecutor | undefined,
+								})
 							}
-							className="h-8 max-w-48 rounded-md border bg-background px-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+							className={FILTER_CLASS}
 						>
 							<option value="">All executors</option>
 							{executors.map((executor) => (
@@ -95,20 +137,21 @@ export function RunsOverviewPage({
 								</option>
 							))}
 						</select>
-					</div>
-				)}
+					)}
+				</div>
 			</header>
-			{total === 0 && executorFilter !== undefined ? (
+			{total === 0 && (executorFilter !== undefined || repositoryFilter !== undefined) ? (
 				<Notice
-					title={`No ${RUN_EXECUTOR_LABELS[executorFilter]} runs`}
+					title={`No ${executorLabel === null ? "" : `${executorLabel} `}runs${repositoryFilter === undefined ? "" : ` in ${repositoryFilter}`}`}
 					action={
-						<Button variant="outline" size="sm" onClick={() => onExecutorFilterChange(undefined)}>
-							Show all executors
+						<Button variant="outline" size="sm" onClick={() => onFilterChange({})}>
+							Show all runs
 						</Button>
 					}
 				>
-					Nothing on {RUN_EXECUTOR_LABELS[executorFilter]} is running, waiting or failed within the
-					week.
+					Nothing{executorLabel === null ? "" : ` on ${executorLabel}`}
+					{repositoryFilter === undefined ? "" : ` in ${repositoryFilter}`} is running, waiting or
+					failed within the week.
 				</Notice>
 			) : total === 0 ? (
 				<Notice title="No runs">
@@ -183,6 +226,11 @@ function OverviewRowItem({
 				{runTitle(run)}
 			</span>
 			{executor !== null && <span className="shrink-0 text-muted-foreground">{executor}</span>}
+			{run.repository !== null && (
+				<span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+					{run.repository}
+				</span>
+			)}
 			{row.issueKey !== null ? (
 				<Link
 					to="/$workspace/issue/$issueKey"
@@ -193,9 +241,11 @@ function OverviewRowItem({
 					<span className="truncate">{row.issueTitle}</span>
 				</Link>
 			) : null}
-			<span className="flex min-w-0 flex-1 items-center gap-2">
+			{/* A real basis, not flex-1's 0%: short of room, the text takes a line of its own and
+			    wraps there, rather than shrinking to an ellipsis beside the issue's title. */}
+			<span className="flex min-w-0 grow basis-48 flex-wrap items-center gap-x-2">
 				{run.progress !== null && (
-					<span className="truncate text-muted-foreground">{run.progress}</span>
+					<span className="min-w-0 wrap-anywhere text-muted-foreground">{run.progress}</span>
 				)}
 				{waiting !== null && (
 					<span className="min-w-0 wrap-anywhere text-amber-600 dark:text-amber-500">

@@ -79,3 +79,51 @@ test("WEB-84: the Runs page shows what runs, waits and failed, by executor", asy
 	await queued.getByRole("link", { name: /ENG-2/ }).click();
 	await expect(page).toHaveURL(`/${slug}/issue/ENG-2`);
 });
+
+test("WEB-84: on a narrow screen a run's progress wraps onto its own line instead of being cut off", async ({
+	page,
+	request,
+}) => {
+	const { slug } = await startWorkspace(page);
+	const title = "Make the release notes link to every merged pull request of the version";
+	await createIssue(page, title);
+	await expect(issueRow(page, title)).toBeVisible();
+	await page.goto(`/${slug}/settings/sources`);
+	await page.getByRole("button", { name: "Add source" }).click();
+	await page.getByLabel("Name", { exact: true }).fill("Gateweave Agents");
+	await page.getByLabel("Product").selectOption("agents");
+	await page.getByRole("button", { name: "Create source" }).click();
+	const token = await page.getByLabel("Source key").inputValue();
+	await page.getByRole("button", { name: "Done" }).click();
+	const progress = {
+		running: "Running pnpm verify in the worktree: typecheck passed, 3 of 5 test suites passed",
+		failed: "A required check did not pass",
+	};
+	for (const [state, line] of Object.entries(progress)) {
+		const answer = await request.post("/api/events", {
+			headers: { authorization: `Bearer ${token}` },
+			data: {
+				kind: "run",
+				sentAt: new Date().toISOString(),
+				title: "Agent run",
+				key: `release-notes-${state}`,
+				issue: "ENG-1",
+				state,
+				executor: "local-runner",
+				agent: "Pilot runner",
+				progress: line,
+			},
+		});
+		expect(answer.status()).toBe(200);
+	}
+
+	// The width of a laptop with the sidebar open, where the issue's title fills the first line.
+	await page.setViewportSize({ width: 930, height: 700 });
+	await page.goto(`/${slug}/runs`);
+	for (const line of Object.values(progress)) {
+		const text = page.getByText(line, { exact: true });
+		await expect(text).toBeVisible();
+		// The whole line shows: nothing is clipped behind an ellipsis.
+		expect(await text.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+	}
+});

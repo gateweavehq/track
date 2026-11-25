@@ -4380,6 +4380,8 @@ describe("search", () => {
 			db.run(sql`drop table issue_comment_search_docs`);
 			db.run(sql`alter table teams drop column intake_followers`);
 			db.run(sql`drop table audit_events`);
+			db.run(sql`drop table panel_seats`);
+			db.run(sql`drop table panels`);
 			db.run(sql`drop table work_run_attempts`);
 			db.run(sql`drop table work_run_requests`);
 			db.run(sql`drop table signals`);
@@ -4431,6 +4433,8 @@ describe("search", () => {
 			db.run(sql`drop index inbox_items_push_idx`);
 			db.run(sql`alter table inbox_items drop column push_at`);
 			db.run(sql`drop table audit_events`);
+			db.run(sql`drop table panel_seats`);
+			db.run(sql`drop table panels`);
 			db.run(sql`drop table work_run_attempts`);
 			db.run(sql`drop table work_run_requests`);
 			db.run(sql`drop table signals`);

@@ -1938,6 +1938,7 @@ it("R13: a source and its signal survive snapshot, delta and IndexedDB reload", 
 		waitDetail: null,
 		lastContactAt: null,
 		attemptNo: null,
+		repository: null,
 	};
 	const store = replica();
 	store.reset({ ...snapshot, sources: [source], signals: [signal] });

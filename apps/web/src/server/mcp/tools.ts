@@ -29,10 +29,15 @@ import {
 import { uuidv7 } from "@gateweave/track-sync-client";
 import type {
 	Directory,
+	GetPanelInput,
 	InsightScope,
 	IssueQuery,
 	MemberProfile,
 	MutateResult,
+	OpenPanelInput,
+	PanelView,
+	SubmitPositionInput,
+	WebhookResult,
 } from "@gateweave/track-sync-server";
 import { type CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { generateKeyBetween } from "fractional-indexing";
@@ -61,6 +66,9 @@ export interface WorkspaceAccess {
 	/** The signed-in user, as a member of this workspace. */
 	me: MemberProfile;
 	directory(): Promise<Directory>;
+	openPanel(input: OpenPanelInput): Promise<WebhookResult<PanelView>>;
+	submitPosition(input: SubmitPositionInput): Promise<WebhookResult<PanelView>>;
+	getPanel(input: GetPanelInput): Promise<WebhookResult<PanelView>>;
 	issues(query: IssueQuery): Promise<Issue[]>;
 	issue(id: string): Promise<Issue | null>;
 	issueByKey(teamKey: string, number: number): Promise<Issue | null>;
@@ -1029,6 +1037,94 @@ export function createTrackServer(access: TrackAccess): McpServer {
 	);
 
 	server.registerTool(
+		"open_panel",
+		{
+			title: "Open panel",
+			description:
+				"Owners and admins may open up to 3 panels per workspace, with up to 5 seats each. Each seat's position is hidden from everyone else, including owners and admins, until all seats submit or the deadline passes. Track posts the reveal as issue comments under aliases.",
+			inputSchema: strictInput("open_panel", {
+				workspace: workspaceInput,
+				key: keyInput,
+				seats: z.array(z.string().min(1).describe("Member email or id.")).min(1).max(5),
+				deadline: z.iso
+					.datetime({ offset: true })
+					.describe("A future deadline within 30 days, with time zone offset."),
+			}),
+			outputSchema: panelOutput,
+			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				const directory = await workspace.directory();
+				const issue = await findIssue(workspace, input.key);
+				const seats = input.seats.map((ref) => {
+					const id = resolveAssignee(directory, workspace.me, ref);
+					if (!id) throw new ToolError("Each seat must name a workspace member.");
+					return id;
+				});
+				return panelView(
+					directory,
+					await workspace.openPanel({
+						issueId: issue.id,
+						seats,
+						deadlineAt: Date.parse(input.deadline),
+					}),
+				);
+			}),
+	);
+	server.registerTool(
+		"submit_position",
+		{
+			title: "Submit position",
+			description:
+				"Submit one independent Markdown position for your seat. A submitted position cannot be edited or withdrawn.",
+			inputSchema: strictInput("submit_position", {
+				workspace: workspaceInput,
+				panel: z.string().min(1),
+				body: z.string().trim().min(1).max(20000),
+			}),
+			outputSchema: panelOutput,
+			annotations: {
+				readOnlyHint: false,
+				destructiveHint: false,
+				idempotentHint: false,
+				openWorldHint: false,
+			},
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				return panelView(
+					await workspace.directory(),
+					await workspace.submitPosition({ panelId: input.panel, body: input.body }),
+				);
+			}),
+	);
+	server.registerTool(
+		"get_panel",
+		{
+			title: "Get panel",
+			description:
+				"Read submission status as a seat or admin, your own position while open, or the aliased positions and absent seats after reveal.",
+			inputSchema: strictInput("get_panel", {
+				workspace: workspaceInput,
+				panel: z.string().min(1),
+			}),
+			outputSchema: panelOutput,
+			annotations: { readOnlyHint: true, openWorldHint: false },
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				return panelView(
+					await workspace.directory(),
+					await workspace.getPanel({ panelId: input.panel }),
+				);
+			}),
+	);
+
+	server.registerTool(
 		"add_comment",
 		{
 			title: "Add comment",
@@ -1402,6 +1498,45 @@ export function createTrackServer(access: TrackAccess): McpServer {
 	);
 
 	return server;
+}
+
+const panelOutput = z.looseObject({
+	id: z.string(),
+	issueKey: z.string(),
+	state: z.enum(["open", "revealed"]),
+	round: z.number(),
+	openedBy: z.string().nullable(),
+	openedAt: z.string(),
+	deadline: z.string(),
+	revealedAt: z.string().nullable(),
+	revealReason: z.enum(["deadline", "complete"]).nullable(),
+	seats: z.array(z.looseObject({ member: z.string().nullable(), submitted: z.boolean() })),
+	own: z.string().nullable(),
+	positions: z.array(z.looseObject({ alias: z.string(), body: z.string() })).nullable(),
+	absent: z.array(z.string().nullable()).nullable(),
+});
+
+function panelView(directory: Directory, result: WebhookResult<PanelView>) {
+	if (!result.ok) throw new ToolError(result.message);
+	const p = result.value;
+	return {
+		id: p.id,
+		issueKey: issueKey(
+			directory.teams.find((t) => t.id === p.issueRef.teamId),
+			p.issueRef,
+		),
+		state: p.state,
+		round: p.round,
+		openedBy: emailOf(directory, p.openedBy),
+		openedAt: new Date(p.openedAt).toISOString(),
+		deadline: new Date(p.deadlineAt).toISOString(),
+		revealedAt: p.revealedAt === null ? null : new Date(p.revealedAt).toISOString(),
+		revealReason: p.revealReason,
+		seats: p.seats.map((s) => ({ member: emailOf(directory, s.memberId), submitted: s.submitted })),
+		own: p.own,
+		positions: p.positions,
+		absent: p.absent?.map((id) => emailOf(directory, id)) ?? null,
+	};
 }
 
 /** Insights in the tools' terms: keys, names and emails instead of ids, days as numbers. */

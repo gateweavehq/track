@@ -59,8 +59,8 @@ it("R11: a source accepts only whole HTTP link origins and normalizes their host
 	}
 });
 
-it("R51: protocol 29 added run signals to the sources' signals, and 30 numbers scoped attempts", () => {
-	expect(PROTOCOL_VERSION).toBe(30);
+it("R51: protocol 29 added run signals, 30 numbers scoped attempts and 31 names their repository", () => {
+	expect(PROTOCOL_VERSION).toBe(31);
 	expect(ENTITY_NAMES).toContain("source");
 	expect(ENTITY_NAMES).toContain("signal");
 });
@@ -187,4 +187,33 @@ it("run timestamps must survive export, and a restored signal's state must fit i
 	expect(
 		restoredSignalSchema.safeParse({ ...row, kind: "alert", state: "open", title: "x" }).success,
 	).toBe(true);
+	// WEB-84: an attempt's repository travels in the server's one spelling; an alert has none.
+	expect(exportedSignalSchema.parse({ ...attempt, repository: " Acme/Site " }).repository).toBe(
+		"acme/site",
+	);
+	expect(exportedSignalSchema.parse(attempt).repository).toBeUndefined();
+	for (const repository of ["acme", "acme/..", "acme/site/extra", "https://github.com/acme/site"]) {
+		expect(exportedSignalSchema.safeParse({ ...attempt, repository }).success).toBe(false);
+	}
+	expect(
+		restoredSignalSchema.safeParse({
+			...attempt,
+			attemptNo: 1,
+			repository: "acme/site",
+			title: "x",
+		}).success,
+	).toBe(true);
+	// Only a scoped attempt has a repository, so a run with one and no number is not restored.
+	expect(
+		restoredSignalSchema.safeParse({ ...attempt, repository: "acme/site", title: "x" }).success,
+	).toBe(false);
+	expect(
+		restoredSignalSchema.safeParse({
+			...row,
+			kind: "alert",
+			state: "open",
+			title: "x",
+			repository: "acme/site",
+		}).success,
+	).toBe(false);
 });

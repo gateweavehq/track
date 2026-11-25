@@ -191,6 +191,20 @@ function renameInRows(db: Db, changes: ChangeSet, person: Person): void {
 			.where(eq(schema.requesters.issueId, issueId))
 			.run();
 	}
+
+	// A panel position waits here until the reveal, and `get_panel` keeps showing it after. It is
+	// server-only, so replicas hear nothing of this.
+	const positions = db
+		.select()
+		.from(schema.panelSeats)
+		.where(mentioned(schema.panelSeats.body))
+		.all();
+	for (const { panelId, memberId, body } of positions) {
+		db.update(schema.panelSeats)
+			.set({ body: renameMentions(body ?? "", person) })
+			.where(and(eq(schema.panelSeats.panelId, panelId), eq(schema.panelSeats.memberId, memberId)))
+			.run();
+	}
 }
 
 /**

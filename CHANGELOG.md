@@ -8,6 +8,70 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.50.0] - 2026-11-25
+
+The Runs page filters by repository, and its rows fit narrow screens. The sync protocol goes to
+31, and there are two workspace migrations.
+
+### Added
+
+- **A repository filter on the Runs page.** A runner's attempt now carries the repository its
+  approval names, so the page can answer "what is running in `acme/site`".
+  - **The filter** sits beside the executor filter and offers the repositories of the runs on the
+    page. It is kept in the address (`?repository=owner/name`), and it works together with the
+    executor filter. With nothing under the chosen filters, the page says so and offers all runs.
+  - **Each row** names its repository.
+  - **Where it comes from:** a claim copies the repository from its approval, and a report cannot
+    change it. Attempts claimed before this get theirs from their approval. A run that a product
+    reports through `/api/events` has no repository, and the filter leaves it out.
+  - **Export:** the repository travels with a JSON export. A run in the file that has a repository
+    needs its attempt number to restore, and a file from before this has neither.
+
+  ([#378](https://github.com/gateweavehq/track/pull/378))
+
+### Fixed
+
+- **A run's progress no longer shrinks to an ellipsis on a narrow screen.** At about 930px, a row
+  showed "Running p…" beside the issue's title. The progress now takes a line of its own and
+  wraps there. ([#378](https://github.com/gateweavehq/track/pull/378))
+
+### If you run your own
+
+- **The protocol goes from 30 to 31.** Open tabs reload and sync again.
+- **Two workspace migrations** (`0039` and `0040`) run on their own when each workspace wakes.
+  They add the repository to signals and fill it in for attempts claimed before.
+- **Rolling back to 0.49.0** works, since it ignores the new column. Attempts claimed meanwhile
+  have no repository after you update again, so the filter leaves them out.
+
+## [0.49.0] - 2026-11-25
+
+A Runs page shows what is running, what is waiting and what failed across the workspace, so
+"why is it waiting, and where is the work" answers in one place. There is no protocol or
+migration change.
+
+### Added
+
+- **A Runs page** (`/<workspace>/runs`), in the sidebar and as "Go to Runs" in the command
+  palette. It lists the workspace's runs in three groups, newest report first:
+  - **Running** and **Queued**;
+  - **Recently failed**, for a week after a run fails.
+
+  Passed and cancelled runs leave the page when they end, and their issue's Runs card keeps them.
+  A run that names no issue stays out.
+  - **Each row** shows the run's state, the attempt's number or the run's key, its executor and
+    agent, a link to its issue, its last progress or what it waits for, its timing and its link.
+    The last contact keeps aging while a run is live.
+  - **An executor filter** (Hosted, Local runner or Cloud) is kept in the address. It offers the
+    executors of the runs on the page. With none of the chosen executor's runs, the page says so
+    and offers all executors.
+
+  ([#376](https://github.com/gateweavehq/track/pull/376))
+
+### If you run your own
+
+- **Nothing to do.** There is no protocol, migration or setting change. Rolling back to 0.48.0
+  only takes the page away.
+
 ## [0.48.0] - 2026-11-25
 
 An owner or admin can now approve an agent's assignment for its runner on the issue page,

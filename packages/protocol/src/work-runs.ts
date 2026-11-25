@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { RUN_STATES, RUN_WAIT_REASONS } from "./sources";
+import { githubRepository, RUN_STATES, RUN_WAIT_REASONS } from "./sources";
 import { userText } from "./text";
 
 const issue = z
@@ -22,12 +22,7 @@ export const workRunTokenHash = z.string().regex(/^[a-f0-9]{64}$/);
 
 export const registerWorkRunInput = z.strictObject({
 	issue,
-	repository: z
-		.string()
-		.trim()
-		.toLowerCase()
-		.max(200)
-		.regex(/^[a-z0-9-]+\/(?!\.{1,2}$)[a-z0-9_.-]+$/),
+	repository: githubRepository,
 	sourceId: z.string().min(1).max(64),
 	executor,
 });

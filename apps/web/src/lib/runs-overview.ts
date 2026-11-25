@@ -1,4 +1,5 @@
 import {
+	githubRepository,
 	RUN_EXECUTORS,
 	type RunExecutor,
 	type Signal,
@@ -13,7 +14,11 @@ export const RECENTLY_FAILED_WITHIN = 7 * 24 * 60 * 60 * 1000;
 
 export const runsOverviewSearch = z.object({
 	executor: z.enum(RUN_EXECUTORS).optional().catch(undefined),
+	repository: githubRepository.optional().catch(undefined),
 });
+
+/** What the overview is narrowed to, as the address keeps it. */
+export type RunsOverviewFilter = z.infer<typeof runsOverviewSearch>;
 
 /** One row of the overview: the run with what links it to its issue. */
 export interface OverviewRow {
@@ -54,12 +59,13 @@ export function overviewRuns(
 	issues: ReadonlyMap<string, Pick<SyncedIssue, "teamId" | "number" | "title">>,
 	teams: ReadonlyMap<string, Pick<Team, "key">>,
 	now: number,
-	executor?: RunExecutor,
+	{ executor, repository }: RunsOverviewFilter = {},
 ): OverviewGroups {
 	const rows: OverviewRow[] = [];
 	for (const signal of signals) {
 		if (!onOverview(signal, now) || signal.issueId === null) continue;
 		if (executor !== undefined && signal.executor !== executor) continue;
+		if (repository !== undefined && signal.repository !== repository) continue;
 		const issue = issues.get(signal.issueId);
 		const team = issue === undefined ? undefined : teams.get(issue.teamId);
 		rows.push({
@@ -86,4 +92,15 @@ export function overviewExecutors(signals: Iterable<Signal>, now: number): RunEx
 	for (const signal of signals)
 		if (onOverview(signal, now) && signal.executor !== null) seen.add(signal.executor);
 	return RUN_EXECUTORS.filter((executor) => seen.has(executor));
+}
+
+/**
+ * The repositories of the runs the overview shows, for its filter, in alphabetical order. Only a
+ * scoped attempt has one, from its registration; a product's own runs add none.
+ */
+export function overviewRepositories(signals: Iterable<Signal>, now: number): string[] {
+	const seen = new Set<string>();
+	for (const signal of signals)
+		if (onOverview(signal, now) && signal.repository !== null) seen.add(signal.repository);
+	return [...seen].sort();
 }

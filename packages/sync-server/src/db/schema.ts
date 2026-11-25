@@ -640,6 +640,11 @@ export const signals = sqliteTable(
 		url: text("url"),
 		issueId: text("issue_id"),
 		reopens: integer("reopens").notNull().default(0),
+		agentReopens: text("agent_reopens", { mode: "json" })
+			.$type<number[]>()
+			.notNull()
+			.default(sql`'[]'`),
+		assignStamp: integer("assign_stamp"),
 		firstAt: integer("first_at").notNull(),
 		changedAt: integer("changed_at").notNull(),
 		lastSentAt: integer("last_sent_at").notNull(),
@@ -654,6 +659,8 @@ export const signals = sqliteTable(
 		lastContactAt: integer("last_contact_at"),
 		// A scoped attempt's number within its work run request; null for every other signal.
 		attemptNo: integer("attempt_no"),
+		// A scoped attempt's repository, from its registration; null for every other signal.
+		repository: text("repository"),
 	},
 	(table) => [
 		uniqueIndex("signals_source_kind_key_idx").on(table.sourceId, table.kind, table.key),
@@ -708,4 +715,38 @@ export const workRunAttempts = sqliteTable(
 		sequence: integer("sequence").notNull().default(0),
 	},
 	(table) => [uniqueIndex("work_run_attempts_claim_idx").on(table.requestId, table.claimId)],
+);
+
+export const panels = sqliteTable(
+	"panels",
+	{
+		id: text("id").primaryKey(),
+		issueId: text("issue_id")
+			.notNull()
+			.references(() => issues.id),
+		openedBy: text("opened_by").notNull(),
+		deadlineAt: integer("deadline_at").notNull(),
+		openedAt: integer("opened_at").notNull(),
+		round: integer("round").notNull().default(1),
+		state: text("state", { enum: ["open", "revealed"] })
+			.notNull()
+			.default("open"),
+		revealedAt: integer("revealed_at"),
+		revealReason: text("reveal_reason", { enum: ["complete", "deadline"] }),
+	},
+	(table) => [index("panels_state").on(table.state)],
+);
+
+export const panelSeats = sqliteTable(
+	"panel_seats",
+	{
+		panelId: text("panel_id")
+			.notNull()
+			.references(() => panels.id),
+		memberId: text("member_id").notNull(),
+		body: text("body"),
+		submittedAt: integer("submitted_at"),
+		alias: text("alias"),
+	},
+	(table) => [uniqueIndex("panel_seats_member").on(table.panelId, table.memberId)],
 );
