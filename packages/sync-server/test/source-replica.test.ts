@@ -111,6 +111,8 @@ it("R52: sources and scoped work migrations preserve a populated workspace", asy
 	if (!entry) throw new Error("Missing sources migration");
 	await runInDurableObject(workspace, async (_, state) => {
 		const db = drizzle(state.storage, { schema });
+		db.run(sql`drop table panel_seats`);
+		db.run(sql`drop table panels`);
 		db.run(sql`drop table work_run_attempts`);
 		db.run(sql`drop table work_run_requests`);
 		db.run(sql`drop table signals`);
@@ -123,7 +125,14 @@ it("R52: sources and scoped work migrations preserve a populated workspace", asy
 		const previous = tables();
 		await migrate(db, migrations);
 		const current = tables();
-		const added = ["sources", "signals", "work_run_attempts", "work_run_requests"];
+		const added = [
+			"panel_seats",
+			"panels",
+			"sources",
+			"signals",
+			"work_run_attempts",
+			"work_run_requests",
+		];
 		expect(current.filter(({ name }) => !added.includes(name))).toEqual(previous);
 		expect(
 			current
@@ -190,6 +199,8 @@ it("WEB-86: attempts claimed before numbering get their number, and other runs k
 		db.run(sql`alter table signals drop column repository`);
 		db.run(sql`alter table signals drop column agent_reopens`);
 		db.run(sql`alter table signals drop column assign_stamp`);
+		db.run(sql`drop table panel_seats`);
+		db.run(sql`drop table panels`);
 		db.run(sql`delete from __drizzle_migrations where created_at >= ${entry.when}`);
 		await migrate(db, migrations);
 	});
@@ -260,6 +271,8 @@ it("WEB-84: attempts claimed before 0039 get their registration's repository, ot
 		}
 		db.run(sql`alter table signals drop column agent_reopens`);
 		db.run(sql`alter table signals drop column assign_stamp`);
+		db.run(sql`drop table panel_seats`);
+		db.run(sql`drop table panels`);
 		db.run(sql`delete from __drizzle_migrations where created_at >= ${entry.when}`);
 		await migrate(db, migrations);
 	});

@@ -777,6 +777,9 @@ mutations as the app, so the server's rules apply: an agent member cannot, and a
 person. Statuses are named by key or by name, ignoring case; `get_workspace` lists each team's
 in order, and issues come back with `status` (the key) and `statusName`.
 
+The panel tools are `open_panel`, `submit_position` and `get_panel`. Their visibility rules and
+reveal timing are described in [Panels](#panels).
+
 Tokens must name one canonical URL, so the endpoint, and the authorization server, exist only
 when `BETTER_AUTH_URL` pins the base URL. Without it `/mcp` answers `404`.
 
@@ -1911,6 +1914,24 @@ workspace's files are one prefix in the bucket.
   needed. Without a quota nothing is counted, so each isolate drops a workspace's count the first
   time it stores a file there, and a quota turned on again starts from the bucket. Past the quota
   an upload gets 413, and an emailed request comes in without the files that do not fit.
+
+### Panels
+
+Through MCP, an owner or admin can use `open_panel` to ask up to five workspace members
+for independent positions on an issue. A workspace can have three open panels. Each seat uses
+`submit_position` once. While open, `get_panel` shows seats and admins who has submitted,
+and shows a seat its own text. Other members cannot read the panel yet. Positions live only
+in the workspace object's panel tables until reveal.
+
+The final submission or the deadline reveals all positions in one transaction. The alarm can
+publish up to a minute after the deadline, but submissions close at the deadline itself.
+Track posts a summary naming absent seats, then comments under randomly assigned aliases.
+Any member can then read the aliased positions. If the issue was archived or deleted, the
+reveal is available through `get_panel` alone.
+
+The panel tables are server-only: they are not entities, so no snapshot, delta, oplog row, search
+index or webhook holds a position before the reveal, and `PROTOCOL_VERSION` is unchanged. A backup
+Worker that reads the object reads these tables like every other.
 
 ### Proposals
 

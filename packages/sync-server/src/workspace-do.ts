@@ -128,6 +128,17 @@ import {
 	unsubscribe,
 	updateSettings,
 } from "./notifications";
+import {
+	getPanel,
+	getPanelInput,
+	nextPanelDeadline,
+	openPanel,
+	openPanelInput,
+	type PanelView,
+	revealDuePanels,
+	submitPosition,
+	submitPositionInput,
+} from "./panels";
 import { issueProposals } from "./proposals";
 import {
 	type Directory,
@@ -956,6 +967,61 @@ export class WorkspaceDO extends DurableObject {
 		).response;
 	}
 
+	openPanel(member: MemberProfile, input: unknown) {
+		return this.#panel(
+			member,
+			input,
+			openPanelInput,
+			(row, data) => this.#write(() => openPanel(this.#db, row, data, Date.now())).response,
+		);
+	}
+
+	submitPosition(member: MemberProfile, input: unknown) {
+		return this.#panel(
+			member,
+			input,
+			submitPositionInput,
+			(row, data) => this.#write(() => submitPosition(this.#db, row, data, Date.now())).response,
+		);
+	}
+
+	getPanel(member: MemberProfile, input: unknown) {
+		return this.#panel(member, input, getPanelInput, (row, data) => getPanel(this.#db, row, data));
+	}
+
+	#panel<T>(
+		member: MemberProfile,
+		input: unknown,
+		shape: z.ZodType<T>,
+		fn: (row: schema.MemberRow, data: T) => PanelView,
+	): WebhookResult<PanelView> {
+		if (this.#move) return { ok: false, reason: "conflict", message: MOVING_MESSAGE };
+		const profile = memberProfile.safeParse(member);
+		const parsed = shape.safeParse(input);
+		if (!profile.success || !parsed.success)
+			return {
+				ok: false,
+				reason: "invalid",
+				message: parsed.error ? z.prettifyError(parsed.error) : "Invalid member profile",
+			};
+		// A delayed panel request cannot re-admit a member removed since the gateway lookup.
+		const existing = this.#db
+			.select({ removedAt: schema.members.removedAt })
+			.from(schema.members)
+			.where(eq(schema.members.userId, profile.data.id))
+			.get();
+		if (existing?.removedAt == null)
+			this.#write(() => upsertMember(this.#db, profile.data, Date.now()));
+		const row = activeMember(this.#db, profile.data.id);
+		if (!row) return { ok: false, reason: "forbidden", message: "Not a workspace member" };
+		try {
+			return { ok: true, value: fn(row, parsed.data) };
+		} catch (error) {
+			if (!(error instanceof MutationRejected)) throw error;
+			return { ok: false, reason: error.reason, message: error.message };
+		}
+	}
+
 	// The work-run gateway checks the workspace and actor before calling these methods.
 	registerWorkRun(actor: string, input: unknown) {
 		const parsed = registerWorkRunInput.safeParse(input);
@@ -1293,6 +1359,7 @@ export class WorkspaceDO extends DurableObject {
 		this.#broadcast(this.ctx.storage.transactionSync(() => remindDue(this.#db, now)));
 		this.#broadcast(this.ctx.storage.transactionSync(() => runAutomations(this.#db, now)));
 		this.#broadcast(this.ctx.storage.transactionSync(() => runRecurring(this.#db, now)));
+		this.#broadcast(this.ctx.storage.transactionSync(() => revealDuePanels(this.#db, now)));
 		if (now >= this.#compactionDue()) {
 			this.ctx.storage.transactionSync(() => {
 				compact(this.#db, now, RETENTION);
@@ -1351,6 +1418,7 @@ export class WorkspaceDO extends DurableObject {
 					soon(nextReminderAt(this.#db, Date.now())),
 					soon(nextAutomationsAt(this.#db)),
 					soon(nextRecurringAt(this.#db)),
+					soon(nextPanelDeadline(this.#db)),
 				);
 		await this.ctx.storage.setAlarm(next);
 	}
