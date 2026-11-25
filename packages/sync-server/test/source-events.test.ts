@@ -500,6 +500,48 @@ it("counts on when an agent reassigns the issue itself", async () => {
 	expect((await issue()).assigneeId).toBe(owner.id);
 });
 
+it("restarts the count when a person's reassignment merges into an earlier assignee change", async () => {
+	const { ws, issue, send, mutate, closeAndClear } = await setupAgentAlert();
+	const other = { ...owner, id: "other-agent", role: "agent" } as const;
+	const third = { ...owner, id: "third-agent", role: "agent" } as const;
+	await ws.syncMember(other);
+	await ws.syncMember(third);
+	const assign = async (assigneeId: string) => {
+		const row = await issue();
+		expect(
+			await mutate({
+				name: "issue.update",
+				args: { id: row.id, baseVersion: row.version, patch: { assigneeId } },
+			}),
+		).toMatchObject({ ok: true });
+	};
+	await closeAndClear();
+	await assign(other.id);
+	answer(await send());
+	expect((await issue()).assigneeId).toBe(other.id);
+	// Within five minutes of the first change, so it merges into that activity row.
+	await assign(third.id);
+	await closeAndClear();
+	answer(await send());
+	expect((await issue()).assigneeId).toBe(third.id);
+});
+
+it("starts a replacement issue's attempt count from zero", async () => {
+	const { agent, issue, send, mutate, closeAndClear } = await setupAgentAlert();
+	await closeAndClear();
+	answer(await send());
+	const row = await issue();
+	await mutate({ name: "issue.delete", args: { id: row.id } });
+	answer(await send({ state: "cleared" }));
+	answer(await send());
+	const replacement = await issue();
+	expect(replacement.id).not.toBe(row.id);
+	expect(replacement.assigneeId).toBe(agent.id);
+	await closeAndClear();
+	answer(await send());
+	expect((await issue()).assigneeId).toBe(agent.id);
+});
+
 it("keeps the agent when no active owner can take the handoff", async () => {
 	const { agent, ws, send, closeAndClear } = await setupAgentAlert();
 	await closeAndClear();

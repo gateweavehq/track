@@ -134,7 +134,8 @@ function activeAgent(db: Db, id: string | null) {
 /**
  * Whether a person other than an agent changed the issue's assignee after `since`. Only that
  * restarts an alert's agent attempts: an agent that unassigns itself, takes the issue back or
- * passes it on must not reset its own count.
+ * passes it on must not reset its own count. A person's later change can merge into an earlier
+ * activity row (see `recordActivity`), which moves only its `updatedAt`, so that is the time to read.
  */
 function reassignedByPerson(db: Db, issueId: string, since: number): boolean {
 	const roles = new Map(
@@ -147,7 +148,7 @@ function reassignedByPerson(db: Db, issueId: string, since: number): boolean {
 	return db
 		.select({ actorId: schema.activities.actorId, change: schema.activities.change })
 		.from(schema.activities)
-		.where(and(eq(schema.activities.issueId, issueId), gt(schema.activities.createdAt, since)))
+		.where(and(eq(schema.activities.issueId, issueId), gt(schema.activities.updatedAt, since)))
 		.all()
 		.some((row) => {
 			const role = roles.get(row.actorId);
@@ -654,7 +655,8 @@ export function processSourceEvent(
 	const openStatus = statuses.find((s) => !isClosedCategory(s.category));
 	const current = statuses.find((s) => s.key === issue?.status);
 	const reopening = !!(recurring && current && isClosedCategory(current.category) && openStatus);
-	let attempts = prior?.agentReopens ?? [];
+	// A replacement issue starts its own count: the attempts belong to the issue that was deleted.
+	let attempts = filing ? [] : (prior?.agentReopens ?? []);
 	let owner: { userId: string; name: string } | undefined;
 	let comment: string | null = null;
 	if (reopening && prior && issue) {
@@ -783,7 +785,9 @@ export function processSourceEvent(
 		agentReopens: attempts,
 		assignStamp: reopening
 			? (issue?.fieldStamps.assigneeId?.version ?? 0)
-			: (prior?.assignStamp ?? null),
+			: filing
+				? null
+				: (prior?.assignStamp ?? null),
 		reopens: Math.min(MAX_REOPENS, (prior?.reopens ?? 0) + Number(reopening)),
 		firstAt: prior?.firstAt ?? now,
 		changedAt: now,
