@@ -319,6 +319,13 @@ export const restoredSignalSchema = exportedSignalSchema
 				message: "An alert has no repository",
 				path: ["repository"],
 			});
+		// Only a scoped attempt has a repository, and every scoped attempt has its number.
+		else if (row.repository != null && row.attemptNo == null)
+			ctx.addIssue({
+				code: "custom",
+				message: "A run with a repository has an attempt number",
+				path: ["attemptNo"],
+			});
 	});
 
 export const RESTORE_ISSUE_MISSING =

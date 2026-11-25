@@ -196,8 +196,17 @@ it("run timestamps must survive export, and a restored signal's state must fit i
 		expect(exportedSignalSchema.safeParse({ ...attempt, repository }).success).toBe(false);
 	}
 	expect(
-		restoredSignalSchema.safeParse({ ...attempt, repository: "acme/site", title: "x" }).success,
+		restoredSignalSchema.safeParse({
+			...attempt,
+			attemptNo: 1,
+			repository: "acme/site",
+			title: "x",
+		}).success,
 	).toBe(true);
+	// Only a scoped attempt has a repository, so a run with one and no number is not restored.
+	expect(
+		restoredSignalSchema.safeParse({ ...attempt, repository: "acme/site", title: "x" }).success,
+	).toBe(false);
 	expect(
 		restoredSignalSchema.safeParse({
 			...row,
