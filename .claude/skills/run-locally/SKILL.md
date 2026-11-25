@@ -62,14 +62,20 @@ and updates do not change them. Events are validated by `packages/protocol/src/s
 they require `title` and `sentAt`, the issue field is `issue` (such as `ENG-1`) and the agent
 field is `agent`:
 
+Use the port your dev server runs on (`4710` unless you started it elsewhere), choose an existing
+issue, and give every report a fresh `sentAt`:
+
 ```sh
+sent_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 curl -X POST http://localhost:4710/api/events \
   -H "authorization: Bearer gws_…" \
   -H "content-type: application/json" \
-  -d '{"kind":"run","key":"fix-eng-1","state":"running","title":"Fix ENG-1","sentAt":"2026-01-01T00:00:00.000Z","issue":"ENG-1","executor":"local-runner","agent":"Codex"}'
+  -d "{\"kind\":\"run\",\"key\":\"fix-eng-1\",\"state\":\"running\",\"title\":\"Fix ENG-1\",\"sentAt\":\"$sent_at\",\"issue\":\"ENG-1\",\"executor\":\"local-runner\",\"agent\":\"Codex\"}"
 ```
 
-A 200 means accepted; the run shows live, without a reload. Read the schema when the shape changes.
+A 200 means the endpoint answered, not necessarily that it created a run: check the response body.
+It can carry a `reason` such as `No such issue.` instead. When accepted, the run shows live,
+without a reload. Read the schema when the shape changes.
 
 ## Reset local data
 
