@@ -45,9 +45,11 @@ test("WEB-84: the Runs page shows what runs, waits and failed, by executor", asy
 	await report({ key: "old-try", issue: "ENG-2", state: "failed", executor: "local-runner" });
 	await report({ key: "done-try", issue: "ENG-1", state: "passed", executor: "agents-hosted" });
 
-	// From the command palette, like every other page.
+	// From the command palette, like every other page. The shortcuts bind once the replica has
+	// loaded, so wait for a row it renders before pressing — hydration alone is too early.
 	await page.goto(`/${slug}`);
 	await waitForHydration(page);
+	await expect(issueRow(page, "Fix the flaky sign-in test")).toBeVisible();
 	await page.keyboard.press("Control+k");
 	const palette = page.getByRole("dialog", { name: "Command palette" });
 	await palette.getByPlaceholder("Search issues or type a command…").fill("Go to Runs");
