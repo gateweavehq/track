@@ -21,7 +21,7 @@ import {
 	DialogTitle,
 } from "#/components/ui/dialog";
 import { PopoverAlign } from "#/components/ui/popover";
-import { useWorkspace } from "#/components/workspace/context";
+import { isAdmin, useMyRole, useWorkspace } from "#/components/workspace/context";
 import { actorName } from "#/lib/actors";
 import { cycleName, stateIn } from "#/lib/cycles";
 import { formatDateTime, formatRelative } from "#/lib/dates";
@@ -57,11 +57,13 @@ import {
 } from "./pickers";
 import { CopyBranchButton, PullRequests } from "./pull-requests";
 import { Relations } from "./relations";
+import { RunnerApproval } from "./runner-approval";
 import { Runs } from "./runs";
 import { SubIssues } from "./sub-issues";
 
 export function IssueDetail({ issue, team }: { issue: ActiveIssue; team: Team }) {
-	const { slug } = useWorkspace();
+	const { slug, demo } = useWorkspace();
+	const admin = isAdmin(useMyRole());
 	const navigate = useNavigate();
 	const router = useRouter();
 	const canGoBack = useCanGoBack();
@@ -204,6 +206,14 @@ export function IssueDetail({ issue, team }: { issue: ActiveIssue; team: Team })
 								</PropertyButton>
 							</AssigneePicker>
 						</Property>
+						{/* Work runs are off on the demo, and a runner only takes an agent's assignment. */}
+						{admin && !demo && !issue.intake && assignee?.role === "agent" && (
+							<Property label="Runner">
+								<RunnerApproval key={assignee.id} issue={issue} issueKey={key}>
+									{(summary) => <PropertyButton>{summary}</PropertyButton>}
+								</RunnerApproval>
+							</Property>
+						)}
 						<Property label="Project">
 							<ProjectPicker
 								value={issue.projectId}

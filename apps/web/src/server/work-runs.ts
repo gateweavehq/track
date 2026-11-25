@@ -16,10 +16,11 @@ import { readText } from "./body";
 import { demoEnabled } from "./demo/mode";
 import { findMembership, findMembershipById, workspaceStub } from "./workspaces";
 
-const route = /^\/api\/work-runs\/(register|find|claim|report|reconcile)$/;
+const route = /^\/api\/work-runs\/(register|approval|find|claim|report|reconcile)$/;
 const scope = { workspace: z.string().min(1).max(100) };
 const registration = registerWorkRunInput.extend(scope);
 const reconciliation = reconcileWorkRunInput.extend(scope);
+const approval = findWorkRunInput.extend(scope);
 const report = reportWorkRunInput.extend({ token: workRunToken });
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -54,11 +55,14 @@ export async function handleWorkRunRequest(request: Request): Promise<Response> 
 		return error(400, "Invalid request");
 	}
 
-	if (action === "register" || action === "reconcile") {
+	// An owner or admin approves, reads and reconciles work from Track's own pages.
+	if (action === "register" || action === "approval" || action === "reconcile") {
 		if (request.headers.get("origin") !== url.origin) return error(403, "Cross-origin request");
 		const session = await getAuth().api.getSession({ headers: request.headers });
 		if (!session) return error(401, "Not signed in");
-		const parsed = (action === "register" ? registration : reconciliation).safeParse(body);
+		const parsed = { register: registration, approval, reconcile: reconciliation }[
+			action
+		].safeParse(body);
 		if (!parsed.success) return error(400, "Invalid request");
 		const { workspace, ...input } = parsed.data;
 		const member = await findMembership(db, workspace, session.user.id);
@@ -66,11 +70,10 @@ export async function handleWorkRunRequest(request: Request): Promise<Response> 
 		if (!isAdminRole(member.profile.role))
 			return error(403, "Only workspace admins can manage work");
 		const stub = workspaceStub(member);
-		const result =
-			action === "register"
-				? await stub.registerWorkRun(member.profile.id, input)
-				: await stub.reconcileWorkRun(member.profile.id, input);
-		return answer(result);
+		const actor = member.profile.id;
+		if (action === "register") return answer(await stub.registerWorkRun(actor, input));
+		if (action === "approval") return answer(await stub.workRunApproval(actor, input));
+		return answer(await stub.reconcileWorkRun(actor, input));
 	}
 
 	// The runner uses its agent key, never a browser session or an events source key.
