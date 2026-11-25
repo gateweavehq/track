@@ -53,6 +53,30 @@ await navigator.locks.query();
 - Closing the leader tab hands the connection to the other tab.
 - Signing out deletes the local databases.
 
+## Post source run events
+
+To see runs on an issue or the Runs page, report them as the runner would. Create the source
+in Settings → Sources first; the key shows once. If a run event needs its `url` kept, enter the
+URL's origin in **Link origins** while creating the source — the edit form shows them read-only
+and updates do not change them. Events are validated by `packages/protocol/src/sources.ts`:
+they require `title` and `sentAt`, the issue field is `issue` (such as `ENG-1`) and the agent
+field is `agent`:
+
+Use the port your dev server runs on (`4710` unless you started it elsewhere), choose an existing
+issue, and give every report a fresh `sentAt`:
+
+```sh
+sent_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+curl -X POST http://localhost:4710/api/events \
+  -H "authorization: Bearer gws_…" \
+  -H "content-type: application/json" \
+  -d "{\"kind\":\"run\",\"key\":\"fix-eng-1\",\"state\":\"running\",\"title\":\"Fix ENG-1\",\"sentAt\":\"$sent_at\",\"issue\":\"ENG-1\",\"executor\":\"local-runner\",\"agent\":\"Codex\"}"
+```
+
+A 200 means the endpoint answered, not necessarily that it created a run: check the response body.
+It can carry a `reason` such as `No such issue.` instead. When accepted, the run shows live,
+without a reload. Read the schema when the shape changes.
+
 ## Reset local data
 
 Stop the dev server first. To start over, delete `apps/web/.wrangler/state` (all local users,
