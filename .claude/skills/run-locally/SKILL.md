@@ -53,6 +53,24 @@ await navigator.locks.query();
 - Closing the leader tab hands the connection to the other tab.
 - Signing out deletes the local databases.
 
+## Post source run events
+
+To see runs on an issue or the Runs page, report them as the runner would. Create the source
+in Settings → Sources first; the key shows once. If a run event needs its `url` kept, enter the
+URL's origin in **Link origins** while creating the source — the edit form shows them read-only
+and updates do not change them. Events are validated by `packages/protocol/src/sources.ts`:
+they require `title` and `sentAt`, the issue field is `issue` (such as `ENG-1`) and the agent
+field is `agent`:
+
+```sh
+curl -X POST http://localhost:4710/api/events \
+  -H "authorization: Bearer gws_…" \
+  -H "content-type: application/json" \
+  -d '{"kind":"run","key":"fix-eng-1","state":"running","title":"Fix ENG-1","sentAt":"2026-01-01T00:00:00.000Z","issue":"ENG-1","executor":"local-runner","agent":"Codex"}'
+```
+
+A 200 means accepted; the run shows live, without a reload. Read the schema when the shape changes.
+
 ## Reset local data
 
 Stop the dev server first. To start over, delete `apps/web/.wrangler/state` (all local users,
