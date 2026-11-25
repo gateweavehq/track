@@ -214,6 +214,7 @@ import {
 	reconcileWorkRun,
 	registerWorkRun,
 	reportWorkRun,
+	workRunApproval,
 } from "./work-runs";
 
 /**
@@ -970,6 +971,14 @@ export class WorkspaceDO extends DurableObject {
 		if (!parsed.success) return { status: 400, error: "Invalid lookup" } as const;
 		if (this.#move) return { status: 503, error: MOVING_MESSAGE } as const;
 		return findWorkRun(this.#db, shortId.parse(actor), parsed.data.issue);
+	}
+
+	/** An owner or admin's read of the issue's current approval, for the issue page. */
+	workRunApproval(actor: string, input: unknown) {
+		const parsed = findWorkRunInput.safeParse(input);
+		if (!parsed.success) return { status: 400, error: "Invalid lookup" } as const;
+		if (this.#move) return { status: 503, error: MOVING_MESSAGE } as const;
+		return workRunApproval(this.#db, shortId.parse(actor), parsed.data.issue);
 	}
 
 	claimWorkRun(actor: string, input: unknown, hash: string) {

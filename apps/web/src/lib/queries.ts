@@ -16,6 +16,7 @@ import {
 	type PullRequest,
 	privateId,
 	type SavedView,
+	type Source,
 	type Subscription,
 	type SyncedIssue,
 	type Team,
@@ -668,6 +669,30 @@ export function useIssueRuns(issueId: string): ReturnType<typeof issueRuns> {
 		useCallback((state: SyncState) => issueRuns(state.signals.values(), issueId), [issueId]),
 		shallowEqual,
 	);
+}
+
+/**
+ * The Agents sources of a team, by name: where a runner reports the work an admin approves for
+ * it (WEB-87). The server refuses a paused or departing one, so neither is offered.
+ */
+export function useRunnerSources(teamId: string): Source[] {
+	return useQuery(
+		useCallback(
+			(state: SyncState) =>
+				[...state.sources.values()]
+					.filter(
+						(source) => source.teamId === teamId && source.product === "agents" && !source.paused,
+					)
+					.sort((a, b) => a.name.localeCompare(b.name)),
+			[teamId],
+		),
+		shallowEqual,
+	);
+}
+
+/** One source of the workspace, or undefined once it is removed. */
+export function useSource(id: string): Source | undefined {
+	return useQuery(useCallback((state: SyncState) => state.sources.get(id), [id]));
 }
 
 /** An issue's relations, from either side, oldest first. */

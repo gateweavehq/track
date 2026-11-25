@@ -151,6 +151,23 @@ export function findWorkRun(db: Db, actor: string, key: string): WorkRunRequestR
 	return { status: 200, value: publicRequest(db, request) };
 }
 
+/**
+ * The current assignment's approval, for an owner or admin's issue page. A reassigned issue has
+ * none until an admin approves its new assignment.
+ */
+export function workRunApproval(db: Db, actor: string, key: string): WorkRunApprovalResult {
+	const member = activeMember(db, actor);
+	if (!member || !isAdminRole(member.role)) {
+		return { status: 403, error: "Only workspace admins can see work approvals" };
+	}
+	const issue = issueOf(db, key);
+	if (!issue || issue.intake || issue.archivedAt !== null) return missing;
+	const request = requestFor(db, issue);
+	if (!request) return missing;
+	return { status: 200, value: { ...publicRequest(db, request), sourceId: request.sourceId } };
+}
+export type WorkRunApprovalResult = Result<ReturnType<typeof publicRequest> & { sourceId: string }>;
+
 function sameHash(expected: string, supplied: string) {
 	const encoder = new TextEncoder();
 	const subtle = crypto.subtle;

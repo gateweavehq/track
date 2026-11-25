@@ -509,6 +509,104 @@ it("WEB-84: admits a claim only from the executor the registration names", async
 	);
 });
 
+it("WEB-87: an admin reads the current assignment's approval from Track's own pages", async () => {
+	const client = "203.0.113.97";
+	const owner = await signUp(client, "Approval owner", "approval-owner@example.com");
+	const member = await signUp(client, "Approval member", "approval-member@example.com");
+	const slug = "runner-approvals";
+	const acme = await workspace(client, owner, "Runner approvals", slug);
+	await addMember(acme, member.id, "member");
+	const { agent, key } = await createAgent(client, owner, acme, "Approved runner");
+	const profile = { ...owner, role: "owner" as const, image: null };
+	const { teams } = await track.rpc<Directory>(acme, "directory");
+	const teamId = teams[0]?.id;
+	if (!teamId) throw new Error("Missing team");
+	const made = await track.mutate(acme, profile, {
+		name: "issue.create",
+		args: { id: "approve-me", teamId, title: "Approve me", assigneeId: agent.id, sortOrder: "a0" },
+	});
+	expect(made.ok).toBe(true);
+	const source = await track.rpc<ReturnType<WorkspaceDO["manageSource"]>>(
+		acme,
+		"manageSource",
+		owner.id,
+		{
+			kind: "create",
+			input: {
+				name: "Agents",
+				product: "agents",
+				teamId,
+				lowestSeverity: "high",
+				closeWhenCleared: false,
+				linkOrigins: [],
+			},
+		},
+	);
+	if (!source.ok) throw new Error(source.message);
+	const post = (action: string, body: object, extra: Record<string, string>) =>
+		track.fetch(`${origin}/api/work-runs/${action}`, {
+			method: "POST",
+			headers: { "content-type": "application/json", "cf-connecting-ip": client, ...extra },
+			body: JSON.stringify(body),
+		});
+	const asOwner = { cookie: owner.cookie, origin };
+	const lookup = { workspace: slug, issue: "ENG-1" };
+
+	// Before an approval there is none, and only an admin from Track's own pages may ask.
+	expect((await post("approval", lookup, asOwner)).status).toBe(404);
+	expect(
+		(await post("approval", lookup, { cookie: owner.cookie, origin: "https://elsewhere.test" }))
+			.status,
+	).toBe(403);
+	expect((await post("approval", lookup, { cookie: member.cookie, origin })).status).toBe(403);
+	// A runner's key is no session, even from Track's origin.
+	expect((await post("approval", lookup, { authorization: `Bearer ${key}`, origin })).status).toBe(
+		401,
+	);
+	expect((await post("approval", { ...lookup, issue: "eng-1" }, asOwner)).status).toBe(400);
+
+	const registration = {
+		...lookup,
+		sourceId: source.value.id,
+		repository: "acme/site",
+		executor: "cloud",
+	};
+	const { requestId } = await ok<{ requestId: string }>(post("register", registration, asOwner));
+	expect(await ok(post("approval", lookup, asOwner))).toEqual({
+		requestId,
+		repository: "acme/site",
+		executor: "cloud",
+		sourceId: source.value.id,
+		activeAttemptId: null,
+		lastAttemptId: null,
+		lastAttemptState: null,
+	});
+	const { attemptId } = await ok<{ attemptId: string }>(
+		post(
+			"claim",
+			{ requestId, claimId: crypto.randomUUID(), executor: "cloud" },
+			{ authorization: `Bearer ${key}` },
+		),
+	);
+	expect(await ok(post("approval", lookup, asOwner))).toMatchObject({
+		activeAttemptId: attemptId,
+		lastAttemptId: attemptId,
+		lastAttemptState: "queued",
+	});
+
+	// Another assignment starts unapproved.
+	const issue = (await track.rpc<Snapshot>(acme, "snapshot", profile)).issues.find(
+		({ id }) => id === "approve-me",
+	);
+	if (!issue || !("version" in issue)) throw new Error("Missing live issue");
+	const reassigned = await track.mutate(acme, profile, {
+		name: "issue.update",
+		args: { id: "approve-me", baseVersion: issue.version, patch: { assigneeId: null } },
+	});
+	expect(reassigned.ok).toBe(true);
+	expect((await post("approval", lookup, asOwner)).status).toBe(404);
+});
+
 describe("agent members, in the Workers runtime", () => {
 	it("lets an admin make an agent that works in its workspace over MCP, as itself", async () => {
 		const client = "203.0.113.10";

@@ -972,6 +972,14 @@ approval returns its original request ID. An optional `executor` says who runs t
 sandbox. A second approval of the same assignment cannot change the repository, source or
 executor.
 
+The issue page approves it this way. When an issue is assigned to an agent member, owners and
+admins see a Runner row under Assignee (not on the demo). It reads the current approval from
+`approval`, which takes `workspace` and `issue` under the same session, Origin and admin checks and
+answers with the repository, `sourceId`, executor and the latest attempt, or 404 when the
+assignment has none. Without one, the row offers a form for the repository, one of the team's
+Agents sources and the executor, and posts it to `register`. Reassigning the issue starts a new
+assignment, which reads as not approved.
+
 After inspecting an interrupted run, a workspace owner or admin can POST `workspace`,
 `attemptId` and the verified terminal `state` to `reconcile` from the Track origin. This closes
 the claim, including when a reporting source was removed. An attempt that has already ended
