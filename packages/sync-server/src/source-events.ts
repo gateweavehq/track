@@ -32,7 +32,7 @@ import {
 	WORKSPACE_ISSUES_PER_DAY,
 	WRITES_PER_DAY,
 } from "@gateweave/track-protocol";
-import { and, count, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { recordActivity } from "./activity";
 import { syncArchive } from "./archive";
 import * as schema from "./db/schema";
@@ -129,6 +129,30 @@ function fileIssue(
 function activeAgent(db: Db, id: string | null) {
 	const member = id === null ? undefined : activeMember(db, id);
 	return member?.role === "agent" ? member : undefined;
+}
+
+/**
+ * Whether a person other than an agent changed the issue's assignee after `since`. Only that
+ * restarts an alert's agent attempts: an agent that unassigns itself, takes the issue back or
+ * passes it on must not reset its own count.
+ */
+function reassignedByPerson(db: Db, issueId: string, since: number): boolean {
+	const roles = new Map(
+		db
+			.select({ userId: schema.members.userId, role: schema.members.role })
+			.from(schema.members)
+			.all()
+			.map((member) => [member.userId, member.role]),
+	);
+	return db
+		.select({ actorId: schema.activities.actorId, change: schema.activities.change })
+		.from(schema.activities)
+		.where(and(eq(schema.activities.issueId, issueId), gt(schema.activities.createdAt, since)))
+		.all()
+		.some((row) => {
+			const role = roles.get(row.actorId);
+			return row.change.type === "assignee" && role !== undefined && role !== "agent";
+		});
 }
 
 function updateIssue(
@@ -635,7 +659,11 @@ export function processSourceEvent(
 	let comment: string | null = null;
 	if (reopening && prior && issue) {
 		const stampNow = issue.fieldStamps.assigneeId?.version ?? 0;
-		const kept = prior.assignStamp === null || prior.assignStamp === stampNow ? attempts : [];
+		const restarted =
+			prior.assignStamp !== null &&
+			prior.assignStamp !== stampNow &&
+			reassignedByPerson(db, issue.id, attempts.at(-1) ?? 0);
+		const kept = restarted ? [] : attempts;
 		attempts = kept.filter((at) => at > now - AGENT_ATTEMPT_DAYS * DAY);
 		if (activeAgent(db, issue.assigneeId)) {
 			attempts.push(now);
@@ -644,7 +672,8 @@ export function processSourceEvent(
 					.select({ userId: schema.members.userId, name: schema.members.name })
 					.from(schema.members)
 					.where(and(eq(schema.members.role, "owner"), isNull(schema.members.removedAt)))
-					.orderBy(schema.members.userId)
+					// Earliest joined: members keep the row they were first given.
+					.orderBy(sql`rowid`)
 					.limit(1)
 					.get();
 		}

@@ -390,10 +390,12 @@ async function setupAgentAlert() {
 	return { ...app, agent, closeAndClear };
 }
 
-it("hands the second agent reopen to the first owner with both attempt times in one comment", async () => {
+it("hands the second agent reopen to the earliest joined owner with both attempt times in one comment", async () => {
 	const { agent, ws, issue, send, snapshot, closeAndClear } = await setupAgentAlert();
-	const firstOwner = { ...owner, id: "a-owner", name: "Asha" };
-	await ws.syncMember(firstOwner);
+	// Both ids sort before "owner": the pick is the earliest joined, not the lowest id.
+	await ws.syncMember({ ...owner, id: "a-owner", name: "Asha" });
+	await ws.syncMember({ ...owner, id: "0-late", name: "Late" });
+	const firstOwner = owner;
 	await closeAndClear();
 	answer(await send());
 	const first = await issue();
@@ -421,6 +423,12 @@ it("hands the second agent reopen to the first owner with both attempt times in 
 		firstOwner.name,
 	])
 		expect(added[0]?.body).toContain(text);
+	// The owner heard nothing of the first reopen. One item per issue keeps the latest news, the
+	// comment, and counts what came before it: the assignment and the comment make two.
+	expect(before.inbox.filter((item) => item.issueId === reopened.id)).toEqual([]);
+	expect(after.inbox.filter((item) => item.issueId === reopened.id)).toEqual([
+		expect.objectContaining({ memberId: owner.id, unread: 2 }),
+	]);
 	await closeAndClear();
 	answer(await send());
 	expect((await issue()).assigneeId).toBe(firstOwner.id);
@@ -460,6 +468,33 @@ it("restarts the attempt count after a person reassigns the issue", async () => 
 	await closeAndClear();
 	answer(await send());
 	expect((await issue()).assigneeId).toBe(other.id);
+	await closeAndClear();
+	answer(await send());
+	expect((await issue()).assigneeId).toBe(owner.id);
+});
+
+it("counts on when an agent reassigns the issue itself", async () => {
+	const { agent, ws, issue, send, closeAndClear } = await setupAgentAlert();
+	const other = { ...owner, id: "other-agent", role: "agent" } as const;
+	await ws.syncMember(other);
+	const asAgent = (mutation: MutationInput) =>
+		ws.mutate(agent, "agent", crypto.randomUUID(), mutation);
+	await closeAndClear();
+	answer(await send());
+	const row = await issue();
+	expect(
+		await asAgent({
+			name: "issue.update",
+			args: { id: row.id, baseVersion: row.version, patch: { assigneeId: null } },
+		}),
+	).toMatchObject({ ok: true });
+	const unassigned = await issue();
+	expect(
+		await asAgent({
+			name: "issue.update",
+			args: { id: row.id, baseVersion: unassigned.version, patch: { assigneeId: other.id } },
+		}),
+	).toMatchObject({ ok: true });
 	await closeAndClear();
 	answer(await send());
 	expect((await issue()).assigneeId).toBe(owner.id);
