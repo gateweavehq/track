@@ -10,6 +10,13 @@ const issue = z
 const id = z.uuid().toLowerCase();
 const attemptId = id;
 const REPORT_URL_MAX = 1024;
+/**
+ * Who may claim a registered work request. The registration names one, and a claim from another
+ * is refused, so work registered for a cloud run never quietly runs on the local host.
+ */
+export const WORK_RUN_EXECUTORS = ["local-runner", "cloud"] as const;
+export type WorkRunExecutor = (typeof WORK_RUN_EXECUTORS)[number];
+const executor = z.enum(WORK_RUN_EXECUTORS).default("local-runner");
 export const workRunToken = z.string().regex(/^gwh_[A-Za-z0-9_-]{43}$/);
 export const workRunTokenHash = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -22,6 +29,7 @@ export const registerWorkRunInput = z.strictObject({
 		.max(200)
 		.regex(/^[a-z0-9-]+\/(?!\.{1,2}$)[a-z0-9_.-]+$/),
 	sourceId: z.string().min(1).max(64),
+	executor,
 });
 
 export const findWorkRunInput = z.strictObject({ issue });
@@ -35,6 +43,7 @@ export const claimWorkRunInput = z.strictObject({
 	requestId: id,
 	claimId: id,
 	previousAttemptId: attemptId.optional(),
+	executor,
 });
 
 export const reportWorkRunInput = z.strictObject({

@@ -67,6 +67,7 @@ function publicRequest(db: Db, request: RequestRow) {
 	return {
 		requestId: request.id,
 		repository: request.repository,
+		executor: request.executor,
 		activeAttemptId: request.activeAttemptId,
 		lastAttemptId: request.lastAttemptId,
 		lastAttemptState: lastAttempt?.state ?? null,
@@ -80,7 +81,10 @@ function reportingSource(db: Db, id: string, changes: ChangeSet) {
 	return liveConnectSeal(db, changes, id) ? undefined : source;
 }
 
-/** An explicit workspace admin approval points one assignment at one runner and repository. */
+/**
+ * An explicit workspace admin approval points one assignment at one runner, repository and
+ * executor.
+ */
 export function registerWorkRun(
 	db: Db,
 	actor: string,
@@ -108,10 +112,14 @@ export function registerWorkRun(
 	}
 	const prior = requestFor(db, issue);
 	if (prior) {
-		if (prior.repository !== input.repository || prior.sourceId !== source.id) {
+		if (
+			prior.repository !== input.repository ||
+			prior.sourceId !== source.id ||
+			prior.executor !== input.executor
+		) {
 			return respond(changes, {
 				status: 409,
-				error: "This assignment already has a destination and repository",
+				error: "This assignment already has a destination, repository and executor",
 			});
 		}
 		return respond(changes, { status: 200, value: publicRequest(db, prior) });
@@ -125,6 +133,7 @@ export function registerWorkRun(
 			runnerId: issue.assigneeId,
 			repository: input.repository,
 			sourceId: source.id,
+			executor: input.executor,
 		})
 		.returning()
 		.get();
@@ -177,6 +186,16 @@ export function claimWorkRun(
 		.where(eq(workRunRequests.id, input.requestId))
 		.get();
 	if (runner?.role !== "agent" || request?.runnerId !== actor) return respond(changes, missing);
+	// WEB-84 D5: a cloud run's work is never picked up by the local host, nor the other way round.
+	if (request.executor !== input.executor) {
+		return respond(changes, {
+			status: 409,
+			error:
+				request.executor === "cloud"
+					? "This work is registered for a cloud run"
+					: "This work is registered for the local runner",
+		});
+	}
 	const source = reportingSource(db, request.sourceId, changes);
 	const issue = findIssueRowById(db, request.issueId);
 	const eligible =
@@ -250,7 +269,7 @@ export function claimWorkRun(
 			firstAt: now,
 			changedAt: now,
 			lastSentAt: now,
-			executor: "local-runner",
+			executor: request.executor,
 			agentName: runner.name.slice(0, 64).toWellFormed(),
 			lastContactAt: now,
 		})

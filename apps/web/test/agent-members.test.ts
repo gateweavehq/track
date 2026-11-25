@@ -392,6 +392,99 @@ it("binds one replayable work run to the administrator's issue and repository", 
 	).toBe(409);
 });
 
+it("WEB-84: admits a claim only from the executor the registration names", async () => {
+	const client = "203.0.113.98";
+	const owner = await signUp(client, "Cloud owner", "cloud-owner@example.com");
+	const slug = "cloud-runs";
+	const acme = await workspace(client, owner, "Cloud runs", slug);
+	const { agent, key } = await createAgent(client, owner, acme, "Pilot launcher");
+	const profile = { ...owner, role: "owner" as const, image: null };
+	const { teams } = await track.rpc<Directory>(acme, "directory");
+	const teamId = teams[0]?.id;
+	if (!teamId) throw new Error("Missing team");
+	for (const [id, title, sortOrder] of [
+		["cloud-issue", "Runs in the cloud", "a0"],
+		["local-issue", "Runs here", "a1"],
+	] as const) {
+		const made = await track.mutate(acme, profile, {
+			name: "issue.create",
+			args: { id, teamId, title, assigneeId: agent.id, sortOrder },
+		});
+		expect(made.ok).toBe(true);
+	}
+	const source = await track.rpc<ReturnType<WorkspaceDO["manageSource"]>>(
+		acme,
+		"manageSource",
+		owner.id,
+		{
+			kind: "create",
+			input: {
+				name: "Agents",
+				product: "agents",
+				teamId,
+				lowestSeverity: "high",
+				closeWhenCleared: false,
+				linkOrigins: [],
+			},
+		},
+	);
+	if (!source.ok) throw new Error(source.message);
+	const post = (action: string, body: object, extra: Record<string, string>) =>
+		track.fetch(`${origin}/api/work-runs/${action}`, {
+			method: "POST",
+			headers: { "content-type": "application/json", "cf-connecting-ip": client, ...extra },
+			body: JSON.stringify(body),
+		});
+	const runner = (action: string, body: object) =>
+		post(action, body, { authorization: `Bearer ${key}` });
+	const register = (body: object) => post("register", body, { cookie: owner.cookie, origin });
+	const base = { workspace: slug, sourceId: source.value.id, repository: "acme/site" };
+
+	const cloud = { ...base, issue: "ENG-1", executor: "cloud" };
+	const { requestId } = await ok<{ requestId: string }>(register(cloud));
+	expect(await ok(register(cloud))).toMatchObject({ requestId, executor: "cloud" });
+	expect((await register({ ...cloud, executor: "local-runner" })).status).toBe(409);
+	expect((await register({ ...cloud, executor: "agents-hosted" })).status).toBe(400);
+	expect(await ok(runner("find", { issue: "ENG-1" }))).toMatchObject({ executor: "cloud" });
+
+	// The local runner names no executor, so it claims as itself and is refused.
+	const local = await runner("claim", { requestId, claimId: crypto.randomUUID() });
+	expect(local.status).toBe(409);
+	expect(await local.json()).toEqual({ error: "This work is registered for a cloud run" });
+	const granted = await ok<{ attemptId: string; attemptNo: number }>(
+		runner("claim", { requestId, claimId: crypto.randomUUID(), executor: "cloud" }),
+	);
+	expect(granted.attemptNo).toBe(1);
+
+	// Registration without an executor stays with the local runner, as before.
+	const here = await ok<{ requestId: string; executor: string }>(
+		register({ ...base, issue: "ENG-2" }),
+	);
+	expect(here.executor).toBe("local-runner");
+	const refused = await runner("claim", {
+		requestId: here.requestId,
+		claimId: crypto.randomUUID(),
+		executor: "cloud",
+	});
+	expect(refused.status).toBe(409);
+	expect(await refused.json()).toEqual({ error: "This work is registered for the local runner" });
+	const ran = await ok<{ attemptId: string }>(
+		runner("claim", { requestId: here.requestId, claimId: crypto.randomUUID() }),
+	);
+
+	const snapshot = await track.rpc<Snapshot>(acme, "snapshot", profile);
+	expect(snapshot.signals).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({ id: granted.attemptId, issueId: "cloud-issue", executor: "cloud" }),
+			expect.objectContaining({
+				id: ran.attemptId,
+				issueId: "local-issue",
+				executor: "local-runner",
+			}),
+		]),
+	);
+});
+
 describe("agent members, in the Workers runtime", () => {
 	it("lets an admin make an agent that works in its workspace over MCP, as itself", async () => {
 		const client = "203.0.113.10";

@@ -967,7 +967,10 @@ The local-runner pilot uses JSON POST endpoints under `/api/work-runs/`. They ar
 the demo. `register` takes `workspace`, `issue`, `repository` (a GitHub `owner/repo`) and an
 Agents reporting `sourceId` for the issue's team. It requires an owner or admin's session and
 Track's own Origin. Track takes the runner and assignment version from the issue. The same
-approval returns its original request ID.
+approval returns its original request ID. An optional `executor` says who runs the work:
+`local-runner` (the default) or `cloud`, for a job a launcher on the host runs in a cloud
+sandbox. A second approval of the same assignment cannot change the repository, source or
+executor.
 
 After inspecting an interrupted run, a workspace owner or admin can POST `workspace`,
 `attemptId` and the verified terminal `state` to `reconcile` from the Track origin. This closes
@@ -976,7 +979,10 @@ the claim, including when a reporting source was removed.
 The runner endpoints require a current Track agent member key. `find` takes an issue key under
 `issue` and returns the approval for the caller's current assignment, including the latest
 attempt ID and state. `claim` takes its
-`requestId` and a runner-generated UUID `claimId`. An explicit retry names
+`requestId` and a runner-generated UUID `claimId`, and the launcher's `executor`, again
+`local-runner` unless it says `cloud`. A claim from any executor but the registered one is
+refused with 409, so work registered for a cloud run never quietly runs on the local host, and
+the attempt's run shows the registered executor. An explicit retry names
 `previousAttemptId` after reconciliation. Track admits one active attempt for the issue, even
 across assignments, and a replay of the claim can recover the original handle.
 
