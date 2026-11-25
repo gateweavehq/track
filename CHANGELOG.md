@@ -8,6 +8,35 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.47.1] - 2026-11-25
+
+Two fixes from the first runner pilot. The sync protocol goes to 30, and there are two workspace
+migrations.
+
+### Fixed
+
+- **The Runs card names a runner's attempt by its number.**
+  - **Before:** an approved assignment's attempt went by its ID, so an issue's attempts read as
+    long strings that were hard to tell apart.
+  - **Now:** the card reads "Attempt 2". The ID stays in the row's tooltip, for runner logs and
+    for reconciling. A run a product reports still goes by its key.
+  - **Export:** the number travels with a JSON export. A file from before this has none, and
+    restores as before.
+
+  ([#372](https://github.com/gateweavehq/track/pull/372))
+- **Reconciling an attempt that has already ended answers `409`.** It answered `404`, as if Track
+  had never issued the attempt. It now says "This attempt has already ended", as a report after
+  the end does. An attempt Track never issued still gets `404`.
+  ([#372](https://github.com/gateweavehq/track/pull/372))
+
+### If you run your own
+
+- **The protocol goes from 29 to 30.** Open tabs reload and sync again.
+- **Two workspace migrations** (`0037` and `0038`) run on their own when each workspace wakes.
+  They add the attempt number to signals and fill it in for attempts claimed before.
+- **Rolling back to 0.47.0** works, since it ignores the new column. Attempts claimed meanwhile
+  keep going by their ID after you update again.
+
 ## [0.47.0] - 2026-11-25
 
 An issue now shows the runs that agents and runners report on it, beside its pull requests. A
