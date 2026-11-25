@@ -93,7 +93,8 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    key revoked since the lookup. It reads no cookies.
    The work-run gateway (`apps/web/src/server/work-runs.ts`, `POST /api/work-runs/…`) admits an
    owner or admin's session from Track's own origin to register or reconcile an assignment's
-   work, and a current agent member's key to find, claim and report it. A report also carries
+   work, and a current agent member's key to find, claim and report it. A claim must come from
+   the executor the registration names, the local runner or a cloud run. A report also carries
    the token its claim handed over, whose hash the object keeps, and cannot change the attempt's
    issue, workspace or repository. A source key cannot report a scoped attempt.
    The admin settings gateway seals the source so a key made during removal cannot write, deletes

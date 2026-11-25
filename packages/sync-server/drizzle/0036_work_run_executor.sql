@@ -1,0 +1,1 @@
+ALTER TABLE `work_run_requests` ADD `executor` text DEFAULT 'local-runner' NOT NULL;

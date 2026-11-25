@@ -35,6 +35,7 @@ import {
 	type TemplateRepeat,
 	type WebhookDelivery,
 	type WebhookEventType,
+	WORK_RUN_EXECUTORS,
 } from "@gateweave/track-protocol";
 import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
@@ -675,6 +676,8 @@ export const workRunRequests = sqliteTable(
 		repository: text("repository").notNull(),
 		// Keep the claim even if the destination is removed and the signal goes with it.
 		sourceId: text("source_id").notNull(),
+		// The only executor whose claim the request accepts.
+		executor: text("executor", { enum: WORK_RUN_EXECUTORS }).notNull().default("local-runner"),
 		activeAttemptId: text("active_attempt_id"),
 		lastAttemptId: text("last_attempt_id"),
 		attempts: integer("attempts").notNull().default(0),
