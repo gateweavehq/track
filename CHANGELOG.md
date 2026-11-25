@@ -8,6 +8,35 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.49.0] - 2026-11-25
+
+A Runs page shows what is running, what is waiting and what failed across the workspace, so
+"why is it waiting, and where is the work" answers in one place. There is no protocol or
+migration change.
+
+### Added
+
+- **A Runs page** (`/<workspace>/runs`), in the sidebar and as "Go to Runs" in the command
+  palette. It lists the workspace's runs in three groups, newest report first:
+  - **Running** and **Queued**;
+  - **Recently failed**, for a week after a run fails.
+
+  Passed and cancelled runs leave the page when they end, and their issue's Runs card keeps them.
+  A run that names no issue stays out.
+  - **Each row** shows the run's state, the attempt's number or the run's key, its executor and
+    agent, a link to its issue, its last progress or what it waits for, its timing and its link.
+    The last contact keeps aging while a run is live.
+  - **An executor filter** (Hosted, Local runner or Cloud) is kept in the address. It offers the
+    executors of the runs on the page. With none of the chosen executor's runs, the page says so
+    and offers all executors.
+
+  ([#376](https://github.com/gateweavehq/track/pull/376))
+
+### If you run your own
+
+- **Nothing to do.** There is no protocol, migration or setting change. Rolling back to 0.48.0
+  only takes the page away.
+
 ## [0.48.0] - 2026-11-25
 
 An owner or admin can now approve an agent's assignment for its runner on the issue page,
