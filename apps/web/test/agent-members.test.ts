@@ -1,3 +1,5 @@
+import type { Snapshot } from "@gateweave/track-protocol";
+import type { Directory, SourceEventResult, WorkspaceDO } from "@gateweave/track-sync-server";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startTrack } from "./track-worker";
@@ -140,6 +142,255 @@ async function addMember(organizationId: string, userId: string, role: string) {
 		.bind(crypto.randomUUID(), organizationId, userId, role, Date.now())
 		.run();
 }
+
+it("binds one replayable work run to the administrator's issue and repository", async () => {
+	const client = "203.0.113.99";
+	const owner = await signUp(client, "Run owner", "run-owner@example.com");
+	const slug = "scoped-runs";
+	const acme = await workspace(client, owner, "Scoped runs", slug);
+	const { agent, key } = await createAgent(client, owner, acme, "Local runner");
+	const other = await createAgent(client, owner, acme, "Other runner");
+	const abroad = await workspace(client, owner, "Other workspace", "other-workspace");
+	const outside = await createAgent(client, owner, abroad, "External runner");
+	const profile = { ...owner, role: "owner" as const, image: null };
+	const { teams } = await track.rpc<Directory>(acme, "directory");
+	const teamId = teams[0]?.id;
+	if (!teamId) throw new Error("Missing team");
+	const mutate = (input: Parameters<typeof track.mutate>[2]) => track.mutate(acme, profile, input);
+	expect(
+		(
+			await mutate({
+				name: "issue.create",
+				args: {
+					id: "assigned",
+					teamId,
+					title: "An assigned issue",
+					assigneeId: agent.id,
+					sortOrder: "a0",
+				},
+			})
+		).ok,
+	).toBe(true);
+	expect(
+		(
+			await mutate({
+				name: "issue.create",
+				args: {
+					id: "other-issue",
+					teamId,
+					title: "Another issue",
+					assigneeId: agent.id,
+					sortOrder: "a1",
+				},
+			})
+		).ok,
+	).toBe(true);
+	const made = await track.rpc<ReturnType<WorkspaceDO["manageSource"]>>(
+		acme,
+		"manageSource",
+		owner.id,
+		{
+			kind: "create",
+			input: {
+				name: "Agents",
+				product: "agents",
+				teamId,
+				lowestSeverity: "high",
+				closeWhenCleared: false,
+				linkOrigins: ["https://builds.example.test"],
+			},
+		},
+	);
+	if (!made.ok) throw new Error(made.message);
+
+	const post = (action: string, body: object, extra: Record<string, string>) =>
+		track.fetch(`${origin}/api/work-runs/${action}`, {
+			method: "POST",
+			headers: { "content-type": "application/json", "cf-connecting-ip": client, ...extra },
+			body: JSON.stringify(body),
+		});
+	const runner = (action: string, body: object, bearer = key) =>
+		post(action, body, { authorization: `Bearer ${bearer}` });
+	const register = (body: object, browserOrigin = origin) =>
+		post("register", body, { cookie: owner.cookie, origin: browserOrigin });
+	const registration = {
+		workspace: slug,
+		issue: "ENG-1",
+		sourceId: made.value.id,
+		repository: "acme/site",
+	};
+	expect((await register(registration, "https://elsewhere.test")).status).toBe(403);
+	expect((await runner("register", registration)).status).toBe(403);
+	expect((await runner("find", { issue: "ENG-1" })).status).toBe(404);
+	const registered = await register(registration);
+	expect(registered.status).toBe(201);
+	const { requestId } = await ok<{ requestId: string }>(Promise.resolve(registered));
+	expect(await ok(register(registration))).toMatchObject({ requestId });
+	expect((await register({ ...registration, repository: "acme/other" })).status).toBe(409);
+	expect(await ok(runner("find", { issue: "ENG-1" }))).toMatchObject({
+		requestId,
+		repository: "acme/site",
+		activeAttemptId: null,
+		lastAttemptState: null,
+	});
+	expect((await runner("find", { issue: "ENG-2" })).status).toBe(404);
+
+	const claim = { requestId, claimId: crypto.randomUUID() };
+	expect((await runner("claim", claim, other.key)).status).toBe(404);
+	expect((await runner("claim", claim, outside.key)).status).toBe(404);
+	const firstReplies = await Promise.all([runner("claim", claim), runner("claim", claim)]);
+	expect(firstReplies.map((reply) => reply.status).sort()).toEqual([200, 201]);
+	interface Grant {
+		attemptId: string;
+		attemptNo: number;
+		repository: string;
+		token: string;
+		active: boolean;
+	}
+	const grant = await ok<Grant>(Promise.resolve(firstReplies[0] as Response));
+	expect(await ok(Promise.resolve(firstReplies[1] as Response))).toEqual(grant);
+	// Another spelling of the same nonce is the same claim, and recovers the same token.
+	expect(await ok(runner("claim", { ...claim, claimId: claim.claimId.toUpperCase() }))).toEqual(
+		grant,
+	);
+	expect(grant).toMatchObject({ attemptNo: 1, repository: "acme/site", active: true });
+	expect(grant.token).toMatch(/^gwh_[\w-]{43}$/);
+	expect((await runner("claim", { ...claim, claimId: crypto.randomUUID() })).status).toBe(409);
+
+	const report = { attemptId: grant.attemptId, token: grant.token, state: "running", sequence: 1 };
+	expect((await runner("report", report, other.key)).status).toBe(404);
+	expect((await runner("report", report, outside.key)).status).toBe(404);
+	expect((await runner("report", { ...report, token: `gwh_${"x".repeat(43)}` })).status).toBe(404);
+	expect((await runner("report", { ...report, issue: "ENG-2" })).status).toBe(400);
+	expect((await runner("report", { ...report, repository: "acme/other" })).status).toBe(400);
+	expect((await runner("report", { ...report, url: "https://elsewhere.test/build" })).status).toBe(
+		400,
+	);
+	const bypass = await track.rpc<SourceEventResult>(
+		acme,
+		"sourceEvent",
+		made.value.id,
+		"test-key",
+		JSON.stringify({
+			kind: "run",
+			key: grant.attemptId,
+			state: "passed",
+			issue: "ENG-2",
+			title: "Other issue",
+			sentAt: new Date().toISOString(),
+		}),
+		`${origin}/${slug}`,
+	);
+	expect(bypass.status).toBe(400);
+	expect(await ok(runner("report", { ...report, url: "https://builds.example.test/run" }))).toEqual(
+		{
+			state: "running",
+			sequence: 1,
+			applied: true,
+		},
+	);
+	const terminal = { ...report, state: "passed", sequence: 3 };
+	expect(await ok(runner("report", terminal))).toEqual({
+		state: "passed",
+		sequence: 3,
+		applied: true,
+	});
+	expect(await ok(runner("report", terminal))).toEqual({
+		state: "passed",
+		sequence: 3,
+		applied: false,
+	});
+	expect(await ok(runner("report", { ...report, sequence: 2 }))).toEqual({
+		state: "passed",
+		sequence: 3,
+		applied: false,
+	});
+	expect((await runner("report", { ...report, sequence: 4 })).status).toBe(409);
+	expect((await runner("claim", { ...claim, claimId: crypto.randomUUID() })).status).toBe(409);
+	const retryClaim = { ...claim, claimId: crypto.randomUUID(), previousAttemptId: grant.attemptId };
+	expect(await ok(runner("find", { issue: "ENG-1" }))).toMatchObject({
+		activeAttemptId: null,
+		lastAttemptId: grant.attemptId,
+		lastAttemptState: "passed",
+	});
+	const retry = await ok<Grant>(runner("claim", retryClaim));
+	expect(retry).toMatchObject({ attemptNo: 2, repository: "acme/site", active: true });
+	expect(retry.token).not.toBe(grant.token);
+	expect((await runner("report", { ...report, attemptId: retry.attemptId })).status).toBe(404);
+	const snapshot = await track.rpc<Snapshot>(acme, "snapshot", profile);
+	expect(snapshot.signals).toHaveLength(2);
+	expect(snapshot.signals).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				id: grant.attemptId,
+				issueId: "assigned",
+				state: "passed",
+				executor: "local-runner",
+				url: "https://builds.example.test/run",
+			}),
+			expect.objectContaining({ id: retry.attemptId, issueId: "assigned", state: "queued" }),
+		]),
+	);
+	expect(JSON.stringify(snapshot.signals)).not.toContain(grant.token);
+
+	const assigned = snapshot.issues.find(({ id }) => id === "assigned");
+	if (!assigned || !("version" in assigned)) throw new Error("Missing live issue");
+	expect(
+		(
+			await mutate({
+				name: "issue.update",
+				args: {
+					id: "assigned",
+					baseVersion: assigned.version,
+					patch: { assigneeId: other.agent.id },
+				},
+			})
+		).ok,
+	).toBe(true);
+	const reassigned = await ok<{ requestId: string }>(register(registration));
+	expect(reassigned.requestId).not.toBe(requestId);
+	const next = { requestId: reassigned.requestId, claimId: crypto.randomUUID() };
+	expect((await runner("claim", next, other.key)).status).toBe(409);
+	expect(await ok(runner("claim", retryClaim))).toMatchObject({
+		attemptId: retry.attemptId,
+		token: retry.token,
+		active: true,
+		canLaunch: false,
+	});
+	expect(
+		(
+			await runner("report", {
+				attemptId: retry.attemptId,
+				token: retry.token,
+				sequence: 1,
+				state: "cancelled",
+			})
+		).status,
+	).toBe(200);
+	const nextGrant = await ok<Grant>(runner("claim", next, other.key));
+	const reconcile = { workspace: slug, attemptId: nextGrant.attemptId, state: "cancelled" };
+	expect((await runner("reconcile", reconcile, other.key)).status).toBe(403);
+	expect((await post("reconcile", reconcile, { cookie: owner.cookie, origin })).status).toBe(200);
+	expect(await ok(runner("find", { issue: "ENG-1" }, other.key))).toMatchObject({
+		activeAttemptId: null,
+		lastAttemptId: nextGrant.attemptId,
+		lastAttemptState: "cancelled",
+	});
+	expect(
+		(
+			await runner(
+				"report",
+				{
+					attemptId: nextGrant.attemptId,
+					token: nextGrant.token,
+					state: "running",
+					sequence: 1,
+				},
+				other.key,
+			)
+		).status,
+	).toBe(409);
+});
 
 describe("agent members, in the Workers runtime", () => {
 	it("lets an admin make an agent that works in its workspace over MCP, as itself", async () => {

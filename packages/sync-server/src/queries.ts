@@ -216,16 +216,29 @@ export function findIssues(db: Db, query: IssueQuery): Issue[] {
 }
 
 export function findIssueById(db: Db, id: string): Issue | undefined {
-	const row = db
+	const row = findIssueRowById(db, id);
+	return row && toIssue(row);
+}
+
+export function findIssueRowById(db: Db, id: string): schema.IssueRow | undefined {
+	return db
 		.select()
 		.from(schema.issues)
 		.where(and(eq(schema.issues.id, id), isNull(schema.issues.deletedAt)))
 		.get();
-	return row && toIssue(row);
 }
 
 /** A live issue by its human-readable key, such as `ENG` and 42 for `ENG-42`. */
 export function findIssueByKey(db: Db, teamKey: string, number: number): Issue | undefined {
+	const row = findIssueRowByKey(db, teamKey, number);
+	return row && toIssue(row);
+}
+
+export function findIssueRowByKey(
+	db: Db,
+	teamKey: string,
+	number: number,
+): schema.IssueRow | undefined {
 	const row = db
 		.select({ issue: schema.issues })
 		.from(schema.issues)
@@ -238,7 +251,7 @@ export function findIssueByKey(db: Db, teamKey: string, number: number): Issue |
 			),
 		)
 		.get();
-	return row && toIssue(row.issue);
+	return row?.issue;
 }
 
 /** Whose issues insights are worked out over: one team's, or one project's from any team. */
