@@ -168,6 +168,10 @@ it("run timestamps must survive export, and a restored signal's state must fit i
 	// WEB-86: an attempt's number travels with the file; older files carry none.
 	const attempt = { ...row, kind: "run", state: "passed" };
 	expect(exportedSignalSchema.parse({ ...attempt, attemptNo: 2 }).attemptNo).toBe(2);
+	// Any number a claim can store exports, however many attempts came before.
+	expect(exportedSignalSchema.parse({ ...attempt, attemptNo: 1_000_001 }).attemptNo).toBe(
+		1_000_001,
+	);
 	expect(exportedSignalSchema.parse(attempt).attemptNo).toBeUndefined();
 	for (const attemptNo of [0, 1.5, -1, "2"]) {
 		expect(exportedSignalSchema.safeParse({ ...attempt, attemptNo }).success).toBe(false);

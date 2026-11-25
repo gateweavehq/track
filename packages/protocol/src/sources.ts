@@ -227,8 +227,9 @@ export const exportedSignalSchema = z.object({
 	waitReason: z.enum(RUN_WAIT_REASONS).nullish(),
 	waitDetail: userText.max(200).nullish(),
 	lastContactAt: z.int().nonnegative().nullish(),
-	// Files written before attempts were numbered carry none.
-	attemptNo: z.int().positive().max(1_000_000).nullish(),
+	// Files written before attempts were numbered carry none. No upper bound: the claim counts on
+	// without one, and a refused signal would stop the whole export.
+	attemptNo: z.int().positive().nullish(),
 });
 // Include the array separator and reserve room for the gateway's two derived import ids.
 export function restoreSignalBytes(signal: z.infer<typeof exportedSignalSchema>) {
