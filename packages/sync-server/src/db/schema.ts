@@ -640,6 +640,11 @@ export const signals = sqliteTable(
 		url: text("url"),
 		issueId: text("issue_id"),
 		reopens: integer("reopens").notNull().default(0),
+		agentReopens: text("agent_reopens", { mode: "json" })
+			.$type<number[]>()
+			.notNull()
+			.default(sql`'[]'`),
+		assignStamp: integer("assign_stamp"),
 		firstAt: integer("first_at").notNull(),
 		changedAt: integer("changed_at").notNull(),
 		lastSentAt: integer("last_sent_at").notNull(),

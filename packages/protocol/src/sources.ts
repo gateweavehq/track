@@ -26,6 +26,8 @@ export const WRITES_PER_DAY = 300;
 export const BYTES_PER_DAY = 2 * 1024 * 1024;
 // Status's flapping incidents in production set this limit.
 export const REOPENS_PER_KEY_PER_DAY = 3;
+export const AGENT_ATTEMPTS_BEFORE_HANDOFF = 2;
+export const AGENT_ATTEMPT_DAYS = 7;
 // Stay under Agents' 20 runs a day.
 export const ASSIGNED_PER_DAY = 10;
 // U2 measures the number of findings a source keeps open.
@@ -428,6 +430,14 @@ export function sourceLimitNotice(name: string, limit: string) {
 
 export function sourceReopenComment(name: string) {
 	return escapeSourceText(name) + " reported this signal open again.";
+}
+
+export function sourceHandoffComment(name: string, attempts: number[], ownerName: string) {
+	const times = attempts
+		.slice(-2)
+		.map((at) => new Date(at).toISOString())
+		.join(" and ");
+	return `${sourceReopenComment(name)} After agent attempts at ${times}, the agent was taken off and the issue was assigned to workspace owner ${escapeSourceText(ownerName)}.`;
 }
 
 export function sourceIssueText(event: SourceEvent, source: Pick<Source, "name">) {

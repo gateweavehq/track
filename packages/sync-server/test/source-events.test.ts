@@ -369,6 +369,114 @@ it("R22: returning signals reopen the same issue with one source comment up to t
 	expect(after.signals[0]?.reopens).toBe(REOPENS_PER_KEY_PER_DAY);
 });
 
+async function setupAgentAlert() {
+	const app = await setup();
+	const agent: MemberProfile = { ...owner, id: "agent", role: "agent" };
+	await app.ws.syncMember(agent);
+	expect(
+		await app.ws.manageSource(owner.id, { kind: "assign", id: app.sourceId, assigneeId: agent.id }),
+	).toMatchObject({ ok: true });
+	answer(await app.send());
+	const closeAndClear = async () => {
+		const row = await app.issue();
+		expect(
+			await app.mutate({
+				name: "issue.update",
+				args: { id: row.id, baseVersion: row.version, patch: { status: "done" } },
+			}),
+		).toMatchObject({ ok: true });
+		answer(await app.send({ state: "cleared" }));
+	};
+	return { ...app, agent, closeAndClear };
+}
+
+it("hands the second agent reopen to the first owner with both attempt times in one comment", async () => {
+	const { agent, ws, issue, send, snapshot, closeAndClear } = await setupAgentAlert();
+	const firstOwner = { ...owner, id: "a-owner", name: "Asha" };
+	await ws.syncMember(firstOwner);
+	await closeAndClear();
+	answer(await send());
+	const first = await issue();
+	expect(first.assigneeId).toBe(agent.id);
+	await closeAndClear();
+	const before = await snapshot();
+	expect(whole(before.issues[0]).assigneeId).toBe(agent.id);
+	answer(await send());
+	const after = await snapshot();
+	const reopened = whole(after.issues[0]);
+	expect(reopened).toMatchObject({ status: "backlog", assigneeId: firstOwner.id });
+	expect(after.activities).toContainEqual(
+		expect.objectContaining({
+			actorId: "source",
+			change: { type: "assignee", from: agent.id, to: firstOwner.id },
+		}),
+	);
+	const added = after.comments.filter((c) => !before.comments.some((old) => old.id === c.id));
+	expect(added).toHaveLength(1);
+	expect(added[0]?.authorId).toBe("source");
+	for (const text of [
+		new Date(first.updatedAt).toISOString(),
+		new Date(reopened.updatedAt).toISOString(),
+		"agent was taken off",
+		firstOwner.name,
+	])
+		expect(added[0]?.body).toContain(text);
+	await closeAndClear();
+	answer(await send());
+	expect((await issue()).assigneeId).toBe(firstOwner.id);
+	expect(
+		(await snapshot()).comments.filter((c) => c.body.includes("agent was taken off")),
+	).toHaveLength(1);
+});
+
+it("keeps the agent when the previous reopen was eight days ago", async () => {
+	const { agent, ws, issue, send, closeAndClear } = await setupAgentAlert();
+	await closeAndClear();
+	answer(await send());
+	await runInDurableObject(ws, (_, state) => {
+		state.storage.sql.exec(
+			"UPDATE signals SET agent_reopens = json_array(?)",
+			Date.now() - 8 * 86_400_000,
+		);
+	});
+	await closeAndClear();
+	answer(await send());
+	expect((await issue()).assigneeId).toBe(agent.id);
+});
+
+it("restarts the attempt count after a person reassigns the issue", async () => {
+	const { ws, issue, send, mutate, closeAndClear } = await setupAgentAlert();
+	await closeAndClear();
+	answer(await send());
+	const row = await issue();
+	const other = { ...owner, id: "other-agent", role: "agent" } as const;
+	await ws.syncMember(other);
+	expect(
+		await mutate({
+			name: "issue.update",
+			args: { id: row.id, baseVersion: row.version, patch: { assigneeId: other.id } },
+		}),
+	).toMatchObject({ ok: true });
+	await closeAndClear();
+	answer(await send());
+	expect((await issue()).assigneeId).toBe(other.id);
+	await closeAndClear();
+	answer(await send());
+	expect((await issue()).assigneeId).toBe(owner.id);
+});
+
+it("keeps the agent when no active owner can take the handoff", async () => {
+	const { agent, ws, send, closeAndClear } = await setupAgentAlert();
+	await closeAndClear();
+	answer(await send());
+	await closeAndClear();
+	await ws.removeMember(owner.id);
+	answer(await send());
+	const after = await ws.snapshot(agent);
+	expect(whole(after.issues[0])).toMatchObject({ assigneeId: agent.id, status: "backlog" });
+	expect(after.comments.every((c) => !c.body.includes("agent was taken off"))).toBe(true);
+});
+
 it("R23: repeated open leaves a person's close in place", async () => {
 	const { send, mutate, issue } = await setup();
 	await send();
