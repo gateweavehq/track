@@ -85,9 +85,16 @@ function useLiveClock(runs: readonly RunSignal[]): number {
 function RunRow({ run, now }: { run: RunSignal; now: number }) {
 	const { label, icon: Icon, className } = STATE_META[run.state];
 	const executor = runExecutorLabel(run);
-	const waiting = isUnfinishedRun(run.state) ? runWaitLabel(run) : null;
+	const explanation = runWaitLabel(run);
+	const waiting = isUnfinishedRun(run.state) ? explanation : null;
+	const refusal = run.state === "failed" && run.startedAt === null ? explanation : null;
 	return (
-		<li className="relative flex min-h-9 items-center gap-2 border-b px-2 py-1 text-sm last:border-b-0 hover:bg-accent/40">
+		<li
+			className={cn(
+				"relative flex min-h-9 items-center gap-x-2 gap-y-1 border-b px-2 py-1 text-sm last:border-b-0 hover:bg-accent/40",
+				refusal !== null && "flex-wrap",
+			)}
+		>
 			<Icon
 				role="img"
 				aria-label={label}
@@ -118,6 +125,9 @@ function RunRow({ run, now }: { run: RunSignal; now: number }) {
 				>
 					<ExternalLink className="size-3.5" />
 				</a>
+			)}
+			{refusal !== null && (
+				<p className="basis-full wrap-anywhere pl-6 text-muted-foreground">{refusal}</p>
 			)}
 		</li>
 	);
