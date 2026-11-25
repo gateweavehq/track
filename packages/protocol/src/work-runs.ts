@@ -6,7 +6,10 @@ const issue = z
 	.string()
 	.max(64)
 	.regex(/^[A-Z][A-Z0-9]*-[1-9]\d*$/);
-const attemptId = z.uuid();
+// One spelling per id: a claim's nonce goes into its token's HMAC and is compared exactly.
+const id = z.uuid().toLowerCase();
+const attemptId = id;
+const REPORT_URL_MAX = 1024;
 export const workRunToken = z.string().regex(/^gwh_[A-Za-z0-9_-]{43}$/);
 export const workRunTokenHash = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -29,8 +32,8 @@ export const reconcileWorkRunInput = z.strictObject({
 });
 
 export const claimWorkRunInput = z.strictObject({
-	requestId: z.uuid(),
-	claimId: z.uuid(),
+	requestId: id,
+	claimId: id,
 	previousAttemptId: attemptId.optional(),
 });
 
@@ -43,9 +46,11 @@ export const reportWorkRunInput = z.strictObject({
 	waitDetail: userText.max(200).optional(),
 	url: z
 		.string()
-		.max(1024)
+		.max(REPORT_URL_MAX)
 		.pipe(z.url({ protocol: /^https?$/, normalize: true }))
 		.refine((link) => !/^https?:\/\/[^/]*@/.test(link), "Use a URL without credentials")
+		// The object parses the normalized link again, so the limit holds for that form too.
+		.refine((link) => link.length <= REPORT_URL_MAX, "Use a shorter URL")
 		.optional(),
 });
 

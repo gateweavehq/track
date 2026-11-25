@@ -249,6 +249,10 @@ it("binds one replayable work run to the administrator's issue and repository", 
 	}
 	const grant = await ok<Grant>(Promise.resolve(firstReplies[0] as Response));
 	expect(await ok(Promise.resolve(firstReplies[1] as Response))).toEqual(grant);
+	// Another spelling of the same nonce is the same claim, and recovers the same token.
+	expect(await ok(runner("claim", { ...claim, claimId: claim.claimId.toUpperCase() }))).toEqual(
+		grant,
+	);
 	expect(grant).toMatchObject({ attemptNo: 1, repository: "acme/site", active: true });
 	expect(grant.token).toMatch(/^gwh_[\w-]{43}$/);
 	expect((await runner("claim", { ...claim, claimId: crypto.randomUUID() })).status).toBe(409);
