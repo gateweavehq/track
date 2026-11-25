@@ -974,7 +974,8 @@ executor.
 
 After inspecting an interrupted run, a workspace owner or admin can POST `workspace`,
 `attemptId` and the verified terminal `state` to `reconcile` from the Track origin. This closes
-the claim, including when a reporting source was removed.
+the claim, including when a reporting source was removed. An attempt that has already ended
+keeps its outcome: reconciling it again answers 409, and an attempt Track never issued, 404.
 
 The runner endpoints require a current Track agent member key. `find` takes an issue key under
 `issue` and returns the approval for the caller's current assignment, including the latest
@@ -990,8 +991,9 @@ across assignments, and a replay of the claim can recover the original handle.
 `state`. It can carry short progress, a wait reason and detail, and a link from the approved
 source's origins. Track keeps only the token hash. A report for an earlier sequence has no
 effect, a terminal attempt cannot advance again, and the reports cannot change the binding
-or change the issue itself. The same signal appears on the existing issue Runs card. A source
-key cannot update a scoped attempt through `/api/events`.
+or change the issue itself. The same signal appears on the existing issue Runs card, named
+"Attempt N" by its `attemptNo` rather than by its ID, which stays on hover. A source key cannot
+update a scoped attempt through `/api/events`.
 
 ### Connecting a source in one step
 

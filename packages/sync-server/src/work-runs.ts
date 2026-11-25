@@ -33,6 +33,7 @@ function respond<T>(changes: ChangeSet, response: Result<T>): Write<T> {
 
 const missing = { status: 404, error: "Not found" } satisfies Failure;
 const busy = { status: 409, error: "This issue already has an active attempt" } satisfies Failure;
+const settled = { status: 409, error: "This attempt has already ended" } satisfies Failure;
 
 function issueOf(db: Db, key: string) {
 	const separator = key.lastIndexOf("-");
@@ -272,6 +273,7 @@ export function claimWorkRun(
 			executor: request.executor,
 			agentName: runner.name.slice(0, 64).toWellFormed(),
 			lastContactAt: now,
+			attemptNo,
 		})
 		.returning()
 		.get();
@@ -395,7 +397,15 @@ export function reconcileWorkRun(db: Db, actor: string, input: ReconcileWorkRunI
 		.from(workRunRequests)
 		.where(eq(workRunRequests.activeAttemptId, input.attemptId))
 		.get();
-	if (!request) return respond(changes, missing);
+	if (!request) {
+		// An attempt that has already ended keeps its outcome, as a report after the end does.
+		const ended = db
+			.select({ id: workRunAttempts.id })
+			.from(workRunAttempts)
+			.where(eq(workRunAttempts.id, input.attemptId))
+			.get();
+		return respond(changes, ended ? settled : missing);
+	}
 	db.update(workRunRequests)
 		.set({ activeAttemptId: null })
 		.where(eq(workRunRequests.id, request.id))

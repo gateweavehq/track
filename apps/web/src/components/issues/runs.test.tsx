@@ -31,6 +31,7 @@ const run = (over: Partial<RunSignal>): RunSignal =>
 		waitReason: null,
 		waitDetail: null,
 		lastContactAt: null,
+		attemptNo: null,
 		...over,
 	}) as RunSignal;
 
@@ -68,6 +69,24 @@ it("shows the live run's executor, progress, contact and link, and keeps history
 	expect(html).toContain("1 earlier run");
 	expect(html).toContain("fix-eng-0");
 	expect(html).toContain("fix-eng-00");
+});
+
+it("WEB-86: names a scoped attempt by its number and keeps its id one hover away", () => {
+	const id = "aed420a5-84d8-4328-90bd-aee5d899aef7";
+	const page = render(
+		<RunList
+			runs={[
+				run({ id, key: id, attemptNo: 2, state: "passed", executor: "cloud", changedAt: 2 }),
+				run({ id: "deploy", key: "deploy-7", state: "passed", changedAt: 1 }),
+			]}
+		/>,
+	);
+	const attempt = page.getByText("Attempt 2");
+	expect(attempt.getAttribute("title")).toBe(id);
+	expect(attempt.className).not.toContain("font-mono");
+	expect(page.queryByText(id)).toBeNull();
+	// A product's run still goes by its key.
+	expect(page.getByText("deploy-7").className).toContain("font-mono");
 });
 
 it("says what unblocks a waiting run", () => {

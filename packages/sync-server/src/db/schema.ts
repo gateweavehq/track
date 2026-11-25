@@ -652,6 +652,8 @@ export const signals = sqliteTable(
 		waitReason: text("wait_reason", { enum: RUN_WAIT_REASONS }),
 		waitDetail: text("wait_detail"),
 		lastContactAt: integer("last_contact_at"),
+		// A scoped attempt's number within its work run request; null for every other signal.
+		attemptNo: integer("attempt_no"),
 	},
 	(table) => [
 		uniqueIndex("signals_source_kind_key_idx").on(table.sourceId, table.kind, table.key),
