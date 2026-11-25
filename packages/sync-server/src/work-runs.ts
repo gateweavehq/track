@@ -291,6 +291,7 @@ export function claimWorkRun(
 			agentName: runner.name.slice(0, 64).toWellFormed(),
 			lastContactAt: now,
 			attemptNo,
+			repository: request.repository,
 		})
 		.returning()
 		.get();

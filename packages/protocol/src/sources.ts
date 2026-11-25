@@ -73,6 +73,17 @@ export type RunState = (typeof RUN_STATES)[number];
 export type RunExecutor = (typeof RUN_EXECUTORS)[number];
 export type RunWaitReason = (typeof RUN_WAIT_REASONS)[number];
 
+/**
+ * A GitHub repository as `owner/name`, in one spelling: a work run's registration names one, and
+ * the attempts it hands out carry it to their run signals.
+ */
+export const githubRepository = z
+	.string()
+	.trim()
+	.toLowerCase()
+	.max(200)
+	.regex(/^[a-z0-9-]+\/(?!\.{1,2}$)[a-z0-9_.-]+$/);
+
 const link = userText
 	.pipe(z.url({ protocol: /^https?$/, normalize: true }))
 	.refine((value) => !/^https?:\/\/[^/]*@/.test(value), "Use a URL without credentials");
@@ -230,6 +241,8 @@ export const exportedSignalSchema = z.object({
 	// Files written before attempts were numbered carry none. No upper bound: the claim counts on
 	// without one, and a refused signal would stop the whole export.
 	attemptNo: z.int().positive().nullish(),
+	// Files written before attempts carried their repository have none.
+	repository: githubRepository.nullish(),
 });
 // Include the array separator and reserve room for the gateway's two derived import ids.
 export function restoreSignalBytes(signal: z.infer<typeof exportedSignalSchema>) {
@@ -300,6 +313,12 @@ export const restoredSignalSchema = exportedSignalSchema
 				message: "An alert has no attempt number",
 				path: ["attemptNo"],
 			});
+		if (row.kind === "alert" && row.repository != null)
+			ctx.addIssue({
+				code: "custom",
+				message: "An alert has no repository",
+				path: ["repository"],
+			});
 	});
 
 export const RESTORE_ISSUE_MISSING =
@@ -368,6 +387,11 @@ export interface Signal {
 	 * name it. Null for alerts and for runs a product reports, whose key is their name.
 	 */
 	attemptNo: number | null;
+	/**
+	 * The repository a scoped attempt works in, `owner/name`, from its registration, which a
+	 * report cannot change. Null for alerts and for runs a product reports.
+	 */
+	repository: string | null;
 }
 
 function plainSourceTitle(title: string) {

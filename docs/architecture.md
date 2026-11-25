@@ -1000,8 +1000,10 @@ across assignments, and a replay of the claim can recover the original handle.
 source's origins. Track keeps only the token hash. A report for an earlier sequence has no
 effect, a terminal attempt cannot advance again, and the reports cannot change the binding
 or change the issue itself. The same signal appears on the existing issue Runs card, named
-"Attempt N" by its `attemptNo` rather than by its ID, which stays on hover. A source key cannot
-update a scoped attempt through `/api/events`.
+"Attempt N" by its `attemptNo` rather than by its ID, which stays on hover. The signal also
+carries the registration's `repository`, which the workspace's Runs page filters by; a run a
+product reports through `/api/events` has none. A source key cannot update a scoped attempt
+through `/api/events`.
 
 ### Connecting a source in one step
 

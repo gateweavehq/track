@@ -9,15 +9,18 @@ export const Route = createFileRoute("/$workspace/runs")({
 });
 
 function Runs() {
-	const { executor } = Route.useSearch();
+	const filter = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
 	useDocumentTitle("Runs");
 
 	return (
 		<RunsOverviewPage
-			executorFilter={executor}
-			onExecutorFilterChange={(next) =>
-				void navigate({ search: (prev) => ({ ...prev, executor: next }), replace: true })
+			filter={filter}
+			onFilterChange={(next) =>
+				void navigate({
+					search: (prev) => ({ ...prev, executor: next.executor, repository: next.repository }),
+					replace: true,
+				})
 			}
 		/>
 	);

@@ -712,6 +712,32 @@ it("WEB-86: a numbered attempt keeps its number through a restore, and a product
 	});
 });
 
+it("WEB-84: an attempt keeps its repository through a restore, and a product's run has none", async () => {
+	const ws = await workspace();
+	const id = "import-" + "c".repeat(32);
+	const issueId = "import-" + "d".repeat(32);
+	await issueRows(ws, [[issueId, "backlog"]]);
+	expect(
+		await ws.restoreSource(owner.id, {
+			exportedAt,
+			source: { ...input, id, assigneeId: null },
+			signals: [
+				{
+					...restoredRun(id, "0f3c9a1e-0000-4000-8000-000000000001", issueId, "passed"),
+					attemptNo: 1,
+					repository: "acme/site",
+				},
+				restoredRun(id, "deploy-7", issueId, "passed"),
+			],
+		}),
+	).toMatchObject({ ok: true, value: { bound: 2, dropped: 0 } });
+	const runs = (await ws.snapshot(owner)).signals.filter((signal) => signal.kind === "run");
+	expect(Object.fromEntries(runs.map((run) => [run.key, run.repository]))).toEqual({
+		"0f3c9a1e-0000-4000-8000-000000000001": "acme/site",
+		"deploy-7": null,
+	});
+});
+
 it("a restored signal's state must fit its kind", async () => {
 	const ws = await workspace();
 	const id = "import-" + "c".repeat(32);

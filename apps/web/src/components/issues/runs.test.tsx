@@ -32,6 +32,7 @@ const run = (over: Partial<RunSignal>): RunSignal =>
 		waitDetail: null,
 		lastContactAt: null,
 		attemptNo: null,
+		repository: null,
 		...over,
 	}) as RunSignal;
 

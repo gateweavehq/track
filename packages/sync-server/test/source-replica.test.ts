@@ -62,6 +62,7 @@ const signal: Signal = {
 	waitDetail: null,
 	lastContactAt: null,
 	attemptNo: null,
+	repository: null,
 };
 async function populated() {
 	const workspace = await withTeam();
@@ -185,6 +186,8 @@ it("WEB-86: attempts claimed before numbering get their number, and other runs k
 				.values({ id, requestId: "request", claimId: id, tokenHash: "hash", attemptNo })
 				.run();
 		}
+		// Rewinding to 0038 runs 0039 again, which adds the repository column.
+		db.run(sql`alter table signals drop column repository`);
 		db.run(sql`delete from __drizzle_migrations where created_at >= ${entry.when}`);
 		await migrate(db, migrations);
 	});
@@ -192,6 +195,74 @@ it("WEB-86: attempts claimed before numbering get their number, and other runs k
 	expect(Object.fromEntries(runs.map(({ id, attemptNo }) => [id, attemptNo]))).toEqual({
 		"attempt-a": 1,
 		"attempt-b": 2,
+		"product-run": null,
+	});
+});
+
+it("WEB-84: attempts claimed before 0039 get their registration's repository, other runs none", async () => {
+	const workspace = await withTeam();
+	expect(
+		await workspace.mutate(owner, "browser", "issue", {
+			name: "issue.create",
+			args: { id: "work", teamId: "eng", title: "Runner work", sortOrder: "a0" },
+		}),
+	).toMatchObject({ ok: true });
+	const entry = migrations.journal.entries.find(
+		(row) => row.tag === "0040_repository_of_existing_attempts",
+	);
+	if (!entry) throw new Error("Missing attempt repository migration");
+	const run = {
+		...signal,
+		kind: "run" as const,
+		severity: "unknown" as const,
+		state: "passed" as const,
+	};
+	await runInDurableObject(workspace, async (_, state) => {
+		const db = drizzle(state.storage, { schema });
+		db.insert(schema.sources).values(source).run();
+		// As attempts claimed before 0039 were stored: the repository only on their registration.
+		for (const [id, key] of [
+			["site-attempt", "site-attempt"],
+			["docs-attempt", "docs-attempt"],
+			["product-run", "deploy-7"],
+		] as const) {
+			db.insert(schema.signals)
+				.values({ ...run, id, key, issueId: "work", lastSentAt: 99 })
+				.run();
+		}
+		for (const [request, repository, attempt, assignmentVersion] of [
+			["site-request", "acme/site", "site-attempt", 1],
+			["docs-request", "acme/docs", "docs-attempt", 2],
+		] as const) {
+			db.insert(schema.workRunRequests)
+				.values({
+					id: request,
+					issueId: "work",
+					assignmentVersion,
+					runnerId: "runner",
+					repository,
+					sourceId: source.id,
+					lastAttemptId: attempt,
+					attempts: 1,
+				})
+				.run();
+			db.insert(schema.workRunAttempts)
+				.values({
+					id: attempt,
+					requestId: request,
+					claimId: attempt,
+					tokenHash: "hash",
+					attemptNo: 1,
+				})
+				.run();
+		}
+		db.run(sql`delete from __drizzle_migrations where created_at >= ${entry.when}`);
+		await migrate(db, migrations);
+	});
+	const runs = (await workspace.snapshot(owner)).signals;
+	expect(Object.fromEntries(runs.map(({ id, repository }) => [id, repository]))).toEqual({
+		"site-attempt": "acme/site",
+		"docs-attempt": "acme/docs",
 		"product-run": null,
 	});
 });

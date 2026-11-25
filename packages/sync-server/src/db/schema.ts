@@ -654,6 +654,8 @@ export const signals = sqliteTable(
 		lastContactAt: integer("last_contact_at"),
 		// A scoped attempt's number within its work run request; null for every other signal.
 		attemptNo: integer("attempt_no"),
+		// A scoped attempt's repository, from its registration; null for every other signal.
+		repository: text("repository"),
 	},
 	(table) => [
 		uniqueIndex("signals_source_kind_key_idx").on(table.sourceId, table.kind, table.key),

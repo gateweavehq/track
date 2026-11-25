@@ -330,6 +330,7 @@ function processRunEvent(
 		waitDetail: event.waitDetail ?? null,
 		lastContactAt: now,
 		attemptNo: prior?.attemptNo ?? null,
+		repository: prior?.repository ?? null,
 	};
 	if (prior) {
 		// A repeat of the same state with the same details keeps the row; a newer clock still
@@ -730,6 +731,7 @@ export function processSourceEvent(
 		waitDetail: null,
 		lastContactAt: now,
 		attemptNo: null,
+		repository: null,
 	};
 	db.insert(schema.signals)
 		.values(signal)
