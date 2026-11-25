@@ -111,11 +111,30 @@ it("filters by executor", () => {
 
 it("lists the executors in use, in the protocol's order", () => {
 	expect(
-		overviewExecutors([
-			signal({ executor: "cloud" }),
-			signal({ executor: "agents-hosted" }),
-			signal({ executor: null }),
-			signal({ executor: "cloud" }),
-		]),
+		overviewExecutors(
+			[
+				signal({ executor: "cloud" }),
+				signal({ executor: "agents-hosted" }),
+				signal({ executor: null }),
+				signal({ executor: "cloud" }),
+			],
+			NOW,
+		),
 	).toEqual(["agents-hosted", "cloud"]);
+});
+
+it("offers only the executors of runs on the page, so no choice filters down to nothing", () => {
+	const old = NOW - RECENTLY_FAILED_WITHIN - 1;
+	expect(
+		overviewExecutors(
+			[
+				signal({ executor: "agents-hosted", state: "passed", endedAt: NOW }),
+				signal({ executor: "cloud", state: "cancelled", endedAt: NOW }),
+				signal({ executor: "local-runner", state: "failed", endedAt: old }),
+				signal({ executor: "cloud", issueId: null }),
+				signal({ executor: "local-runner", state: "queued" }),
+			],
+			NOW,
+		),
+	).toEqual(["local-runner"]);
 });

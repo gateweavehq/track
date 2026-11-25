@@ -1,4 +1,10 @@
-import type { RunExecutor, Signal, SyncedIssue, Team } from "@gateweave/track-protocol";
+import {
+	RUN_EXECUTORS,
+	type RunExecutor,
+	type Signal,
+	type SyncedIssue,
+	type Team,
+} from "@gateweave/track-protocol";
 import { z } from "zod";
 import { isRunSignal, type RunSignal } from "./runs";
 
@@ -6,7 +12,7 @@ import { isRunSignal, type RunSignal } from "./runs";
 export const RECENTLY_FAILED_WITHIN = 7 * 24 * 60 * 60 * 1000;
 
 export const runsOverviewSearch = z.object({
-	executor: z.enum(["agents-hosted", "local-runner", "cloud"]).optional().catch(undefined),
+	executor: z.enum(RUN_EXECUTORS).optional().catch(undefined),
 });
 
 /** One row of the overview: the run with what links it to its issue. */
@@ -30,6 +36,19 @@ export interface OverviewGroups {
  * runs leave the page when they end — their issue rows keep them. Runs that never bound to an
  * issue stay in their executor's own view, as the pilot decided.
  */
+/**
+ * Whether a run belongs on the overview: it is running or queued, or it failed within the week.
+ * Unbound runs stay in their executor's own view.
+ */
+function onOverview(signal: Signal, now: number): signal is RunSignal {
+	if (!isRunSignal(signal) || signal.issueId === null) return false;
+	if (signal.state === "running" || signal.state === "queued") return true;
+	return (
+		signal.state === "failed" &&
+		(signal.endedAt ?? signal.changedAt) >= now - RECENTLY_FAILED_WITHIN
+	);
+}
+
 export function overviewRuns(
 	signals: Iterable<Signal>,
 	issues: ReadonlyMap<string, Pick<SyncedIssue, "teamId" | "number" | "title">>,
@@ -39,7 +58,7 @@ export function overviewRuns(
 ): OverviewGroups {
 	const rows: OverviewRow[] = [];
 	for (const signal of signals) {
-		if (!isRunSignal(signal) || signal.issueId === null) continue;
+		if (!onOverview(signal, now) || signal.issueId === null) continue;
 		if (executor !== undefined && signal.executor !== executor) continue;
 		const issue = issues.get(signal.issueId);
 		const team = issue === undefined ? undefined : teams.get(issue.teamId);
@@ -54,22 +73,17 @@ export function overviewRuns(
 	return {
 		running: rows.filter((row) => row.run.state === "running").sort(byReport),
 		queued: rows.filter((row) => row.run.state === "queued").sort(byReport),
-		failed: rows
-			.filter(
-				(row) =>
-					row.run.state === "failed" &&
-					(row.run.endedAt ?? row.run.changedAt) >= now - RECENTLY_FAILED_WITHIN,
-			)
-			.sort(byReport),
+		failed: rows.filter((row) => row.run.state === "failed").sort(byReport),
 	};
 }
 
-/** The executors the workspace's runs use, for the filter's chips, in the protocol's order. */
-export function overviewExecutors(signals: Iterable<Signal>): RunExecutor[] {
+/**
+ * The executors of the runs the overview shows, for its filter, in the protocol's order. A run
+ * that already left the page adds none, so no choice filters down to nothing.
+ */
+export function overviewExecutors(signals: Iterable<Signal>, now: number): RunExecutor[] {
 	const seen = new Set<RunExecutor>();
 	for (const signal of signals)
-		if (isRunSignal(signal) && signal.executor !== null) seen.add(signal.executor);
-	return (["agents-hosted", "local-runner", "cloud"] as const).filter((executor) =>
-		seen.has(executor),
-	);
+		if (onOverview(signal, now) && signal.executor !== null) seen.add(signal.executor);
+	return RUN_EXECUTORS.filter((executor) => seen.has(executor));
 }

@@ -1,4 +1,4 @@
-import type { RunExecutor, RunState } from "@gateweave/track-protocol";
+import { RUN_EXECUTORS, type RunExecutor, type RunState } from "@gateweave/track-protocol";
 import { Link } from "@tanstack/react-router";
 import {
 	CheckCircle2,
@@ -10,6 +10,7 @@ import {
 	XCircle,
 } from "lucide-react";
 import { useMemo } from "react";
+import { Button } from "#/components/ui/button";
 import { useWorkspace } from "#/components/workspace/context";
 import { Notice } from "#/components/workspace/notice";
 import { formatRelative } from "#/lib/dates";
@@ -58,12 +59,17 @@ export function RunsOverviewPage({
 	const teams = useTeamsById();
 	const allRuns = useMemo(() => [...signals.values()].filter(isRunSignal), [signals]);
 	const now = useRunClock(allRuns);
-	const executors = useMemo(() => overviewExecutors(signals.values()), [signals]);
-	const activeExecutor =
-		executorFilter && executors.includes(executorFilter) ? executorFilter : undefined;
+	// The filter offers the executors on the page, and keeps the one chosen even once its runs
+	// have left, so the page never shows other executors' runs under it.
+	const executors = useMemo(() => {
+		const shown = overviewExecutors(signals.values(), now);
+		return RUN_EXECUTORS.filter(
+			(executor) => executor === executorFilter || shown.includes(executor),
+		);
+	}, [signals, now, executorFilter]);
 	const groups = useMemo(
-		() => overviewRuns(signals.values(), issues, teams, now, activeExecutor),
-		[signals, issues, teams, now, activeExecutor],
+		() => overviewRuns(signals.values(), issues, teams, now, executorFilter),
+		[signals, issues, teams, now, executorFilter],
 	);
 	const total = groups.running.length + groups.queued.length + groups.failed.length;
 
@@ -76,7 +82,7 @@ export function RunsOverviewPage({
 					<div className="ml-auto">
 						<select
 							aria-label="Filter by executor"
-							value={activeExecutor ?? ""}
+							value={executorFilter ?? ""}
 							onChange={(event) =>
 								onExecutorFilterChange((event.target.value || undefined) as RunExecutor | undefined)
 							}
@@ -92,7 +98,19 @@ export function RunsOverviewPage({
 					</div>
 				)}
 			</header>
-			{total === 0 ? (
+			{total === 0 && executorFilter !== undefined ? (
+				<Notice
+					title={`No ${RUN_EXECUTOR_LABELS[executorFilter]} runs`}
+					action={
+						<Button variant="outline" size="sm" onClick={() => onExecutorFilterChange(undefined)}>
+							Show all executors
+						</Button>
+					}
+				>
+					Nothing on {RUN_EXECUTOR_LABELS[executorFilter]} is running, waiting or failed within the
+					week.
+				</Notice>
+			) : total === 0 ? (
 				<Notice title="No runs">
 					When an agent or a runner works on an issue, its run shows up here while it waits or runs,
 					and for a week after it fails.
