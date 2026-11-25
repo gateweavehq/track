@@ -716,3 +716,37 @@ export const workRunAttempts = sqliteTable(
 	},
 	(table) => [uniqueIndex("work_run_attempts_claim_idx").on(table.requestId, table.claimId)],
 );
+
+export const panels = sqliteTable(
+	"panels",
+	{
+		id: text("id").primaryKey(),
+		issueId: text("issue_id")
+			.notNull()
+			.references(() => issues.id),
+		openedBy: text("opened_by").notNull(),
+		deadlineAt: integer("deadline_at").notNull(),
+		openedAt: integer("opened_at").notNull(),
+		round: integer("round").notNull().default(1),
+		state: text("state", { enum: ["open", "revealed"] })
+			.notNull()
+			.default("open"),
+		revealedAt: integer("revealed_at"),
+		revealReason: text("reveal_reason", { enum: ["complete", "deadline"] }),
+	},
+	(table) => [index("panels_state").on(table.state)],
+);
+
+export const panelSeats = sqliteTable(
+	"panel_seats",
+	{
+		panelId: text("panel_id")
+			.notNull()
+			.references(() => panels.id),
+		memberId: text("member_id").notNull(),
+		body: text("body"),
+		submittedAt: integer("submitted_at"),
+		alias: text("alias"),
+	},
+	(table) => [uniqueIndex("panel_seats_member").on(table.panelId, table.memberId)],
+);

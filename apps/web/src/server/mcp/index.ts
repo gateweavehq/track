@@ -161,6 +161,9 @@ function accessFor(
 				relations: (issueId) => stub.relations(issueId),
 				pullRequests: (issueId) => stub.pullRequests(issueId),
 				lastSortOrder: () => stub.lastSortOrder(),
+				openPanel: (input) => stub.openPanel(membership.profile, input),
+				submitPosition: (input) => stub.submitPosition(membership.profile, input),
+				getPanel: (input) => stub.getPanel(membership.profile, input),
 				mutate: (mutation: MutationInput) =>
 					stub.mutate(membership.profile, clientId, uuidv7(), mutation),
 			};

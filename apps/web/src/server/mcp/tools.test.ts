@@ -24,10 +24,15 @@ import {
 	INTAKE_EMAIL_ACTOR_ID,
 	mutationSchema,
 } from "@gateweave/track-protocol";
-import type { IssueQuery, MemberProfile, MutateResult } from "@gateweave/track-sync-server";
+import type {
+	IssueQuery,
+	MemberProfile,
+	MutateResult,
+	PanelView,
+} from "@gateweave/track-sync-server";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createMcpHandler } from "@modelcontextprotocol/server";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { search } from "#/lib/search";
 import { createTrackServer, type TrackAccess, type WorkspaceAccess } from "./tools";
 
@@ -68,6 +73,9 @@ const team: Team = {
  */
 class FakeWorkspace implements WorkspaceAccess {
 	readonly slug = "acme";
+	openPanel = vi.fn<WorkspaceAccess["openPanel"]>();
+	submitPosition = vi.fn<WorkspaceAccess["submitPosition"]>();
+	getPanel = vi.fn<WorkspaceAccess["getPanel"]>();
 	me: MemberProfile = me;
 	teams: Team[] = [team];
 	statuses: WorkflowStatus[] = defaultStatuses(team.id, 0);
@@ -400,12 +408,15 @@ describe("Track MCP tools", () => {
 			"create_team",
 			"get_insights",
 			"get_issue",
+			"get_panel",
 			"get_workspace",
 			"link_issues",
 			"list_project_updates",
 			"list_workspaces",
+			"open_panel",
 			"post_project_update",
 			"search_issues",
+			"submit_position",
 			"triage_request",
 			"unlink_issues",
 			"update_comment",
@@ -1888,5 +1899,159 @@ describe("Track MCP tools", () => {
 		expect(unknown.content).toEqual([
 			{ type: "text", text: 'No label "Nope". Labels: Bug, Docs. Make one with create_label.' },
 		]);
+	});
+});
+
+describe("panel tools", () => {
+	const scope = { workspace: "acme", panel: "panel" };
+	const deadline = new Date(Date.now() + 3600000).toISOString();
+	const hidden = "SECRET-ALPHA-7731";
+	async function setup() {
+		const issue = await created({ title: "Panel question" });
+		const row = workspace.issues_[0];
+		if (!row) throw new Error("Missing issue");
+		const panel: PanelView = {
+			id: "panel",
+			issueId: row.id,
+			issueRef: { teamId: row.teamId, number: row.number },
+			openedBy: me.id,
+			deadlineAt: Date.parse(deadline),
+			openedAt: 0,
+			round: 1,
+			state: "open",
+			revealedAt: null,
+			revealReason: null,
+			seats: [{ memberId: sam.id, submitted: true }],
+			own: null,
+			positions: null,
+			absent: null,
+		};
+		return { panel, key: issue.key };
+	}
+	it("advertises panel inputs and annotations", async () => {
+		const { tools } = await client.listTools();
+		for (const [name, required, annotations] of [
+			[
+				"open_panel",
+				["workspace", "key", "seats", "deadline"],
+				{ readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+			],
+			[
+				"submit_position",
+				["workspace", "panel", "body"],
+				{
+					readOnlyHint: false,
+					destructiveHint: false,
+					openWorldHint: false,
+					idempotentHint: false,
+				},
+			],
+			["get_panel", ["workspace", "panel"], { readOnlyHint: true, openWorldHint: false }],
+		] as const) {
+			const tool = tools.find((t) => t.name === name);
+			expect(tool?.annotations).toMatchObject(annotations);
+			expect(tool?.inputSchema.required?.toSorted()).toEqual([...required].sort());
+		}
+	});
+	it("resolves seat emails and validates offset deadlines before opening", async () => {
+		const { panel, key } = await setup();
+		workspace.openPanel.mockResolvedValue({ ok: true, value: panel });
+		const input = { workspace: "acme", key, deadline, seats: [sam.email] };
+		const result = await call("open_panel", input);
+		expect(result.structuredContent).toMatchObject({
+			issueKey: key,
+			openedBy: me.email,
+			deadline,
+			seats: [{ member: sam.email, submitted: true }],
+		});
+		expect(result.structuredContent).not.toHaveProperty("issueId");
+		expect(workspace.openPanel).toHaveBeenCalledWith({
+			issueId: panel.issueId,
+			seats: [sam.id],
+			deadlineAt: Date.parse(deadline),
+		});
+		expect(
+			(await call("open_panel", { ...input, seats: ["unknown@example.com"] })).content,
+		).toEqual([expect.objectContaining({ text: expect.stringContaining("No member") })]);
+		expect((await call("open_panel", { ...input, deadline: deadline.slice(0, -1) })).isError).toBe(
+			true,
+		);
+		const directory = await workspace.directory();
+		vi.spyOn(workspace, "directory").mockResolvedValue({
+			...directory,
+			members: directory.members.map((member) =>
+				member.id === sam.id ? { ...member, removedAt: 1 } : member,
+			),
+		});
+		expect((await call("open_panel", input)).content).toEqual([
+			expect.objectContaining({ text: expect.stringContaining("No member") }),
+		]);
+		expect(workspace.openPanel).toHaveBeenCalledTimes(1);
+	});
+	it("passes through positions and each refusal message", async () => {
+		const { panel } = await setup();
+		workspace.submitPosition.mockResolvedValue({ ok: true, value: { ...panel, own: hidden } });
+		expect(
+			(await call("submit_position", { ...scope, body: hidden })).structuredContent,
+		).toMatchObject({ own: hidden });
+		expect(workspace.submitPosition).toHaveBeenCalledWith({ panelId: scope.panel, body: hidden });
+		const positions = [{ alias: "Position A", body: hidden }];
+		workspace.getPanel.mockResolvedValue({
+			ok: true,
+			value: {
+				...panel,
+				state: "revealed",
+				revealedAt: 1,
+				revealReason: "deadline",
+				positions,
+				absent: [me.id],
+			},
+		});
+		const revealed = await call("get_panel", scope);
+		expect(revealed.structuredContent).toMatchObject({
+			positions,
+			absent: [me.email],
+			own: null,
+			state: "revealed",
+		});
+		expect(workspace.getPanel).toHaveBeenCalledWith({ panelId: scope.panel });
+		for (const reason of ["invalid", "forbidden", "not_found", "conflict", "expired"] as const) {
+			for (const name of ["submit_position", "get_panel"] as const) {
+				const rpc = name === "submit_position" ? workspace.submitPosition : workspace.getPanel;
+				rpc.mockResolvedValueOnce({ ok: false, reason, message: `Panel refusal ${reason}` });
+				const result = await call(name, name === "get_panel" ? scope : { ...scope, body: hidden });
+				expect(result.isError).toBe(true);
+				expect(JSON.stringify(result.content)).toContain(`Panel refusal ${reason}`);
+			}
+		}
+	});
+	it("keeps hidden positions out of get_issue, search_issues and non-seat panel reads", async () => {
+		const { key, panel } = await setup();
+		workspace.getPanel.mockResolvedValue({ ok: true, value: { ...panel, own: hidden } });
+		for (const result of [
+			await call("get_issue", { workspace: "acme", key }),
+			await call("search_issues", { workspace: "acme", text: hidden }),
+		]) {
+			expect(result.isError).toBeFalsy();
+			expect(JSON.stringify(result)).not.toContain(hidden);
+		}
+		for (const rpc of [workspace.openPanel, workspace.submitPosition, workspace.getPanel])
+			expect(rpc).not.toHaveBeenCalled();
+		workspace.getPanel.mockResolvedValueOnce({
+			ok: false,
+			reason: "not_found",
+			message: "Panel not found",
+		});
+		const denied = await call("get_panel", scope);
+		expect(denied.isError).toBe(true);
+		expect(JSON.stringify(denied.content)).toContain("Panel not found");
+		workspace.getPanel.mockResolvedValueOnce({ ok: true, value: panel });
+		const admin = await call("get_panel", scope);
+		expect(admin.structuredContent).toMatchObject({
+			own: null,
+			positions: null,
+			seats: [{ member: sam.email, submitted: true }],
+		});
+		expect(JSON.stringify(admin)).not.toContain(hidden);
 	});
 });
