@@ -288,6 +288,13 @@
       "when": 1795624263751,
       "tag": "0040_repository_of_existing_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1795633100534,
+      "tag": "0041_signal_agent_attempts",
+      "breakpoints": true
     }
   ]
 }

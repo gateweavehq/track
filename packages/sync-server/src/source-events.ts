@@ -1,4 +1,6 @@
 import {
+	AGENT_ATTEMPT_DAYS,
+	AGENT_ATTEMPTS_BEFORE_HANDOFF,
 	ASSIGNED_PER_DAY,
 	BYTES_PER_DAY,
 	CALLS_PER_MINUTE,
@@ -22,6 +24,7 @@ import {
 	type Source,
 	type SourceEvent,
 	sourceEventSchema,
+	sourceHandoffComment,
 	sourceIssueText,
 	sourceLimitNotice,
 	sourceReopenComment,
@@ -29,7 +32,7 @@ import {
 	WORKSPACE_ISSUES_PER_DAY,
 	WRITES_PER_DAY,
 } from "@gateweave/track-protocol";
-import { and, count, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { recordActivity } from "./activity";
 import { syncArchive } from "./archive";
 import * as schema from "./db/schema";
@@ -38,7 +41,7 @@ import { ChangeSet, type WriteResult } from "./log";
 import { sortOrderAfterAll } from "./recurring";
 import { indexComment, indexIssue } from "./search";
 import { keyRevoked, liveConnectSeal, matchesRestore } from "./source-management";
-import { type Db, toComment, toIssue, toSignal, toSource } from "./state";
+import { activeMember, type Db, toComment, toIssue, toSignal, toSource } from "./state";
 import { teamStatuses } from "./statuses";
 import { queueDeliveries } from "./webhooks";
 
@@ -123,6 +126,36 @@ function fileIssue(
 	return issue;
 }
 
+function activeAgent(db: Db, id: string | null) {
+	const member = id === null ? undefined : activeMember(db, id);
+	return member?.role === "agent" ? member : undefined;
+}
+
+/**
+ * Whether a person other than an agent changed the issue's assignee after `since`. Only that
+ * restarts an alert's agent attempts: an agent that unassigns itself, takes the issue back or
+ * passes it on must not reset its own count. A person's later change can merge into an earlier
+ * activity row (see `recordActivity`), which moves only its `updatedAt`, so that is the time to read.
+ */
+function reassignedByPerson(db: Db, issueId: string, since: number): boolean {
+	const roles = new Map(
+		db
+			.select({ userId: schema.members.userId, role: schema.members.role })
+			.from(schema.members)
+			.all()
+			.map((member) => [member.userId, member.role]),
+	);
+	return db
+		.select({ actorId: schema.activities.actorId, change: schema.activities.change })
+		.from(schema.activities)
+		.where(and(eq(schema.activities.issueId, issueId), gt(schema.activities.updatedAt, since)))
+		.all()
+		.some((row) => {
+			const role = roles.get(row.actorId);
+			return row.change.type === "assignee" && role !== undefined && role !== "agent";
+		});
+}
+
 function updateIssue(
 	db: Db,
 	changes: ChangeSet,
@@ -131,18 +164,21 @@ function updateIssue(
 	status: string | undefined,
 	priority: IssuePriority,
 	reopening: boolean,
+	assigneeId?: string,
 ): Issue {
 	const patchStatus = status !== undefined && status !== issue.status;
 	const raise = priority !== 0 && (issue.priority === 0 || priority < issue.priority);
-	if (!patchStatus && !raise) return issue;
+	if (!patchStatus && !raise && assigneeId === undefined) return issue;
 	const stamp = { version: changes.nextVersion, clientId: `source:${source.id}` };
 	const row = {
 		...issue,
 		status: status ?? issue.status,
+		assigneeId: assigneeId ?? issue.assigneeId,
 		priority: raise ? priority : issue.priority,
 		fieldStamps: {
 			...issue.fieldStamps,
 			...(patchStatus && { status: stamp }),
+			...(assigneeId !== undefined && { assigneeId: stamp }),
 			...(raise && { priority: stamp }),
 		},
 		archivedAt: reopening ? null : issue.archivedAt,
@@ -152,6 +188,12 @@ function updateIssue(
 	db.update(schema.issues).set(row).where(eq(schema.issues.id, row.id)).run();
 	changes.put("issue", toIssue(row));
 	syncArchive(db, changes, issue, row);
+	if (assigneeId !== undefined)
+		recordActivity(db, changes, row, SOURCE_ACTOR_ID, {
+			type: "assignee",
+			from: issue.assigneeId,
+			to: assigneeId,
+		});
 	changes.events.push({ type: "issue.updated", issue: row, previous: issue });
 	return row;
 }
@@ -313,6 +355,8 @@ function processRunEvent(
 		url,
 		issueId: issue?.id ?? prior?.issueId ?? null,
 		reopens: 0,
+		agentReopens: prior?.agentReopens ?? [],
+		assignStamp: prior?.assignStamp ?? null,
 		firstAt: prior?.firstAt ?? now,
 		changedAt: now,
 		lastSentAt: sentAt,
@@ -611,6 +655,34 @@ export function processSourceEvent(
 	const openStatus = statuses.find((s) => !isClosedCategory(s.category));
 	const current = statuses.find((s) => s.key === issue?.status);
 	const reopening = !!(recurring && current && isClosedCategory(current.category) && openStatus);
+	// A replacement issue starts its own count: the attempts belong to the issue that was deleted.
+	let attempts = filing ? [] : (prior?.agentReopens ?? []);
+	let owner: { userId: string; name: string } | undefined;
+	let comment: string | null = null;
+	if (reopening && prior && issue) {
+		const stampNow = issue.fieldStamps.assigneeId?.version ?? 0;
+		const restarted =
+			prior.assignStamp !== null &&
+			prior.assignStamp !== stampNow &&
+			reassignedByPerson(db, issue.id, attempts.at(-1) ?? 0);
+		const kept = restarted ? [] : attempts;
+		attempts = kept.filter((at) => at > now - AGENT_ATTEMPT_DAYS * DAY);
+		if (activeAgent(db, issue.assigneeId)) {
+			attempts.push(now);
+			if (attempts.length >= AGENT_ATTEMPTS_BEFORE_HANDOFF)
+				owner = db
+					.select({ userId: schema.members.userId, name: schema.members.name })
+					.from(schema.members)
+					.where(and(eq(schema.members.role, "owner"), isNull(schema.members.removedAt)))
+					// Earliest joined: members keep the row they were first given.
+					.orderBy(sql`rowid`)
+					.limit(1)
+					.get();
+		}
+		comment = owner
+			? sourceHandoffComment(source.name, attempts, owner.name)
+			: sourceReopenComment(source.name);
+	}
 	const previousReopens = usage.filter((entry) => prior && entry.reopened === prior.id);
 	if (reopening && previousReopens.length >= REOPENS_PER_KEY_PER_DAY)
 		return reject("REOPENS_PER_KEY_PER_DAY", (previousReopens[0]?.at ?? now) + DAY);
@@ -621,7 +693,6 @@ export function processSourceEvent(
 	if (willFile && workspaceTimes.length >= WORKSPACE_ISSUES_PER_DAY)
 		return reject("WORKSPACE_ISSUES_PER_DAY", (workspaceTimes[0] ?? now) + DAY);
 	const text = willFile ? sourceIssueText(event, source) : null;
-	const comment = reopening ? sourceReopenComment(source.name) : null;
 	const url =
 		event.url && source.linkOrigins.includes(new URL(event.url).origin) ? event.url : null;
 	const bytes = new TextEncoder().encode(
@@ -652,18 +723,8 @@ export function processSourceEvent(
 	let assigned = false;
 	if (willFile && text && first && team) {
 		const assignee =
-			source.assigneeId && usage.filter((entry) => entry.assigned).length < ASSIGNED_PER_DAY
-				? db
-						.select()
-						.from(schema.members)
-						.where(
-							and(
-								eq(schema.members.userId, source.assigneeId),
-								eq(schema.members.role, "agent"),
-								isNull(schema.members.removedAt),
-							),
-						)
-						.get()
+			usage.filter((entry) => entry.assigned).length < ASSIGNED_PER_DAY
+				? activeAgent(db, source.assigneeId)
 				: undefined;
 		assigned = !!assignee;
 		issue = fileIssue(
@@ -692,7 +753,16 @@ export function processSourceEvent(
 				: undefined;
 		const raised =
 			priority !== 0 && (PRIORITY[prior.severity] === 0 || priority < PRIORITY[prior.severity]);
-		issue = updateIssue(db, changes, source, issue, target?.key, raised ? priority : 0, reopening);
+		issue = updateIssue(
+			db,
+			changes,
+			source,
+			issue,
+			target?.key,
+			raised ? priority : 0,
+			reopening,
+			owner?.userId,
+		);
 		if (clearing && isAlertState(prior.state))
 			recordActivity(db, changes, issue, SOURCE_ACTOR_ID, {
 				type: "signal",
@@ -712,6 +782,12 @@ export function processSourceEvent(
 		state: event.state,
 		url,
 		issueId: issue?.id ?? prior?.issueId ?? null,
+		agentReopens: attempts,
+		assignStamp: reopening
+			? (issue?.fieldStamps.assigneeId?.version ?? 0)
+			: filing
+				? null
+				: (prior?.assignStamp ?? null),
 		reopens: Math.min(MAX_REOPENS, (prior?.reopens ?? 0) + Number(reopening)),
 		firstAt: prior?.firstAt ?? now,
 		changedAt: now,

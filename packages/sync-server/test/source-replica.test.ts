@@ -188,6 +188,8 @@ it("WEB-86: attempts claimed before numbering get their number, and other runs k
 		}
 		// Rewinding to 0038 runs 0039 again, which adds the repository column.
 		db.run(sql`alter table signals drop column repository`);
+		db.run(sql`alter table signals drop column agent_reopens`);
+		db.run(sql`alter table signals drop column assign_stamp`);
 		db.run(sql`delete from __drizzle_migrations where created_at >= ${entry.when}`);
 		await migrate(db, migrations);
 	});
@@ -256,6 +258,8 @@ it("WEB-84: attempts claimed before 0039 get their registration's repository, ot
 				})
 				.run();
 		}
+		db.run(sql`alter table signals drop column agent_reopens`);
+		db.run(sql`alter table signals drop column assign_stamp`);
 		db.run(sql`delete from __drizzle_migrations where created_at >= ${entry.when}`);
 		await migrate(db, migrations);
 	});

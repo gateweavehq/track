@@ -42,6 +42,8 @@ export const toSource = ({
 export const toSignal = ({
 	lastSentAt: _,
 	clearedAt: _cleared,
+	agentReopens: _attempts,
+	assignStamp: _stamp,
 	...signal
 }: schema.SignalRow): Signal => signal;
 
