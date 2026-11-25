@@ -8,6 +8,41 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.50.0] - 2026-11-25
+
+The Runs page filters by repository, and its rows fit narrow screens. The sync protocol goes to
+31, and there are two workspace migrations.
+
+### Added
+
+- **A repository filter on the Runs page.** A runner's attempt now carries the repository its
+  approval names, so the page can answer "what is running in `acme/site`".
+  - **The filter** sits beside the executor filter and offers the repositories of the runs on the
+    page. It is kept in the address (`?repository=owner/name`), and it works together with the
+    executor filter. With nothing under the chosen filters, the page says so and offers all runs.
+  - **Each row** names its repository.
+  - **Where it comes from:** a claim copies the repository from its approval, and a report cannot
+    change it. Attempts claimed before this get theirs from their approval. A run that a product
+    reports through `/api/events` has no repository, and the filter leaves it out.
+  - **Export:** the repository travels with a JSON export. A run in the file that has a repository
+    needs its attempt number to restore, and a file from before this has neither.
+
+  ([#378](https://github.com/gateweavehq/track/pull/378))
+
+### Fixed
+
+- **A run's progress no longer shrinks to an ellipsis on a narrow screen.** At about 930px, a row
+  showed "Running p…" beside the issue's title. The progress now takes a line of its own and
+  wraps there. ([#378](https://github.com/gateweavehq/track/pull/378))
+
+### If you run your own
+
+- **The protocol goes from 30 to 31.** Open tabs reload and sync again.
+- **Two workspace migrations** (`0039` and `0040`) run on their own when each workspace wakes.
+  They add the repository to signals and fill it in for attempts claimed before.
+- **Rolling back to 0.49.0** works, since it ignores the new column. Attempts claimed meanwhile
+  have no repository after you update again, so the filter leaves them out.
+
 ## [0.49.0] - 2026-11-25
 
 A Runs page shows what is running, what is waiting and what failed across the workspace, so
