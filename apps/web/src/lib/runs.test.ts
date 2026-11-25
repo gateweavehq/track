@@ -25,6 +25,7 @@ const signal = (over: Partial<Signal>): Signal => ({
 	waitDetail: null,
 	lastContactAt: null,
 	attemptNo: null,
+	repository: null,
 	...over,
 });
 

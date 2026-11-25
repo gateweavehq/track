@@ -37,6 +37,8 @@ import m0035 from "./0035_scoped_work_runs.sql";
 import m0036 from "./0036_work_run_executor.sql";
 import m0037 from "./0037_signal_attempt_no.sql";
 import m0038 from "./0038_number_existing_attempts.sql";
+import m0039 from "./0039_signal_repository.sql";
+import m0040 from "./0040_repository_of_existing_attempts.sql";
 import journal from "./meta/_journal.json";
 
 export default {
@@ -81,5 +83,7 @@ export default {
 		m0036,
 		m0037,
 		m0038,
+		m0039,
+		m0040,
 	},
 };

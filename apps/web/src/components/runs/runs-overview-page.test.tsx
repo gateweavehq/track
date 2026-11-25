@@ -38,6 +38,7 @@ const run = (over: Partial<RunSignal>): RunSignal =>
 		waitDetail: null,
 		lastContactAt: null,
 		attemptNo: null,
+		repository: null,
 		...over,
 	}) as RunSignal;
 
@@ -71,9 +72,11 @@ it("links the row to its issue and shows executor, agent, progress and timing", 
 			lastContactAt: NOW - 30_000,
 			url: "https://ci.example.com/build/7",
 			attemptNo: 2,
+			repository: "acme/site",
 		}),
 	]);
 	expect(html).toContain("Attempt 2");
+	expect(html).toContain("acme/site");
 	expect(html).toContain("Local runner · Codex");
 	expect(html).toContain("ENG-12");
 	expect(html).toContain("Fix the thing");
