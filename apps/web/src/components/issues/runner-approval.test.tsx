@@ -3,7 +3,7 @@ import type { ActiveIssue, Source } from "@gateweave/track-protocol";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { RunnerApproval } from "./runner-approval";
+import { pastTense, RunnerApproval } from "./runner-approval";
 
 const sources: Source[] = [];
 
@@ -159,4 +159,12 @@ it("WEB-87: a failed read says so and can ask again", async () => {
 	expect(page.getByRole("alert").textContent).toBe("This workspace is moving");
 	fireEvent.click(page.getByRole("button", { name: "Try again" }));
 	expect(await page.findByRole("button", { name: "Not approved" })).toBeTruthy();
+});
+
+it("WEB-87: says how the last attempt went in plain words", () => {
+	expect(
+		["queued", "running", "passed", "failed", "cancelled"].map((state) =>
+			pastTense(state as never),
+		),
+	).toEqual(["is queued", "is running", "passed", "failed", "was cancelled"]);
 });

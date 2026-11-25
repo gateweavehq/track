@@ -250,6 +250,8 @@ function ApprovalForm({
 	);
 }
 
-function pastTense(state: NonNullable<WorkRunApproval["lastAttemptState"]>): string {
-	return state === "queued" || state === "running" ? `is ${state}` : state;
+/** How an attempt in this state reads after "The last attempt". */
+export function pastTense(state: NonNullable<WorkRunApproval["lastAttemptState"]>): string {
+	if (state === "queued" || state === "running") return `is ${state}`;
+	return state === "cancelled" ? "was cancelled" : state;
 }
