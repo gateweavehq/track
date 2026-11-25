@@ -96,7 +96,7 @@ it("R50: a workspace with no source has no signal, source actor or inbox item", 
 	expect(snapshot.inbox).toEqual([]);
 	expect(snapshot.activities).toEqual([]);
 });
-it("R52: the sources migration adds two empty tables without changing a populated workspace", async () => {
+it("R52: sources and scoped work migrations preserve a populated workspace", async () => {
 	const workspace = await withTeam();
 	expect(
 		await workspace.mutate(owner, "browser", "issue", {
@@ -109,6 +109,8 @@ it("R52: the sources migration adds two empty tables without changing a populate
 	if (!entry) throw new Error("Missing sources migration");
 	await runInDurableObject(workspace, async (_, state) => {
 		const db = drizzle(state.storage, { schema });
+		db.run(sql`drop table work_run_attempts`);
+		db.run(sql`drop table work_run_requests`);
 		db.run(sql`drop table signals`);
 		db.run(sql`drop table sources`);
 		db.run(sql`delete from __drizzle_migrations where created_at >= ${entry.when}`);
@@ -119,8 +121,14 @@ it("R52: the sources migration adds two empty tables without changing a populate
 		const previous = tables();
 		await migrate(db, migrations);
 		const current = tables();
-		expect(current.filter(({ name }) => !["sources", "signals"].includes(name))).toEqual(previous);
-		expect(current.length).toBe(previous.length + 2);
+		const added = ["sources", "signals", "work_run_attempts", "work_run_requests"];
+		expect(current.filter(({ name }) => !added.includes(name))).toEqual(previous);
+		expect(
+			current
+				.filter(({ name }) => added.includes(name))
+				.map(({ name }) => name)
+				.sort(),
+		).toEqual(added.sort());
 	});
 	expect(await workspace.snapshot(owner)).toEqual(before);
 });

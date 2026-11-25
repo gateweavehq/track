@@ -12,7 +12,9 @@ import {
 	auditPageRequest,
 	CloseCode,
 	type Comment,
+	claimWorkRunInput,
 	clientMessage,
+	findWorkRunInput,
 	type GitHubConnection,
 	gatewayAuditEvent,
 	type HelloMessage,
@@ -34,6 +36,9 @@ import {
 	type PullRequest,
 	type RejectReason,
 	type RestoreCounts,
+	reconcileWorkRunInput,
+	registerWorkRunInput,
+	reportWorkRunInput,
 	type ServerMessage,
 	type Snapshot,
 	type Source,
@@ -42,6 +47,7 @@ import {
 	type Webhook,
 	type WebhookInput,
 	type WebhookPatch,
+	workRunTokenHash,
 } from "@gateweave/track-protocol";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/durable-sqlite";
@@ -202,6 +208,13 @@ import {
 	type WorkspaceLink,
 	workspaceLink,
 } from "./webhooks";
+import {
+	claimWorkRun,
+	findWorkRun,
+	reconcileWorkRun,
+	registerWorkRun,
+	reportWorkRun,
+} from "./work-runs";
 
 /**
  * Header carrying the verified member's id on socket requests. The Durable Object is only reachable
@@ -939,6 +952,54 @@ export class WorkspaceDO extends DurableObject {
 	): SourceEventResult {
 		return this.#write(() =>
 			processSourceEvent(this.#db, sourceId, keyId, raw, workspaceUrl, Date.now()),
+		).response;
+	}
+
+	// The work-run gateway checks the workspace and actor before calling these methods.
+	registerWorkRun(actor: string, input: unknown) {
+		const parsed = registerWorkRunInput.safeParse(input);
+		if (!parsed.success) return { status: 400, error: "Invalid registration" } as const;
+		if (this.#move) return { status: 503, error: MOVING_MESSAGE } as const;
+		return this.#write(() =>
+			registerWorkRun(this.#db, shortId.parse(actor), parsed.data, Date.now()),
+		).response;
+	}
+
+	findWorkRun(actor: string, input: unknown) {
+		const parsed = findWorkRunInput.safeParse(input);
+		if (!parsed.success) return { status: 400, error: "Invalid lookup" } as const;
+		if (this.#move) return { status: 503, error: MOVING_MESSAGE } as const;
+		return findWorkRun(this.#db, shortId.parse(actor), parsed.data.issue);
+	}
+
+	claimWorkRun(actor: string, input: unknown, hash: string) {
+		const parsed = claimWorkRunInput.safeParse(input);
+		if (!parsed.success || !workRunTokenHash.safeParse(hash).success) {
+			return { status: 400, error: "Invalid claim" } as const;
+		}
+		if (this.#move) return { status: 503, error: MOVING_MESSAGE } as const;
+		return this.#write(() =>
+			claimWorkRun(this.#db, shortId.parse(actor), parsed.data, hash, Date.now()),
+		).response;
+	}
+
+	reportWorkRun(actor: string, input: unknown, hash: string) {
+		const parsed = reportWorkRunInput.safeParse(input);
+		if (!parsed.success || !workRunTokenHash.safeParse(hash).success) {
+			return { status: 400, error: "Invalid report" } as const;
+		}
+		if (this.#move) return { status: 503, error: MOVING_MESSAGE } as const;
+		return this.#write(() =>
+			reportWorkRun(this.#db, shortId.parse(actor), parsed.data, hash, Date.now()),
+		).response;
+	}
+
+	reconcileWorkRun(actor: string, input: unknown) {
+		const parsed = reconcileWorkRunInput.safeParse(input);
+		if (!parsed.success) return { status: 400, error: "Invalid reconciliation" } as const;
+		if (this.#move) return { status: 503, error: MOVING_MESSAGE } as const;
+		return this.#write(() =>
+			reconcileWorkRun(this.#db, shortId.parse(actor), parsed.data, Date.now()),
 		).response;
 	}
 

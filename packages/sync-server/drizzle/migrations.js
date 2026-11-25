@@ -33,6 +33,7 @@ import m0031 from "./0031_inbox_push.sql";
 import m0032 from "./0032_audit_log.sql";
 import m0033 from "./0033_sources_signals.sql";
 import m0034 from "./0034_signal_runs.sql";
+import m0035 from "./0035_scoped_work_runs.sql";
 import journal from "./meta/_journal.json";
 
 export default {
@@ -73,5 +74,6 @@ export default {
 		m0032,
 		m0033,
 		m0034,
+		m0035,
 	},
 };

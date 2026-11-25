@@ -17,6 +17,7 @@ import { moveWorkspaces } from "./server/move";
 import { newNonce, withSecurityHeaders } from "./server/security-headers";
 import { handleSyncRequest, isSyncRequest } from "./server/sync";
 import { handleUnsubscribeRequest, isUnsubscribeRequest } from "./server/unsubscribe";
+import { handleWorkRunRequest, isWorkRunRequest } from "./server/work-runs";
 import { retryWorkspaceDeletions } from "./server/workspace-deletion";
 
 export { Backup } from "./server/backup";
@@ -46,6 +47,7 @@ function route(request: Request, nonce: string): Response | Promise<Response> {
 	if (!isSetUp()) return notSetUp();
 	const url = new URL(request.url);
 	if (url.pathname === "/api/events") return handleEvent(request);
+	if (isWorkRunRequest(url)) return handleWorkRunRequest(request);
 	// Sync is handled before TanStack Start so WebSocket upgrade responses pass through untouched.
 	if (isSyncRequest(url)) return handleSyncRequest(request);
 	if (isMcpRequest(url)) return handleMcpRequest(request);

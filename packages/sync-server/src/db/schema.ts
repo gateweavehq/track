@@ -661,3 +661,46 @@ export const signals = sqliteTable(
 
 export type SourceRow = typeof sources.$inferSelect;
 export type SignalRow = typeof signals.$inferSelect;
+
+/** A workspace admin's approval for one assignment of an issue to a runner. */
+export const workRunRequests = sqliteTable(
+	"work_run_requests",
+	{
+		id: text("id").primaryKey(),
+		issueId: text("issue_id")
+			.notNull()
+			.references(() => issues.id),
+		assignmentVersion: integer("assignment_version").notNull(),
+		runnerId: text("runner_id").notNull(),
+		repository: text("repository").notNull(),
+		// Keep the claim even if the destination is removed and the signal goes with it.
+		sourceId: text("source_id").notNull(),
+		activeAttemptId: text("active_attempt_id"),
+		lastAttemptId: text("last_attempt_id"),
+		attempts: integer("attempts").notNull().default(0),
+	},
+	(table) => [
+		uniqueIndex("work_run_requests_assignment_idx").on(table.issueId, table.assignmentVersion),
+		uniqueIndex("work_run_requests_active_idx")
+			.on(table.issueId)
+			.where(sql`${table.activeAttemptId} IS NOT NULL`),
+	],
+);
+
+/** Private authority and replay cursor for a run in the existing signals table. */
+export const workRunAttempts = sqliteTable(
+	"work_run_attempts",
+	{
+		id: text("id")
+			.primaryKey()
+			.references(() => signals.id, { onDelete: "cascade" }),
+		requestId: text("request_id")
+			.notNull()
+			.references(() => workRunRequests.id),
+		claimId: text("claim_id").notNull(),
+		tokenHash: text("token_hash").notNull(),
+		attemptNo: integer("attempt_no").notNull(),
+		sequence: integer("sequence").notNull().default(0),
+	},
+	(table) => [uniqueIndex("work_run_attempts_claim_idx").on(table.requestId, table.claimId)],
+);

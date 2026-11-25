@@ -961,6 +961,32 @@ webhook whose secrets are lost once the code's minute is up: both are visible in
 be removed there. And every caller that arrives from one Worker zone shares the exchange's rate
 limit, since that zone is the address it is counted by.
 
+### Scoped runner reports
+
+The local-runner pilot uses JSON POST endpoints under `/api/work-runs/`. They are off in
+the demo. `register` takes `workspace`, `issue`, `repository` (a GitHub `owner/repo`) and an
+Agents reporting `sourceId` for the issue's team. It requires an owner or admin's session and
+Track's own Origin. Track takes the runner and assignment version from the issue. The same
+approval returns its original request ID.
+
+After inspecting an interrupted run, a workspace owner or admin can POST `workspace`,
+`attemptId` and the verified terminal `state` to `reconcile` from the Track origin. This closes
+the claim, including when a reporting source was removed.
+
+The runner endpoints require a current Track agent member key. `find` takes an issue key under
+`issue` and returns the approval for the caller's current assignment, including the latest
+attempt ID and state. `claim` takes its
+`requestId` and a runner-generated UUID `claimId`. An explicit retry names
+`previousAttemptId` after reconciliation. Track admits one active attempt for the issue, even
+across assignments, and a replay of the claim can recover the original handle.
+
+`report` takes `attemptId`, the attempt's `token`, an increasing `sequence` and a lifecycle
+`state`. It can carry short progress, a wait reason and detail, and a link from the approved
+source's origins. Track keeps only the token hash. A report for an earlier sequence has no
+effect, a terminal attempt cannot advance again, and the reports cannot change the binding
+or change the issue itself. The same signal appears on the existing issue Runs card. A source
+key cannot update a scoped attempt through `/api/events`.
+
 ### Connecting a source in one step
 
 A product such as Guard can send an admin to

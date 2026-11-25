@@ -231,6 +231,13 @@ function processRunEvent(
 	workspaceUrl: string,
 	now: number,
 ): Outcome {
+	// Scoped attempts accept reports only through their own gateway.
+	const scoped = db
+		.select({ id: schema.workRunAttempts.id })
+		.from(schema.workRunAttempts)
+		.where(eq(schema.workRunAttempts.id, event.key))
+		.get();
+	if (scoped) return { ...changes.result(), response: { status: 400 } };
 	const usage = source.usage.filter((entry) => entry.at > now - DAY);
 	const reject = (limit: string, reset: number = now + DAY) =>
 		refuse(db, changes, source, limit, reset);
