@@ -1,5 +1,4 @@
 // @vitest-environment happy-dom
-import type { Signal } from "@gateweave/track-protocol";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import type { RunSignal } from "#/lib/runs";
