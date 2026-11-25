@@ -59,8 +59,8 @@ it("R11: a source accepts only whole HTTP link origins and normalizes their host
 	}
 });
 
-it("R51: protocol 29 adds run signals to the sources' signals", () => {
-	expect(PROTOCOL_VERSION).toBe(29);
+it("R51: protocol 29 added run signals to the sources' signals, and 30 numbers scoped attempts", () => {
+	expect(PROTOCOL_VERSION).toBe(30);
 	expect(ENTITY_NAMES).toContain("source");
 	expect(ENTITY_NAMES).toContain("signal");
 });
@@ -165,6 +165,13 @@ it("run timestamps must survive export, and a restored signal's state must fit i
 	expect(exportedSignalSchema.safeParse({ ...row, kind: "alert", state: "open" }).success).toBe(
 		true,
 	);
+	// WEB-86: an attempt's number travels with the file; older files carry none.
+	const attempt = { ...row, kind: "run", state: "passed" };
+	expect(exportedSignalSchema.parse({ ...attempt, attemptNo: 2 }).attemptNo).toBe(2);
+	expect(exportedSignalSchema.parse(attempt).attemptNo).toBeUndefined();
+	for (const attemptNo of [0, 1.5, -1, "2"]) {
+		expect(exportedSignalSchema.safeParse({ ...attempt, attemptNo }).success).toBe(false);
+	}
 	expect(
 		restoredSignalSchema.safeParse({
 			...row,

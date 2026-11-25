@@ -327,8 +327,15 @@ it("binds one replayable work run to the administrator's issue and repository", 
 				state: "passed",
 				executor: "local-runner",
 				url: "https://builds.example.test/run",
+				// WEB-86: the Runs card names an attempt by this number, not by its id.
+				attemptNo: 1,
 			}),
-			expect.objectContaining({ id: retry.attemptId, issueId: "assigned", state: "queued" }),
+			expect.objectContaining({
+				id: retry.attemptId,
+				issueId: "assigned",
+				state: "queued",
+				attemptNo: 2,
+			}),
 		]),
 	);
 	expect(JSON.stringify(snapshot.signals)).not.toContain(grant.token);
@@ -371,6 +378,23 @@ it("binds one replayable work run to the administrator's issue and repository", 
 	const reconcile = { workspace: slug, attemptId: nextGrant.attemptId, state: "cancelled" };
 	expect((await runner("reconcile", reconcile, other.key)).status).toBe(403);
 	expect((await post("reconcile", reconcile, { cookie: owner.cookie, origin })).status).toBe(200);
+	// WEB-86: an attempt that has ended keeps its outcome, and says so; an unknown one is not found.
+	const again = await post(
+		"reconcile",
+		{ ...reconcile, state: "passed" },
+		{ cookie: owner.cookie, origin },
+	);
+	expect(again.status).toBe(409);
+	expect(await again.json()).toMatchObject({ error: "This attempt has already ended" });
+	expect(
+		(
+			await post(
+				"reconcile",
+				{ ...reconcile, attemptId: crypto.randomUUID() },
+				{ cookie: owner.cookie, origin },
+			)
+		).status,
+	).toBe(404);
 	expect(await ok(runner("find", { issue: "ENG-1" }, other.key))).toMatchObject({
 		activeAttemptId: null,
 		lastAttemptId: nextGrant.attemptId,

@@ -260,6 +260,20 @@
       "when": 1795603307179,
       "tag": "0036_work_run_executor",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1795612782576,
+      "tag": "0037_signal_attempt_no",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1795612789432,
+      "tag": "0038_number_existing_attempts",
+      "breakpoints": true
     }
   ]
 }

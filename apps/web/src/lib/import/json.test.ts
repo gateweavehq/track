@@ -552,6 +552,7 @@ it("a one-team export carries only that team's sources and signals", async () =>
 		waitReason: null,
 		waitDetail: null,
 		lastContactAt: null,
+		attemptNo: null,
 	}));
 	const file = workspaceToJson({ ...exported, sources, signals }, ops.id);
 	const { source } = readJsonImport(file);

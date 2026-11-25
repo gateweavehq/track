@@ -61,6 +61,7 @@ const signal: Signal = {
 	waitReason: null,
 	waitDetail: null,
 	lastContactAt: null,
+	attemptNo: null,
 };
 async function populated() {
 	const workspace = await withTeam();
@@ -131,6 +132,68 @@ it("R52: sources and scoped work migrations preserve a populated workspace", asy
 		).toEqual(added.sort());
 	});
 	expect(await workspace.snapshot(owner)).toEqual(before);
+});
+
+it("WEB-86: attempts claimed before numbering get their number, and other runs keep none", async () => {
+	const workspace = await withTeam();
+	expect(
+		await workspace.mutate(owner, "browser", "issue", {
+			name: "issue.create",
+			args: { id: "work", teamId: "eng", title: "Runner work", sortOrder: "a0" },
+		}),
+	).toMatchObject({ ok: true });
+	const entry = migrations.journal.entries.find(
+		(row) => row.tag === "0038_number_existing_attempts",
+	);
+	if (!entry) throw new Error("Missing attempt numbering migration");
+	const run = {
+		...signal,
+		kind: "run" as const,
+		severity: "unknown" as const,
+		state: "passed" as const,
+	};
+	await runInDurableObject(workspace, async (_, state) => {
+		const db = drizzle(state.storage, { schema });
+		db.insert(schema.sources).values(source).run();
+		// As an attempt claimed before 0037 was stored: its number only on the attempt row.
+		for (const [id, key] of [
+			["attempt-a", "attempt-a"],
+			["attempt-b", "attempt-b"],
+			["product-run", "deploy-7"],
+		] as const) {
+			db.insert(schema.signals)
+				.values({ ...run, id, key, issueId: "work", lastSentAt: 99 })
+				.run();
+		}
+		db.insert(schema.workRunRequests)
+			.values({
+				id: "request",
+				issueId: "work",
+				assignmentVersion: 1,
+				runnerId: "runner",
+				repository: "acme/site",
+				sourceId: source.id,
+				lastAttemptId: "attempt-b",
+				attempts: 2,
+			})
+			.run();
+		for (const [id, attemptNo] of [
+			["attempt-a", 1],
+			["attempt-b", 2],
+		] as const) {
+			db.insert(schema.workRunAttempts)
+				.values({ id, requestId: "request", claimId: id, tokenHash: "hash", attemptNo })
+				.run();
+		}
+		db.run(sql`delete from __drizzle_migrations where created_at >= ${entry.when}`);
+		await migrate(db, migrations);
+	});
+	const runs = (await workspace.snapshot(owner)).signals;
+	expect(Object.fromEntries(runs.map(({ id, attemptNo }) => [id, attemptNo]))).toEqual({
+		"attempt-a": 1,
+		"attempt-b": 2,
+		"product-run": null,
+	});
 });
 
 it("R50: the pruning alarm takes no version in a workspace without sources", async () => {

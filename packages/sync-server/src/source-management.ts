@@ -340,6 +340,7 @@ export function restoreSource(db: Db, memberId: string, command: SourceRestore, 
 		signals.waitReason,
 		signals.waitDetail,
 		signals.lastContactAt,
+		signals.attemptNo,
 	];
 	const fieldBytes = sql.join(
 		fields.map((col) => sql`coalesce(length(cast(${col} as blob)), 0)`),

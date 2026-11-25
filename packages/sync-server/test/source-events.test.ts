@@ -216,6 +216,7 @@ it("R13: the replica carries only signal metadata", async () => {
 			"waitReason",
 			"waitDetail",
 			"lastContactAt",
+			"attemptNo",
 		].sort(),
 	);
 });

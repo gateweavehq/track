@@ -43,6 +43,14 @@ export const RUN_WAIT_LABELS: Record<RunWaitReason, string> = {
 	retry: "Waiting to retry",
 };
 
+/**
+ * The run's name on its row. A product names its run by its key, such as `deploy-7`. A scoped
+ * attempt's key is its id, so it goes by its number instead: "Attempt 2".
+ */
+export function runTitle(run: Pick<Signal, "key" | "attemptNo">): string {
+	return run.attemptNo === null ? run.key : `Attempt ${run.attemptNo}`;
+}
+
 /** Who runs it, as "Local runner · Codex", or null when the report named neither. */
 export function runExecutorLabel(run: Pick<Signal, "executor" | "agentName">): string | null {
 	if (run.executor === null) return run.agentName;

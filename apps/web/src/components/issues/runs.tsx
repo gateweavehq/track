@@ -11,7 +11,13 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { formatRelative } from "#/lib/dates";
 import { useIssueRuns } from "#/lib/queries";
-import { isUnfinishedRun, type RunSignal, runExecutorLabel, runWaitLabel } from "#/lib/runs";
+import {
+	isUnfinishedRun,
+	type RunSignal,
+	runExecutorLabel,
+	runTitle,
+	runWaitLabel,
+} from "#/lib/runs";
 import { cn } from "#/lib/utils";
 
 const STATE_META: Record<RunState, { label: string; icon: LucideIcon; className: string }> = {
@@ -100,7 +106,16 @@ function RunRow({ run, now }: { run: RunSignal; now: number }) {
 				aria-label={label}
 				className={cn("size-4 shrink-0", className, run.state === "running" && "animate-spin")}
 			/>
-			<span className="shrink-0 font-mono text-xs text-muted-foreground">{run.key}</span>
+			<span
+				className={cn(
+					"shrink-0 text-xs text-muted-foreground",
+					run.attemptNo === null && "font-mono",
+				)}
+				// The attempt's id stays one hover away, for a runner log or a reconcile.
+				title={run.attemptNo === null ? undefined : run.key}
+			>
+				{runTitle(run)}
+			</span>
 			<span className="flex min-w-0 flex-1 items-center gap-2">
 				{executor !== null && <span className="shrink-0 text-muted-foreground">{executor}</span>}
 				{run.progress !== null && (

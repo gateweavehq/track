@@ -1,0 +1,1 @@
+ALTER TABLE `signals` ADD `attempt_no` integer;

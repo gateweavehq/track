@@ -1,6 +1,6 @@
 import type { Signal } from "@gateweave/track-protocol";
 import { expect, it } from "vitest";
-import { issueRuns, runExecutorLabel, runWaitLabel } from "./runs";
+import { issueRuns, runExecutorLabel, runTitle, runWaitLabel } from "./runs";
 
 const signal = (over: Partial<Signal>): Signal => ({
 	id: "s",
@@ -24,6 +24,7 @@ const signal = (over: Partial<Signal>): Signal => ({
 	waitReason: null,
 	waitDetail: null,
 	lastContactAt: null,
+	attemptNo: null,
 	...over,
 });
 
@@ -51,6 +52,11 @@ it("live runs come before finished ones, newest report first in each", () => {
 		"new-passed",
 		"old-passed",
 	]);
+});
+
+it("WEB-86: names a scoped attempt by its number and a product's run by its key", () => {
+	expect(runTitle({ key: "aed420a5-84d8-4328-90bd-aee5d899aef7", attemptNo: 2 })).toBe("Attempt 2");
+	expect(runTitle({ key: "deploy-7", attemptNo: null })).toBe("deploy-7");
 });
 
 it("names the executor and agent as one label", () => {

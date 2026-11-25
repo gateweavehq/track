@@ -227,6 +227,8 @@ export const exportedSignalSchema = z.object({
 	waitReason: z.enum(RUN_WAIT_REASONS).nullish(),
 	waitDetail: userText.max(200).nullish(),
 	lastContactAt: z.int().nonnegative().nullish(),
+	// Files written before attempts were numbered carry none.
+	attemptNo: z.int().positive().max(1_000_000).nullish(),
 });
 // Include the array separator and reserve room for the gateway's two derived import ids.
 export function restoreSignalBytes(signal: z.infer<typeof exportedSignalSchema>) {
@@ -289,6 +291,13 @@ export const restoredSignalSchema = exportedSignalSchema
 						? "A run's state is queued, running, passed, failed or cancelled"
 						: "An alert's state is open, cleared or dismissed",
 				path: ["state"],
+			});
+		// Only a scoped attempt has a number.
+		if (row.kind === "alert" && row.attemptNo != null)
+			ctx.addIssue({
+				code: "custom",
+				message: "An alert has no attempt number",
+				path: ["attemptNo"],
 			});
 	});
 
@@ -353,6 +362,11 @@ export interface Signal {
 	waitDetail: string | null;
 	/** When the server last accepted an event for the signal. */
 	lastContactAt: number | null;
+	/**
+	 * A scoped runner attempt's number within its registration, from 1, so the Runs card can
+	 * name it. Null for alerts and for runs a product reports, whose key is their name.
+	 */
+	attemptNo: number | null;
 }
 
 function plainSourceTitle(title: string) {
