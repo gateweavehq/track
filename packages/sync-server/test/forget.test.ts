@@ -411,6 +411,52 @@ describe("forgetting someone who deleted their account", () => {
 		client.close();
 	});
 
+	it("takes the name out of a panel position, before and after the reveal", async () => {
+		const { workspace, as } = await workspaceWithTeam();
+		await as(owner, createIssue());
+		const opened = await workspace.openPanel(owner, {
+			issueId: ISSUE_ID,
+			seats: [bob.id, triage.id],
+			deadlineAt: Date.now() + 3_600_000,
+		});
+		if (!opened.ok) throw new Error(opened.message);
+		const panelId = opened.value.id;
+		const text = `I would ask ${mention} and ${bobsMention}`;
+		const expected = `I would ask ${renamed} and ${bobsMention}`;
+		const submitted = await workspace.submitPosition(bob, { panelId, body: text });
+		expect(submitted).toMatchObject({ ok: true });
+
+		await workspace.forgetPerson(person.id);
+
+		// Hidden still, and no longer naming them.
+		const before = await workspace.getPanel(bob, { panelId });
+		expect(before).toMatchObject({ ok: true, value: { own: expected } });
+		const panelRows = () =>
+			stored(workspace, (db) =>
+				JSON.stringify(
+					db.select().from(schema.panelSeats).where(eq(schema.panelSeats.panelId, panelId)).all(),
+				),
+			);
+		expect(await panelRows()).not.toContain(NAME);
+
+		// The reveal copies the stored text into a comment, so it is the renamed text.
+		await workspace.submitPosition(triage, { panelId, body: "No mention here" });
+		const revealed = await workspace.getPanel(bob, { panelId });
+		expect(
+			revealed.ok && revealed.value.positions?.map((position) => position.body).sort(),
+		).toEqual([expected, "No mention here"].sort());
+		const snapshot = await workspace.snapshot(owner);
+		expect(JSON.stringify(snapshot.comments)).not.toContain(NAME);
+		expect(
+			snapshot.comments.some((c) =>
+				c.body.endsWith(`
+
+${expected}`),
+			),
+		).toBe(true);
+		expect(await panelRows()).not.toContain(NAME);
+	});
+
 	it("takes the name out of webhook deliveries, sent or waiting", async () => {
 		const { workspace, as } = await workspaceWithTeam();
 		const link = { id: "workspace-1", slug: "acme", origin: "https://track.test" };
