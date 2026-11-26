@@ -201,7 +201,8 @@ pnpm run deploy    # builds, applies D1 migrations, deploys
 ```
 
 Use the Workers Paid plan, because a password sign-in takes more CPU than the Free plan gives a
-request. [docs/self-hosting.md](docs/self-hosting.md) covers both ways, your own domain, AI agents,
+request. [docs/quickstart.md](docs/quickstart.md) takes you from a fresh clone to a first issue on
+your own Cloudflare account. [docs/self-hosting.md](docs/self-hosting.md) covers both ways, your own domain, AI agents,
 GitHub sign-in, email and updating.
 
 Gateweave Cloud deploys itself from GitHub Actions (`.github/workflows/deploy.yml`): every green
