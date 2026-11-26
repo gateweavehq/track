@@ -57,6 +57,8 @@ file unless you want them, and close what it opened.
 
 Requirements: Node.js 24 (22+ works) and pnpm 12.
 
+[Quickstart](quickstart.md) walks through this to a first issue, one step at a time.
+
 ```sh
 git clone https://github.com/gateweavehq/track.git
 cd track
