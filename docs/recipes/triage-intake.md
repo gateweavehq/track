@@ -3,12 +3,13 @@
 An AI agent reads each request waiting in a team's intake and suggests accepting or declining it, and
 which ones repeat another. You decide, and it makes the changes.
 
-**How far this has been checked.** On 2026-11-26 this prompt was run end to end twice through Track's
+**How far this has been checked.** On 2026-11-26 this recipe was run end to end twice through Track's
 MCP tools against Gateweave Cloud, in a test workspace, signed in with OAuth as its owner, each time on
-the three test requests below. In the second run the agent showed the table and ended its turn with
-every request still in intake; the yes came in a separate message, and it then linked the duplicate,
-accepted one request and declined two. The requests were canceled or declined afterwards. [What has not
-been tried](#what-has-not-been-tried) has the rest.
+the three test requests below. The first run used the prompt before step 4 said what to do when a link
+fails; the second used the prompt as it is here. In the second run the agent showed the table and ended
+its turn with every request still in intake; the yes came in a separate message, and it then linked the
+duplicate, accepted one request and declined two. The requests were canceled or declined afterwards.
+[What has not been tried](#what-has-not-been-tried) has the rest.
 
 ## Before you start
 
