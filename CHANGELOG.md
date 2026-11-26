@@ -11,9 +11,9 @@ notes. Publishing a release deploys it to Gateweave Cloud.
 ## [0.51.0] - 2026-11-26
 
 Agents can attach screenshots and videos to issues over MCP, an issue can gather hidden positions
-that are revealed together, and a signal's issue goes to the workspace owner after an agent's
-second reopen in a week. There is no sync protocol change, and there are two workspace
-migrations.
+that are revealed together, and an alert's issue goes to a workspace owner when it reopens a
+second time in a week while an agent has it. There is no sync protocol change, and there are two
+workspace migrations.
 
 ### Added
 
@@ -44,10 +44,10 @@ migrations.
 
 ### Changed
 
-- **A signal's issue goes to the owner after an agent's second reopen in a week.** The reopen cap
-  was per day, so a loop of an agent's fix and the signal reopening could run for ever.
+- **An alert's issue goes to an owner after its second reopen in a week under an agent.** The
+  reopen cap was per day, so a loop of an agent's fix and the signal reopening could run for ever.
   - **Now:** when a connected product reopens an alert's issue for the second time in seven days
-    while an agent is assigned, Track takes the agent off and assigns the workspace owner, with
+    while an agent is assigned, Track takes the agent off and assigns a workspace owner, with
     one comment naming both attempts. The owner's inbox gets it as any assignment.
   - **Assigning someone else** to the issue starts the count again. With no active owner, or no
     agent assigned, nothing changes.
