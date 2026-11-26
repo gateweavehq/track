@@ -55,6 +55,15 @@ field names differ a little from client to client):
 
 Leave `headers` out to sign in with OAuth instead.
 
+## Recipes
+
+Each recipe is a task with one prompt you can paste into a connected agent, and says how far it has
+been checked.
+
+- [Turn meeting notes into issues](recipes/notes-to-issues.md)
+- [Write a project's weekly update from the board](recipes/project-update.md)
+- [Triage a team's intake](recipes/triage-intake.md)
+
 ## Tools
 
 Every tool needs the `track` scope. In the table, a `?` marks an input the call may leave out,

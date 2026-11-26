@@ -1,0 +1,103 @@
+# Triage a team's intake
+
+An AI agent reads each request waiting in a team's intake and suggests accepting or declining it, and
+which ones repeat another. You decide, and it makes the changes.
+
+**How far this has been checked.** On 2026-11-26 this prompt's steps were run through Track's MCP tools
+against Gateweave Cloud, in a test workspace, signed in with OAuth as its owner, on three requests made
+for the check. [What has not been tried](#what-has-not-been-tried) has the rest.
+
+## Before you start
+
+- Connect your agent to Track as [How to connect](../mcp.md#how-to-connect) says.
+- The agent has to act as a person, a member of the workspace such as you, signed in with OAuth. Only
+  people decide on requests. An agent member can call `triage_request`, but its decision is not made: it
+  comes back under `proposed`, for a person to accept or dismiss in Track (see [the tools
+table](../mcp.md#tools)).
+- Declining a request that someone filed through a team's request form or intake email address can email
+  them, with your reply. That is why the prompt asks you first.
+
+## Steps
+
+1. For a test run, make some requests. Paste this into your agent, or file them on the team's intake
+   page in Track:
+
+   ```text
+   In the Track workspace `acme`, make three issues in team ENG with create_issue and intake true.
+   Titles and descriptions:
+   - "Export to CSV drops the last column": "When I export the board to CSV, the Estimate column is
+     missing."
+   - "CSV export has no Estimate column": "Exporting issues as CSV leaves out Estimate."
+   - "Please add a dark pirate theme": "Parrots in the sidebar, please."
+   ```
+
+2. Paste the prompt below, with your workspace's slug and your team's key in place of `acme` and `ENG`.
+3. Read the decisions the agent suggests. Answer `yes`, or say what to change.
+4. Open the team's intake page in Track: the requests you handled are gone from it.
+
+The agent works in this order:
+
+1. `search_issues` with `team` and `intake: true` finds the requests waiting. With no `text`, the most
+   recently updated come first.
+2. `get_issue` reads each one: its description, comments and relations.
+3. `link_issues` with `duplicate_of` relates a duplicate to the request it repeats.
+4. `triage_request` with `decision` of `accept` or `decline`. Accepting can name an open `status` of the
+   team; without one the request keeps its status. Declining moves it to the team's first canceled
+   status, and `reply` is posted as a comment by you.
+
+## The prompt
+
+```text
+Triage the requests waiting in the intake of team ENG in the Track workspace `acme`.
+
+1. Call search_issues with team ENG and intake true. Call get_issue on each one and read it.
+2. For each request, suggest accept or decline:
+   - Accept if it is a real problem or something we could do. Name an open status to accept it into
+     only if it should not stay in the one it has.
+   - Decline if it is out of scope or cannot be done. Write a short, polite reply for the person.
+   - If two requests repeat each other, accept one and decline the other, with a reply that names the
+     one we kept.
+3. Show me a table of key, title, your suggestion and the reply for each decline. Do nothing before I
+   answer yes, or tell you what to change.
+4. After a yes: relate each duplicate to the request it repeats with link_issues and relation
+   duplicate_of, then call triage_request for each request with the decision and the reply. Do not
+   touch any issue that is not in the list.
+5. Finish with the keys, what you decided for each, and any call that failed.
+```
+
+## What you should see
+
+First, a table like this, with nothing changed:
+
+| Key      | Title                               | Suggestion                    | Reply                                                           |
+| -------- | ----------------------------------- | ----------------------------- | --------------------------------------------------------------- |
+| `ENG-9`  | Export to CSV drops the last column | Accept, into Todo             |                                                                 |
+| `ENG-10` | CSV export has no Estimate column   | Decline, duplicate of `ENG-9` | Thanks. This is the same problem as ENG-9. Follow it there.     |
+| `ENG-11` | Please add a dark pirate theme      | Decline                       | Thanks for the idea. We do not plan to build a theme like this. |
+
+After your yes, in the check:
+
+- `triage_request` with `accept` and `status` of `todo` returned the issue with `status` of `todo` and
+  `intake: false`. It left the intake list and joined the team's lists and boards.
+- `link_issues` with `duplicate_of` returned the duplicate's `relations`, with a `duplicate_of` entry for
+  the request it repeats. It worked while the duplicate was still a request, and the relation was still
+  there after the decline.
+- `triage_request` with `decline` returned the issue with `status` of `canceled` and `intake: false`. The
+  reply was in its comments, written under your name.
+- A second `search_issues` with `intake: true` returned nothing.
+
+`create_issue`'s answer does not say that an issue is a request; `search_issues` and `get_issue` do, as
+`intake`.
+
+`triage_request` refuses an issue that is not in intake, a `reply` on an accept, and a `status` on a
+decline. The first of these was not tried in the check; the three come from the server's code.
+
+## What has not been tried
+
+- A person answering at step 3. The check ran the steps from one session.
+- An agent member as the one calling `triage_request`, and accepting its proposals in Track.
+- Requests that arrived through a team's request form or intake email address, and the email to the
+  person who filed one.
+- A team with no canceled status, which cannot decline.
+- Accepting into a status other than `todo`, and more than three requests.
+- The three refusals above.
