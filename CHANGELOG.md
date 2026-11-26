@@ -37,7 +37,8 @@ workspace migrations.
     position before then.
   - **The reveal** comes when the last seat submits or the deadline passes, up to 30 days out.
     Track posts every position at once as comments under aliases (Position A, B, …), with a
-    summary naming the seats that did not submit. Who wrote which position is never shown.
+    summary naming the seats that did not submit. Track never says who wrote which position,
+    but when few seats submit, knowing who submitted can give it away.
   - **Limits:** one position per seat, and at most three open panels per workspace.
 
   ([#380](https://github.com/gateweavehq/track/pull/380))
