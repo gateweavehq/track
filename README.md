@@ -154,6 +154,8 @@ on wherever `BETTER_AUTH_URL` is set (see [self-hosting](docs/self-hosting.md#ai
 Locally, set it to `http://localhost:4710` in `.dev.vars` and connect to
 `http://localhost:4710/mcp`.
 
+Every tool, with what it takes, returns and needs, is on the [MCP reference](docs/mcp.md) page.
+
 An agent that works on its own, such as a triage bot, should not act as you. An admin creates
 an agent member for it under Settings, Agents: it joins the workspace under its own name, can do
 what members do, and connects with a key instead of signing in:

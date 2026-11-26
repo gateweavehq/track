@@ -16,6 +16,7 @@
 		"typegen": "wrangler types && tsr generate",
 		"typecheck": "wrangler types && tsr generate && tsc && tsc -p scripts && tsc -p test && tsc -p service-worker && tsc -p e2e && tsc -p perf && tsc -p smoke",
 		"test": "vitest run",
+		"docs:mcp": "tsx src/server/mcp/update-reference.ts",
 		"test:e2e": "node e2e/build.mjs && playwright test",
 		"test:perf": "vite build && playwright test -c playwright.perf.config.ts",
 		"test:smoke": "playwright test -c playwright.smoke.config.ts",
