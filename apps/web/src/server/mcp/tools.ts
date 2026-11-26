@@ -43,6 +43,7 @@ import { type CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { generateKeyBetween } from "fractional-indexing";
 import { z } from "zod";
 import { systemActorName } from "#/lib/actors";
+import { attachmentMarkdown, MAX_FILE_BYTES } from "#/lib/attachments";
 import { INSIGHT_RANGES, type Insights, projectInsights, teamInsights } from "#/lib/insights";
 import { issueKey, parseIssueKey } from "#/lib/issues";
 import { defaultLabelColor, findLabelByName } from "#/lib/labels";
@@ -85,6 +86,17 @@ export interface WorkspaceAccess {
 	/** The pull requests on GitHub that mention a live issue, oldest first. */
 	pullRequests(issueId: string): Promise<PullRequest[]>;
 	lastSortOrder(): Promise<string | null>;
+	/**
+	 * An address to upload one new file to as the user, without a session, for a few minutes; null
+	 * where this deployment keeps no files. `name` and `type` come back as the file will have them.
+	 */
+	uploadAddress(file: { name: string; type: string; size: number }): Promise<{
+		url: string;
+		path: string;
+		name: string;
+		type: string;
+		expiresAt: number;
+	} | null>;
 	/** Applies a mutation as the user, through the same validation as the app's. */
 	mutate(mutation: MutationInput): Promise<MutateResult>;
 }
@@ -1150,6 +1162,49 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				// Only a concurrent delete of the issue gets here.
 				if (!comment) throw new ToolError("The issue was deleted.");
 				return commentView(await workspace.directory(), comment);
+			}),
+	);
+
+	server.registerTool(
+		"attach_file",
+		{
+			title: "Attach file",
+			description: `Gets an address to upload a file to, such as a screenshot or a video you made, so it shows in an issue. PUT the file's bytes there with its Content-Type within ten minutes, for example \`curl -T shot.png -H "Content-Type: image/png" "<uploadUrl>"\`: it answers 201. Then put attachmentMarkdown in a description or a comment with update_issue or add_comment. Images (PNG, JPEG, GIF, WebP, AVIF) show in place; video, audio and other files are a link. Each address takes one file, up to ${MAX_FILE_BYTES / 1024 / 1024} MB.`,
+			inputSchema: strictInput("attach_file", {
+				workspace: workspaceInput,
+				name: z.string().trim().min(1).max(255).describe("The file's name, such as shot.png."),
+				type: z.string().trim().min(1).max(255).describe("Its media type, such as image/png."),
+				size: z.number().int().min(1).max(MAX_FILE_BYTES).describe("Its size in bytes."),
+			}),
+			outputSchema: z.looseObject({
+				name: z.string(),
+				type: z.string(),
+				size: z.number(),
+				uploadUrl: z.string(),
+				method: z.literal("PUT"),
+				expiresAt: z.string(),
+				attachmentMarkdown: z.string(),
+			}),
+			annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+		},
+		(input) =>
+			run(async () => {
+				const workspace = await open(access, input.workspace);
+				const address = await workspace.uploadAddress({
+					name: input.name,
+					type: input.type,
+					size: input.size,
+				});
+				if (!address) throw new ToolError("This Track does not keep attached files.");
+				return {
+					name: address.name,
+					type: address.type,
+					size: input.size,
+					uploadUrl: address.url,
+					method: "PUT" as const,
+					expiresAt: new Date(address.expiresAt).toISOString(),
+					attachmentMarkdown: attachmentMarkdown(address.name, address.path, address.type),
+				};
 			}),
 	);
 
