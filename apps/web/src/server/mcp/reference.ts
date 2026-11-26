@@ -21,15 +21,16 @@ export const TOOL_NEEDS: Record<string, string> = {
 	attach_file: "`track`; member",
 	create_issue: "`track`; member",
 	create_label: "`track`; member",
-	create_project: "`track`; member",
-	create_team: "`track`; admin only",
+	create_project: "`track`; human workspace member (not an agent)",
+	create_team: "`track`; workspace admin rights (an owner or an admin)",
 	get_insights: "`track`; member",
 	get_issue: "`track`; member",
-	get_panel: "`track`; owner or admin, or a seat of the panel",
+	get_panel:
+		"`track`; while the panel is open, a seat of it or a workspace owner or admin; once it is revealed, any member",
 	get_workspace: "`track`; member",
 	link_issues: "`track`; member",
 	list_project_updates: "`track`; member",
-	list_workspaces: "`track`; member",
+	list_workspaces: "`track`",
 	open_panel: "`track`; owner or admin",
 	post_project_update: "`track`; member",
 	search_issues: "`track`; member",
@@ -38,7 +39,7 @@ export const TOOL_NEEDS: Record<string, string> = {
 	unlink_issues: "`track`; member",
 	update_comment: "`track`; member",
 	update_issue: "`track`; member",
-	update_project: "`track`; member",
+	update_project: "`track`; human workspace member (not an agent)",
 };
 
 /** The parts of a listed tool the table uses. */
