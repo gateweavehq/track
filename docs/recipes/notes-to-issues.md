@@ -3,9 +3,11 @@
 An AI agent reads your notes, shows you the issues it would create, and creates them, with what blocks
 what, once you say yes.
 
-**How far this has been checked.** On 2026-11-26 this prompt's steps were run through Track's MCP tools
-against Gateweave Cloud, in a test workspace, signed in with OAuth as its owner. [What has not been
-tried](#what-has-not-been-tried) has the rest.
+**How far this has been checked.** On 2026-11-26 this prompt was run end to end through Track's MCP
+tools against Gateweave Cloud, in a test workspace, signed in with OAuth as its owner. The run stopped
+after the list, checked that nothing had been created, and went on when the test session gave the yes.
+The issues it made were canceled afterwards. [What has not been tried](#what-has-not-been-tried) has
+the rest.
 
 ## Before you start
 
@@ -70,7 +72,9 @@ What each call returned in the check:
   and `creator`. It leaves the description out unless you pass `include: ["description"]`. Nobody was
   assigned, as the prompt names no one.
 - `link_issues` returned the first issue's `relations`: a `blocks` entry that names the other issue.
-  Two issues have one relation at most, so linking the same two again replaces it.
+  Two issues have one relation at most: linking them with a different relation replaces the previous
+  one, and repeating the same relation changes nothing. In the check, repeating `blocks` returned the
+  same relation, and `related` in its place returned `related` only.
 
 Sam is in the notes but not in the issues. To assign people, add "assign an issue to the member the
 notes name, if one matches" to the prompt: `get_workspace` lists the members, and `create_issue` takes
@@ -78,9 +82,11 @@ notes name, if one matches" to the prompt: `get_workspace` lists the members, an
 
 ## What has not been tried
 
-- A person answering at step 3. The check ran the steps from one session, so the stop and the yes were
-  not tested as a conversation with an agent told to wait.
+- A person answering at step 3. The session that ran the check stopped before any write and then gave
+  the yes itself, so a person's reply in a live conversation with the agent was not tried.
 - Notes long enough to need more than one team, or a workspace with several projects.
 - Labels, projects and assignees on created issues, and a template (`create_issue`'s `template`).
 - An agent member as the one who creates the issues. If an admin set it to propose some kinds of change,
-  such a call comes back under `proposed` and waits for a person.
+  `create_issue` still makes the issue at once. Only the configured field changes on it (a status other
+  than the team's first, a priority, an assignee, a project or a label) are held: they come back under
+  `proposed`, and the issue keeps its defaults until a person accepts them in Track.
