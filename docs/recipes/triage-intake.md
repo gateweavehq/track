@@ -3,11 +3,12 @@
 An AI agent reads each request waiting in a team's intake and suggests accepting or declining it, and
 which ones repeat another. You decide, and it makes the changes.
 
-**How far this has been checked.** On 2026-11-26 this prompt was run end to end through Track's MCP
-tools against Gateweave Cloud, in a test workspace, signed in with OAuth as its owner, on the three
-test requests below. The run showed the table, checked that every request was still in intake, and
-went on when the test session gave the yes. The requests were canceled or declined afterwards.
-[What has not been tried](#what-has-not-been-tried) has the rest.
+**How far this has been checked.** On 2026-11-26 this prompt was run end to end twice through Track's
+MCP tools against Gateweave Cloud, in a test workspace, signed in with OAuth as its owner, each time on
+the three test requests below. In the second run the agent showed the table and ended its turn with
+every request still in intake; the yes came in a separate message, and it then linked the duplicate,
+accepted one request and declined two. The requests were canceled or declined afterwards. [What has not
+been tried](#what-has-not-been-tried) has the rest.
 
 ## Before you start
 
@@ -69,10 +70,11 @@ Triage the requests waiting in the intake of team ENG in the Track workspace `ac
 3. Show me a table of key, title, your suggestion and the reply for each decline. Do nothing before I
    answer yes, or tell you what to change.
 4. After a yes: relate each duplicate to the request it repeats with link_issues and relation
-   duplicate_of. Then call triage_request for each request. For an accept, send decision accept and,
-   only if you chose a status other than the one it has, that status; send no reply. For a decline,
-   send decision decline and the reply I approved; send no status. Do not touch any issue that is not
-   in the list.
+   duplicate_of. If that call fails, leave the duplicate in intake: do not decline it, and tell me at
+   the end. Then call triage_request for each request. For an accept, send decision accept and, only if
+   you chose a status other than the one it has, that status; send no reply. For a decline, send
+   decision decline and the reply I approved; send no status. Do not touch any issue that is not in the
+   list.
 5. Finish with the keys, what you decided for each, and any call that failed.
 ```
 
@@ -107,8 +109,9 @@ prompt sends a `status` only with an accept and a `reply` only with a decline.
 
 ## What has not been tried
 
-- A person answering at step 3. The session that ran the check gave the yes itself, so a person's reply
-  in a live conversation with the agent was not tried.
+- A person typing the answer at step 3. In the check, the yes came from the session that ran it, as a
+  separate message after the agent had ended its turn.
+- A `link_issues` call that fails, where the prompt leaves the duplicate in intake.
 - An agent member as the one calling `triage_request`, and accepting its proposals in Track.
 - Requests that arrived through a team's request form or intake email address, and the email to the
   person who filed one.

@@ -3,11 +3,11 @@
 An AI agent reads your notes, shows you the issues it would create, and creates them, with what blocks
 what, once you say yes.
 
-**How far this has been checked.** On 2026-11-26 this prompt was run end to end through Track's MCP
-tools against Gateweave Cloud, in a test workspace, signed in with OAuth as its owner. The run stopped
-after the list, checked that nothing had been created, and went on when the test session gave the yes.
-The issues it made were canceled afterwards. [What has not been tried](#what-has-not-been-tried) has
-the rest.
+**How far this has been checked.** On 2026-11-26 this prompt was run end to end twice through Track's
+MCP tools against Gateweave Cloud, in a test workspace, signed in with OAuth as its owner. In the second
+run the agent showed the list and ended its turn with nothing created; the yes came in a separate
+message, and it then created the three issues and the relation. The issues from both runs were canceled
+afterwards. [What has not been tried](#what-has-not-been-tried) has the rest.
 
 ## Before you start
 
@@ -82,8 +82,8 @@ notes name, if one matches" to the prompt: `get_workspace` lists the members, an
 
 ## What has not been tried
 
-- A person answering at step 3. The session that ran the check stopped before any write and then gave
-  the yes itself, so a person's reply in a live conversation with the agent was not tried.
+- A person typing the answer at step 3. In the check, the yes came from the session that ran it, as a
+  separate message after the agent had ended its turn.
 - Notes long enough to need more than one team, or a workspace with several projects.
 - Labels, projects and assignees on created issues, and a template (`create_issue`'s `template`).
 - An agent member as the one who creates the issues. If an admin set it to propose some kinds of change,

@@ -3,10 +3,11 @@
 An AI agent reads a project's last week from the board, compares it with the previous update, and posts
 a new update with a health.
 
-**How far this has been checked.** On 2026-11-26 this prompt was run end to end through Track's MCP
-tools against Gateweave Cloud, in a test workspace, signed in with OAuth as its owner, on a project
-with five issues and one earlier update. The run showed the update, waited for the yes (given by the
-test session) and then posted it. The test issues were canceled afterwards. [What has not been
+**How far this has been checked.** On 2026-11-26 this prompt was run end to end twice through Track's
+MCP tools against Gateweave Cloud, in a test workspace, signed in with OAuth as its owner, on a test
+project with an earlier update. The example below is from the first run. In the second, the agent showed
+the update and its health and ended its turn with nothing posted; the yes came in a separate message,
+and it then posted the update. The test issues were canceled afterwards. [What has not been
 tried](#what-has-not-been-tried) has the rest.
 
 ## Before you start
@@ -101,7 +102,7 @@ What the tools returned that the update has to be careful with:
 - A project with no earlier update, where `list_project_updates` has nothing to return.
 - More than 200 issues, where the prompt tells the agent the list may be incomplete, and `weeks` of
   `12` or `26`.
-- A person answering at step 6. The session that ran the check gave the yes itself, so a person's reply
-  in a live conversation with the agent was not tried.
+- A person typing the answer at step 6. In the check, the yes came from the session that ran it, as a
+  separate message after the agent had ended its turn.
 - An agent member posting the update, and the health `at_risk` or `off_track`.
 - Editing or deleting an update afterwards.
