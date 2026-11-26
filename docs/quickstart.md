@@ -14,7 +14,7 @@ This is the shortest path: no custom domain, no sign-in provider and no email. T
   password sign-in; [self-hosting.md](self-hosting.md) has the numbers. R2 must be turned on once in
   the dashboard, under R2 Object Storage, because Track keeps attached files there.
 - [Git](https://git-scm.com/downloads).
-- [Node.js](https://nodejs.org) 24 (22 and later work) and [pnpm](https://pnpm.io/installation) 12.
+- [Node.js](https://nodejs.org) 24, the version in `.node-version`, and [pnpm](https://pnpm.io/installation) 12.
 - A browser, for signing in to Cloudflare and for Track itself.
 
 ## Steps
@@ -81,11 +81,15 @@ This is the shortest path: no custom domain, no sign-in provider and no email. T
 
 4. Deploy.
 
+   If your login can reach more than one Cloudflare account, the deploy can't ask which to use, and
+   fails. Run `pnpm wrangler whoami` to see your accounts with their ids, then
+   `export CLOUDFLARE_ACCOUNT_ID=<id>` for the one to deploy to.
+
    ```sh
    pnpm run deploy
    ```
 
-   Nothing needs setting first. The deploy builds Track, creates the database, the file bucket and
+   Nothing else needs setting first. The deploy builds Track, creates the database, the file bucket and
    the Durable Object classes, makes the secret that signs sessions (`BETTER_AUTH_SECRET`) and never
    shows it, and then applies the database migrations. Two things may stop you at a prompt or look
    like an error:
@@ -180,8 +184,8 @@ This is the shortest path: no custom domain, no sign-in provider and no email. T
    <details>
    <summary>Expected output</summary>
 
-   The workspace opens on its own address, `/acme`, with a team named after it and a short list of
-   issues that show you around, the first called "Welcome to Track".
+   The workspace opens on its team's issue list at `/acme/team/ACM`, with a team named after the
+   workspace and a short list of issues that show you around, the first called "Welcome to Track".
 
    </details>
 
