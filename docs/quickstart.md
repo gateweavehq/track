@@ -105,6 +105,9 @@ This is the shortest path: no custom domain, no sign-in provider and no email. T
    `wrangler.jsonc`. To use other names, change those three before this step. The Worker's name is
    also the first part of its address. The same keys under `env` belong to Gateweave's own
    deployments, so leave them alone.
+   If the account already has a Worker, a database or a bucket under one of these names, the deploy
+   uses it: it updates that Worker, applies any new migrations to that database and keeps its data,
+   and stores files in that bucket. To keep a new Track apart from it, choose other names first.
 
    <details>
    <summary>Expected output</summary>
