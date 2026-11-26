@@ -8,6 +8,7 @@ import { db, getAuth, mcpResource } from "../auth";
 import { findAgentByKey, isAgentKey } from "../auth/agents";
 import { MCP_SCOPE } from "../auth/config";
 import { hasGrant } from "../auth/grants";
+import { uploadAddress } from "../files";
 import { findMembership, listWorkspaces, workspaceStub } from "../workspaces";
 import { protectResource } from "./protect";
 import { createTrackServer, type TrackAccess, type WorkspaceAccess } from "./tools";
@@ -161,6 +162,8 @@ function accessFor(
 				relations: (issueId) => stub.relations(issueId),
 				pullRequests: (issueId) => stub.pullRequests(issueId),
 				lastSortOrder: () => stub.lastSortOrder(),
+				uploadAddress: (file) =>
+					uploadAddress(origin, { ...file, workspaceId: membership.workspaceId, userId }),
 				openPanel: (input) => stub.openPanel(membership.profile, input),
 				submitPosition: (input) => stub.submitPosition(membership.profile, input),
 				getPanel: (input) => stub.getPanel(membership.profile, input),

@@ -186,6 +186,20 @@ class FakeWorkspace implements WorkspaceAccess {
 				.at(-1) ?? null
 		);
 	}
+	uploads: { name: string; type: string; size: number }[] = [];
+	keepsFiles = true;
+	async uploadAddress(file: { name: string; type: string; size: number }) {
+		this.uploads.push(file);
+		if (!this.keepsFiles) return null;
+		const path = `/api/files/w1/0000/${encodeURIComponent(file.name)}`;
+		return {
+			url: `https://track.example.com${path}?upload=token`,
+			path,
+			name: file.name,
+			type: file.type,
+			expiresAt: Date.UTC(2026, 10, 26, 10, 10),
+		};
+	}
 	async mutate(input: MutationInput): Promise<MutateResult> {
 		const mutation = mutationSchema.parse(input);
 		this.mutations.push(mutation);
@@ -402,6 +416,7 @@ describe("Track MCP tools", () => {
 		const { tools } = await client.listTools();
 		expect(tools.map((tool) => tool.name).sort()).toEqual([
 			"add_comment",
+			"attach_file",
 			"create_issue",
 			"create_label",
 			"create_project",
@@ -430,6 +445,63 @@ describe("Track MCP tools", () => {
 		for (const tool of tools) {
 			expect(tool.inputSchema.additionalProperties, tool.name).toBe(false);
 		}
+	});
+
+	it("hands out an upload address with the Markdown that shows the file", async () => {
+		const image = await call("attach_file", {
+			workspace: "acme",
+			name: "shot.png",
+			type: "image/png",
+			size: 68,
+		});
+		expect(image.structuredContent).toEqual({
+			name: "shot.png",
+			type: "image/png",
+			size: 68,
+			uploadUrl: "https://track.example.com/api/files/w1/0000/shot.png?upload=token",
+			method: "PUT",
+			expiresAt: "2026-11-26T10:10:00.000Z",
+			attachmentMarkdown: "![shot.png](/api/files/w1/0000/shot.png)",
+		});
+		const video = await call("attach_file", {
+			workspace: "acme",
+			name: "demo.mp4",
+			type: "video/mp4",
+			size: 1000,
+		});
+		expect(video.structuredContent).toMatchObject({
+			attachmentMarkdown: "[demo.mp4](/api/files/w1/0000/demo.mp4)",
+		});
+
+		// A workspace the caller is not in reads as one that does not exist.
+		const elsewhere = await call("attach_file", {
+			workspace: "globex",
+			name: "shot.png",
+			type: "image/png",
+			size: 68,
+		});
+		expect(elsewhere.content).toEqual([
+			{ type: "text", text: 'Workspace "globex" not found. See list_workspaces.' },
+		]);
+		const tooLarge = await call("attach_file", {
+			workspace: "acme",
+			name: "big.mp4",
+			type: "video/mp4",
+			size: 25 * 1024 * 1024 + 1,
+		});
+		expect(tooLarge.isError).toBe(true);
+		expect(workspace.uploads).toHaveLength(2);
+
+		workspace.keepsFiles = false;
+		const off = await call("attach_file", {
+			workspace: "acme",
+			name: "shot.png",
+			type: "image/png",
+			size: 68,
+		});
+		expect(off.content).toEqual([
+			{ type: "text", text: "This Track does not keep attached files." },
+		]);
 	});
 
 	it("refuses unknown search fields before reading issues and names the accepted fields", async () => {
