@@ -8,6 +8,63 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.51.0] - 2026-11-26
+
+Agents can attach screenshots and videos to issues over MCP, an issue can gather hidden positions
+that are revealed together, and a signal's issue goes to the workspace owner after an agent's
+second reopen in a week. There is no sync protocol change, and there are two workspace
+migrations.
+
+### Added
+
+- **Agents attach files over MCP.** A new `attach_file` tool gives an agent a one-time upload
+  address, so a screenshot or video it made shows in the issue it belongs to.
+  - **How it goes:** the agent asks `attach_file` with the workspace and the file's name, type
+    and size. It PUTs the file to the returned address within ten minutes, then posts the
+    returned Markdown in a description or a comment.
+  - **What people see:** an image shows in place. A video, audio or any other file shows as a
+    link, which opens in a tab of its own; there is no inline player.
+  - **Limits:** each address takes one file, once, up to the usual 25 MB and the workspace's
+    storage quota. An expired or altered address is refused, and so is a member who has left the
+    workspace since asking.
+
+  ([#386](https://github.com/gateweavehq/track/pull/386))
+- **Panels: independent positions, revealed together.** An owner or admin asks up to five people
+  or agents for one written position each on an issue, through three new MCP tools:
+  `open_panel`, `submit_position` and `get_panel`.
+  - **Hidden until the reveal:** each seat sees only its own text and who has submitted, and an
+    owner or admin sees only who has submitted. No issue, comment, search result or webhook holds a
+    position before then.
+  - **The reveal** comes when the last seat submits or the deadline passes, up to 30 days out.
+    Track posts every position at once as comments under aliases (Position A, B, …), with a
+    summary naming the seats that did not submit. Who wrote which position is never shown.
+  - **Limits:** one position per seat, and at most three open panels per workspace.
+
+  ([#380](https://github.com/gateweavehq/track/pull/380))
+
+### Changed
+
+- **A signal's issue goes to the owner after an agent's second reopen in a week.** The reopen cap
+  was per day, so a loop of an agent's fix and the signal reopening could run for ever.
+  - **Now:** when a connected product reopens an alert's issue for the second time in seven days
+    while an agent is assigned, Track takes the agent off and assigns the workspace owner, with
+    one comment naming both attempts. The owner's inbox gets it as any assignment.
+  - **Assigning someone else** to the issue starts the count again. With no active owner, or no
+    agent assigned, nothing changes.
+
+  ([#381](https://github.com/gateweavehq/track/pull/381))
+
+### If you run your own
+
+- **The protocol stays at 31.** Open tabs keep their copy.
+- **Two workspace migrations** (`0041` and `0042`) run on their own when each workspace wakes.
+  They add the reopen count to signals and the tables that keep panels. There is no D1 migration.
+- **Nothing to set.** Upload addresses are signed with your existing `BETTER_AUTH_SECRET` and the
+  files go to the existing `FILES` bucket. Without a `FILES` bucket, `attach_file` answers that
+  this Track keeps no files.
+- **Rolling back to 0.50.0** works, since it ignores the new columns and tables. The three panel
+  tools and `attach_file` go away, and an open panel is not revealed until you update again.
+
 ## [0.50.0] - 2026-11-25
 
 The Runs page filters by repository, and its rows fit narrow screens. The sync protocol goes to
