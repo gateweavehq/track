@@ -17,6 +17,7 @@
 		"wrangler": "pnpm --filter @gateweave/track-web exec wrangler --cwd ../..",
 		"typecheck": "pnpm -r typecheck",
 		"test": "pnpm -r test && node --test scripts/update-copy.test.mjs scripts/claim.test.mjs",
+		"docs:mcp": "pnpm --filter @gateweave/track-web docs:mcp",
 		"test:e2e": "pnpm --filter @gateweave/track-web test:e2e",
 		"test:perf": "pnpm --filter @gateweave/track-web test:perf",
 		"test:smoke": "pnpm --filter @gateweave/track-web test:smoke",
