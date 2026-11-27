@@ -1134,7 +1134,7 @@ async function readUndoToken(token: string) {
 	const parts = token.split(".");
 	const signature = parts.pop() ?? "";
 	const mac = fromBase64Url(signature);
-	if (!mac || mac.length !== 32) return null;
+	if (mac?.length !== 32) return null;
 	const source = parts.length === 5 && parts[0] === "source";
 	const [workspaceId = "", id = "", linkedId = "", expires = "", ...extra] = source
 		? parts.slice(1)
