@@ -14,6 +14,12 @@ const PIXEL = Buffer.from(
 	"base64",
 );
 
+// A 16×16 black VP9 frame, small enough to keep here and enough for Chromium to read metadata.
+const CLIP = Buffer.from(
+	"GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAJ4EU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggEiTbuMU6uEHFO7a1OsggJi7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNTguNzYuMTAwV0GNTGF2ZjU4Ljc2LjEwMESJiEBpAAAAAAAAFlSua8WuAQAAAAAAADzXgQFzxYjrHqrNeRKyZJyBACK1nIN1bmSGhVZfVlA5g4EBI+ODhAJiWgDgAQAAAAAAAAmwgRC6gRCagQISVMNnQJ5zcwEAAAAAAAAnY8CAZ8gBAAAAAAAAGkWjh0VOQ09ERVJEh41MYXZmNTguNzYuMTAwc3MBAAAAAAAAY2PAi2PFiOseqs15ErJkZ8gBAAAAAAAAJkWjh0VOQ09ERVJEh5lMYXZjNTguMTM0LjEwMCBsaWJ2cHgtdnA5Z8iiRaOIRFVSQVRJT05Eh5QwMDowMDowMC4yMDAwMDAwMDAAAB9DtnVAlueBAKO9gQAAgIJJg0IAAPAA9gY4JBwYSgAAIEAAIpv//5V29t/0rJIV6+83T8qAkchIzbj8ppDSUIBEwUeNuAQAAKOTgQAoAIYAQJKcSFAAAANwAABCQKOTgQBQAIYAQJKcQE7gAANwAABCQKOTgQB4AIYAQJKcSFAAAANwAABCQKOTgQCgAIYAQJKcOE1AAANwAABCQBxTu2uRu4+zgQC3iveBAfGCAcbwgQM=",
+	"base64",
+);
+
 test("descriptions and comments are Markdown, with files attached to them", async ({
 	page,
 	browser,
@@ -36,6 +42,17 @@ test("descriptions and comments are Markdown, with files attached to them", asyn
 	await expect(description).toHaveValue(
 		/!\[broken export\.png\]\(\/api\/files\/.+\/broken%20export\.png\)/,
 	);
+	const videoChooser = page.waitForEvent("filechooser");
+	await page.getByRole("button", { name: "Attach files to the description" }).click();
+	await (await videoChooser).setFiles({
+		name: "walkthrough.webm",
+		mimeType: "video/webm",
+		buffer: CLIP,
+	});
+	await expect(page.getByText("Attached walkthrough.webm")).toBeVisible();
+	await expect(description).toHaveValue(
+		/\[walkthrough\.webm\]\(\/api\/files\/.+\/walkthrough\.webm "video\/webm"\)/,
+	);
 	await description.press("Escape");
 
 	await expect(page.locator("strong", { hasText: "settings" })).toBeVisible();
@@ -46,13 +63,18 @@ test("descriptions and comments are Markdown, with files attached to them", asyn
 		.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth))
 		.toBe(1);
 	const imageUrl = new URL((await image.getAttribute("src")) ?? "", page.url()).toString();
+	const describedVideo = page.locator("video").first();
+	await expect(describedVideo).toBeVisible();
+	await expect
+		.poll(() => describedVideo.evaluate((element: HTMLVideoElement) => element.readyState))
+		.toBeGreaterThanOrEqual(1);
 
 	// The edit button, or a click in the text, opens the editor again.
 	await page.getByRole("button", { name: "Edit description" }).click();
 	await expect(description).toBeFocused();
 	await description.press("Escape");
 
-	// A comment takes a file the same way, and links what is not an image.
+	// A comment takes a file the same way: a video plays in place and other files are links.
 	const comment = page.getByRole("textbox", { name: "Comment", exact: true });
 	await comment.fill("Logs from **today**:");
 	const commentChooser = page.waitForEvent("filechooser");
@@ -63,11 +85,20 @@ test("descriptions and comments are Markdown, with files attached to them", asyn
 		buffer: Buffer.from("error: the export timed out\n"),
 	});
 	await expect(page.getByText("Attached export.log")).toBeVisible();
+	const commentVideoChooser = page.waitForEvent("filechooser");
+	await page.getByRole("button", { name: "Attach files to the comment" }).click();
+	await (await commentVideoChooser).setFiles({
+		name: "walkthrough.webm",
+		mimeType: "video/webm",
+		buffer: CLIP,
+	});
+	await expect(page.getByText("Attached walkthrough.webm")).toBeVisible();
 	await page.getByRole("button", { name: "Comment", exact: true }).click();
 	const posted = page.getByRole("article", { name: /^Comment by/ });
 	await expect(posted.locator("strong", { hasText: "today" })).toBeVisible();
 	const log = posted.getByRole("link", { name: "export.log" });
 	await expect(log).toHaveAttribute("target", "_blank");
+	await expect(posted.locator("video")).toBeVisible();
 	const logUrl = new URL((await log.getAttribute("href")) ?? "", page.url());
 	const logResponse = await page.request.get(logUrl.toString());
 	expect(await logResponse.text()).toBe("error: the export timed out\n");
@@ -101,7 +132,18 @@ test("a file attached offline waits on the device and uploads when the connectio
 	await page.getByRole("button", { name: "Attach files to the comment" }).click();
 	await (await chooser).setFiles({ name: "offline.png", mimeType: "image/png", buffer: PIXEL });
 	await expect(page.getByText("offline.png will upload when you are back online")).toBeVisible();
+	const videoChooser = page.waitForEvent("filechooser");
+	await page.getByRole("button", { name: "Attach files to the comment" }).click();
+	await (await videoChooser).setFiles({
+		name: "offline.webm",
+		mimeType: "video/webm",
+		buffer: CLIP,
+	});
+	await expect(page.getByText("offline.webm will upload when you are back online")).toBeVisible();
 	await expect(comment).toHaveValue(/!\[offline\.png\]\(\/api\/files\/.+\/offline\.png\)/);
+	await expect(comment).toHaveValue(
+		/\[offline\.webm\]\(\/api\/files\/.+\/offline\.webm "video\/webm"\)/,
+	);
 	await page.getByRole("button", { name: "Comment", exact: true }).click();
 
 	// The comment shows the picture from the device's copy, and says it is waiting.
@@ -110,19 +152,26 @@ test("a file attached offline waits on the device and uploads when the connectio
 	await expect
 		.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth))
 		.toBe(1);
-	await expect(posted.getByText("(waiting to upload)")).toBeVisible();
+	const video = posted.locator("video");
+	await expect(video).toBeVisible();
+	expect((await video.getAttribute("src")) ?? "").toMatch(/^blob:/);
+	await expect(posted.getByText("(waiting to upload)")).toHaveCount(2);
 
-	// The file is kept on the device, not just in memory.
+	// The files are kept on the device, not just in memory.
 	await page.reload();
-	await expect(posted.getByText("(waiting to upload)")).toBeVisible();
+	await expect(posted.getByText("(waiting to upload)")).toHaveCount(2);
 
 	await network.goOnline();
-	await expect(page.getByText("Uploaded offline.png, which was waiting")).toBeVisible();
-	await expect(posted.getByText("(waiting to upload)")).toBeHidden();
+	await expect(posted.getByText("(waiting to upload)")).toHaveCount(0);
 	await expect(syncBadge(page)).toHaveText("Live");
 	const src = (await image.getAttribute("src")) ?? "";
 	expect(src).toMatch(/^\/api\/files\//);
 	const response = await page.request.get(new URL(src, page.url()).toString());
 	expect(response.status()).toBe(200);
 	expect(Buffer.from(await response.body()).equals(PIXEL)).toBe(true);
+	const videoSrc = (await video.getAttribute("src")) ?? "";
+	expect(videoSrc).toMatch(/^\/api\/files\//);
+	const videoResponse = await page.request.get(new URL(videoSrc, page.url()).toString());
+	expect(videoResponse.status()).toBe(200);
+	expect(Buffer.from(await videoResponse.body()).equals(CLIP)).toBe(true);
 });

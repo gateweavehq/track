@@ -2,6 +2,7 @@ import { sourceIssueText, sourceLimitNotice, sourceReopenComment } from "@gatewe
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { attachmentMarkdown } from "#/lib/attachments";
 import { MarkdownView } from "./markdown-view";
 
 function render(source: string): string {
@@ -53,6 +54,23 @@ describe("MarkdownView", () => {
 		expect(tracker).not.toContain("<img");
 		expect(tracker).toContain('href="https://tracker.example/p.gif"');
 		expect(tracker).toContain(">pixel</a>");
+	});
+
+	it("plays attached videos inline and leaves other files and outside links as links", () => {
+		const video = "/api/files/ws-1/0190f3d6-7c4b-7a10-8f3e-1234567890ab/walkthrough.mp4";
+		const typed = render(attachmentMarkdown("walkthrough.mp4", video, "video/mp4"));
+		expect(typed).toMatch(/<video[^>]*controls=""[^>]*preload="metadata"/);
+		expect(typed).toContain(`src="${video}"`);
+		expect(typed).not.toContain('target="_blank"');
+
+		// Links written before the type was kept still play when their name has a video extension.
+		expect(render(`[A walkthrough](${video})`)).toContain("<video");
+
+		const text = "/api/files/ws-1/0190f3d6-7c4b-7a10-8f3e-1234567890ab/notes.txt";
+		expect(render(`[Notes](${text})`)).not.toContain("<video");
+		const outside = render('[Video](https://example.com/walkthrough.mp4 "video/mp4")');
+		expect(outside).not.toContain("<video");
+		expect(outside).toContain('target="_blank"');
 	});
 
 	it("shows mentions under members' current names, and as written for anyone else", () => {

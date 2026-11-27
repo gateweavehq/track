@@ -240,8 +240,8 @@ describe("attaching files over MCP", () => {
 		await mcp.close();
 
 		// Members open them as they open people's uploads: the image and the video in place.
-		const imagePath = /\((\/api\/files\/[^)]+)\)/.exec(image.attachmentMarkdown)?.[1] ?? "";
-		const videoPath = /\((\/api\/files\/[^)]+)\)/.exec(video.attachmentMarkdown)?.[1] ?? "";
+		const imagePath = /\((\/api\/files\/[^)\s]+)/.exec(image.attachmentMarkdown)?.[1] ?? "";
+		const videoPath = /\((\/api\/files\/[^)\s]+)/.exec(video.attachmentMarkdown)?.[1] ?? "";
 		const shown = await download(imagePath, maya);
 		expect(shown.status).toBe(200);
 		expect(shown.headers.get("content-type")).toBe("image/png");

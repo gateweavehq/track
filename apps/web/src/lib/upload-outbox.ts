@@ -364,7 +364,8 @@ export function uploadOutbox(): UploadOutbox {
 				? navigator.locks.request("track:upload-outbox", run)
 				: run(),
 		preview: (blob) =>
-			blob.type.startsWith("image/") && typeof URL.createObjectURL === "function"
+			(blob.type.startsWith("image/") || blob.type.startsWith("video/")) &&
+			typeof URL.createObjectURL === "function"
 				? URL.createObjectURL(blob)
 				: null,
 	});

@@ -472,7 +472,7 @@ describe("Track MCP tools", () => {
 			size: 1000,
 		});
 		expect(video.structuredContent).toMatchObject({
-			attachmentMarkdown: "[demo.mp4](/api/files/w1/0000/demo.mp4)",
+			attachmentMarkdown: '[demo.mp4](/api/files/w1/0000/demo.mp4 "video/mp4")',
 		});
 
 		// A workspace the caller is not in reads as one that does not exist.

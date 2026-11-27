@@ -1922,9 +1922,9 @@ workspace's files are one prefix in the bucket.
   with the token's type and `uploadedBy` its member, so a second upload to the address gets 409.
   A `PUT` with a token is never taken on a session's word, and one without a token is a
   session's upload as before. The tool also returns `attachmentMarkdown`, which the agent puts in
-  a description or comment: an image shows in place, and other files, a video among them, are a
-  link that opens and plays in a tab of its own. The demo and a deployment without a bucket hand
-  out no addresses.
+  a description or comment: an image shows in place, a video plays in place (its link's title
+  carries the type that Markdown itself cannot), and other files are a link. The demo and a
+  deployment without a bucket hand out no addresses.
 - **An upload belongs to whoever stored it.** Members see a link before its file is up, so the
   gateway stores a file with R2's conditional put (`If-None-Match: *`): of uploads to one id, only
   the first is kept, however close together they come. The object records `uploadedBy`, and an
