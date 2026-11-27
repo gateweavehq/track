@@ -10,9 +10,9 @@ notes. Publishing a release deploys it to Gateweave Cloud.
 
 ## [0.51.1] - 2026-11-27
 
-Documentation only: an MCP reference page, three recipes for working Track from an AI agent, a
-quickstart, and a link to the community rules from the contributing guide. There is no sync
-protocol change (it stays at 31), and there are no workspace migrations.
+This release adds docs: a quickstart, an MCP reference page and three recipes for working Track
+from an AI agent, and the contributing guide links the community rules. There is no sync protocol
+change (it stays at 31), and there are no workspace migrations.
 
 ### Added
 
