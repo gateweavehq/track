@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildSmokeEvent, postSmokeSignal } from "./smoke-signal.mjs";
@@ -120,6 +121,46 @@ test("an events URL override is used", async () => {
 	await postSmokeSignal({ env: { ...env, TRACK_EVENTS_URL }, fetchImpl, now });
 	assert.equal(fetchImpl.mock.callCount(), 1);
 	assert.equal(fetchImpl.mock.calls[0].arguments[0], TRACK_EVENTS_URL);
+});
+
+for (const url of [
+	"http://track.example.test/api/events",
+	"ftp://track.example.test/api/events",
+	"track.example.test/api/events",
+	"//track.example.test/api/events",
+]) {
+	test(`a non-https events URL makes no request and keeps the key private: ${url}`, async () => {
+		const fetchImpl = test.mock.fn(async () => new Response(null, { status: 204 }));
+		const actual = await postSmokeSignal({
+			env: { ...env, TRACK_EVENTS_URL: url },
+			fetchImpl,
+			now,
+		});
+		assert.equal(fetchImpl.mock.callCount(), 0);
+		assert.equal(actual, "Track smoke signal failed: the events URL must use https");
+		assert.doesNotMatch(actual, /gws_testkey123/);
+	});
+}
+
+test("a blank events URL override falls back to the default endpoint", async () => {
+	const fetchImpl = test.mock.fn(async () => new Response(null, { status: 204 }));
+	await postSmokeSignal({ env: { ...env, TRACK_EVENTS_URL: "  " }, fetchImpl, now });
+	assert.equal(fetchImpl.mock.calls[0].arguments[0], "https://track.gateweave.com/api/events");
+});
+
+test("every reporting step in the deploy workflow continues on error", () => {
+	const workflow = readFileSync(
+		fileURLToPath(new URL("../.github/workflows/deploy.yml", import.meta.url)),
+		"utf8",
+	);
+	const steps = workflow
+		.split("      - name: ")
+		.filter((step) => step.includes("scripts/smoke-signal.mjs"));
+	assert.equal(steps.length, 3);
+	for (const step of steps) {
+		assert.match(step, /^Report the smoke result to Track/);
+		assert.match(step, /^\s+continue-on-error: true$/m);
+	}
 });
 
 const responses = [

@@ -65,6 +65,8 @@ jobs:
       # A failed smoke test opens a Track alert, and the next pass clears it. It does nothing
       # until the repository has a TRACK_CI_EVENTS_KEY secret, and never prints it.
       - name: Report the smoke result to Track
+        # A reporting problem never turns a green deploy red; the smoke step alone decides the job.
+        continue-on-error: true
         if: always() && (steps.smoke.outcome == 'success' || steps.smoke.outcome == 'failure')
         run: node scripts/smoke-signal.mjs
         env:
@@ -115,6 +117,8 @@ jobs:
       # A failed smoke test opens a Track alert, and the next pass clears it. It does nothing
       # until the repository has a TRACK_CI_EVENTS_KEY secret, and never prints it.
       - name: Report the smoke result to Track
+        # A reporting problem never turns a green deploy red; the smoke step alone decides the job.
+        continue-on-error: true
         if: always() && (steps.smoke.outcome == 'success' || steps.smoke.outcome == 'failure')
         run: node scripts/smoke-signal.mjs
         env:
@@ -166,6 +170,8 @@ jobs:
       # A failed smoke test opens a Track alert, and the next pass clears it. It does nothing
       # until the repository has a TRACK_CI_EVENTS_KEY secret, and never prints it.
       - name: Report the smoke result to Track
+        # A reporting problem never turns a green deploy red; the smoke step alone decides the job.
+        continue-on-error: true
         if: always() && (steps.smoke.outcome == 'success' || steps.smoke.outcome == 'failure')
         run: node scripts/smoke-signal.mjs
         env:

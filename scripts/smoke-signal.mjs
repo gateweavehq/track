@@ -22,6 +22,16 @@ export function buildSmokeEvent({ environment, outcome, runUrl, now }) {
 	};
 }
 
+const DEFAULT_EVENTS_URL = "https://track.gateweave.com/api/events";
+
+function isHttps(value) {
+	try {
+		return new URL(value).protocol === "https:";
+	} catch {
+		return false;
+	}
+}
+
 export async function postSmokeSignal({ env, fetchImpl = fetch, now = new Date() }) {
 	const key = env.TRACK_CI_EVENTS_KEY?.trim();
 	if (!key) return "skipped: no events key";
@@ -35,19 +45,20 @@ export async function postSmokeSignal({ env, fetchImpl = fetch, now = new Date()
 		});
 		if (!event) return "skipped: no result";
 
-		const response = await fetchImpl(
-			env.TRACK_EVENTS_URL ?? "https://track.gateweave.com/api/events",
-			{
-				method: "POST",
-				headers: {
-					authorization: `Bearer ${key}`,
-					"content-type": "application/json",
-				},
-				body: JSON.stringify(event),
-				redirect: "error",
-				signal: AbortSignal.timeout(15_000),
+		// The override lets a self-hosted copy report to its own Track. The key only ever travels over https.
+		const url = env.TRACK_EVENTS_URL?.trim() || DEFAULT_EVENTS_URL;
+		if (!isHttps(url)) return "Track smoke signal failed: the events URL must use https";
+
+		const response = await fetchImpl(url, {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${key}`,
+				"content-type": "application/json",
 			},
-		);
+			body: JSON.stringify(event),
+			redirect: "error",
+			signal: AbortSignal.timeout(15_000),
+		});
 		if (!response.ok) return `Track smoke signal failed: HTTP ${response.status}`;
 		return `posted ${event.state} for ${event.key.replaceAll(key, "[redacted]")}`;
 	} catch (error) {
