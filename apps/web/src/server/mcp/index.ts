@@ -7,8 +7,8 @@ import type { JWTPayload } from "jose";
 import { db, getAuth, mcpResource } from "../auth";
 import { findAgentByKey, isAgentKey } from "../auth/agents";
 import { MCP_SCOPE } from "../auth/config";
-import { hasGrant } from "../auth/grants";
-import { uploadAddress } from "../files";
+import { findConsentId, hasGrant } from "../auth/grants";
+import { type UploadAsker, uploadAddress } from "../files";
 import { findMembership, listWorkspaces, workspaceStub } from "../workspaces";
 import { protectResource } from "./protect";
 import { createTrackServer, type TrackAccess, type WorkspaceAccess } from "./tools";
@@ -45,10 +45,24 @@ function protect(resource: string) {
 		if (typeof userId !== "string" || !authInfo?.clientId) {
 			throw new Error("MCP request without verified credentials");
 		}
-		const { workspaceId, slug } = authInfo.extra ?? {};
+		const { workspaceId, slug, keyId } = authInfo.extra ?? {};
 		const only =
 			typeof workspaceId === "string" && typeof slug === "string" ? { workspaceId, slug } : null;
-		return createTrackServer(accessFor(userId, authInfo.clientId, origin, only));
+		// What an upload address is later checked against: the agent's key, or the one approval the
+		// OAuth client's access rests on, with the expiry of the credential verified for this call.
+		// A credential with no verified expiry gets one in the past, so its addresses never work.
+		const asker = async (): Promise<UploadAsker> => {
+			if (typeof keyId === "string") return { kind: "key", id: keyId };
+			const consentId = await findConsentId(db, userId, authInfo.clientId, MCP_SCOPE);
+			if (!consentId) throw new Error("The access this call came with was taken back");
+			const expires = authInfo.expiresAt;
+			return {
+				kind: "grant",
+				id: consentId,
+				credentialExpires: typeof expires === "number" ? expires : 0,
+			};
+		};
+		return createTrackServer(accessFor(userId, authInfo.clientId, origin, only, asker));
 	});
 
 	const serveAgent = async (request: Request, key: string) => {
@@ -72,7 +86,12 @@ function protect(resource: string) {
 				clientId: `agent:${agent.userId}`,
 				scopes: [MCP_SCOPE],
 				resource: new URL(resource),
-				extra: { userId: agent.userId, workspaceId: agent.workspaceId, slug: agent.slug },
+				extra: {
+					userId: agent.userId,
+					workspaceId: agent.workspaceId,
+					slug: agent.slug,
+					keyId: agent.keyId,
+				},
 			},
 		});
 	};
@@ -134,6 +153,7 @@ function accessFor(
 	oauthClientId: string,
 	origin: string,
 	only: { workspaceId: string; slug: string } | null,
+	asker: () => Promise<UploadAsker>,
 ): TrackAccess {
 	// Field-level conflict detection treats a client's own writes as never conflicting, so each
 	// OAuth client gets one stable id. Mutation ids stay unique per call.
@@ -162,8 +182,13 @@ function accessFor(
 				relations: (issueId) => stub.relations(issueId),
 				pullRequests: (issueId) => stub.pullRequests(issueId),
 				lastSortOrder: () => stub.lastSortOrder(),
-				uploadAddress: (file) =>
-					uploadAddress(origin, { ...file, workspaceId: membership.workspaceId, userId }),
+				uploadAddress: async (file) =>
+					uploadAddress(origin, {
+						...file,
+						workspaceId: membership.workspaceId,
+						userId,
+						asker: await asker(),
+					}),
 				openPanel: (input) => stub.openPanel(membership.profile, input),
 				submitPosition: (input) => stub.submitPosition(membership.profile, input),
 				getPanel: (input) => stub.getPanel(membership.profile, input),

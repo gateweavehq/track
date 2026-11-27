@@ -1907,10 +1907,15 @@ workspace's files are one prefix in the bucket.
   upload address: the file's path with `?upload=<token>`. The token is signed with
   `BETTER_AUTH_SECRET` under a key of its own purpose (`track-file-upload`, through HKDF, as the
   undo token's is) and names the workspace, a new file id, the cleaned name, the type, the size,
-  the member who asked and an expiry ten minutes out. A `PUT` that carries one reads no cookies
-  and needs no Origin: it is refused with 403 when the signature, the expiry or the path fails,
-  with 400 when its length is not the size, with 404 when D1 no longer has the member in the
-  workspace, and with 413 past 25 MB or the quota, as people's uploads are. The file is stored
+  the member who asked, what they asked with and an expiry ten minutes out. That is the id of the
+  agent key, or the id of the one OAuth consent the access rested on together with the expiry of
+  the access credential, which Track's keys and consents do not have of their own. A `PUT` that
+  carries one reads no cookies and needs no Origin: it is refused with 403 when the signature, the
+  expiry or the path fails, with 400 when its length is not the size, with 413 past 25 MB or the
+  quota, as people's uploads are, and with 404 when D1 no longer has the member in the workspace,
+  no longer has that key (revoked, or its agent deleted), no longer has that very consent (taken
+  back, even if the person allowed the same client again, which is a new consent) or the
+  credential has expired. All of these are the same answer as for a removed member. The file is stored
   with the token's type and `uploadedBy` its member, so a second upload to the address gets 409.
   A `PUT` with a token is never taken on a session's word, and one without a token is a
   session's upload as before. The tool also returns `attachmentMarkdown`, which the agent puts in

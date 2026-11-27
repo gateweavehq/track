@@ -103,6 +103,45 @@ export async function hasGrant(
 }
 
 /**
+ * The approval a client's access rests on: the person's newest consent for it that allows `scope`,
+ * or null when there is none. A fresh approval after a take-back is a different consent, so its id
+ * tells apart what an earlier approval issued from what the new one did.
+ */
+export async function findConsentId(
+	db: Database,
+	userId: string,
+	clientId: string,
+	scope: string,
+): Promise<string | null> {
+	const rows = await db
+		.select({
+			id: schema.oauthConsent.id,
+			scopes: schema.oauthConsent.scopes,
+			updatedAt: schema.oauthConsent.updatedAt,
+		})
+		.from(schema.oauthConsent)
+		.where(and(eq(schema.oauthConsent.userId, userId), eq(schema.oauthConsent.clientId, clientId)));
+	const allowing = rows.filter((row) => strings(row.scopes).includes(scope));
+	allowing.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+	return allowing[0]?.id ?? null;
+}
+
+/** Whether this exact consent of the person still exists and allows `scope`. */
+export async function hasConsent(
+	db: Database,
+	userId: string,
+	consentId: string,
+	scope: string,
+): Promise<boolean> {
+	const row = await db
+		.select({ scopes: schema.oauthConsent.scopes })
+		.from(schema.oauthConsent)
+		.where(and(eq(schema.oauthConsent.id, consentId), eq(schema.oauthConsent.userId, userId)))
+		.get();
+	return row !== undefined && strings(row.scopes).includes(scope);
+}
+
+/**
  * Ends the person's grant to a client at once: its refresh tokens, its access tokens and the
  * consent, in one batch, so no half of it can stay. Only this person's rows go. Returns false, and
  * deletes nothing, when they have no grant for it, the same as for a client that does not exist.

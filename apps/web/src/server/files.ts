@@ -7,6 +7,9 @@ import {
 	MAX_FILE_BYTES,
 } from "#/lib/attachments";
 import { db, getAuth } from "./auth";
+import { hasAgentKey } from "./auth/agents";
+import { MCP_SCOPE } from "./auth/config";
+import { hasConsent } from "./auth/grants";
 import { demoEnabled } from "./demo/mode";
 import { releaseFileStorage, reserveFileStorage } from "./file-quota";
 import { findMembershipById } from "./workspaces";
@@ -135,8 +138,10 @@ function taken(object: R2Object, userId: string): Response {
 
 // Upload addresses. An agent working over MCP has no session, so `attach_file` hands it one
 // address for one file: the file's path and a token, signed with the app's secret under a purpose
-// of its own, that names the workspace, the file, its type and size, the member who asked and when
-// it stops working. Whoever holds it may store that file once, while the member still belongs.
+// of its own, that names the workspace, the file, its type and size, the member who asked, the
+// agent key or the OAuth approval they asked with (and when that credential expires), and when it
+// stops working. Whoever holds it may store that file once, while the member still belongs and the
+// key, or that very approval and its credential, are still live.
 
 const UPLOAD_PARAM = "upload";
 const UPLOAD_PURPOSE = "track-file-upload";
@@ -149,10 +154,20 @@ interface UploadFile {
 	name: string;
 }
 
+/**
+ * What the member asked with: an agent's key, or the one approval (consent) a person gave an OAuth
+ * client, with the expiry of the access credential it came in, in seconds since the epoch. A new
+ * approval of the same client is another consent, so it does not revive what the old one asked for.
+ */
+export type UploadAsker =
+	| { kind: "key"; id: string }
+	| { kind: "grant"; id: string; credentialExpires: number };
+
 interface UploadGrant extends UploadFile {
 	type: string;
 	size: number;
 	userId: string;
+	asker: UploadAsker;
 	/** Seconds since the epoch. */
 	expires: number;
 }
@@ -170,11 +185,19 @@ export interface UploadAddress {
 
 /**
  * An address a member may upload one new file to, without a session, for ten minutes. Null where
- * this deployment keeps no files. The caller has checked membership; the upload checks it again.
+ * this deployment keeps no files. The caller has checked membership; the upload checks it again,
+ * and that the key or grant that asked still works.
  */
 export async function uploadAddress(
 	origin: string,
-	file: { workspaceId: string; userId: string; name: string; type: string; size: number },
+	file: {
+		workspaceId: string;
+		userId: string;
+		asker: UploadAsker;
+		name: string;
+		type: string;
+		size: number;
+	},
 	now = Date.now(),
 ): Promise<UploadAddress | null> {
 	if (!env.FILES || demoEnabled()) return null;
@@ -213,10 +236,20 @@ async function uploadByAddress(
 	// The member may have left, or been removed, since they asked.
 	const membership = await findMembershipById(db, grant.workspaceId, grant.userId);
 	if (!membership) return error(404, "Not found");
+	// Nor may the key or grant they asked with have been revoked since: an address would otherwise
+	// outlive the revoke by up to ten minutes. It answers as a removed member does.
+	if (!(await askerIsLive(grant))) return error(404, "Not found");
 	const bucket = env.FILES;
 	if (!bucket) return error(503, "File uploads are not set up on this deployment");
 	const key = `${membership.workspaceId}/${grant.fileId}/${grant.name}`;
 	return upload(request, bucket, membership.workspaceId, key, grant.userId, grant.type, grant.size);
+}
+
+async function askerIsLive({ asker, workspaceId, userId }: UploadGrant): Promise<boolean> {
+	if (asker.kind === "key") return hasAgentKey(db, asker.id, userId, workspaceId);
+	// Track's keys and consents have no expiry of their own; the access credential does.
+	if (asker.credentialExpires * 1000 <= Date.now()) return false;
+	return hasConsent(db, userId, asker.id, MCP_SCOPE);
 }
 
 async function uploadToken(grant: UploadGrant): Promise<string> {
@@ -230,6 +263,9 @@ async function uploadToken(grant: UploadGrant): Promise<string> {
 				grant.size,
 				grant.userId,
 				grant.expires,
+				grant.asker.kind,
+				grant.asker.id,
+				grant.asker.kind === "grant" ? grant.asker.credentialExpires : null,
 			]),
 		),
 	);
@@ -252,17 +288,21 @@ async function readUploadToken(token: string): Promise<UploadGrant | null> {
 	} catch {
 		return null;
 	}
-	if (!Array.isArray(fields) || fields.length !== 7) return null;
-	const [workspaceId, fileId, name, type, size, userId, expires] = fields as unknown[];
+	if (!Array.isArray(fields) || fields.length !== 10) return null;
+	const [workspaceId, fileId, name, type, size, userId, expires, askerKind, askerId, credential] =
+		fields as unknown[];
 	if (
 		typeof workspaceId !== "string" ||
 		typeof fileId !== "string" ||
 		typeof name !== "string" ||
 		typeof type !== "string" ||
 		typeof userId !== "string" ||
+		(askerKind !== "key" && askerKind !== "grant") ||
+		typeof askerId !== "string" ||
 		!Number.isInteger(size) ||
 		!Number.isInteger(expires) ||
-		(expires as number) * 1000 <= Date.now()
+		(expires as number) * 1000 <= Date.now() ||
+		(askerKind === "grant" ? !Number.isInteger(credential) : credential !== null)
 	) {
 		return null;
 	}
@@ -273,6 +313,10 @@ async function readUploadToken(token: string): Promise<UploadGrant | null> {
 		type,
 		size: size as number,
 		userId,
+		asker:
+			askerKind === "grant"
+				? { kind: "grant", id: askerId, credentialExpires: credential as number }
+				: { kind: "key", id: askerId },
 		expires: expires as number,
 	};
 }
