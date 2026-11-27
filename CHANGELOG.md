@@ -8,6 +8,48 @@ read its entry before updating a self-hosted copy.
 Each version's [GitHub release](https://github.com/gateweavehq/track/releases) carries the same
 notes. Publishing a release deploys it to Gateweave Cloud.
 
+## [0.51.1] - 2026-11-27
+
+Documentation only: an MCP reference page, three recipes for working Track from an AI agent, a
+quickstart, and a link to the community rules from the contributing guide. There is no sync
+protocol change (it stays at 31), and there are no workspace migrations.
+
+### Added
+
+- **A quickstart.** `docs/quickstart.md` takes a fresh clone to Track on your own Cloudflare
+  account, at a workers.dev address, with a first issue in a workspace. `README.md` and
+  `docs/self-hosting.md` link to it. ([#391](https://github.com/gateweavehq/track/pull/391))
+- **An MCP reference page.** `docs/mcp.md` says how to connect to Track's MCP server and lists
+  every tool the server offers, in a table.
+  - **The table** is made from the server's own tool list. A test fails when the page differs
+    from that list, and `pnpm docs:mcp` rewrites the table.
+  - **The Worker** is unchanged. The new code is imported by a test and a script, not by the app.
+  - **The README** links to the page.
+
+  ([#389](https://github.com/gateweavehq/track/pull/389))
+- **Three recipes for working Track from an AI agent.** Each is a task with one prompt to paste
+  into a connected agent, and says how far it has been checked. `docs/mcp.md` links to them.
+  - **`docs/recipes/notes-to-issues.md`** has an agent read meeting notes, show the issues it
+    would create, and create them once you say yes.
+  - **`docs/recipes/project-update.md`** has an agent read a project's last week from the board
+    and post a new update with a health.
+  - **`docs/recipes/triage-intake.md`** has an agent read each request waiting in a team's
+    intake and suggest accepting or declining it.
+
+  ([#390](https://github.com/gateweavehq/track/pull/390))
+
+### Changed
+
+- **The contributing guide links the community rules.** `CONTRIBUTING.md` asks you to claim an
+  issue before you start, and says to comment `/claim` on an issue labelled `together`. Its
+  agents section, now "Contributing with agents", links the
+  [community rules](https://docs.gateweave.com/community-rules/). The pull request template
+  gains an "Agents" heading for disclosure. ([#388](https://github.com/gateweavehq/track/pull/388))
+
+### If you run your own
+
+No migration, variable or secret. Deploy as usual.
+
 ## [0.51.0] - 2026-11-26
 
 Agents can attach screenshots and videos to issues over MCP, an issue can gather hidden positions
