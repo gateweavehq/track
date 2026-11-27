@@ -51,6 +51,7 @@ jobs:
           timeout 180 pnpm --filter @gateweave/track-web exec playwright install --with-deps chromium ||
             pnpm --filter @gateweave/track-web exec playwright install chromium
       - name: Smoke test
+        id: smoke
         run: pnpm test:smoke
         env:
           TRACK_SMOKE_URL: https://track-staging.gateweave.com
@@ -61,6 +62,16 @@ jobs:
           name: smoke-staging
           path: apps/web/test-results-smoke
           retention-days: 7
+      # A failed smoke test opens a Track alert, and the next pass clears it. It does nothing
+      # until the repository has a TRACK_CI_EVENTS_KEY secret, and never prints it.
+      - name: Report the smoke result to Track
+        if: always() && (steps.smoke.outcome == 'success' || steps.smoke.outcome == 'failure')
+        run: node scripts/smoke-signal.mjs
+        env:
+          TRACK_CI_EVENTS_KEY: ${{ secrets.TRACK_CI_EVENTS_KEY }}
+          SMOKE_ENVIRONMENT: staging
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
   production:
     if: github.repository == 'gateweavehq/track' && github.event_name == 'release'
@@ -90,6 +101,7 @@ jobs:
           timeout 180 pnpm --filter @gateweave/track-web exec playwright install --with-deps chromium ||
             pnpm --filter @gateweave/track-web exec playwright install chromium
       - name: Smoke test
+        id: smoke
         run: pnpm test:smoke
         env:
           TRACK_SMOKE_URL: https://track.gateweave.com
@@ -100,6 +112,16 @@ jobs:
           name: smoke-production
           path: apps/web/test-results-smoke
           retention-days: 7
+      # A failed smoke test opens a Track alert, and the next pass clears it. It does nothing
+      # until the repository has a TRACK_CI_EVENTS_KEY secret, and never prints it.
+      - name: Report the smoke result to Track
+        if: always() && (steps.smoke.outcome == 'success' || steps.smoke.outcome == 'failure')
+        run: node scripts/smoke-signal.mjs
+        env:
+          TRACK_CI_EVENTS_KEY: ${{ secrets.TRACK_CI_EVENTS_KEY }}
+          SMOKE_ENVIRONMENT: production
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
   # The demo follows production, so a visitor sees what a release shipped. A release that fails on
   # production, in its deploy or its smoke test, goes no further.
@@ -130,6 +152,7 @@ jobs:
           timeout 180 pnpm --filter @gateweave/track-web exec playwright install --with-deps chromium ||
             pnpm --filter @gateweave/track-web exec playwright install chromium
       - name: Smoke test
+        id: smoke
         run: pnpm test:smoke
         env:
           TRACK_SMOKE_URL: https://track-demo.gateweave.com
@@ -140,3 +163,13 @@ jobs:
           name: smoke-demo
           path: apps/web/test-results-smoke
           retention-days: 7
+      # A failed smoke test opens a Track alert, and the next pass clears it. It does nothing
+      # until the repository has a TRACK_CI_EVENTS_KEY secret, and never prints it.
+      - name: Report the smoke result to Track
+        if: always() && (steps.smoke.outcome == 'success' || steps.smoke.outcome == 'failure')
+        run: node scripts/smoke-signal.mjs
+        env:
+          TRACK_CI_EVENTS_KEY: ${{ secrets.TRACK_CI_EVENTS_KEY }}
+          SMOKE_ENVIRONMENT: demo
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
