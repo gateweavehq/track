@@ -199,6 +199,43 @@ test("a pull request is unclaimed unless its author holds a mentioned issue", ()
 	);
 });
 
+for (const api of [
+	"http://api.github.example.test",
+	"ftp://api.github.example.test",
+	"api.github.example.test",
+	"//api.github.example.test",
+]) {
+	test(`client refuses a non-https GitHub API URL before any request: ${api}`, () => {
+		const fetchImpl = test.mock.fn();
+		assert.throws(
+			() => client({ token: "secret", repo: "gateweavehq/track", api, fetchImpl }),
+			/GITHUB_API_URL must use https/,
+		);
+		assert.equal(fetchImpl.mock.callCount(), 0);
+	});
+}
+
+test("client uses the default GitHub API URL", async () => {
+	const fetchImpl = test.mock.fn(async () => new Response("[]", { status: 200 }));
+	const gh = client({ token: "secret", repo: "gateweavehq/track", fetchImpl });
+	await gh.openPulls();
+	assert.equal(fetchImpl.mock.callCount(), 1);
+	const [url, options] = fetchImpl.mock.calls[0].arguments;
+	assert.equal(url.startsWith("https://api.github.com/repos/gateweavehq/track/pulls"), true);
+	assert.equal(options.headers.authorization, "Bearer secret");
+});
+
+test("client uses a valid https GitHub API URL override", async () => {
+	const api = "https://github.example.test/api/v3";
+	const fetchImpl = test.mock.fn(async () => new Response("[]", { status: 200 }));
+	const gh = client({ token: "secret", repo: "gateweavehq/track", api, fetchImpl });
+	await gh.openPulls();
+	assert.equal(fetchImpl.mock.callCount(), 1);
+	const [url, options] = fetchImpl.mock.calls[0].arguments;
+	assert.equal(url.startsWith(`${api}/repos/gateweavehq/track/pulls`), true);
+	assert.equal(options.headers.authorization, "Bearer secret");
+});
+
 // A recording stand-in for the GitHub client.
 function fake({
 	issues = {},

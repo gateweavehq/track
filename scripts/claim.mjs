@@ -172,14 +172,22 @@ export function readTimeline(timeline, holders) {
 
 // ---- GitHub ----------------------------------------------------------------------------------
 
-export function client({
-	token,
-	repo,
-	api = "https://api.github.com",
-	fetchImpl = globalThis.fetch,
-}) {
+const DEFAULT_API_URL = "https://api.github.com";
+
+function httpsApiUrl(value) {
+	const api = value?.trim() || DEFAULT_API_URL;
+	try {
+		if (new URL(api).protocol === "https:") return api;
+	} catch {
+		// The refusal below is the clear error for a malformed URL too.
+	}
+	throw new Error("GITHUB_API_URL must use https");
+}
+
+export function client({ token, repo, api = DEFAULT_API_URL, fetchImpl = globalThis.fetch }) {
+	const baseUrl = httpsApiUrl(api);
 	async function call(method, path, body) {
-		const response = await fetchImpl(`${api}${path}`, {
+		const response = await fetchImpl(`${baseUrl}${path}`, {
 			method,
 			headers: {
 				accept: "application/vnd.github+json",
