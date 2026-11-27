@@ -4121,6 +4121,23 @@ describe("search", () => {
 		expect(await workspace.issues({ text: "supheli", teamId: "team-mmo", limit: 50 })).toEqual([]);
 	});
 
+	it("pages ranked results without skipping or repeating issues", async () => {
+		const { workspace, admin } = await withTeam();
+		for (let n = 1; n <= 5; n += 1) await issue(admin, `needle-${n}`, `Needle ${n}`);
+		const page = (offset?: number) => workspace.issuePage({ text: "needle", limit: 2, offset });
+		const first = await page();
+		const second = await page(first.nextOffset ?? 0);
+		const third = await page(second.nextOffset ?? 0);
+		expect([first.nextOffset, second.nextOffset, third.nextOffset]).toEqual([2, 4, null]);
+		const all = [...first.issues, ...second.issues, ...third.issues].map((row) => row.id);
+		expect([first.issues, second.issues, third.issues].map((rows) => rows.length)).toEqual([
+			2, 2, 1,
+		]);
+		expect(new Set(all).size).toBe(5);
+		expect([...all].sort()).toEqual(["needle-1", "needle-2", "needle-3", "needle-4", "needle-5"]);
+		expect((await page(6)).issues).toEqual([]);
+	});
+
 	it("finds issues by words in their key, title, description and comments", async () => {
 		const { workspace, admin } = await withTeam();
 		await issue(admin, "i-1", "Authentication fails on Safari");

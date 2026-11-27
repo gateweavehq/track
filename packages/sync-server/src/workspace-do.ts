@@ -146,11 +146,13 @@ import {
 	findInsightSource,
 	findIssueById,
 	findIssueByKey,
+	findIssuePage,
 	findIssues,
 	findProjectUpdates,
 	findPullRequests,
 	findRelations,
 	type InsightScope,
+	type IssuePage,
 	type IssueQuery,
 	lastSortOrder,
 	MAX_QUERY_LIMIT,
@@ -286,6 +288,7 @@ const issueQuery = z.object({
 	archived: z.boolean().optional(),
 	intake: z.boolean().optional(),
 	text: z.string().max(200).optional(),
+	offset: z.number().int().nonnegative().optional(),
 	limit: z.number().int().min(1).max(MAX_QUERY_LIMIT),
 });
 
@@ -482,6 +485,10 @@ export class WorkspaceDO extends DurableObject {
 
 	issues(query: IssueQuery): Issue[] {
 		return findIssues(this.#db, issueQuery.parse(query));
+	}
+
+	issuePage(query: IssueQuery): IssuePage {
+		return findIssuePage(this.#db, issueQuery.parse(query));
 	}
 
 	issue(id: string): Issue | null {

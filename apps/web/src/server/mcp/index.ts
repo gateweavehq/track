@@ -173,6 +173,7 @@ function accessFor(
 				me: membership.profile,
 				directory: () => stub.directory(),
 				issues: (query: IssueQuery) => stub.issues(query),
+				issuePage: (query: IssueQuery) => stub.issuePage(query),
 				issue: (id) => stub.issue(id),
 				issueByKey: (teamKey, number) => stub.issueByKey(teamKey, number),
 				comments: (issueId) => stub.comments(issueId),

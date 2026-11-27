@@ -5,7 +5,13 @@ export type { RetentionPolicy } from "./log";
 export { MOVE_FREEZE_MS, type MoveReport, moveWorkspace } from "./move";
 export type { DigestItem, InboxDigest, PushNotice } from "./notifications";
 export type { GetPanelInput, OpenPanelInput, PanelView, SubmitPositionInput } from "./panels";
-export { type Directory, type InsightScope, type IssueQuery, MAX_QUERY_LIMIT } from "./queries";
+export {
+	type Directory,
+	type InsightScope,
+	type IssuePage,
+	type IssueQuery,
+	MAX_QUERY_LIMIT,
+} from "./queries";
 export type { RequesterNotice } from "./requesters";
 export type { SourceEventResult } from "./source-events";
 export type { MemberProfile } from "./state";

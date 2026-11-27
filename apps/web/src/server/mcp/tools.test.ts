@@ -120,6 +120,17 @@ class FakeWorkspace implements WorkspaceAccess {
 	}
 	async issues(query: IssueQuery) {
 		this.queries.push(query);
+		return this.#findIssues(query);
+	}
+	async issuePage(query: IssueQuery) {
+		this.queries.push(query);
+		const rows = await this.#findIssues({ ...query, limit: query.limit + 1 });
+		return {
+			issues: rows.slice(0, query.limit),
+			nextOffset: rows.length > query.limit ? (query.offset ?? 0) + query.limit : null,
+		};
+	}
+	#findIssues(query: IssueQuery) {
 		const filtered = this.issues_
 			.filter((issue) => query.teamId === undefined || issue.teamId === query.teamId)
 			.filter((issue) => query.assigneeId === undefined || issue.assigneeId === query.assigneeId)
@@ -132,6 +143,7 @@ class FakeWorkspace implements WorkspaceAccess {
 				(issue) => query.archived === undefined || (issue.archivedAt !== null) === query.archived,
 			)
 			.filter((issue) => query.intake === undefined || issue.intake === query.intake);
+		const offset = query.offset ?? 0;
 		if (query.text?.trim()) {
 			const ids = new Set(filtered.map((issue) => issue.id));
 			return search(
@@ -145,10 +157,12 @@ class FakeWorkspace implements WorkspaceAccess {
 					),
 				},
 				query.text,
-				query.limit,
-			).map((result) => result.issue as Issue);
+				offset + query.limit,
+			)
+				.slice(offset)
+				.map((result) => result.issue as Issue);
 		}
-		return filtered.slice(0, query.limit);
+		return filtered.slice(offset, offset + query.limit);
 	}
 	async issue(id: string) {
 		return this.issues_.find((issue) => issue.id === id) ?? null;
@@ -605,6 +619,31 @@ describe("Track MCP tools", () => {
 				.structuredContent,
 		).toMatchObject({ issues: [{ key: "ENG-1" }] });
 		expect(workspace.queries.at(-1)).toMatchObject({ text: "supheli", limit: 1 });
+	});
+
+	it("pages search results with nextOffset and no skipped or repeated issues", async () => {
+		for (let n = 1; n <= 5; n += 1) await created({ title: `Page me ${n}` });
+		const read = async (offset?: number) => {
+			const result = await call("search_issues", {
+				workspace: "acme",
+				text: "page",
+				limit: 2,
+				...(offset === undefined ? {} : { offset }),
+			});
+			return result.structuredContent as { issues: { key: string }[]; nextOffset: number | null };
+		};
+		const first = await read();
+		expect(first.issues).toHaveLength(2);
+		expect(first.nextOffset).toBe(2);
+		const second = await read(first.nextOffset ?? 0);
+		expect(second.issues).toHaveLength(2);
+		expect(second.nextOffset).toBe(4);
+		const third = await read(second.nextOffset ?? 0);
+		expect(third.issues).toHaveLength(1);
+		expect(third.nextOffset).toBeNull();
+		const keys = [...first.issues, ...second.issues, ...third.issues].map((issue) => issue.key);
+		expect(new Set(keys).size).toBe(5);
+		expect(keys).toEqual(["ENG-1", "ENG-2", "ENG-3", "ENG-4", "ENG-5"]);
 	});
 
 	it("edits only the caller's comment, including for an agent", async () => {

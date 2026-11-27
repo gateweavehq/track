@@ -71,6 +71,7 @@ export interface WorkspaceAccess {
 	submitPosition(input: SubmitPositionInput): Promise<WebhookResult<PanelView>>;
 	getPanel(input: GetPanelInput): Promise<WebhookResult<PanelView>>;
 	issues(query: IssueQuery): Promise<Issue[]>;
+	issuePage(query: IssueQuery): Promise<{ issues: Issue[]; nextOffset: number | null }>;
 	issue(id: string): Promise<Issue | null>;
 	issueByKey(teamKey: string, number: number): Promise<Issue | null>;
 	/** A live issue's comments, oldest first. */
@@ -553,7 +554,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Search issues",
 			description:
-				"Finds issues in a workspace. Put the words to search in text. Every filter is optional. With text, every word must match the start of a word in the key, title, description or comments, ignoring case and accents; non-matching issues are excluded and the best matches come first. Otherwise the most recently updated come first.",
+				"Finds issues in a workspace. Put the words to search in text. Every filter is optional. With text, every word must match the start of a word in the key, title, description or comments, ignoring case and accents; non-matching issues are excluded and the best matches come first. Otherwise the most recently updated come first. Pass the answer's nextOffset as offset for the page after.",
 			inputSchema: strictInput("search_issues", {
 				workspace: workspaceInput,
 				team: z.string().optional().describe("A team key, such as ENG."),
@@ -588,8 +589,19 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						'Words to find in the issue\'s key, title, description or comments. Each word matches the start of a word, ignoring case and accents: "auth" finds "authentication".',
 					),
 				limit: z.number().int().min(1).max(200).default(50),
+				offset: z
+					.number()
+					.int()
+					.min(0)
+					.default(0)
+					.describe(
+						"How many matching issues to skip first; pass the previous answer's nextOffset.",
+					),
 			}),
-			outputSchema: z.looseObject({ issues: z.array(issueSummary) }),
+			outputSchema: z.looseObject({
+				issues: z.array(issueSummary),
+				nextOffset: z.number().int().nullable(),
+			}),
 			annotations: { readOnlyHint: true, openWorldHint: false },
 		},
 		(input) =>
@@ -599,8 +611,8 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				const team = input.team === undefined ? undefined : teamId(directory, input.team);
 				const cycleIds =
 					input.cycle === undefined ? undefined : cyclesToSearch(directory, team, input.cycle);
-				if (cycleIds?.length === 0) return { issues: [] };
-				const issues = await workspace.issues({
+				if (cycleIds?.length === 0) return { issues: [], nextOffset: null };
+				const page = await workspace.issuePage({
 					teamId: team,
 					cycleIds,
 					statuses: input.status && statusesToSearch(directory, team, input.status),
@@ -615,9 +627,13 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					archived: input.archived,
 					intake: input.intake,
 					text: input.text,
+					offset: input.offset,
 					limit: input.limit,
 				});
-				return { issues: issues.map((issue) => summarize(access, workspace, directory, issue)) };
+				return {
+					issues: page.issues.map((issue) => summarize(access, workspace, directory, issue)),
+					nextOffset: page.nextOffset,
+				};
 			}),
 	);
 
