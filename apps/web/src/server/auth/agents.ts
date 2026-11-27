@@ -106,6 +106,28 @@ export async function findAgentByKey(db: Database, key: string): Promise<AgentBy
 	return { keyId: row.keyId, userId: row.userId, workspaceId: row.workspaceId, slug: row.slug };
 }
 
+/** Whether this key of the agent still exists. Revoking a key, or deleting its agent, ends it. */
+export async function hasAgentKey(
+	db: Database,
+	keyId: string,
+	userId: string,
+	workspaceId: string,
+): Promise<boolean> {
+	const { agentKey } = schema;
+	const row = await db
+		.select({ id: agentKey.id })
+		.from(agentKey)
+		.where(
+			and(
+				eq(agentKey.id, keyId),
+				eq(agentKey.userId, userId),
+				eq(agentKey.organizationId, workspaceId),
+			),
+		)
+		.get();
+	return row !== undefined;
+}
+
 /**
  * Deletes agents that no longer belong to a workspace. An agent belongs to one workspace only, so
  * once that workspace is gone, nothing else can use it. Anyone with a way to sign in is a person,

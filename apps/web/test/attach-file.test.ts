@@ -152,6 +152,11 @@ async function signToken(fields: unknown[]): Promise<string> {
 	return `${payload}.${base64Url(new Uint8Array(mac))}`;
 }
 
+async function sha256(value: string): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+	return Buffer.from(digest).toString("hex");
+}
+
 function base64Url(bytes: Uint8Array): string {
 	return Buffer.from(bytes).toString("base64url");
 }
@@ -306,6 +311,45 @@ describe("attaching files over MCP", () => {
 		expect(refused.status).toBe(404);
 		expect(await refused.json()).toEqual({ error: "Not found" });
 		expect(await track.fileKeys(`${initech}/`)).toEqual([]);
+	});
+
+	it("refuses the upload of a key revoked after asking, as if there were no workspace", async () => {
+		const client = "203.0.113.92";
+		const owner = await signUp(client, "Ines", "ines@attach.test");
+		const hooli = await workspace(client, owner, "hooli-attach");
+		const { key, agent } = await createAgent(client, owner, hooli);
+		// A second key of the same agent: revoking one leaves the other's addresses working.
+		const other = await ok<{ key: { id: string }; secret: string }>(
+			authApi("/agents/create-key", { client, cookie: owner.cookie, body: { agentId: agent.id } }),
+		);
+		const keyId = async (secret: string) => {
+			const row = await track.db
+				.prepare("SELECT id FROM agent_key WHERE hash = ?")
+				.bind(await sha256(secret))
+				.first<{ id: string }>();
+			return row?.id ?? "";
+		};
+		const mcp = await connect(key);
+		const revoked = await address(mcp, "hooli-attach", "shot.png", "image/png", PIXEL.length);
+		await mcp.close();
+		const mcpOther = await connect(other.secret);
+		const kept = await address(mcpOther, "hooli-attach", "shot.png", "image/png", PIXEL.length);
+		await mcpOther.close();
+
+		await ok(
+			authApi("/agents/revoke-key", {
+				client,
+				cookie: owner.cookie,
+				body: { keyId: await keyId(key) },
+			}),
+		);
+		const refused = await put(revoked.uploadUrl, PIXEL, { "content-type": "image/png" });
+		expect(refused.status).toBe(404);
+		expect(await refused.json()).toEqual({ error: "Not found" });
+		expect(
+			await track.fileKeys(`${hooli}/${new URL(revoked.uploadUrl).pathname.split("/")[4]}/`),
+		).toEqual([]);
+		expect((await put(kept.uploadUrl, PIXEL, { "content-type": "image/png" })).status).toBe(201);
 	});
 
 	it("holds an address's upload to the size limit and the workspace's quota", async () => {

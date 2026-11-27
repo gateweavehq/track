@@ -193,17 +193,23 @@ class MemoryProvider implements OAuthClientProvider {
 	}
 }
 
-const transport = (provider: MemoryProvider) =>
+const transport = (provider: MemoryProvider, from?: string) =>
 	new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
 		authProvider: provider,
-		fetch: track.fetch,
+		fetch: from
+			? (input, init) => {
+					const headers = new Headers(init?.headers);
+					headers.set("cf-connecting-ip", from);
+					return track.fetch(input, { ...init, headers });
+				}
+			: track.fetch,
 	});
 
 /** An app that registers itself, as an agent does. Nobody has allowed it yet. */
-async function register(name: string) {
+async function register(name: string, from?: string) {
 	const provider = new MemoryProvider(name);
 	const client = new Client({ name, version: "1.0.0" });
-	await expect(client.connect(transport(provider))).rejects.toBeInstanceOf(UnauthorizedError);
+	await expect(client.connect(transport(provider, from))).rejects.toBeInstanceOf(UnauthorizedError);
 	return provider;
 }
 
@@ -371,6 +377,47 @@ describe("taking an assistant's access back", () => {
 		expect(await takeBack(cookie, app.clientId)).toBe(true);
 		expect((await callMcp(tokens.access)).status).toBe(401);
 		expect((await callMcp(key)).status).toBe(200);
+	});
+
+	it("refuses an upload address once the grant that asked for it is taken back", async () => {
+		const cookie = await signUp("Omar Haddad", "omar.grants@example.com");
+		const created = await authApi("/organization/create", cookie, {
+			name: "Upload Co",
+			slug: "upload-co",
+		});
+		const { id: organizationId } = (await created.json()) as { id: string };
+		// From an address of its own: registering is limited per address.
+		const app = await register("Uploader", "203.0.113.200");
+		const tokens = await allow(app, cookie);
+
+		const addressFor = async (token: string) => {
+			const mcp = new Client({ name: "uploader", version: "1.0.0" });
+			await mcp.connect(
+				new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
+					fetch: track.fetch,
+					requestInit: { headers: { authorization: `Bearer ${token}` } },
+				}),
+			);
+			const result = await mcp.callTool({
+				name: "attach_file",
+				arguments: { workspace: "upload-co", name: "note.txt", type: "text/plain", size: 5 },
+			});
+			await mcp.close();
+			expect(result.isError).toBeFalsy();
+			return (result.structuredContent as { uploadUrl: string }).uploadUrl;
+		};
+		const put = (url: string) =>
+			track.fetch(url, { method: "PUT", headers: { "content-type": "text/plain" }, body: "hello" });
+		// Two addresses from one grant: one is used while the grant stands, as a control.
+		const before = await addressFor(tokens.access);
+		const after = await addressFor(tokens.access);
+		expect((await put(before)).status).toBe(201);
+
+		expect(await takeBack(cookie, app.clientId)).toBe(true);
+		const refused = await put(after);
+		expect(refused.status).toBe(404);
+		expect(await refused.json()).toEqual({ error: "Not found" });
+		expect(await track.fileKeys(`${organizationId}/`)).toHaveLength(1);
 	});
 
 	it("deletes an app nobody allowed once it is old, and keeps the rest", async () => {

@@ -1907,10 +1907,12 @@ workspace's files are one prefix in the bucket.
   upload address: the file's path with `?upload=<token>`. The token is signed with
   `BETTER_AUTH_SECRET` under a key of its own purpose (`track-file-upload`, through HKDF, as the
   undo token's is) and names the workspace, a new file id, the cleaned name, the type, the size,
-  the member who asked and an expiry ten minutes out. A `PUT` that carries one reads no cookies
+  the member who asked, the agent key or OAuth client they asked with, and an expiry ten minutes
+  out. A `PUT` that carries one reads no cookies
   and needs no Origin: it is refused with 403 when the signature, the expiry or the path fails,
   with 400 when its length is not the size, with 404 when D1 no longer has the member in the
-  workspace, and with 413 past 25 MB or the quota, as people's uploads are. The file is stored
+  workspace or no longer has the key (revoked, or its agent deleted) or the person's grant of the
+  client (taken back), the same answer as for a removed member, and with 413 past 25 MB or the quota, as people's uploads are. The file is stored
   with the token's type and `uploadedBy` its member, so a second upload to the address gets 409.
   A `PUT` with a token is never taken on a session's word, and one without a token is a
   session's upload as before. The tool also returns `attachmentMarkdown`, which the agent puts in
