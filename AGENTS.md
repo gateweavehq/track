@@ -146,6 +146,12 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
    The Worker's daily run moves a workspace into the deployment's jurisdiction and deletes sealed
    old copies through the objects' `move…` methods (`apps/web/src/server/move.ts`); nothing else
    calls them.
+   The file gateway (`apps/web/src/server/files.ts`, `/api/files/…`) reaches the object only for
+   quota accounting, through `reserveFileStorage` and `releaseFileStorage` in
+   `apps/web/src/server/file-quota.ts`. Its session path first checks the session, the Origin of a
+   write and membership in D1. Its upload-token path reads no cookies: the signed one-file address
+   must name this file, the member must still belong, and the agent key or OAuth consent it was
+   made under must still be live.
    Non-members get the same 404 or "not found" as a missing workspace. The verified member
    travels in `MEMBER_HEADER`, as an id only since Workers Logs records it, or as the `member`
    argument of `mutate`, which only a gateway sets.
