@@ -26,6 +26,7 @@ import {
 	SIGN_UP_CLOSED,
 } from "./deployment";
 import { EndedSessions } from "./ended-sessions";
+import { findConsentId } from "./grants";
 import { type OidcProvider, oidcDatabaseHooks, oidcSignIn } from "./oidc-sign-in";
 import { passwordTries, tellOfSpentTries } from "./password-tries";
 import { sessionOf } from "./session-of";
@@ -491,6 +492,25 @@ export function createAuth(config: AuthConfig) {
 							loginPage: "/login",
 							consentPage: "/oauth/consent",
 							scopes: ["openid", "profile", "email", "offline_access", MCP_SCOPE],
+							// The resource server checks the exact approval an access token was issued under,
+							// not just whatever approval the same client has now. Refresh tokens are deleted
+							// with a consent, so the consent found while issuing is the one the grant stands on.
+							extensions: [
+								{
+									claims: {
+										accessToken: async ({ user, client, scopes }) => {
+											if (!user || !scopes.includes(MCP_SCOPE)) return {};
+											const consentId = await findConsentId(
+												config.db,
+												user.id,
+												client.clientId,
+												MCP_SCOPE,
+											);
+											return consentId ? { consent_id: consentId } : {};
+										},
+									},
+								},
+							],
 							// MCP clients register themselves. Anyone can register a client, so the
 							// consent page names where the grant will go, and consent is never skipped.
 							allowDynamicClientRegistration: true,
