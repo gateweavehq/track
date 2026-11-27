@@ -230,6 +230,78 @@ async function allow(provider: MemoryProvider, cookie: string) {
 	return { access: access_token, refresh: refresh_token };
 }
 
+/** A person with a workspace to attach files in, from an address of their own. */
+async function uploadWorkspace(name: string, handle: string) {
+	const cookie = await signUp(name, `${handle}.grants@example.com`);
+	const created = await authApi("/organization/create", cookie, {
+		name: `${name} Files`,
+		slug: `${handle}-files`,
+	});
+	const { id: organizationId } = (await created.json()) as { id: string };
+	return { cookie, organizationId, slug: `${handle}-files` };
+}
+
+/** What an OAuth access token gets from `attach_file`: the address to upload five bytes to. */
+async function uploadAddressFor(token: string, slug: string) {
+	const mcp = new Client({ name: "uploader", version: "1.0.0" });
+	await mcp.connect(
+		new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
+			fetch: track.fetch,
+			requestInit: { headers: { authorization: `Bearer ${token}` } },
+		}),
+	);
+	const result = await mcp.callTool({
+		name: "attach_file",
+		arguments: {
+			workspace: slug,
+			name: "note.txt",
+			type: "text/plain",
+			size: 5,
+		},
+	});
+	await mcp.close();
+	expect(result.isError).toBeFalsy();
+	return (result.structuredContent as { uploadUrl: string }).uploadUrl;
+}
+
+const putFile = (url: string) =>
+	track.fetch(url, { method: "PUT", headers: { "content-type": "text/plain" }, body: "hello" });
+
+/** The fields an upload address signs, as the app wrote them. */
+function fieldsOf(url: string): unknown[] {
+	const token = new URL(url).searchParams.get("upload") ?? "";
+	return JSON.parse(Buffer.from(token.split(".")[0] ?? "", "base64url").toString()) as unknown[];
+}
+
+/** The address with these fields signed as the app signs them, so tests can make one it would not. */
+async function signedAddress(url: string, fields: unknown[]): Promise<string> {
+	const encoder = new TextEncoder();
+	const secret = await crypto.subtle.importKey(
+		"raw",
+		encoder.encode(track.authSecret),
+		"HKDF",
+		false,
+		["deriveKey"],
+	);
+	const key = await crypto.subtle.deriveKey(
+		{
+			name: "HKDF",
+			hash: "SHA-256",
+			salt: new Uint8Array(),
+			info: encoder.encode("track-file-upload"),
+		},
+		secret,
+		{ name: "HMAC", hash: "SHA-256" },
+		false,
+		["sign"],
+	);
+	const payload = Buffer.from(encoder.encode(JSON.stringify(fields))).toString("base64url");
+	const mac = await crypto.subtle.sign("HMAC", key, encoder.encode(`track-file-upload:${payload}`));
+	const signed = new URL(url);
+	signed.searchParams.set("upload", `${payload}.${Buffer.from(mac).toString("base64url")}`);
+	return signed.toString();
+}
+
 /** What `/mcp` answers a token: its status, and the challenge when it is turned away. */
 async function callMcp(token: string) {
 	const response = await track.fetch(`${origin}/mcp`, {
@@ -380,44 +452,75 @@ describe("taking an assistant's access back", () => {
 	});
 
 	it("refuses an upload address once the grant that asked for it is taken back", async () => {
-		const cookie = await signUp("Omar Haddad", "omar.grants@example.com");
-		const created = await authApi("/organization/create", cookie, {
-			name: "Upload Co",
-			slug: "upload-co",
-		});
-		const { id: organizationId } = (await created.json()) as { id: string };
-		// From an address of its own: registering is limited per address.
+		const { cookie, organizationId, slug } = await uploadWorkspace("Omar Haddad", "omar");
 		const app = await register("Uploader", "203.0.113.200");
 		const tokens = await allow(app, cookie);
 
-		const addressFor = async (token: string) => {
-			const mcp = new Client({ name: "uploader", version: "1.0.0" });
-			await mcp.connect(
-				new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
-					fetch: track.fetch,
-					requestInit: { headers: { authorization: `Bearer ${token}` } },
-				}),
-			);
-			const result = await mcp.callTool({
-				name: "attach_file",
-				arguments: { workspace: "upload-co", name: "note.txt", type: "text/plain", size: 5 },
-			});
-			await mcp.close();
-			expect(result.isError).toBeFalsy();
-			return (result.structuredContent as { uploadUrl: string }).uploadUrl;
-		};
-		const put = (url: string) =>
-			track.fetch(url, { method: "PUT", headers: { "content-type": "text/plain" }, body: "hello" });
 		// Two addresses from one grant: one is used while the grant stands, as a control.
-		const before = await addressFor(tokens.access);
-		const after = await addressFor(tokens.access);
-		expect((await put(before)).status).toBe(201);
+		const before = await uploadAddressFor(tokens.access, slug);
+		const after = await uploadAddressFor(tokens.access, slug);
+		expect((await putFile(before)).status).toBe(201);
 
 		expect(await takeBack(cookie, app.clientId)).toBe(true);
-		const refused = await put(after);
+		const refused = await putFile(after);
 		expect(refused.status).toBe(404);
 		expect(await refused.json()).toEqual({ error: "Not found" });
 		expect(await track.fileKeys(`${organizationId}/`)).toHaveLength(1);
+	});
+
+	it("refuses an upload address asked for under an approval the person later replaced", async () => {
+		const { cookie, organizationId, slug } = await uploadWorkspace("Rae Quinn", "rae");
+		const app = await register("Replaced", "203.0.113.201");
+		const first = await allow(app, cookie);
+		const old = await uploadAddressFor(first.access, slug);
+
+		// The person takes the app back and allows the very same client again: another approval.
+		expect(await takeBack(cookie, app.clientId)).toBe(true);
+		app.savedTokens = undefined;
+		await expect(
+			new Client({ name: "Replaced", version: "1.0.0" }).connect(transport(app, "203.0.113.201")),
+		).rejects.toBeInstanceOf(UnauthorizedError);
+		const second = await allow(app, cookie);
+		const fresh = await uploadAddressFor(second.access, slug);
+
+		// The old address named the first approval, which is gone, though the client has one again.
+		const refused = await putFile(old);
+		expect(refused.status).toBe(404);
+		expect(await refused.json()).toEqual({ error: "Not found" });
+		expect(await track.fileKeys(`${organizationId}/`)).toEqual([]);
+		// The address asked for under the new approval works.
+		expect((await putFile(fresh)).status).toBe(201);
+		expect(await track.fileKeys(`${organizationId}/`)).toHaveLength(1);
+	});
+
+	it("carries the access credential's expiry in the address and refuses it once that has passed", async () => {
+		const { cookie, organizationId, slug } = await uploadWorkspace("Sol Marsh", "sol");
+		const app = await register("Expiring", "203.0.113.202");
+		const tokens = await allow(app, cookie);
+		const address = await uploadAddressFor(tokens.access, slug);
+
+		// The expiry in the address is the one verified on the credential.
+		const exp = (
+			JSON.parse(Buffer.from(tokens.access.split(".")[1] ?? "", "base64url").toString()) as {
+				exp: number;
+			}
+		).exp;
+		const fields = fieldsOf(address);
+		expect(fields[7]).toBe("grant");
+		expect(fields[9]).toBe(exp);
+
+		// The same address, signed here with that expiry already past while its own deadline is
+		// still ahead: the credential it came with could no longer be used, so nor can the address.
+		const past = await signedAddress(
+			address,
+			fields.map((v, i) => (i === 9 ? Math.floor(Date.now() / 1000) - 1 : v)),
+		);
+		const refused = await putFile(past);
+		expect(refused.status).toBe(404);
+		expect(await refused.json()).toEqual({ error: "Not found" });
+		expect(await track.fileKeys(`${organizationId}/`)).toEqual([]);
+		// Signed with the real expiry, it is taken, so it was the credential's expiry that refused.
+		expect((await putFile(await signedAddress(address, fields))).status).toBe(201);
 	});
 
 	it("deletes an app nobody allowed once it is old, and keeps the rest", async () => {

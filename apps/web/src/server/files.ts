@@ -9,7 +9,7 @@ import {
 import { db, getAuth } from "./auth";
 import { hasAgentKey } from "./auth/agents";
 import { MCP_SCOPE } from "./auth/config";
-import { hasGrant } from "./auth/grants";
+import { hasConsent } from "./auth/grants";
 import { demoEnabled } from "./demo/mode";
 import { releaseFileStorage, reserveFileStorage } from "./file-quota";
 import { findMembershipById } from "./workspaces";
@@ -139,8 +139,9 @@ function taken(object: R2Object, userId: string): Response {
 // Upload addresses. An agent working over MCP has no session, so `attach_file` hands it one
 // address for one file: the file's path and a token, signed with the app's secret under a purpose
 // of its own, that names the workspace, the file, its type and size, the member who asked, the
-// agent key or OAuth grant they asked with, and when it stops working. Whoever holds it may store
-// that file once, while the member still belongs and the key or grant is still live.
+// agent key or the OAuth approval they asked with (and when that credential expires), and when it
+// stops working. Whoever holds it may store that file once, while the member still belongs and the
+// key, or that very approval and its credential, are still live.
 
 const UPLOAD_PARAM = "upload";
 const UPLOAD_PURPOSE = "track-file-upload";
@@ -153,8 +154,14 @@ interface UploadFile {
 	name: string;
 }
 
-/** What the member asked with: an agent's key, or the OAuth client a person allowed. */
-export type UploadAsker = { kind: "key" | "grant"; id: string };
+/**
+ * What the member asked with: an agent's key, or the one approval (consent) a person gave an OAuth
+ * client, with the expiry of the access credential it came in, in seconds since the epoch. A new
+ * approval of the same client is another consent, so it does not revive what the old one asked for.
+ */
+export type UploadAsker =
+	| { kind: "key"; id: string }
+	| { kind: "grant"; id: string; credentialExpires: number };
 
 interface UploadGrant extends UploadFile {
 	type: string;
@@ -238,10 +245,11 @@ async function uploadByAddress(
 	return upload(request, bucket, membership.workspaceId, key, grant.userId, grant.type, grant.size);
 }
 
-function askerIsLive({ asker, workspaceId, userId }: UploadGrant): Promise<boolean> {
-	return asker.kind === "key"
-		? hasAgentKey(db, asker.id, userId, workspaceId)
-		: hasGrant(db, userId, asker.id, MCP_SCOPE);
+async function askerIsLive({ asker, workspaceId, userId }: UploadGrant): Promise<boolean> {
+	if (asker.kind === "key") return hasAgentKey(db, asker.id, userId, workspaceId);
+	// Track's keys and consents have no expiry of their own; the access credential does.
+	if (asker.credentialExpires * 1000 <= Date.now()) return false;
+	return hasConsent(db, userId, asker.id, MCP_SCOPE);
 }
 
 async function uploadToken(grant: UploadGrant): Promise<string> {
@@ -257,6 +265,7 @@ async function uploadToken(grant: UploadGrant): Promise<string> {
 				grant.expires,
 				grant.asker.kind,
 				grant.asker.id,
+				grant.asker.kind === "grant" ? grant.asker.credentialExpires : null,
 			]),
 		),
 	);
@@ -279,8 +288,8 @@ async function readUploadToken(token: string): Promise<UploadGrant | null> {
 	} catch {
 		return null;
 	}
-	if (!Array.isArray(fields) || fields.length !== 9) return null;
-	const [workspaceId, fileId, name, type, size, userId, expires, askerKind, askerId] =
+	if (!Array.isArray(fields) || fields.length !== 10) return null;
+	const [workspaceId, fileId, name, type, size, userId, expires, askerKind, askerId, credential] =
 		fields as unknown[];
 	if (
 		typeof workspaceId !== "string" ||
@@ -292,7 +301,8 @@ async function readUploadToken(token: string): Promise<UploadGrant | null> {
 		typeof askerId !== "string" ||
 		!Number.isInteger(size) ||
 		!Number.isInteger(expires) ||
-		(expires as number) * 1000 <= Date.now()
+		(expires as number) * 1000 <= Date.now() ||
+		(askerKind === "grant" ? !Number.isInteger(credential) : credential !== null)
 	) {
 		return null;
 	}
@@ -303,7 +313,10 @@ async function readUploadToken(token: string): Promise<UploadGrant | null> {
 		type,
 		size: size as number,
 		userId,
-		asker: { kind: askerKind, id: askerId },
+		asker:
+			askerKind === "grant"
+				? { kind: "grant", id: askerId, credentialExpires: credential as number }
+				: { kind: "key", id: askerId },
 		expires: expires as number,
 	};
 }

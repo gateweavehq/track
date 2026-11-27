@@ -7,7 +7,7 @@ import type { JWTPayload } from "jose";
 import { db, getAuth, mcpResource } from "../auth";
 import { findAgentByKey, isAgentKey } from "../auth/agents";
 import { MCP_SCOPE } from "../auth/config";
-import { hasGrant } from "../auth/grants";
+import { findConsentId, hasGrant } from "../auth/grants";
 import { type UploadAsker, uploadAddress } from "../files";
 import { findMembership, listWorkspaces, workspaceStub } from "../workspaces";
 import { protectResource } from "./protect";
@@ -48,11 +48,20 @@ function protect(resource: string) {
 		const { workspaceId, slug, keyId } = authInfo.extra ?? {};
 		const only =
 			typeof workspaceId === "string" && typeof slug === "string" ? { workspaceId, slug } : null;
-		// What an upload address is later checked against: the agent's key, or the OAuth client.
-		const asker: UploadAsker =
-			typeof keyId === "string"
-				? { kind: "key", id: keyId }
-				: { kind: "grant", id: authInfo.clientId };
+		// What an upload address is later checked against: the agent's key, or the one approval the
+		// OAuth client's access rests on, with the expiry of the credential verified for this call.
+		// A credential with no verified expiry gets one in the past, so its addresses never work.
+		const asker = async (): Promise<UploadAsker> => {
+			if (typeof keyId === "string") return { kind: "key", id: keyId };
+			const consentId = await findConsentId(db, userId, authInfo.clientId, MCP_SCOPE);
+			if (!consentId) throw new Error("The access this call came with was taken back");
+			const expires = authInfo.expiresAt;
+			return {
+				kind: "grant",
+				id: consentId,
+				credentialExpires: typeof expires === "number" ? expires : 0,
+			};
+		};
 		return createTrackServer(accessFor(userId, authInfo.clientId, origin, only, asker));
 	});
 
@@ -144,7 +153,7 @@ function accessFor(
 	oauthClientId: string,
 	origin: string,
 	only: { workspaceId: string; slug: string } | null,
-	asker: UploadAsker,
+	asker: () => Promise<UploadAsker>,
 ): TrackAccess {
 	// Field-level conflict detection treats a client's own writes as never conflicting, so each
 	// OAuth client gets one stable id. Mutation ids stay unique per call.
@@ -173,8 +182,13 @@ function accessFor(
 				relations: (issueId) => stub.relations(issueId),
 				pullRequests: (issueId) => stub.pullRequests(issueId),
 				lastSortOrder: () => stub.lastSortOrder(),
-				uploadAddress: (file) =>
-					uploadAddress(origin, { ...file, workspaceId: membership.workspaceId, userId, asker }),
+				uploadAddress: async (file) =>
+					uploadAddress(origin, {
+						...file,
+						workspaceId: membership.workspaceId,
+						userId,
+						asker: await asker(),
+					}),
 				openPanel: (input) => stub.openPanel(membership.profile, input),
 				submitPosition: (input) => stub.submitPosition(membership.profile, input),
 				getPanel: (input) => stub.getPanel(membership.profile, input),
