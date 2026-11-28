@@ -22,7 +22,7 @@ interface Result {
 	name: string;
 	budgetMs: number;
 	runsMs: number[];
-	/** Edit propagation only: Enter to socket frame, then socket frame to title rendered. */
+	/** Edit propagation only: writer socket send to reader socket frame, then frame to title rendered. */
 	stageRunsMs?: { socketMs: number | null; renderMs: number | null }[];
 	medianMs: number;
 	note: string;
@@ -75,69 +75,88 @@ function stageRuns(result: Result): string {
 		.join(", ");
 }
 
-/** Waits for the socket frame carrying an issue title, as the test-only page hook records it. */
-function waitForIssueDelta(page: Page, title: string): Promise<number> {
-	return page.evaluate(
-		(needle) =>
-			new Promise<number>((resolve) => {
-				const w = window as unknown as {
-					__syncIssueDeltaTitles?: { at: number; titles: string[] }[];
-				};
-				const find = () => w.__syncIssueDeltaTitles?.find((entry) => entry.titles.includes(needle));
-				const existing = find();
-				if (existing) return resolve(existing.at);
-				const listener = () => {
-					const found = find();
-					if (!found) return;
-					window.removeEventListener("track-perf-issue-delta", listener);
-					resolve(found.at);
-				};
-				window.addEventListener("track-perf-issue-delta", listener);
-			}),
-		title,
-	);
+interface IssueFrame {
+	at: number;
+	titles: string[];
+}
+
+interface FrameWaiter {
+	sent: boolean;
+	title: string;
+	resolve(at: number): void;
+}
+
+interface FrameLog {
+	sent: IssueFrame[];
+	received: IssueFrame[];
+	waiters: FrameWaiter[];
+}
+
+function issueTitlesIn(text: string): string[] {
+	if (
+		(!text.includes('"delta"') && !text.includes('"mutate"')) ||
+		!text.includes("issue") ||
+		!text.includes('"title"')
+	) {
+		return [];
+	}
+	try {
+		const message = JSON.parse(text) as { type?: unknown; ops?: unknown; mutation?: unknown };
+		if (message.type === "mutate") {
+			const mutation = message.mutation as
+				| { name?: unknown; args?: { patch?: { title?: unknown } } }
+				| undefined;
+			const title = mutation?.args?.patch?.title;
+			return mutation?.name === "issue.update" && typeof title === "string" ? [title] : [];
+		}
+		if (message.type !== "delta" || !Array.isArray(message.ops)) return [];
+		const titles: string[] = [];
+		for (const raw of message.ops) {
+			if (typeof raw !== "object" || raw === null) continue;
+			const op = raw as { entity?: unknown; op?: unknown; data?: unknown };
+			if (op.entity !== "issue" || op.op !== "put") continue;
+			const title = (op.data as { title?: unknown } | null)?.title;
+			if (typeof title === "string") titles.push(title);
+		}
+		return titles;
+	} catch {
+		return [];
+	}
+}
+
+function watchSocketFrames(page: Page): FrameLog {
+	const log: FrameLog = { sent: [], received: [], waiters: [] };
+	const recordFrame = (sent: boolean, payload: unknown) => {
+		if (typeof payload !== "string") return;
+		const titles = issueTitlesIn(payload);
+		if (!titles.length) return;
+		const at = Date.now();
+		(sent ? log.sent : log.received).push({ at, titles });
+		for (const waiter of [...log.waiters]) {
+			if (waiter.sent !== sent || !titles.includes(waiter.title)) continue;
+			log.waiters.splice(log.waiters.indexOf(waiter), 1);
+			waiter.resolve(at);
+		}
+	};
+	page.on("websocket", (socket) => {
+		socket.on("framesent", (frame) => recordFrame(true, frame.payload));
+		socket.on("framereceived", (frame) => recordFrame(false, frame.payload));
+	});
+	return log;
+}
+
+function waitForIssueFrame(log: FrameLog, title: string, sent: boolean): Promise<number> {
+	const frames = sent ? log.sent : log.received;
+	const existing = frames.find((entry) => entry.titles.includes(title));
+	if (existing) return Promise.resolve(existing.at);
+	return new Promise((resolve) => log.waiters.push({ sent, title, resolve }));
 }
 
 /** Signs in as one of the seeded people and opens the large workspace. */
-async function openAs(browser: Browser, person: keyof typeof PEOPLE) {
+async function openAs(browser: Browser, person: keyof typeof PEOPLE, timeIssueDeltas = false) {
 	const context = await newBrowserContext(browser);
 	const page = await context.newPage();
-	// Test-only timing: remember when each sync delta carrying an issue title reaches the browser.
-	// Only the titles and their clock times are kept; no frame payload leaves the page.
-	await page.addInitScript(() => {
-		const w = window as unknown as {
-			__syncIssueDeltaTitles?: { at: number; titles: string[] }[];
-			WebSocket: typeof WebSocket;
-		};
-		w.__syncIssueDeltaTitles = [];
-		class TimedWebSocket extends WebSocket {
-			constructor(url: string | URL, protocols?: string | string[]) {
-				super(url, protocols);
-				this.addEventListener("message", (event) => {
-					if (typeof event.data !== "string") return;
-					const at = Date.now();
-					try {
-						const message = JSON.parse(event.data) as { type?: unknown; ops?: unknown };
-						if (message.type !== "delta" || !Array.isArray(message.ops)) return;
-						const titles: string[] = [];
-						for (const raw of message.ops) {
-							if (typeof raw !== "object" || raw === null) continue;
-							const op = raw as { entity?: unknown; op?: unknown; data?: unknown };
-							if (op.entity !== "issue" || op.op !== "put") continue;
-							const title = (op.data as { title?: unknown } | null)?.title;
-							if (typeof title === "string") titles.push(title);
-						}
-						if (titles.length === 0) return;
-						w.__syncIssueDeltaTitles?.push({ at, titles });
-						window.dispatchEvent(new Event("track-perf-issue-delta"));
-					} catch {
-						// Keepalives are plain text and setup frames that are not deltas carry no timing here.
-					}
-				});
-			}
-		}
-		w.WebSocket = TimedWebSocket as typeof WebSocket;
-	});
+	const socketFrames = timeIssueDeltas ? watchSocketFrames(page) : undefined;
 	await page.goto("/login");
 	await waitForHydration(page);
 	await page.getByLabel("Email").fill(PEOPLE[person].email);
@@ -147,7 +166,7 @@ async function openAs(browser: Browser, person: keyof typeof PEOPLE) {
 	await page.goto(`/${SLUG}`);
 	await listShown(page);
 	await expect(syncBadge(page)).toHaveText("Live");
-	return { context, page };
+	return { context, page, socketFrames };
 }
 
 /** Waits for the issue list and returns the mark's time since navigation start, and the rows. */
@@ -256,8 +275,8 @@ test("opening a large workspace from the local copy stays within budget", async 
 
 test("an edit reaches another person within budget", async ({ browser }) => {
 	test.setTimeout(180_000);
-	const writer = await openAs(browser, "maya");
-	const reader = await openAs(browser, "sam");
+	const writer = await openAs(browser, "maya", true);
+	const reader = await openAs(browser, "sam", true);
 	try {
 		// Both are on the same team: the first one the workspace opens.
 		await expect(reader.page).toHaveURL(writer.page.url());
@@ -287,75 +306,110 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 		const times: number[] = [];
 		const stageTimes: { socketMs: number | null; renderMs: number | null }[] = [];
 		let stagesUnavailable = 0;
-		for (let run = 0; run < RUNS; run++) {
-			const title = `Perf edit ${run} ${Math.random().toString(36).slice(2, 8)}`;
-			const socketArrived = waitForIssueDelta(reader.page, title);
-
-			// In the reader: resolve with the clock the moment the title is in the page. Date.now()
-			// is the same clock in both browsers, which run on this machine.
-			const arrived = reader.page.evaluate(
-				(needle) =>
-					new Promise<number>((resolve) => {
-						const check = () => document.body.textContent?.includes(needle) === true;
-						if (check()) return resolve(Date.now());
-						const observer = new MutationObserver(() => {
-							if (!check()) return;
-							observer.disconnect();
-							resolve(Date.now());
-						});
-						observer.observe(document.body, {
-							subtree: true,
-							childList: true,
-							characterData: true,
-						});
-					}),
-				title,
-			);
-
-			await titleField.fill(title);
-			// Stamp the Enter that saves the title from inside the page, so Playwright's own round
-			// trip is not counted.
-			await writer.page.evaluate(() => {
-				document.addEventListener(
-					"keydown",
-					() => {
-						(window as unknown as { __savedAt: number }).__savedAt = Date.now();
-					},
-					{ capture: true, once: true },
-				);
-			});
-			await titleField.press("Enter");
-
-			const arrivedAt = await arrived;
-			// The frame is before the render in the page. If the test-only hook cannot see it, keep
-			// the end-to-end measurement and say the stage is unavailable rather than failing here.
-			const socketAt = await Promise.race([
-				socketArrived,
-				new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
-			]);
-			const savedAt = await writer.page.evaluate(
-				() => (window as unknown as { __savedAt: number }).__savedAt,
-			);
-			times.push(arrivedAt - savedAt);
-			if (socketAt === null) {
-				stagesUnavailable++;
-				stageTimes.push({ socketMs: null, renderMs: null });
-			} else {
-				stageTimes.push({ socketMs: socketAt - savedAt, renderMs: arrivedAt - socketAt });
+		const nullOnError = async (promise: Promise<number>) => {
+			try {
+				return await promise;
+			} catch {
+				return null;
 			}
-			// The row is still where the reader is looking.
-			await expect(reader.page.getByRole("link", { name: title })).toBeInViewport();
+		};
+		const recordPropagation = (partial: boolean) =>
+			record({
+				name: "Edit reaches another person",
+				budgetMs: BUDGETS.editPropagationMs,
+				runsMs: times,
+				stageRunsMs: stageTimes,
+				note:
+					"issue in the reader's view renamed, Enter to the new title in the other browser" +
+					(stagesUnavailable
+						? `; socket stage unavailable for ${stagesUnavailable} sample(s)`
+						: "") +
+					(partial ? "; incomplete samples published before the failure" : ""),
+				since,
+			});
+		try {
+			for (let run = 0; run < RUNS; run++) {
+				const title = `Perf edit ${run} ${Math.random().toString(36).slice(2, 8)}`;
+				const socketArrived = waitForIssueFrame(reader.socketFrames as FrameLog, title, false);
+				const socketSent = waitForIssueFrame(writer.socketFrames as FrameLog, title, true);
+
+				// In the reader: resolve with the clock the moment the title is in the page. Date.now()
+				// is the same clock in both browsers, which run on this machine.
+				const arrived = reader.page.evaluate(
+					(needle) =>
+						new Promise<number>((resolve) => {
+							const check = () => document.body.textContent?.includes(needle) === true;
+							if (check()) return resolve(Date.now());
+							const observer = new MutationObserver(() => {
+								if (!check()) return;
+								observer.disconnect();
+								resolve(Date.now());
+							});
+							observer.observe(document.body, {
+								subtree: true,
+								childList: true,
+								characterData: true,
+							});
+						}),
+					title,
+				);
+
+				await titleField.fill(title);
+				// Stamp the Enter that saves the title from inside the page, so Playwright's own round
+				// trip is not counted.
+				await writer.page.evaluate(() => {
+					document.addEventListener(
+						"keydown",
+						() => {
+							(window as unknown as { __savedAt: number }).__savedAt = Date.now();
+						},
+						{ capture: true, once: true },
+					);
+				});
+				await titleField.press("Enter");
+
+				const arrivedAt = await arrived;
+				// The frame is before the render in the page. If the frame listener cannot see it, keep
+				// the end-to-end measurement and record the stage as unavailable; the assertions below fail.
+				// The partial artifact still carries every completed sample.
+				const socketAt = await Promise.race([
+					nullOnError(socketArrived),
+					new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
+				]);
+				const sentAt = await Promise.race([
+					nullOnError(socketSent),
+					new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
+				]);
+				const savedAt = await writer.page.evaluate(
+					() => (window as unknown as { __savedAt: number }).__savedAt,
+				);
+				times.push(arrivedAt - savedAt);
+				if (socketAt === null || sentAt === null) {
+					stagesUnavailable++;
+					stageTimes.push({ socketMs: null, renderMs: null });
+				} else {
+					stageTimes.push({ socketMs: socketAt - sentAt, renderMs: arrivedAt - socketAt });
+				}
+				// The row is still where the reader is looking.
+				await expect(reader.page.getByRole("link", { name: title })).toBeInViewport();
+			}
+		} catch (error) {
+			if (times.length) recordPropagation(true);
+			throw error;
 		}
-		const result = record({
-			name: "Edit reaches another person",
-			budgetMs: BUDGETS.editPropagationMs,
-			runsMs: times,
-			stageRunsMs: stageTimes,
-			note:
-				"issue in the reader's view renamed, Enter to the new title in the other browser" +
-				(stagesUnavailable ? `; socket stage unavailable for ${stagesUnavailable} sample(s)` : ""),
-			since,
-		});
+		const result = recordPropagation(false);
+		expect(
+			result.stageRunsMs,
+			"every completed sample records its propagation stages",
+		).toHaveLength(RUNS);
+		for (const [index, stages] of stageTimes.entries()) {
+			expect(stages.socketMs, `sample ${index + 1} records its writer socket send`).toEqual(
+				expect.any(Number),
+			);
+			expect(stages.renderMs, `sample ${index + 1} records its reader rendering time`).toEqual(
+				expect.any(Number),
+			);
+		}
 		expect(result.medianMs, "median propagation time").toBeLessThan(BUDGETS.editPropagationMs);
 	} finally {
 		await writer.context.close();
