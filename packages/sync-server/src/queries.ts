@@ -87,7 +87,7 @@ export interface IssueQuery {
 
 export interface IssuePage {
 	issues: Issue[];
-	/** Pass this as `offset` for the page after, or null when this is the last. */
+	/** The row to start after this page, or null when this is the last. */
 	nextOffset: number | null;
 }
 
@@ -233,27 +233,34 @@ function findIssueRows(
 	// table, whose word frequencies differ, so they follow the others rather than mix in. They are
 	// one ordered list after the ordinary matches, so the offset's share of that list depends on
 	// how many ordinary matches there were in all.
-	const ordinary =
-		db
+	const matchesByRank = [...commentMatches(db, text)].sort(
+		([idA, rankA], [idB, rankB]) => rankA - rankB || idA.localeCompare(idB),
+	);
+	if (matchesByRank.length === 0) return found;
+	let toSkip = 0;
+	if (offset > 0 && found.length === 0) {
+		const ordinary = db
 			.select({ n: count() })
 			.from(issueSearch)
 			.innerJoin(issueSearchDocs, eq(issueSearchDocs.id, issueSearch.rowid))
 			.innerJoin(schema.issues, eq(schema.issues.id, issueSearchDocs.issueId))
 			.where(and(matches(expression), ...filters))
-			.get()?.n ?? 0;
-	const apartOffset = Math.max(0, offset - ordinary);
-	let eligible = 0;
-	for (const [id] of [...commentMatches(db, text)].sort(([, a], [, b]) => a - b)) {
-		if (found.length === limit) break;
+			.get();
+		toSkip = Math.max(0, offset - (ordinary?.n ?? 0));
+	}
+	for (const [id] of matchesByRank) {
 		const issue = db
 			.select()
 			.from(schema.issues)
 			.where(and(eq(schema.issues.id, id), ...filters))
 			.get();
 		if (!issue) continue;
-		eligible += 1;
-		if (eligible <= apartOffset) continue;
+		if (toSkip > 0) {
+			toSkip -= 1;
+			continue;
+		}
 		found.push(issue);
+		if (found.length === limit) break;
 	}
 	return found;
 }

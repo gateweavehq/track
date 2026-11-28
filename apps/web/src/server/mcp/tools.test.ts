@@ -122,12 +122,15 @@ class FakeWorkspace implements WorkspaceAccess {
 		this.queries.push(query);
 		return this.#findIssues(query);
 	}
-	async issuePage(query: IssueQuery) {
+	async issuePage(query: IssueQuery, expectedVersion?: number) {
 		this.queries.push(query);
-		const rows = await this.#findIssues({ ...query, limit: query.limit + 1 });
+		const version = this.mutations.length;
+		if (expectedVersion !== undefined && expectedVersion !== version) return null;
+		const rows = this.#findIssues({ ...query, limit: query.limit + 1 });
 		return {
 			issues: rows.slice(0, query.limit),
 			nextOffset: rows.length > query.limit ? (query.offset ?? 0) + query.limit : null,
+			version,
 		};
 	}
 	#findIssues(query: IssueQuery) {
@@ -623,29 +626,44 @@ describe("Track MCP tools", () => {
 		expect(workspace.queries.at(-1)).toMatchObject({ text: "supheli", limit: 1 });
 	});
 
-	it("pages search results with nextOffset and no skipped or repeated issues", async () => {
+	it("pages search results with nextCursor and no skipped or repeated issues", async () => {
 		for (let n = 1; n <= 5; n += 1) await created({ title: `Page me ${n}` });
-		const read = async (offset?: number) => {
-			const result = await call("search_issues", {
-				workspace: "acme",
-				text: "page",
-				limit: 2,
-				...(offset === undefined ? {} : { offset }),
-			});
-			return result.structuredContent as { issues: { key: string }[]; nextOffset: number | null };
+		const search = { workspace: "acme", text: "page", limit: 2 };
+		const read = async (cursor?: unknown) => {
+			const result = await call("search_issues", { ...search, cursor });
+			expect(result.isError).toBeFalsy();
+			return result.structuredContent as { issues: { key: string }[]; nextCursor: unknown };
 		};
 		const first = await read();
 		expect(first.issues).toHaveLength(2);
-		expect(first.nextOffset).toBe(2);
-		const second = await read(first.nextOffset ?? 0);
+		expect(first.nextCursor).toMatchObject({ offset: 2 });
+		const second = await read(first.nextCursor);
 		expect(second.issues).toHaveLength(2);
-		expect(second.nextOffset).toBe(4);
-		const third = await read(second.nextOffset ?? 0);
+		expect(second.nextCursor).toMatchObject({ offset: 4 });
+		const third = await read(second.nextCursor);
 		expect(third.issues).toHaveLength(1);
-		expect(third.nextOffset).toBeNull();
+		expect(third.nextCursor).toBeNull();
 		const keys = [...first.issues, ...second.issues, ...third.issues].map((issue) => issue.key);
 		expect(new Set(keys).size).toBe(5);
 		expect(keys).toEqual(["ENG-1", "ENG-2", "ENG-3", "ENG-4", "ENG-5"]);
+
+		const different = await call("search_issues", {
+			...search,
+			text: "else",
+			cursor: first.nextCursor,
+		});
+		expect(different.isError).toBe(true);
+		expect(different.content[0]).toMatchObject({
+			text: expect.stringContaining("filters changed"),
+		});
+
+		await created({ title: "Page me too" });
+		const stale = await call("search_issues", { ...search, cursor: first.nextCursor });
+		expect(stale.isError).toBe(true);
+		expect(stale.content[0]).toMatchObject({
+			text: expect.stringContaining("Start again without a cursor"),
+		});
+		expect((await read()).nextCursor).toBeTruthy();
 	});
 
 	it("edits only the caller's comment, including for an agent", async () => {

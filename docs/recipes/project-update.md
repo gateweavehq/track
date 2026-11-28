@@ -33,8 +33,8 @@ The agent works in this order:
    UTC, until today.
 2. `list_project_updates` gives the previous update, the latest first.
 3. `search_issues` with `project` gives the project's issues, each with its status and `updatedAt`. It
-   returns 50 by default; `limit` goes up to 200, and its `nextOffset` goes back as `offset` for the
-   page after.
+   returns 50 by default, and `limit` goes up to 200. Pass its `nextCursor` as `cursor` with the same
+   filters for the next page.
 4. `post_project_update` posts the new one. It takes `project`, `health` (`on_track`, `at_risk` or
    `off_track`) and `body` in Markdown.
 
@@ -48,10 +48,12 @@ Write the update for this week so far, for the project "Website launch" in the T
    dates down. For the period, use that entry's `created` and `closed`, not the top-level `created`
    and `closed`, which add up all four weeks. `open` is how many issues are open now.
 2. Call list_project_updates for the project with limit 1, and read the previous update.
-3. Call search_issues for the project with limit 200. While its answer's nextOffset is not null, call
-   it again with that value as offset. Of the issues whose updatedAt is on or after the start date,
-   note which are done and which are in progress. Of all the issues returned, note which are open
-   with nobody assigned.
+3. Call search_issues for the project with limit 200. While its answer's nextCursor is not null,
+   call it again with that value as cursor and the same filters. If the search reports that the
+   workspace or filters changed, discard the pages and start over without a cursor. If a retry
+   also fails, report that the list is incomplete and stop before posting. Among the issues whose
+   updatedAt is on or after the start date, note which are done and which are in progress. Across
+   all the pages, note which issues are open with nobody assigned.
 4. Write the update in Markdown with three short parts: what happened, what comes next, and what is in
    the way. Begin with the reporting period's dates. Name issues by key. Say what changed since the
    previous update. Give the period's created and closed counts as "this week" and the open count as

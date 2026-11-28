@@ -487,8 +487,12 @@ export class WorkspaceDO extends DurableObject {
 		return findIssues(this.#db, issueQuery.parse(query));
 	}
 
-	issuePage(query: IssueQuery): IssuePage {
-		return findIssuePage(this.#db, issueQuery.parse(query));
+	issuePage(query: IssueQuery, expectedVersion?: number): (IssuePage & { version: number }) | null {
+		const version = currentVersion(this.#db);
+		// Both this check and the search are synchronous, so a write cannot reorder the rows
+		// between them. A later page with an obsolete version must start the search over.
+		if (expectedVersion !== undefined && expectedVersion !== version) return null;
+		return { ...findIssuePage(this.#db, issueQuery.parse(query)), version };
 	}
 
 	issue(id: string): Issue | null {

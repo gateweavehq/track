@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
 	type Activity,
 	type Comment,
@@ -31,6 +32,7 @@ import type {
 	Directory,
 	GetPanelInput,
 	InsightScope,
+	IssuePage,
 	IssueQuery,
 	MemberProfile,
 	MutateResult,
@@ -71,7 +73,7 @@ export interface WorkspaceAccess {
 	submitPosition(input: SubmitPositionInput): Promise<WebhookResult<PanelView>>;
 	getPanel(input: GetPanelInput): Promise<WebhookResult<PanelView>>;
 	issues(query: IssueQuery): Promise<Issue[]>;
-	issuePage(query: IssueQuery): Promise<{ issues: Issue[]; nextOffset: number | null }>;
+	issuePage(query: IssueQuery, version?: number): Promise<(IssuePage & { version: number }) | null>;
 	issue(id: string): Promise<Issue | null>;
 	issueByKey(teamKey: string, number: number): Promise<Issue | null>;
 	/** A live issue's comments, oldest first. */
@@ -338,6 +340,12 @@ const PROPOSALS_NOTE =
 /** A failure the agent can act on. Reported as a tool error, not thrown to the client. */
 class ToolError extends Error {}
 
+const issueCursor = z.strictObject({
+	offset: z.number().int().positive(),
+	version: z.number().int().nonnegative(),
+	search: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
 /** Keep advertised inputs and runtime validation in sync, with an actionable unknown-field error. */
 function strictInput<Shape extends Record<string, z.ZodType>>(name: string, shape: Shape) {
 	return z.strictObject(shape, {
@@ -555,7 +563,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Search issues",
 			description:
-				"Finds issues in a workspace. Put the words to search in text. Every filter is optional. With text, every word must match the start of a word in the key, title, description or comments, ignoring case and accents; non-matching issues are excluded and the best matches come first. Otherwise the most recently updated come first. Pass the answer's nextOffset as offset for the page after.",
+				"Finds issues in a workspace. Put the words to search in text. Every filter is optional. With text, every word must match the start of a word in the key, title, description or comments, ignoring case and accents; non-matching issues are excluded and the best matches come first. Otherwise the most recently updated come first. Pass nextCursor as cursor with the same filters for the next page. If the workspace changes between pages, retry from the first page.",
 			inputSchema: strictInput("search_issues", {
 				workspace: workspaceInput,
 				team: z.string().optional().describe("A team key, such as ENG."),
@@ -590,18 +598,11 @@ export function createTrackServer(access: TrackAccess): McpServer {
 						'Words to find in the issue\'s key, title, description or comments. Each word matches the start of a word, ignoring case and accents: "auth" finds "authentication".',
 					),
 				limit: z.number().int().min(1).max(200).default(50),
-				offset: z
-					.number()
-					.int()
-					.min(0)
-					.default(0)
-					.describe(
-						"How many matching issues to skip first; pass the previous answer's nextOffset.",
-					),
+				cursor: issueCursor.optional().describe("The nextCursor from the previous page."),
 			}),
 			outputSchema: z.looseObject({
 				issues: z.array(issueSummary),
-				nextOffset: z.number().int().nullable(),
+				nextCursor: z.looseObject(issueCursor.shape).nullable(),
 			}),
 			annotations: { readOnlyHint: true, openWorldHint: false },
 		},
@@ -612,8 +613,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 				const team = input.team === undefined ? undefined : teamId(directory, input.team);
 				const cycleIds =
 					input.cycle === undefined ? undefined : cyclesToSearch(directory, team, input.cycle);
-				if (cycleIds?.length === 0) return { issues: [], nextOffset: null };
-				const page = await workspace.issuePage({
+				const filters = {
 					teamId: team,
 					cycleIds,
 					statuses: input.status && statusesToSearch(directory, team, input.status),
@@ -628,12 +628,28 @@ export function createTrackServer(access: TrackAccess): McpServer {
 					archived: input.archived,
 					intake: input.intake,
 					text: input.text,
-					offset: input.offset,
-					limit: input.limit,
-				});
+				};
+				const search = createHash("sha256")
+					.update(JSON.stringify([workspace.slug, filters]))
+					.digest("hex");
+				if (input.cursor && input.cursor.search !== search) {
+					throw new ToolError("The search filters changed. Start again without a cursor.");
+				}
+				const page = await workspace.issuePage(
+					{ ...filters, limit: input.limit, offset: input.cursor?.offset },
+					input.cursor?.version,
+				);
+				if (!page) {
+					throw new ToolError(
+						"The workspace changed during the search. Start again without a cursor.",
+					);
+				}
 				return {
 					issues: page.issues.map((issue) => summarize(access, workspace, directory, issue)),
-					nextOffset: page.nextOffset,
+					nextCursor:
+						page.nextOffset === null
+							? null
+							: { offset: page.nextOffset, version: page.version, search },
 				};
 			}),
 	);
