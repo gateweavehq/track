@@ -80,83 +80,108 @@ interface IssueFrame {
 	titles: string[];
 }
 
-interface FrameWaiter {
-	sent: boolean;
-	title: string;
-	resolve(at: number): void;
+/**
+ * Waits for the socket frame carrying an issue title, as the test-only page hook records it.
+ * The promise can be rejected when its page closes; callers turn that into an unavailable stage.
+ */
+function waitForIssueFrame(page: Page, title: string, sent: boolean): Promise<number> {
+	return page.evaluate(
+		({ needle, sentKind }) =>
+			new Promise<number>((resolve) => {
+				const w = window as unknown as {
+					__syncIssueFrames?: { sent: IssueFrame[]; received: IssueFrame[] };
+				};
+				const frames = () =>
+					(sentKind ? w.__syncIssueFrames?.sent : w.__syncIssueFrames?.received) ?? [];
+				const find = () => frames().find((entry) => entry.titles.includes(needle));
+				const existing = find();
+				if (existing) return resolve(existing.at);
+				const listener = () => {
+					const found = find();
+					if (!found) return;
+					window.removeEventListener("track-perf-issue-frame", listener);
+					resolve(found.at);
+				};
+				window.addEventListener("track-perf-issue-frame", listener);
+			}),
+		{ needle: title, sentKind: sent },
+	);
 }
 
-interface FrameLog {
-	sent: IssueFrame[];
-	received: IssueFrame[];
-	waiters: FrameWaiter[];
-}
+/** Times issue frames inside the page, before the client handles them and without a Node round trip. */
+async function installIssueFrameTiming(page: Page): Promise<void> {
+	await page.addInitScript(() => {
+		const titlesIn = (text: string): string[] => {
+			if (
+				(!text.includes('"delta"') && !text.includes('"mutate"')) ||
+				!text.includes("issue") ||
+				!text.includes('"title"')
+			) {
+				return [];
+			}
+			try {
+				const message = JSON.parse(text) as {
+					type?: unknown;
+					ops?: unknown;
+					mutation?: unknown;
+				};
+				if (message.type === "mutate") {
+					const mutation = message.mutation as
+						| { name?: unknown; args?: { patch?: { title?: unknown } } }
+						| undefined;
+					const title = mutation?.args?.patch?.title;
+					return mutation?.name === "issue.update" && typeof title === "string" ? [title] : [];
+				}
+				if (message.type !== "delta" || !Array.isArray(message.ops)) return [];
+				const titles: string[] = [];
+				for (const raw of message.ops) {
+					if (typeof raw !== "object" || raw === null) continue;
+					const op = raw as { entity?: unknown; op?: unknown; data?: unknown };
+					if (op.entity !== "issue" || op.op !== "put") continue;
+					const title = (op.data as { title?: unknown } | null)?.title;
+					if (typeof title === "string") titles.push(title);
+				}
+				return titles;
+			} catch {
+				return [];
+			}
+		};
+		const w = window as unknown as {
+			__syncIssueFrames?: { sent: IssueFrame[]; received: IssueFrame[] };
+			WebSocket: typeof WebSocket;
+		};
+		w.__syncIssueFrames = { sent: [], received: [] };
+		const note = (kind: "sent" | "received", at: number, titles: string[]) => {
+			if (!titles.length) return;
+			w.__syncIssueFrames?.[kind].push({ at, titles });
+			window.dispatchEvent(new Event("track-perf-issue-frame"));
+		};
+		class TimedWebSocket extends WebSocket {
+			constructor(url: string | URL, protocols?: string | string[]) {
+				super(url, protocols);
+				this.addEventListener("message", (event) => {
+					if (typeof event.data !== "string") return;
+					const at = Date.now();
+					note("received", at, titlesIn(event.data));
+				});
+			}
 
-function issueTitlesIn(text: string): string[] {
-	if (
-		(!text.includes('"delta"') && !text.includes('"mutate"')) ||
-		!text.includes("issue") ||
-		!text.includes('"title"')
-	) {
-		return [];
-	}
-	try {
-		const message = JSON.parse(text) as { type?: unknown; ops?: unknown; mutation?: unknown };
-		if (message.type === "mutate") {
-			const mutation = message.mutation as
-				| { name?: unknown; args?: { patch?: { title?: unknown } } }
-				| undefined;
-			const title = mutation?.args?.patch?.title;
-			return mutation?.name === "issue.update" && typeof title === "string" ? [title] : [];
+			override send(data: Parameters<WebSocket["send"]>[0]): void {
+				super.send(data);
+				if (typeof data !== "string") return;
+				const at = Date.now();
+				note("sent", at, titlesIn(data));
+			}
 		}
-		if (message.type !== "delta" || !Array.isArray(message.ops)) return [];
-		const titles: string[] = [];
-		for (const raw of message.ops) {
-			if (typeof raw !== "object" || raw === null) continue;
-			const op = raw as { entity?: unknown; op?: unknown; data?: unknown };
-			if (op.entity !== "issue" || op.op !== "put") continue;
-			const title = (op.data as { title?: unknown } | null)?.title;
-			if (typeof title === "string") titles.push(title);
-		}
-		return titles;
-	} catch {
-		return [];
-	}
-}
-
-function watchSocketFrames(page: Page): FrameLog {
-	const log: FrameLog = { sent: [], received: [], waiters: [] };
-	const recordFrame = (sent: boolean, payload: unknown) => {
-		if (typeof payload !== "string") return;
-		const titles = issueTitlesIn(payload);
-		if (!titles.length) return;
-		const at = Date.now();
-		(sent ? log.sent : log.received).push({ at, titles });
-		for (const waiter of [...log.waiters]) {
-			if (waiter.sent !== sent || !titles.includes(waiter.title)) continue;
-			log.waiters.splice(log.waiters.indexOf(waiter), 1);
-			waiter.resolve(at);
-		}
-	};
-	page.on("websocket", (socket) => {
-		socket.on("framesent", (frame) => recordFrame(true, frame.payload));
-		socket.on("framereceived", (frame) => recordFrame(false, frame.payload));
+		w.WebSocket = TimedWebSocket as typeof WebSocket;
 	});
-	return log;
-}
-
-function waitForIssueFrame(log: FrameLog, title: string, sent: boolean): Promise<number> {
-	const frames = sent ? log.sent : log.received;
-	const existing = frames.find((entry) => entry.titles.includes(title));
-	if (existing) return Promise.resolve(existing.at);
-	return new Promise((resolve) => log.waiters.push({ sent, title, resolve }));
 }
 
 /** Signs in as one of the seeded people and opens the large workspace. */
 async function openAs(browser: Browser, person: keyof typeof PEOPLE, timeIssueDeltas = false) {
 	const context = await newBrowserContext(browser);
 	const page = await context.newPage();
-	const socketFrames = timeIssueDeltas ? watchSocketFrames(page) : undefined;
+	if (timeIssueDeltas) await installIssueFrameTiming(page);
 	await page.goto("/login");
 	await waitForHydration(page);
 	await page.getByLabel("Email").fill(PEOPLE[person].email);
@@ -166,7 +191,7 @@ async function openAs(browser: Browser, person: keyof typeof PEOPLE, timeIssueDe
 	await page.goto(`/${SLUG}`);
 	await listShown(page);
 	await expect(syncBadge(page)).toHaveText("Live");
-	return { context, page, socketFrames };
+	return { context, page };
 }
 
 /** Waits for the issue list and returns the mark's time since navigation start, and the rows. */
@@ -330,8 +355,8 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 		try {
 			for (let run = 0; run < RUNS; run++) {
 				const title = `Perf edit ${run} ${Math.random().toString(36).slice(2, 8)}`;
-				const socketArrived = waitForIssueFrame(reader.socketFrames as FrameLog, title, false);
-				const socketSent = waitForIssueFrame(writer.socketFrames as FrameLog, title, true);
+				const socketArrived = waitForIssueFrame(reader.page, title, false);
+				const socketSent = waitForIssueFrame(writer.page, title, true);
 
 				// In the reader: resolve with the clock the moment the title is in the page. Date.now()
 				// is the same clock in both browsers, which run on this machine.
@@ -369,7 +394,7 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 				await titleField.press("Enter");
 
 				const arrivedAt = await arrived;
-				// The frame is before the render in the page. If the frame listener cannot see it, keep
+				// The frame is before the render in the page. If the frame hook cannot see it, keep
 				// the end-to-end measurement and record the stage as unavailable; the assertions below fail.
 				// The partial artifact still carries every completed sample.
 				const socketAt = await Promise.race([
