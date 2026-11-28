@@ -80,13 +80,17 @@ function MarkdownLink({
 				<video
 					src={preview ?? href}
 					controls
+					playsInline
 					preload="metadata"
 					className="max-h-96 max-w-full rounded-md border bg-black"
+				/>
+				<a
+					href={href}
+					title={title}
+					className="font-medium text-primary underline underline-offset-2 hover:no-underline"
 				>
-					<a href={href} title={title}>
-						{children}
-					</a>
-				</video>
+					{children}
+				</a>
 				{waiting && <Waiting />}
 			</span>
 		);
