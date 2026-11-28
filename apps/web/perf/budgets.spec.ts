@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import { newBrowserContext } from "../e2e/fixtures";
@@ -14,6 +14,7 @@ const SLUG = "load";
 const PORT = Number(process.env.TRACK_E2E_PORT) || 4711;
 // In the config's output folder, so CI keeps it with the trace of a run over budget.
 const STALLS_FILE = resolve(import.meta.dirname, "../test-results-perf/machine-stalls.jsonl");
+const RESULTS_FILE = resolve(import.meta.dirname, "../test-results-perf/perf-results.jsonl");
 
 // One worker (see the config) times the runs one at a time, so nothing else competes for the CPU.
 
@@ -21,6 +22,8 @@ interface Result {
 	name: string;
 	budgetMs: number;
 	runsMs: number[];
+	/** Edit propagation only: Enter to socket frame, then socket frame to title rendered. */
+	stageRunsMs?: { socketMs: number | null; renderMs: number | null }[];
 	medianMs: number;
 	note: string;
 	since: number;
@@ -57,13 +60,84 @@ function machineStalls({ since, until }: Result): string {
 function record(result: Omit<Result, "medianMs" | "until">): Result {
 	const full = { ...result, medianMs: median(result.runsMs), until: Date.now() };
 	results.push(full);
+	appendFileSync(RESULTS_FILE, `${JSON.stringify(full)}\n`);
 	return full;
+}
+
+function stageRuns(result: Result): string {
+	if (!result.stageRunsMs) return "—";
+	return result.stageRunsMs
+		.map(({ socketMs, renderMs }) =>
+			socketMs === null || renderMs === null
+				? "unavailable"
+				: `${Math.round(socketMs)}+${Math.round(renderMs)}`,
+		)
+		.join(", ");
+}
+
+/** Waits for the socket frame carrying an issue title, as the test-only page hook records it. */
+function waitForIssueDelta(page: Page, title: string): Promise<number> {
+	return page.evaluate(
+		(needle) =>
+			new Promise<number>((resolve) => {
+				const w = window as unknown as {
+					__syncIssueDeltaTitles?: { at: number; titles: string[] }[];
+				};
+				const find = () => w.__syncIssueDeltaTitles?.find((entry) => entry.titles.includes(needle));
+				const existing = find();
+				if (existing) return resolve(existing.at);
+				const listener = () => {
+					const found = find();
+					if (!found) return;
+					window.removeEventListener("track-perf-issue-delta", listener);
+					resolve(found.at);
+				};
+				window.addEventListener("track-perf-issue-delta", listener);
+			}),
+		title,
+	);
 }
 
 /** Signs in as one of the seeded people and opens the large workspace. */
 async function openAs(browser: Browser, person: keyof typeof PEOPLE) {
 	const context = await newBrowserContext(browser);
 	const page = await context.newPage();
+	// Test-only timing: remember when each sync delta carrying an issue title reaches the browser.
+	// Only the titles and their clock times are kept; no frame payload leaves the page.
+	await page.addInitScript(() => {
+		const w = window as unknown as {
+			__syncIssueDeltaTitles?: { at: number; titles: string[] }[];
+			WebSocket: typeof WebSocket;
+		};
+		w.__syncIssueDeltaTitles = [];
+		class TimedWebSocket extends WebSocket {
+			constructor(url: string | URL, protocols?: string | string[]) {
+				super(url, protocols);
+				this.addEventListener("message", (event) => {
+					if (typeof event.data !== "string") return;
+					const at = Date.now();
+					try {
+						const message = JSON.parse(event.data) as { type?: unknown; ops?: unknown };
+						if (message.type !== "delta" || !Array.isArray(message.ops)) return;
+						const titles: string[] = [];
+						for (const raw of message.ops) {
+							if (typeof raw !== "object" || raw === null) continue;
+							const op = raw as { entity?: unknown; op?: unknown; data?: unknown };
+							if (op.entity !== "issue" || op.op !== "put") continue;
+							const title = (op.data as { title?: unknown } | null)?.title;
+							if (typeof title === "string") titles.push(title);
+						}
+						if (titles.length === 0) return;
+						w.__syncIssueDeltaTitles?.push({ at, titles });
+						window.dispatchEvent(new Event("track-perf-issue-delta"));
+					} catch {
+						// Keepalives are plain text and setup frames that are not deltas carry no timing here.
+					}
+				});
+			}
+		}
+		w.WebSocket = TimedWebSocket as typeof WebSocket;
+	});
 	await page.goto("/login");
 	await waitForHydration(page);
 	await page.getByLabel("Email").fill(PEOPLE[person].email);
@@ -104,6 +178,7 @@ test.beforeAll(async () => {
 	if (seeded.status !== 0) throw new Error(`Seeding failed (exit ${seeded.status})`);
 
 	mkdirSync(dirname(STALLS_FILE), { recursive: true });
+	rmSync(RESULTS_FILE, { force: true });
 	machineProbe = spawn(
 		process.execPath,
 		[resolve(import.meta.dirname, "machine-probe.mjs"), STALLS_FILE],
@@ -122,7 +197,7 @@ test.afterAll(async () => {
 	const lines = results.map(
 		(r) =>
 			`${r.medianMs <= r.budgetMs ? "ok  " : "OVER"} ${r.name}: median ${Math.round(r.medianMs)} ms ` +
-			`(budget ${r.budgetMs} ms; runs ${r.runsMs.map(Math.round).join(", ")}; ${r.note}; machine: ${machineStalls(r)})`,
+			`(budget ${r.budgetMs} ms; runs ${r.runsMs.map(Math.round).join(", ")}; stages ${stageRuns(r)}; ${r.note}; machine: ${machineStalls(r)})`,
 	);
 	console.log(`\nPerformance budgets\n${lines.join("\n")}\n`);
 
@@ -130,15 +205,15 @@ test.afterAll(async () => {
 	if (!summary || results.length === 0) return;
 	const rows = results.map(
 		(r) =>
-			`| ${r.name} | ${Math.round(r.medianMs)} ms | ${r.budgetMs} ms | ${r.runsMs.map(Math.round).join(", ")} | ${machineStalls(r)} | ${r.medianMs <= r.budgetMs ? "ok" : "**over budget**"} |`,
+			`| ${r.name} | ${Math.round(r.medianMs)} ms | ${r.budgetMs} ms | ${r.runsMs.map(Math.round).join(", ")} | ${stageRuns(r)} | ${machineStalls(r)} | ${r.medianMs <= r.budgetMs ? "ok" : "**over budget**"} |`,
 	);
 	appendFileSync(
 		summary,
 		[
 			"## Performance budgets",
 			"",
-			"| Measurement | Median | Budget | Runs (ms) | Machine | |",
-			"| --- | --- | --- | --- | --- | --- |",
+			"| Measurement | Median | Budget | Runs (ms) | Stages socket+render (ms) | Machine | |",
+			"| --- | --- | --- | --- | --- | --- | --- |",
 			...rows,
 			"",
 		].join("\n"),
@@ -211,8 +286,11 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 
 		const since = Date.now();
 		const times: number[] = [];
+		const stageTimes: { socketMs: number | null; renderMs: number | null }[] = [];
+		let stagesUnavailable = 0;
 		for (let run = 0; run < RUNS; run++) {
 			const title = `Perf edit ${run} ${Math.random().toString(36).slice(2, 8)}`;
+			const socketArrived = waitForIssueDelta(reader.page, title);
 
 			// In the reader: resolve with the clock the moment the title is in the page. Date.now()
 			// is the same clock in both browsers, which run on this machine.
@@ -250,10 +328,22 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 			await titleField.press("Enter");
 
 			const arrivedAt = await arrived;
+			// The frame is before the render in the page. If the test-only hook cannot see it, keep
+			// the end-to-end measurement and say the stage is unavailable rather than failing here.
+			const socketAt = await Promise.race([
+				socketArrived,
+				new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
+			]);
 			const savedAt = await writer.page.evaluate(
 				() => (window as unknown as { __savedAt: number }).__savedAt,
 			);
 			times.push(arrivedAt - savedAt);
+			if (socketAt === null) {
+				stagesUnavailable++;
+				stageTimes.push({ socketMs: null, renderMs: null });
+			} else {
+				stageTimes.push({ socketMs: socketAt - savedAt, renderMs: arrivedAt - socketAt });
+			}
 			// The row is still where the reader is looking.
 			await expect(reader.page.getByRole("link", { name: title })).toBeInViewport();
 		}
@@ -261,7 +351,10 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 			name: "Edit reaches another person",
 			budgetMs: BUDGETS.editPropagationMs,
 			runsMs: times,
-			note: "issue in the reader's view renamed, Enter to the new title in the other browser",
+			stageRunsMs: stageTimes,
+			note:
+				"issue in the reader's view renamed, Enter to the new title in the other browser" +
+				(stagesUnavailable ? `; socket stage unavailable for ${stagesUnavailable} sample(s)` : ""),
 			since,
 		});
 		expect(result.medianMs, "median propagation time").toBeLessThan(BUDGETS.editPropagationMs);
