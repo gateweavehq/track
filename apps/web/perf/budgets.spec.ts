@@ -175,9 +175,9 @@ async function installIssueFrameTiming(page: Page): Promise<void> {
 			}
 
 			override send(data: Parameters<WebSocket["send"]>[0]): void {
+				const at = Date.now();
 				super.send(data);
 				if (typeof data !== "string") return;
-				const at = Date.now();
 				note("sent", at, titlesIn(data));
 			}
 		}
@@ -367,35 +367,37 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 		try {
 			for (let run = 0; run < RUNS; run++) {
 				const title = `Perf edit ${run} ${Math.random().toString(36).slice(2, 8)}`;
-				const socketArrived = waitForIssueFrame(reader.page, title, false);
-				const socketSent = waitForIssueFrame(writer.page, title, true);
+				const socketArrived = nullOnError(waitForIssueFrame(reader.page, title, false));
+				const socketSent = nullOnError(waitForIssueFrame(writer.page, title, true));
 
 				// In the reader: resolve with the clock the moment the title is in the page. Date.now()
 				// is the same clock in both browsers, which run on this machine.
-				const rendered = reader.page.evaluate(
-					(needle) =>
-						new Promise<number>((resolve) => {
-							const check = () => document.body.textContent?.includes(needle) === true;
-							if (check()) return resolve(Date.now());
-							const observer = new MutationObserver(() => {
-								if (!check()) return;
-								observer.disconnect();
-								resolve(Date.now());
-							});
-							observer.observe(document.body, {
-								subtree: true,
-								childList: true,
-								characterData: true,
-							});
-						}),
-					title,
+				const rendered = nullOnError(
+					reader.page.evaluate(
+						(needle) =>
+							new Promise<number>((resolve) => {
+								const check = () => document.body.textContent?.includes(needle) === true;
+								if (check()) return resolve(Date.now());
+								const observer = new MutationObserver(() => {
+									if (!check()) return;
+									observer.disconnect();
+									resolve(Date.now());
+								});
+								observer.observe(document.body, {
+									subtree: true,
+									childList: true,
+									characterData: true,
+								});
+							}),
+						title,
+					),
 				);
 
-				const sample = (async () => {
-					await titleField.fill(title);
-					// Stamp the Enter that saves the title from inside the page, so Playwright's own round
-					// trip is not counted.
-					await writer.page.evaluate(() => {
+				await titleField.fill(title, { timeout: 10_000 });
+				// Stamp the Enter that saves the title from inside the page, so Playwright's own round
+				// trip is not counted.
+				await withTimeout(
+					writer.page.evaluate(() => {
 						document.addEventListener(
 							"keydown",
 							() => {
@@ -403,19 +405,24 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 							},
 							{ capture: true, once: true },
 						);
-					});
+					}),
+					10_000,
+					"the writer did not arm the save timestamp within 10 seconds",
+				);
+				const sample = (async () => {
 					await titleField.press("Enter");
 
 					const arrivedAt = await rendered;
+					if (arrivedAt === null) throw new Error("the reader could not measure the render");
 					// The frame is before the render in the page. If the frame hook cannot see it, keep
 					// the end-to-end measurement and record the stage as unavailable. One missing frame does
 					// not fail the sample; the regression below requires at least one complete stage pair.
 					const socketAt = await Promise.race([
-						nullOnError(socketArrived),
+						socketArrived,
 						new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
 					]);
 					const sentAt = await Promise.race([
-						nullOnError(socketSent),
+						socketSent,
 						new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
 					]);
 					const savedAt = await writer.page.evaluate(
