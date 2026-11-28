@@ -250,6 +250,8 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
   maintainer adds each version's entry when releasing: merge it to `main`, then publish a GitHub
   release of that commit with the same notes. Publishing deploys Gateweave Cloud's production,
   then the public demo.
+- A `CHANGELOG.md` entry for an outside pull request — not from the owner, not from a bot — ends
+  with `thanks @login`, unless the contributor asked not to be thanked on the pull request.
 
 ## Playbooks
 
