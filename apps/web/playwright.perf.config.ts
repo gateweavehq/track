@@ -17,6 +17,7 @@ export default defineConfig({
 	retries: 0,
 	reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
 	outputDir: "test-results-perf",
+	globalSetup: "./perf/global-setup.ts",
 	use: {
 		baseURL: `http://localhost:${PORT}`,
 		trace: "retain-on-failure",

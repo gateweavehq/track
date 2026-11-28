@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import { newBrowserContext } from "../e2e/fixtures";
@@ -178,7 +178,6 @@ test.beforeAll(async () => {
 	if (seeded.status !== 0) throw new Error(`Seeding failed (exit ${seeded.status})`);
 
 	mkdirSync(dirname(STALLS_FILE), { recursive: true });
-	rmSync(RESULTS_FILE, { force: true });
 	machineProbe = spawn(
 		process.execPath,
 		[resolve(import.meta.dirname, "machine-probe.mjs"), STALLS_FILE],
