@@ -14,6 +14,7 @@ const SLUG = "load";
 const PORT = Number(process.env.TRACK_E2E_PORT) || 4711;
 // In the config's output folder, so CI keeps it with the trace of a run over budget.
 const STALLS_FILE = resolve(import.meta.dirname, "../test-results-perf/machine-stalls.jsonl");
+const RESULTS_FILE = resolve(import.meta.dirname, "../test-results-perf/perf-results.jsonl");
 
 // One worker (see the config) times the runs one at a time, so nothing else competes for the CPU.
 
@@ -21,6 +22,8 @@ interface Result {
 	name: string;
 	budgetMs: number;
 	runsMs: number[];
+	/** Edit propagation only: writer socket send to reader socket frame, then frame to title rendered. */
+	stageRunsMs?: { socketMs: number | null; renderMs: number | null }[];
 	medianMs: number;
 	note: string;
 	since: number;
@@ -57,13 +60,136 @@ function machineStalls({ since, until }: Result): string {
 function record(result: Omit<Result, "medianMs" | "until">): Result {
 	const full = { ...result, medianMs: median(result.runsMs), until: Date.now() };
 	results.push(full);
+	appendFileSync(RESULTS_FILE, `${JSON.stringify(full)}\n`);
 	return full;
 }
 
+function stageRuns(result: Result): string {
+	if (!result.stageRunsMs) return "—";
+	return result.stageRunsMs
+		.map(({ socketMs, renderMs }) =>
+			socketMs === null || renderMs === null
+				? "unavailable"
+				: `${Math.round(socketMs)}+${Math.round(renderMs)}`,
+		)
+		.join(", ");
+}
+
+interface IssueFrame {
+	at: number;
+	titles: string[];
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+	let timer: NodeJS.Timeout | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error(message)), ms);
+	});
+	return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Waits for the socket frame carrying an issue title, as the test-only page hook records it.
+ * The promise can be rejected when its page closes; callers turn that into an unavailable stage.
+ */
+function waitForIssueFrame(page: Page, title: string, sent: boolean): Promise<number> {
+	return page.evaluate(
+		({ needle, sentKind }) =>
+			new Promise<number>((resolve) => {
+				const w = window as unknown as {
+					__syncIssueFrames?: { sent: IssueFrame[]; received: IssueFrame[] };
+				};
+				const frames = () =>
+					(sentKind ? w.__syncIssueFrames?.sent : w.__syncIssueFrames?.received) ?? [];
+				const find = () => frames().find((entry) => entry.titles.includes(needle));
+				const existing = find();
+				if (existing) return resolve(existing.at);
+				const listener = () => {
+					const found = find();
+					if (!found) return;
+					window.removeEventListener("track-perf-issue-frame", listener);
+					resolve(found.at);
+				};
+				window.addEventListener("track-perf-issue-frame", listener);
+			}),
+		{ needle: title, sentKind: sent },
+	);
+}
+
+/** Times issue frames inside the page, before the client handles them and without a Node round trip. */
+async function installIssueFrameTiming(page: Page): Promise<void> {
+	await page.addInitScript(() => {
+		const titlesIn = (text: string): string[] => {
+			if (
+				(!text.includes('"delta"') && !text.includes('"mutate"')) ||
+				!text.includes("issue") ||
+				!text.includes('"title"')
+			) {
+				return [];
+			}
+			try {
+				const message = JSON.parse(text) as {
+					type?: unknown;
+					ops?: unknown;
+					mutation?: unknown;
+				};
+				if (message.type === "mutate") {
+					const mutation = message.mutation as
+						| { name?: unknown; args?: { patch?: { title?: unknown } } }
+						| undefined;
+					const title = mutation?.args?.patch?.title;
+					return mutation?.name === "issue.update" && typeof title === "string" ? [title] : [];
+				}
+				if (message.type !== "delta" || !Array.isArray(message.ops)) return [];
+				const titles: string[] = [];
+				for (const raw of message.ops) {
+					if (typeof raw !== "object" || raw === null) continue;
+					const op = raw as { entity?: unknown; op?: unknown; data?: unknown };
+					if (op.entity !== "issue" || op.op !== "put") continue;
+					const title = (op.data as { title?: unknown } | null)?.title;
+					if (typeof title === "string") titles.push(title);
+				}
+				return titles;
+			} catch {
+				return [];
+			}
+		};
+		const w = window as unknown as {
+			__syncIssueFrames?: { sent: IssueFrame[]; received: IssueFrame[] };
+			WebSocket: typeof WebSocket;
+		};
+		w.__syncIssueFrames = { sent: [], received: [] };
+		const note = (kind: "sent" | "received", at: number, titles: string[]) => {
+			if (!titles.length) return;
+			w.__syncIssueFrames?.[kind].push({ at, titles });
+			window.dispatchEvent(new Event("track-perf-issue-frame"));
+		};
+		class TimedWebSocket extends WebSocket {
+			constructor(url: string | URL, protocols?: string | string[]) {
+				super(url, protocols);
+				this.addEventListener("message", (event) => {
+					if (typeof event.data !== "string") return;
+					const at = Date.now();
+					note("received", at, titlesIn(event.data));
+				});
+			}
+
+			override send(data: Parameters<WebSocket["send"]>[0]): void {
+				const at = Date.now();
+				super.send(data);
+				if (typeof data !== "string") return;
+				note("sent", at, titlesIn(data));
+			}
+		}
+		w.WebSocket = TimedWebSocket as typeof WebSocket;
+	});
+}
+
 /** Signs in as one of the seeded people and opens the large workspace. */
-async function openAs(browser: Browser, person: keyof typeof PEOPLE) {
+async function openAs(browser: Browser, person: keyof typeof PEOPLE, timeIssueDeltas = false) {
 	const context = await newBrowserContext(browser);
 	const page = await context.newPage();
+	if (timeIssueDeltas) await installIssueFrameTiming(page);
 	await page.goto("/login");
 	await waitForHydration(page);
 	await page.getByLabel("Email").fill(PEOPLE[person].email);
@@ -122,7 +248,7 @@ test.afterAll(async () => {
 	const lines = results.map(
 		(r) =>
 			`${r.medianMs <= r.budgetMs ? "ok  " : "OVER"} ${r.name}: median ${Math.round(r.medianMs)} ms ` +
-			`(budget ${r.budgetMs} ms; runs ${r.runsMs.map(Math.round).join(", ")}; ${r.note}; machine: ${machineStalls(r)})`,
+			`(budget ${r.budgetMs} ms; runs ${r.runsMs.map(Math.round).join(", ")}; stages ${stageRuns(r)}; ${r.note}; machine: ${machineStalls(r)})`,
 	);
 	console.log(`\nPerformance budgets\n${lines.join("\n")}\n`);
 
@@ -130,15 +256,15 @@ test.afterAll(async () => {
 	if (!summary || results.length === 0) return;
 	const rows = results.map(
 		(r) =>
-			`| ${r.name} | ${Math.round(r.medianMs)} ms | ${r.budgetMs} ms | ${r.runsMs.map(Math.round).join(", ")} | ${machineStalls(r)} | ${r.medianMs <= r.budgetMs ? "ok" : "**over budget**"} |`,
+			`| ${r.name} | ${Math.round(r.medianMs)} ms | ${r.budgetMs} ms | ${r.runsMs.map(Math.round).join(", ")} | ${stageRuns(r)} | ${machineStalls(r)} | ${r.medianMs <= r.budgetMs ? "ok" : "**over budget**"} |`,
 	);
 	appendFileSync(
 		summary,
 		[
 			"## Performance budgets",
 			"",
-			"| Measurement | Median | Budget | Runs (ms) | Machine | |",
-			"| --- | --- | --- | --- | --- | --- |",
+			"| Measurement | Median | Budget | Runs (ms) | Stages socket+render (ms) | Machine | |",
+			"| --- | --- | --- | --- | --- | --- | --- |",
 			...rows,
 			"",
 		].join("\n"),
@@ -182,8 +308,8 @@ test("opening a large workspace from the local copy stays within budget", async 
 
 test("an edit reaches another person within budget", async ({ browser }) => {
 	test.setTimeout(180_000);
-	const writer = await openAs(browser, "maya");
-	const reader = await openAs(browser, "sam");
+	const writer = await openAs(browser, "maya", true);
+	const reader = await openAs(browser, "sam", true);
 	try {
 		// Both are on the same team: the first one the workspace opens.
 		await expect(reader.page).toHaveURL(writer.page.url());
@@ -211,59 +337,130 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 
 		const since = Date.now();
 		const times: number[] = [];
-		for (let run = 0; run < RUNS; run++) {
-			const title = `Perf edit ${run} ${Math.random().toString(36).slice(2, 8)}`;
-
-			// In the reader: resolve with the clock the moment the title is in the page. Date.now()
-			// is the same clock in both browsers, which run on this machine.
-			const arrived = reader.page.evaluate(
-				(needle) =>
-					new Promise<number>((resolve) => {
-						const check = () => document.body.textContent?.includes(needle) === true;
-						if (check()) return resolve(Date.now());
-						const observer = new MutationObserver(() => {
-							if (!check()) return;
-							observer.disconnect();
-							resolve(Date.now());
-						});
-						observer.observe(document.body, {
-							subtree: true,
-							childList: true,
-							characterData: true,
-						});
-					}),
-				title,
-			);
-
-			await titleField.fill(title);
-			// Stamp the Enter that saves the title from inside the page, so Playwright's own round
-			// trip is not counted.
-			await writer.page.evaluate(() => {
-				document.addEventListener(
-					"keydown",
-					() => {
-						(window as unknown as { __savedAt: number }).__savedAt = Date.now();
-					},
-					{ capture: true, once: true },
-				);
+		const stageTimes: { socketMs: number | null; renderMs: number | null }[] = [];
+		let stagesUnavailable = 0;
+		let stagesSuspect = 0;
+		const nullOnError = async (promise: Promise<number>) => {
+			try {
+				return await promise;
+			} catch {
+				return null;
+			}
+		};
+		const recordPropagation = (partial: boolean) =>
+			record({
+				name: "Edit reaches another person",
+				budgetMs: BUDGETS.editPropagationMs,
+				runsMs: times,
+				stageRunsMs: stageTimes,
+				note:
+					"issue in the reader's view renamed, Enter to the new title in the other browser" +
+					(stagesUnavailable
+						? `; socket stage unavailable for ${stagesUnavailable} sample(s)`
+						: "") +
+					(stagesSuspect ? `; clock mismatch suspect for ${stagesSuspect} sample(s)` : "") +
+					(partial ? "; incomplete samples published before the failure" : ""),
+				since,
 			});
-			await titleField.press("Enter");
+		let result: ReturnType<typeof recordPropagation> | undefined;
+		let complete = false;
+		try {
+			for (let run = 0; run < RUNS; run++) {
+				const title = `Perf edit ${run} ${Math.random().toString(36).slice(2, 8)}`;
+				const socketArrived = nullOnError(waitForIssueFrame(reader.page, title, false));
+				const socketSent = nullOnError(waitForIssueFrame(writer.page, title, true));
 
-			const arrivedAt = await arrived;
-			const savedAt = await writer.page.evaluate(
-				() => (window as unknown as { __savedAt: number }).__savedAt,
-			);
-			times.push(arrivedAt - savedAt);
-			// The row is still where the reader is looking.
-			await expect(reader.page.getByRole("link", { name: title })).toBeInViewport();
+				// In the reader: resolve with the clock the moment the title is in the page. Date.now()
+				// is the same clock in both browsers, which run on this machine.
+				const rendered = nullOnError(
+					reader.page.evaluate(
+						(needle) =>
+							new Promise<number>((resolve) => {
+								const check = () => document.body.textContent?.includes(needle) === true;
+								if (check()) return resolve(Date.now());
+								const observer = new MutationObserver(() => {
+									if (!check()) return;
+									observer.disconnect();
+									resolve(Date.now());
+								});
+								observer.observe(document.body, {
+									subtree: true,
+									childList: true,
+									characterData: true,
+								});
+							}),
+						title,
+					),
+				);
+
+				await titleField.fill(title, { timeout: 10_000 });
+				// Stamp the Enter that saves the title from inside the page, so Playwright's own round
+				// trip is not counted.
+				await withTimeout(
+					writer.page.evaluate(() => {
+						document.addEventListener(
+							"keydown",
+							() => {
+								(window as unknown as { __savedAt: number }).__savedAt = Date.now();
+							},
+							{ capture: true, once: true },
+						);
+					}),
+					10_000,
+					"the writer did not arm the save timestamp within 10 seconds",
+				);
+				const sample = (async () => {
+					await titleField.press("Enter");
+
+					const arrivedAt = await rendered;
+					if (arrivedAt === null) throw new Error("the reader could not measure the render");
+					// The frame is before the render in the page. If the frame hook cannot see it, keep
+					// the end-to-end measurement and record the stage as unavailable. One missing frame does
+					// not fail the sample; the regression below requires at least one complete stage pair.
+					const socketAt = await Promise.race([
+						socketArrived,
+						new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
+					]);
+					const sentAt = await Promise.race([
+						socketSent,
+						new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
+					]);
+					const savedAt = await writer.page.evaluate(
+						() => (window as unknown as { __savedAt: number }).__savedAt,
+					);
+					return { arrivedAt, socketAt, sentAt, savedAt };
+				})();
+				const { arrivedAt, socketAt, sentAt, savedAt } = await withTimeout(
+					sample,
+					10_000,
+					`the edit sample ${title} did not finish within 10 seconds`,
+				);
+				times.push(arrivedAt - savedAt);
+				if (socketAt === null || sentAt === null) {
+					stagesUnavailable++;
+					stageTimes.push({ socketMs: null, renderMs: null });
+				} else {
+					const socketMs = socketAt - sentAt;
+					const renderMs = arrivedAt - socketAt;
+					if (socketMs < 0 || renderMs < 0) stagesSuspect++;
+					stageTimes.push({ socketMs: Math.max(0, socketMs), renderMs: Math.max(0, renderMs) });
+				}
+				// The row is still where the reader is looking.
+				await expect(reader.page.getByRole("link", { name: title })).toBeInViewport();
+			}
+			complete = true;
+		} finally {
+			if (times.length) result = recordPropagation(!complete);
 		}
-		const result = record({
-			name: "Edit reaches another person",
-			budgetMs: BUDGETS.editPropagationMs,
-			runsMs: times,
-			note: "issue in the reader's view renamed, Enter to the new title in the other browser",
-			since,
-		});
+		if (!result) throw new Error("the propagation samples were not recorded");
+		expect(
+			result.stageRunsMs,
+			"every completed sample records its propagation stages",
+		).toHaveLength(RUNS);
+		expect(
+			result.stageRunsMs?.some(({ socketMs, renderMs }) => socketMs !== null && renderMs !== null),
+			"at least one completed sample records both propagation stages",
+		).toBe(true);
 		expect(result.medianMs, "median propagation time").toBeLessThan(BUDGETS.editPropagationMs);
 	} finally {
 		await writer.context.close();
