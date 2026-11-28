@@ -47,7 +47,8 @@ Skip this if requests are already waiting. To try the recipe on test data:
 The agent works in this order:
 
 1. `search_issues` with `team` and `intake: true` finds the requests waiting. With no `text`, the most
-   recently updated come first.
+   recently updated come first. Pass its `nextCursor` as `cursor` with the same filters for the next
+   page. If the workspace changes during the search, start again from the first page.
 2. `get_issue` reads each one: its description, comments and relations.
 3. `link_issues` with `duplicate_of` relates a duplicate to the request it repeats.
 4. `triage_request` with `decision` of `accept` or `decline`. Accepting can name an open `status` of the
@@ -59,9 +60,11 @@ The agent works in this order:
 ```text
 Triage the requests waiting in the intake of team ENG in the Track workspace `acme`.
 
-1. Call search_issues with team ENG, intake true and limit 200. Call get_issue on each one and read
-   it. If the search returns 200 requests, tell me that more may be waiting: search_issues cannot
-   return the rest.
+1. Call search_issues with team ENG, intake true and limit 200. While its answer's nextCursor is not
+   null, call it again with that value as cursor and the same filters. If the search reports that
+   the workspace or filters changed, discard the pages and start over without a cursor. If a retry
+   also fails, report that the list is incomplete and stop before proposing changes. Once you
+   have all the pages, call get_issue on each request and read it.
 2. For each request, suggest accept or decline:
    - Accept if it is a real problem or something we could do. Name an open status to accept it into
      only if it should not stay in the one it has.

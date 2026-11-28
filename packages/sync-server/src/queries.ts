@@ -19,6 +19,7 @@ import {
 import {
 	and,
 	asc,
+	count,
 	desc,
 	eq,
 	inArray,
@@ -79,7 +80,15 @@ export interface IssueQuery {
 	 * ignoring case and diacritics. Matches come best first. See `search.ts`.
 	 */
 	text?: string | undefined;
+	/** How many matching rows to skip first, for pagination. */
+	offset?: number | undefined;
 	limit: number;
+}
+
+export interface IssuePage {
+	issues: Issue[];
+	/** The row to start after this page, or null when this is the last. */
+	nextOffset: number | null;
 }
 
 export const MAX_QUERY_LIMIT = 200;
@@ -145,6 +154,26 @@ export function readDirectory(db: Db): Directory {
 
 /** Live issues matching every given filter: best text match first, then most recently updated. */
 export function findIssues(db: Db, query: IssueQuery): Issue[] {
+	return findIssuePage(db, query).issues;
+}
+
+/** One page of `findIssues`, with where the page after starts when there is one. */
+export function findIssuePage(db: Db, query: IssueQuery): IssuePage {
+	const limit = Math.min(Math.max(Math.trunc(query.limit), 1), MAX_QUERY_LIMIT);
+	const offset = Math.max(Math.trunc(query.offset ?? 0), 0);
+	const rows = findIssueRows(db, query, limit + 1, offset);
+	return {
+		issues: rows.slice(0, limit).map(toIssue),
+		nextOffset: rows.length > limit ? offset + limit : null,
+	};
+}
+
+function findIssueRows(
+	db: Db,
+	query: IssueQuery,
+	limit: number,
+	offset: number,
+): schema.IssueRow[] {
 	const filters: SQL[] = [isNull(schema.issues.deletedAt)];
 	if (query.teamId !== undefined) filters.push(eq(schema.issues.teamId, query.teamId));
 	if (query.statuses?.length) filters.push(inArray(schema.issues.status, [...query.statuses]));
@@ -170,7 +199,6 @@ export function findIssues(db: Db, query: IssueQuery): Issue[] {
 			sql`exists (select 1 from json_each(${schema.issues.labelIds}) where value = ${query.labelId})`,
 		);
 	}
-	const limit = Math.min(Math.max(Math.trunc(query.limit), 1), MAX_QUERY_LIMIT);
 
 	const text = query.text?.trim();
 	if (!text) {
@@ -180,8 +208,8 @@ export function findIssues(db: Db, query: IssueQuery): Issue[] {
 			.where(and(...filters))
 			.orderBy(desc(schema.issues.updatedAt), schema.issues.id)
 			.limit(limit)
-			.all()
-			.map(toIssue);
+			.offset(offset)
+			.all();
 	}
 
 	// Text without a single word, such as "?!", has nothing to match.
@@ -195,24 +223,46 @@ export function findIssues(db: Db, query: IssueQuery): Issue[] {
 		.where(and(matches(expression), ...filters))
 		.orderBy(RANK, desc(schema.issues.updatedAt), schema.issues.id)
 		.limit(limit)
+		.offset(offset)
 		.all()
 		.map(({ issue }) => issue);
-	if (found.length === limit) return found.map(toIssue);
+	if (found.length === limit) return found;
 
 	// Then the issues whose comments are indexed apart, past the size an issue's row holds, that
 	// match only with their comments' help: almost always none. Their scores come from another
-	// table, whose word frequencies differ, so they follow the others rather than mix in.
-	const apart = [...commentMatches(db, text)].sort(([, a], [, b]) => a - b);
-	for (const [id] of apart) {
-		if (found.length === limit) break;
+	// table, whose word frequencies differ, so they follow the others rather than mix in. They are
+	// one ordered list after the ordinary matches, so the offset's share of that list depends on
+	// how many ordinary matches there were in all.
+	const matchesByRank = [...commentMatches(db, text)].sort(
+		([idA, rankA], [idB, rankB]) => rankA - rankB || idA.localeCompare(idB),
+	);
+	if (matchesByRank.length === 0) return found;
+	let toSkip = 0;
+	if (offset > 0 && found.length === 0) {
+		const ordinary = db
+			.select({ n: count() })
+			.from(issueSearch)
+			.innerJoin(issueSearchDocs, eq(issueSearchDocs.id, issueSearch.rowid))
+			.innerJoin(schema.issues, eq(schema.issues.id, issueSearchDocs.issueId))
+			.where(and(matches(expression), ...filters))
+			.get();
+		toSkip = Math.max(0, offset - (ordinary?.n ?? 0));
+	}
+	for (const [id] of matchesByRank) {
 		const issue = db
 			.select()
 			.from(schema.issues)
 			.where(and(eq(schema.issues.id, id), ...filters))
 			.get();
-		if (issue) found.push(issue);
+		if (!issue) continue;
+		if (toSkip > 0) {
+			toSkip -= 1;
+			continue;
+		}
+		found.push(issue);
+		if (found.length === limit) break;
 	}
-	return found.map(toIssue);
+	return found;
 }
 
 export function findIssueById(db: Db, id: string): Issue | undefined {

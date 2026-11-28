@@ -4121,6 +4121,31 @@ describe("search", () => {
 		expect(await workspace.issues({ text: "supheli", teamId: "team-mmo", limit: 50 })).toEqual([]);
 	});
 
+	it("pages ranked results without skipping or repeating issues", async () => {
+		const { workspace, admin } = await withTeam();
+		for (let n = 1; n <= 5; n += 1) await issue(admin, `needle-${n}`, `Needle ${n}`);
+		const page = (offset?: number, version?: number) =>
+			workspace.issuePage({ text: "needle", limit: 2, offset }, version);
+		const first = await page();
+		if (!first?.nextOffset) throw new Error("Expected another page");
+		const second = await page(first.nextOffset, first.version);
+		if (!second?.nextOffset) throw new Error("Expected another page");
+		const third = await page(second.nextOffset, second.version);
+		if (!third) throw new Error("Expected the final page");
+		expect([first.nextOffset, second.nextOffset, third.nextOffset]).toEqual([2, 4, null]);
+		const all = [...first.issues, ...second.issues, ...third.issues].map((row) => row.id);
+		expect([first.issues, second.issues, third.issues].map((rows) => rows.length)).toEqual([
+			2, 2, 1,
+		]);
+		expect(new Set(all).size).toBe(5);
+		expect([...all].sort()).toEqual(["needle-1", "needle-2", "needle-3", "needle-4", "needle-5"]);
+		expect((await page(6, first.version))?.issues).toEqual([]);
+
+		await admin.apply({ name: "issue.delete", args: { id: "needle-3" } });
+		expect(await page(first.nextOffset, first.version)).toBeNull();
+		expect((await page())?.version).toBeGreaterThan(first.version);
+	});
+
 	it("finds issues by words in their key, title, description and comments", async () => {
 		const { workspace, admin } = await withTeam();
 		await issue(admin, "i-1", "Authentication fails on Safari");
@@ -4314,6 +4339,23 @@ describe("search", () => {
 		expect(
 			(await workspace.issues({ text: "billing", limit: 3 })).map((issue) => issue.id),
 		).toEqual(ordinary);
+		await issue(admin, "second-busy", "Another report");
+		await fill(admin, "second-busy", 1.1);
+		await admin.apply({
+			name: "comment.create",
+			args: { id: "c-3", issueId: "second-busy", body: "Another billing report" },
+		});
+		const results = await found(workspace, "billing");
+		expect(results.slice(0, 3)).toEqual(ordinary);
+		expect(results.slice(3).sort()).toEqual(["busy", "second-busy"]);
+		const query = { text: "billing", limit: 1 };
+		const nearEnd = await workspace.issuePage({ ...query, offset: 3 });
+		expect(nearEnd?.issues.map((issue) => issue.id)).toEqual(results.slice(3, 4));
+		expect(nearEnd?.nextOffset).toBe(4);
+		const last = await workspace.issuePage({ ...query, offset: 4 }, nearEnd?.version);
+		expect(last?.issues.map((issue) => issue.id)).toEqual(results.slice(4));
+		expect(last?.nextOffset).toBeNull();
+
 		await issue(admin, "titled", "Billing for the quarterly report");
 		expect(await found(workspace, "billing quarterly")).toEqual(["titled", "busy"]);
 	});

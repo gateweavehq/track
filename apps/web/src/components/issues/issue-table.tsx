@@ -18,7 +18,6 @@ import {
 	useEffect,
 	useMemo,
 	useRef,
-	useState,
 } from "react";
 import { CycleIcon } from "#/components/cycles/meta";
 import { MemberAvatar } from "#/components/members/member-avatar";

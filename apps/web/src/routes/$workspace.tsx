@@ -2,7 +2,6 @@ import { createBrowserSyncClient, type SyncClient } from "@gateweave/track-sync-
 import { SyncProvider } from "@gateweave/track-sync-client/react";
 import { createFileRoute, Link, notFound, Outlet, redirect } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { WorkspaceActionsProvider } from "#/components/workspace/actions";
 import { AppShell } from "#/components/workspace/app-shell";

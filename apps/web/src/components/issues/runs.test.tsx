@@ -1,5 +1,4 @@
 // @vitest-environment happy-dom
-import type { Signal } from "@gateweave/track-protocol";
 import { cleanup, render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it } from "vitest";
