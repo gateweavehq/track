@@ -241,8 +241,13 @@ async function uploadWorkspace(name: string, handle: string) {
 	return { cookie, organizationId, slug: `${handle}-files` };
 }
 
+interface UploadAddress {
+	uploadUrl: string;
+	uploadHeaders: Record<string, string>;
+}
+
 /** What an OAuth access token gets from `attach_file`: the address to upload five bytes to. */
-async function uploadAddressFor(token: string, slug: string) {
+async function uploadAddressFor(token: string, slug: string): Promise<UploadAddress> {
 	const mcp = new Client({ name: "uploader", version: "1.0.0" });
 	await mcp.connect(
 		new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
@@ -261,20 +266,23 @@ async function uploadAddressFor(token: string, slug: string) {
 	});
 	await mcp.close();
 	expect(result.isError).toBeFalsy();
-	return (result.structuredContent as { uploadUrl: string }).uploadUrl;
+	return result.structuredContent as unknown as UploadAddress;
 }
 
-const putFile = (url: string) =>
-	track.fetch(url, { method: "PUT", headers: { "content-type": "text/plain" }, body: "hello" });
+const putFile = (file: UploadAddress) =>
+	track.fetch(file.uploadUrl, {
+		method: "PUT",
+		headers: { "content-type": "text/plain", ...file.uploadHeaders },
+		body: "hello",
+	});
 
-/** The fields an upload address signs, as the app wrote them. */
-function fieldsOf(url: string): unknown[] {
-	const token = new URL(url).searchParams.get("upload") ?? "";
+/** The fields an upload token signs, as the app wrote them. */
+function fieldsOf(token: string): unknown[] {
 	return JSON.parse(Buffer.from(token.split(".")[0] ?? "", "base64url").toString()) as unknown[];
 }
 
 /** The address with these fields signed as the app signs them, so tests can make one it would not. */
-async function signedAddress(url: string, fields: unknown[]): Promise<string> {
+async function signedAddress(file: UploadAddress, fields: unknown[]): Promise<UploadAddress> {
 	const encoder = new TextEncoder();
 	const secret = await crypto.subtle.importKey(
 		"raw",
@@ -297,9 +305,10 @@ async function signedAddress(url: string, fields: unknown[]): Promise<string> {
 	);
 	const payload = Buffer.from(encoder.encode(JSON.stringify(fields))).toString("base64url");
 	const mac = await crypto.subtle.sign("HMAC", key, encoder.encode(`track-file-upload:${payload}`));
-	const signed = new URL(url);
-	signed.searchParams.set("upload", `${payload}.${Buffer.from(mac).toString("base64url")}`);
-	return signed.toString();
+	return {
+		...file,
+		uploadHeaders: { "x-track-upload": `${payload}.${Buffer.from(mac).toString("base64url")}` },
+	};
 }
 
 /** What `/mcp` answers a token: its status, and the challenge when it is turned away. */
@@ -431,6 +440,42 @@ describe("taking an assistant's access back", () => {
 		expect(await takeBack(maya, coder.clientId)).toBe(false);
 	});
 
+	it("refuses a credential issued under an approval the person later replaced", async () => {
+		const cookie = await signUp("Nora Vale", "nora.grants@example.com");
+		const app = await register("Bound", "203.0.113.203");
+		const first = await allow(app, cookie);
+		const claimsOf = (token: string) =>
+			JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString()) as {
+				consent_id?: unknown;
+			};
+		const consentId = async () =>
+			(
+				await track.db
+					.prepare("SELECT id FROM oauth_consent WHERE client_id = ?")
+					.bind(app.clientId)
+					.first<{ id: string }>()
+			)?.id;
+
+		// The signed credential names the exact approval it was issued under.
+		expect(claimsOf(first.access).consent_id).toBe(await consentId());
+		expect((await callMcp(first.access)).status).toBe(200);
+
+		// Taking the approval back and approving the same client again makes another approval.
+		expect(await takeBack(cookie, app.clientId)).toBe(true);
+		app.savedTokens = undefined;
+		await expect(
+			new Client({ name: "Bound", version: "1.0.0" }).connect(transport(app, "203.0.113.203")),
+		).rejects.toBeInstanceOf(UnauthorizedError);
+		const second = await allow(app, cookie);
+		expect(await consentId()).toBeTruthy();
+		expect(claimsOf(second.access).consent_id).toBe(await consentId());
+		expect(claimsOf(second.access).consent_id).not.toBe(claimsOf(first.access).consent_id);
+
+		// The first credential is still unexpired, but the approval it names is gone.
+		expect((await callMcp(first.access)).status).toBe(401);
+		expect((await callMcp(second.access)).status).toBe(200);
+	});
+
 	it("leaves an agent member's key as it was", async () => {
 		const cookie = await signUp("Dana Ruiz", "dana.grants@example.com");
 		const created = await authApi("/organization/create", cookie, {
@@ -505,7 +550,7 @@ describe("taking an assistant's access back", () => {
 				exp: number;
 			}
 		).exp;
-		const fields = fieldsOf(address);
+		const fields = fieldsOf(address.uploadHeaders["x-track-upload"] ?? "");
 		expect(fields[7]).toBe("grant");
 		expect(fields[9]).toBe(exp);
 

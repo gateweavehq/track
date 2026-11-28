@@ -26,7 +26,8 @@ export function isFileRequest(url: URL): boolean {
  * everyone else gets the same 404 as a file that does not exist.
  *
  *   PUT  /api/files/:workspaceId/:fileId/:name  upload; the browser makes the id
- *   PUT  /api/files/:workspaceId/:fileId/:name?upload=:token  an agent's upload, no session
+ *   PUT  /api/files/:workspaceId/:fileId/:name  an agent's upload, no session, with the token in
+ *     the X-Track-Upload header so request logs do not write it down with the URL
  *   GET  /api/files/:workspaceId/:fileId/:name  the file, with ranges and revalidation
  *   HEAD /api/files/:workspaceId/:fileId/:name
  *
@@ -47,9 +48,13 @@ export async function handleFileRequest(request: Request): Promise<Response> {
 	}
 	// Anyone can join the public demo, so it keeps no files.
 	if (write && demoEnabled()) return error(403, "Attachments are turned off in the demo");
-	// An upload address stands in for a session, so no cookie is read for it, and a session
-	// never makes up for an address that fails.
-	const token = write ? url.searchParams.get(UPLOAD_PARAM) : null;
+	// A token in the URL would be written down with it in request logs. One left there is not an
+	// upload, and a session never makes up for an address that fails.
+	if (write && url.searchParams.has(UPLOAD_PARAM)) {
+		return error(403, "Upload tokens belong in the X-Track-Upload header");
+	}
+	// An upload address stands in for a session, so no cookie is read for it.
+	const token = write ? request.headers.get(UPLOAD_HEADER) : null;
 	if (token !== null) {
 		return uploadByAddress(request, token, {
 			workspaceId: decoded(workspaceId) ?? "",
@@ -144,6 +149,7 @@ function taken(object: R2Object, userId: string): Response {
 // key, or that very approval and its credential, are still live.
 
 const UPLOAD_PARAM = "upload";
+const UPLOAD_HEADER = "x-track-upload";
 const UPLOAD_PURPOSE = "track-file-upload";
 /** Long enough to make and send a large file, short enough that a leaked address soon goes. */
 const UPLOAD_TTL_SECONDS = 10 * 60;
@@ -175,6 +181,8 @@ interface UploadGrant extends UploadFile {
 export interface UploadAddress {
 	/** The address to `PUT` the file's bytes to. */
 	url: string;
+	/** The header the file's token travels in, so it stays out of request URLs. */
+	headers: Record<string, string>;
 	/** The file's path in the app, which the Markdown links. */
 	path: string;
 	/** The name and type the file is stored and served with. */
@@ -211,7 +219,8 @@ export async function uploadAddress(
 	const path = attachmentPath(grant.workspaceId, grant.fileId, grant.name);
 	const token = await uploadToken(grant);
 	return {
-		url: `${origin}${path}?${UPLOAD_PARAM}=${token}`,
+		url: `${origin}${path}`,
+		headers: { [UPLOAD_HEADER]: token },
 		path,
 		name: grant.name,
 		type: grant.type,

@@ -1904,7 +1904,9 @@ workspace's files are one prefix in the bucket.
   tricks. An id in use is refused, so a file never changes under its link.
 - **An agent uploads to an address it is given.** An agent working over MCP has no session, so
   the `attach_file` tool, after checking the caller's membership as every tool does, hands it an
-  upload address: the file's path with `?upload=<token>`. The token is signed with
+  upload address: the file's path, and the token separately in `uploadHeaders`. The token travels
+  in the `X-Track-Upload` header rather than the URL, so request logs do not write it down with the
+  path. It is signed with
   `BETTER_AUTH_SECRET` under a key of its own purpose (`track-file-upload`, through HKDF, as the
   undo token's is) and names the workspace, a new file id, the cleaned name, the type, the size,
   the member who asked, what they asked with and an expiry ten minutes out. That is the id of the
@@ -1915,7 +1917,8 @@ workspace's files are one prefix in the bucket.
   quota, as people's uploads are, and with 404 when D1 no longer has the member in the workspace,
   no longer has that key (revoked, or its agent deleted), no longer has that very consent (taken
   back, even if the person allowed the same client again, which is a new consent) or the
-  credential has expired. All of these are the same answer as for a removed member. The file is stored
+  credential has expired. A token left in the old `?upload=` query parameter is refused rather
+  than read. All of these are the same answer as for a removed member. The file is stored
   with the token's type and `uploadedBy` its member, so a second upload to the address gets 409.
   A `PUT` with a token is never taken on a session's word, and one without a token is a
   session's upload as before. The tool also returns `attachmentMarkdown`, which the agent puts in

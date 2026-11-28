@@ -193,7 +193,8 @@ class FakeWorkspace implements WorkspaceAccess {
 		if (!this.keepsFiles) return null;
 		const path = `/api/files/w1/0000/${encodeURIComponent(file.name)}`;
 		return {
-			url: `https://track.example.com${path}?upload=token`,
+			url: `https://track.example.com${path}`,
+			headers: { "x-track-upload": "token" },
 			path,
 			name: file.name,
 			type: file.type,
@@ -458,7 +459,8 @@ describe("Track MCP tools", () => {
 			name: "shot.png",
 			type: "image/png",
 			size: 68,
-			uploadUrl: "https://track.example.com/api/files/w1/0000/shot.png?upload=token",
+			uploadUrl: "https://track.example.com/api/files/w1/0000/shot.png",
+			uploadHeaders: { "x-track-upload": "token" },
 			method: "PUT",
 			expiresAt: "2026-11-26T10:10:00.000Z",
 			attachmentMarkdown: "![shot.png](/api/files/w1/0000/shot.png)",
