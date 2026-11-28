@@ -106,6 +106,7 @@ comes from `TOOL_NEEDS` in `apps/web/src/server/mcp/reference.ts`.
 <!-- mcp-tools:end -->
 
 `search_issues` returns up to 200 issues per page. To keep reading, send `nextCursor` from the
-answer as `cursor` with the same workspace and filters until it is null. A cursor is valid only
-while the workspace and resolved filters stay the same. If the tool reports a change, discard
+answer as `cursor` with the same workspace and filters until it is null. For a long search, use
+`limit: 200` and read every page before making changes. Any workspace write, including your own,
+or a change in the resolved filters can expire the cursor. If the tool reports a change, discard
 the earlier pages and restart the search without a cursor.

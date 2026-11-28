@@ -563,7 +563,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		{
 			title: "Search issues",
 			description:
-				"Finds issues in a workspace. Put the words to search in text. Every filter is optional. With text, every word must match the start of a word in the key, title, description or comments, ignoring case and accents; non-matching issues are excluded and the best matches come first. Otherwise the most recently updated come first. Pass nextCursor as cursor with the same filters for the next page. If the workspace changes between pages, retry from the first page.",
+				"Finds issues in a workspace. Put the words to search in text. Every filter is optional. With text, every word must match the start of a word in the key, title, description or comments, ignoring case and accents; non-matching issues are excluded and the best matches come first. Otherwise the most recently updated come first. Pass nextCursor as cursor with the same filters for the next page. Any workspace write, including your own, can expire the cursor. Read all pages before making changes and retry from the first page if it expires.",
 			inputSchema: strictInput("search_issues", {
 				workspace: workspaceInput,
 				team: z.string().optional().describe("A team key, such as ENG."),
