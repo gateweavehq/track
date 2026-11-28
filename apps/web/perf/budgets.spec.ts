@@ -362,6 +362,8 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 					(partial ? "; incomplete samples published before the failure" : ""),
 				since,
 			});
+		let result: ReturnType<typeof recordPropagation> | undefined;
+		let complete = false;
 		try {
 			for (let run = 0; run < RUNS; run++) {
 				const title = `Perf edit ${run} ${Math.random().toString(36).slice(2, 8)}`;
@@ -370,57 +372,61 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 
 				// In the reader: resolve with the clock the moment the title is in the page. Date.now()
 				// is the same clock in both browsers, which run on this machine.
-				const arrived = withTimeout(
-					reader.page.evaluate(
-						(needle) =>
-							new Promise<number>((resolve) => {
-								const check = () => document.body.textContent?.includes(needle) === true;
-								if (check()) return resolve(Date.now());
-								const observer = new MutationObserver(() => {
-									if (!check()) return;
-									observer.disconnect();
-									resolve(Date.now());
-								});
-								observer.observe(document.body, {
-									subtree: true,
-									childList: true,
-									characterData: true,
-								});
-							}),
-						title,
-					),
-					10_000,
-					`the rendered title ${title} did not arrive within 10 seconds`,
+				const rendered = reader.page.evaluate(
+					(needle) =>
+						new Promise<number>((resolve) => {
+							const check = () => document.body.textContent?.includes(needle) === true;
+							if (check()) return resolve(Date.now());
+							const observer = new MutationObserver(() => {
+								if (!check()) return;
+								observer.disconnect();
+								resolve(Date.now());
+							});
+							observer.observe(document.body, {
+								subtree: true,
+								childList: true,
+								characterData: true,
+							});
+						}),
+					title,
 				);
 
-				await titleField.fill(title);
-				// Stamp the Enter that saves the title from inside the page, so Playwright's own round
-				// trip is not counted.
-				await writer.page.evaluate(() => {
-					document.addEventListener(
-						"keydown",
-						() => {
-							(window as unknown as { __savedAt: number }).__savedAt = Date.now();
-						},
-						{ capture: true, once: true },
-					);
-				});
-				await titleField.press("Enter");
+				const sample = (async () => {
+					await titleField.fill(title);
+					// Stamp the Enter that saves the title from inside the page, so Playwright's own round
+					// trip is not counted.
+					await writer.page.evaluate(() => {
+						document.addEventListener(
+							"keydown",
+							() => {
+								(window as unknown as { __savedAt: number }).__savedAt = Date.now();
+							},
+							{ capture: true, once: true },
+						);
+					});
+					await titleField.press("Enter");
 
-				const arrivedAt = await arrived;
-				// The frame is before the render in the page. If the frame hook cannot see it, keep
-				// the end-to-end measurement and record the stage as unavailable; the assertions below fail.
-				// The partial artifact still carries every completed sample.
-				const socketAt = await Promise.race([
-					nullOnError(socketArrived),
-					new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
-				]);
-				const sentAt = await Promise.race([
-					nullOnError(socketSent),
-					new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
-				]);
-				const savedAt = await writer.page.evaluate(
-					() => (window as unknown as { __savedAt: number }).__savedAt,
+					const arrivedAt = await rendered;
+					// The frame is before the render in the page. If the frame hook cannot see it, keep
+					// the end-to-end measurement and record the stage as unavailable. One missing frame does
+					// not fail the sample; the regression below requires at least one complete stage pair.
+					const socketAt = await Promise.race([
+						nullOnError(socketArrived),
+						new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
+					]);
+					const sentAt = await Promise.race([
+						nullOnError(socketSent),
+						new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
+					]);
+					const savedAt = await writer.page.evaluate(
+						() => (window as unknown as { __savedAt: number }).__savedAt,
+					);
+					return { arrivedAt, socketAt, sentAt, savedAt };
+				})();
+				const { arrivedAt, socketAt, sentAt, savedAt } = await withTimeout(
+					sample,
+					10_000,
+					`the edit sample ${title} did not finish within 10 seconds`,
 				);
 				times.push(arrivedAt - savedAt);
 				if (socketAt === null || sentAt === null) {
@@ -435,15 +441,19 @@ test("an edit reaches another person within budget", async ({ browser }) => {
 				// The row is still where the reader is looking.
 				await expect(reader.page.getByRole("link", { name: title })).toBeInViewport();
 			}
-		} catch (error) {
-			if (times.length) recordPropagation(true);
-			throw error;
+			complete = true;
+		} finally {
+			if (times.length) result = recordPropagation(!complete);
 		}
-		const result = recordPropagation(false);
+		if (!result) throw new Error("the propagation samples were not recorded");
 		expect(
 			result.stageRunsMs,
 			"every completed sample records its propagation stages",
 		).toHaveLength(RUNS);
+		expect(
+			result.stageRunsMs?.some(({ socketMs, renderMs }) => socketMs !== null && renderMs !== null),
+			"at least one completed sample records both propagation stages",
+		).toBe(true);
 		expect(result.medianMs, "median propagation time").toBeLessThan(BUDGETS.editPropagationMs);
 	} finally {
 		await writer.context.close();
