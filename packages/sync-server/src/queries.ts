@@ -242,17 +242,17 @@ function findIssueRows(
 			.where(and(matches(expression), ...filters))
 			.get()?.n ?? 0;
 	const apartOffset = Math.max(0, offset - ordinary);
-	const apart: schema.IssueRow[] = [];
+	let eligible = 0;
 	for (const [id] of [...commentMatches(db, text)].sort(([, a], [, b]) => a - b)) {
+		if (found.length === limit) break;
 		const issue = db
 			.select()
 			.from(schema.issues)
 			.where(and(eq(schema.issues.id, id), ...filters))
 			.get();
-		if (issue) apart.push(issue);
-	}
-	for (const issue of apart.slice(apartOffset)) {
-		if (found.length === limit) break;
+		if (!issue) continue;
+		eligible += 1;
+		if (eligible <= apartOffset) continue;
 		found.push(issue);
 	}
 	return found;

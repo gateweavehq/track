@@ -60,7 +60,10 @@ The agent works in this order:
 Triage the requests waiting in the intake of team ENG in the Track workspace `acme`.
 
 1. Call search_issues with team ENG, intake true and limit 200. While its answer's nextOffset is not
-   null, call it again with that value as offset. Call get_issue on each request and read it.
+   null, call it again with that value as offset. These pages are a live offset view, not a snapshot:
+   if requests are edited while you read them, one can move between pages and be repeated or missed.
+   When that matters, reconcile the collected keys with one final first-page search before acting. Call
+   get_issue on each request and read it.
 2. For each request, suggest accept or decline:
    - Accept if it is a real problem or something we could do. Name an open status to accept it into
      only if it should not stay in the one it has.
