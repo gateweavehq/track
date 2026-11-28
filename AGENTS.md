@@ -251,7 +251,7 @@ These are load-bearing. Breaking one breaks users' data or security, usually sil
   release of that commit with the same notes. Publishing deploys Gateweave Cloud's production,
   then the public demo.
 - A `CHANGELOG.md` entry for an outside pull request — not from the owner, not from a bot — ends
-  with `thanks @login`, unless the contributor opted out on the community rules page.
+  with `thanks @login`, unless the contributor asked not to be thanked on the pull request.
 
 ## Playbooks
 
