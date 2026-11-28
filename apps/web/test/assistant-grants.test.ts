@@ -440,6 +440,42 @@ describe("taking an assistant's access back", () => {
 		expect(await takeBack(maya, coder.clientId)).toBe(false);
 	});
 
+	it("refuses a credential issued under an approval the person later replaced", async () => {
+		const cookie = await signUp("Nora Vale", "nora.grants@example.com");
+		const app = await register("Bound", "203.0.113.203");
+		const first = await allow(app, cookie);
+		const claimsOf = (token: string) =>
+			JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString()) as {
+				consent_id?: unknown;
+			};
+		const consentId = async () =>
+			(
+				await track.db
+					.prepare("SELECT id FROM oauth_consent WHERE client_id = ?")
+					.bind(app.clientId)
+					.first<{ id: string }>()
+			)?.id;
+
+		// The signed credential names the exact approval it was issued under.
+		expect(claimsOf(first.access).consent_id).toBe(await consentId());
+		expect((await callMcp(first.access)).status).toBe(200);
+
+		// Taking the approval back and approving the same client again makes another approval.
+		expect(await takeBack(cookie, app.clientId)).toBe(true);
+		app.savedTokens = undefined;
+		await expect(
+			new Client({ name: "Bound", version: "1.0.0" }).connect(transport(app, "203.0.113.203")),
+		).rejects.toBeInstanceOf(UnauthorizedError);
+		const second = await allow(app, cookie);
+		expect(await consentId()).toBeTruthy();
+		expect(claimsOf(second.access).consent_id).toBe(await consentId());
+		expect(claimsOf(second.access).consent_id).not.toBe(claimsOf(first.access).consent_id);
+
+		// The first credential is still unexpired, but the approval it names is gone.
+		expect((await callMcp(first.access)).status).toBe(401);
+		expect((await callMcp(second.access)).status).toBe(200);
+	});
+
 	it("leaves an agent member's key as it was", async () => {
 		const cookie = await signUp("Dana Ruiz", "dana.grants@example.com");
 		const created = await authApi("/organization/create", cookie, {
