@@ -1170,7 +1170,7 @@ export function createTrackServer(access: TrackAccess): McpServer {
 		"attach_file",
 		{
 			title: "Attach file",
-			description: `Gets an address to upload a file to, such as a screenshot or a video you made, so it shows in an issue. PUT the file's bytes there with its Content-Type and every header in uploadHeaders within ten minutes, for example \`curl -T shot.png -H "Content-Type: image/png" -H "X-Track-Upload: <uploadHeaders[x-track-upload]>" "<uploadUrl>"\`: it answers 201. Then put attachmentMarkdown in a description or a comment with update_issue or add_comment. Images (PNG, JPEG, GIF, WebP, AVIF) show in place; video, audio and other files are a link. Each address takes one file, up to ${MAX_FILE_BYTES / 1024 / 1024} MB.`,
+			description: `Gets an address to upload a file to, such as a screenshot or a video you made, so it shows in an issue. PUT the file's bytes there with its Content-Type and every header in uploadHeaders within ten minutes, for example \`curl -T shot.png -H "Content-Type: image/png" -H "X-Track-Upload: <uploadHeaders[x-track-upload]>" "<uploadUrl>"\`: it answers 201. Then put attachmentMarkdown in a description or a comment with update_issue or add_comment. Images (PNG, JPEG, GIF, WebP, AVIF) show in place; videos play in place; audio and other files are a link. Each address takes one file, up to ${MAX_FILE_BYTES / 1024 / 1024} MB.`,
 			inputSchema: strictInput("attach_file", {
 				workspace: workspaceInput,
 				name: z.string().trim().min(1).max(255).describe("The file's name, such as shot.png."),

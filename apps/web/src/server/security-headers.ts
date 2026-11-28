@@ -57,6 +57,8 @@ export function contentSecurityPolicy(nonce: string, { url, oidcIssuer }: PagePo
 		"style-src 'self' 'unsafe-inline'",
 		// `blob:` is an attachment's preview while it waits to upload.
 		`img-src 'self' data: blob: ${pictures}`,
+		// Attached videos are this origin's files; a waiting one can preview from its blob.
+		"media-src 'self' blob:",
 		"font-src 'self'",
 		`connect-src 'self'${socket} ${IMPORT_SOURCES}`,
 		"worker-src 'self'",

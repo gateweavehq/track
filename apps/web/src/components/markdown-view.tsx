@@ -3,7 +3,7 @@ import { type ComponentProps, createContext, type ReactNode, useContext } from "
 import ReactMarkdown, { type Components, defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { usePendingUpload } from "#/components/workspace/upload-outbox";
-import { isAttachmentPath } from "#/lib/attachments";
+import { isAttachmentPath, isVideoType } from "#/lib/attachments";
 import { cn } from "#/lib/utils";
 
 // Markdown as people write it in descriptions and comments: GitHub's flavor, with tables, task
@@ -62,11 +62,39 @@ function Mention({ memberId, children }: { memberId: string; children: ReactNode
 }
 
 /** Links to other sites open in a new tab and pass nothing about the page they came from. */
-function MarkdownLink({ href, children, node: _node, ...props }: ComponentProps<"a"> & Node) {
+function MarkdownLink({
+	href,
+	children,
+	title,
+	node: _node,
+	...props
+}: ComponentProps<"a"> & Node) {
 	const memberId = mentionedId(href);
 	const attachment = href !== undefined && isAttachmentPath(href);
-	const { waiting } = usePendingUpload(attachment ? href : undefined);
+	const { waiting, preview } = usePendingUpload(attachment ? href : undefined);
 	if (memberId !== null) return <Mention memberId={memberId}>{children}</Mention>;
+	if (attachment && (isVideoType(title ?? "") || hasVideoExtension(href))) {
+		return (
+			<span className="inline-flex max-w-full flex-col items-start gap-1 align-top">
+				{/* biome-ignore lint/a11y/useMediaCaption: an attached video has no caption file to reference */}
+				<video
+					src={preview ?? href}
+					controls
+					playsInline
+					preload="metadata"
+					className="max-h-96 max-w-full rounded-md border bg-black"
+				/>
+				<a
+					href={href}
+					title={title}
+					className="font-medium text-primary underline underline-offset-2 hover:no-underline"
+				>
+					{children}
+				</a>
+				{waiting && <Waiting />}
+			</span>
+		);
+	}
 	// "//host/path" is another site too. Files open in a tab of their own.
 	const inApp = href?.startsWith("/") && !href.startsWith("//") && !attachment;
 	return (
@@ -74,6 +102,7 @@ function MarkdownLink({ href, children, node: _node, ...props }: ComponentProps<
 			<a
 				{...props}
 				href={href}
+				title={title}
 				{...(!inApp && { target: "_blank", rel: "noopener noreferrer nofollow" })}
 				className="font-medium text-primary underline underline-offset-2 hover:no-underline"
 			>
@@ -82,6 +111,11 @@ function MarkdownLink({ href, children, node: _node, ...props }: ComponentProps<
 			{waiting && <Waiting />}
 		</>
 	);
+}
+
+/** Legacy links have no type in their title, but the name in the path still tells these two. */
+function hasVideoExtension(url: string): boolean {
+	return /\.(?:mp4|webm)$/i.test(new URL(url, "https://track.invalid").pathname);
 }
 
 /**
