@@ -56,11 +56,13 @@ export function isAttachmentPath(url: string): boolean {
 /** Images every browser shows. SVG is not one of them here: it can carry scripts. */
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"]);
 
+/** Videos the gateway lets a browser play in place. */
+const VIDEO_TYPES = new Set(["video/mp4", "video/webm"]);
+
 /** Types the gateway lets a browser show in place. Everything else is downloaded. */
 const INLINE_TYPES = new Set([
 	...IMAGE_TYPES,
-	"video/mp4",
-	"video/webm",
+	...VIDEO_TYPES,
 	"audio/mpeg",
 	"audio/ogg",
 	"audio/wav",
@@ -71,14 +73,22 @@ export function isImageType(type: string): boolean {
 	return IMAGE_TYPES.has(type);
 }
 
+export function isVideoType(type: string): boolean {
+	return VIDEO_TYPES.has(type);
+}
+
 export function isInlineType(type: string): boolean {
 	return INLINE_TYPES.has(type);
 }
 
-/** The Markdown that links a file: an image for images, a link for anything else. */
+/** The Markdown that links a file: an image for images, a titled link for videos, a link otherwise. */
 export function attachmentMarkdown(name: string, path: string, type: string): string {
 	const label = name.replace(/[\\[\]]/g, (char) => `\\${char}`);
-	return isImageType(type) ? `![${label}](${path})` : `[${label}](${path})`;
+	if (isImageType(type)) return `![${label}](${path})`;
+	// The link's title carries the type that Markdown itself cannot. The renderer uses it to
+	// play a video in place; elsewhere the attachment still degrades to an ordinary link.
+	if (isVideoType(type)) return `[${label}](${path} "${type}")`;
+	return `[${label}](${path})`;
 }
 
 /**

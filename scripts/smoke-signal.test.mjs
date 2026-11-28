@@ -155,12 +155,42 @@ test("every reporting step in the deploy workflow continues on error", () => {
 	);
 	const steps = workflow
 		.split("      - name: ")
-		.filter((step) => step.includes("scripts/smoke-signal.mjs"));
+		.filter((step) => step.includes("run: node") && step.includes("scripts/smoke-signal.mjs"));
 	assert.equal(steps.length, 3);
 	for (const step of steps) {
 		assert.match(step, /^Report the smoke result to Track/);
 		assert.match(step, /^\s+continue-on-error: true$/m);
 	}
+});
+
+function workflowStep(workflow, name) {
+	const marker = `      - name: ${name}\n`;
+	const start = workflow.indexOf(marker);
+	assert.notEqual(start, -1, `${name} step`);
+	const rest = workflow.slice(start + marker.length);
+	const end = rest.search(/\n {6}- /);
+	return rest.slice(0, end === -1 ? undefined : end);
+}
+
+test("staging runs the smoke reporter from the workflow revision", () => {
+	const workflow = readFileSync(
+		fileURLToPath(new URL("../.github/workflows/deploy.yml", import.meta.url)),
+		"utf8",
+	);
+	const staging = workflow.slice(workflow.indexOf("  staging:"), workflow.indexOf("  production:"));
+
+	const checkout = workflowStep(staging, "Check out the workflow's smoke reporter");
+	assert.match(checkout, /ref: \$\{\{ github\.sha \}\}/);
+	assert.match(checkout, /path: \.deploy-workflow/);
+	assert.match(checkout, /sparse-checkout-cone-mode: false/);
+	assert.match(checkout, /continue-on-error: true/);
+
+	const report = workflowStep(staging, "Report the smoke result to Track");
+	assert.match(report, /node \.deploy-workflow\/scripts\/smoke-signal\.mjs/);
+
+	// Reporting is best-effort, but the smoke test itself still decides whether staging failed.
+	const smoke = workflowStep(staging, "Smoke test");
+	assert.doesNotMatch(smoke, /continue-on-error/);
 });
 
 const responses = [

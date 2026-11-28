@@ -7,7 +7,7 @@ import type { JWTPayload } from "jose";
 import { db, getAuth, mcpResource } from "../auth";
 import { findAgentByKey, isAgentKey } from "../auth/agents";
 import { MCP_SCOPE } from "../auth/config";
-import { findConsentId, hasGrant } from "../auth/grants";
+import { hasConsent } from "../auth/grants";
 import { type UploadAsker, uploadAddress } from "../files";
 import { findMembership, listWorkspaces, workspaceStub } from "../workspaces";
 import { protectResource } from "./protect";
@@ -53,8 +53,10 @@ function protect(resource: string) {
 		// A credential with no verified expiry gets one in the past, so its addresses never work.
 		const asker = async (): Promise<UploadAsker> => {
 			if (typeof keyId === "string") return { kind: "key", id: keyId };
-			const consentId = await findConsentId(db, userId, authInfo.clientId, MCP_SCOPE);
-			if (!consentId) throw new Error("The access this call came with was taken back");
+			const consentId = authInfo.extra?.consentId;
+			if (typeof consentId !== "string") {
+				throw new Error("The access this call came with was taken back");
+			}
 			const expires = authInfo.expiresAt;
 			return {
 				kind: "grant",
@@ -105,7 +107,7 @@ function protect(resource: string) {
 				scopes: typeof claims.scope === "string" ? claims.scope.split(" ") : [],
 				expiresAt: claims.exp,
 				resource: new URL(resource),
-				extra: { userId: claims.sub },
+				extra: { userId: claims.sub, consentId: claims.consent_id },
 			},
 		});
 	};
@@ -128,9 +130,9 @@ function protect(resource: string) {
 					jwks: () => getAuth().api.getJwks(),
 					dpopReplayStore: createDpopReplayStore(internalAdapter),
 					// Agent keys never get here: they are served above and revoked in workspace settings.
-					stillGranted: ({ sub, azp }) =>
-						typeof sub === "string" && typeof azp === "string"
-							? hasGrant(db, sub, azp, MCP_SCOPE)
+					stillGranted: ({ sub, consent_id: consentId }) =>
+						typeof sub === "string" && typeof consentId === "string"
+							? hasConsent(db, sub, consentId, MCP_SCOPE)
 							: Promise.resolve(false),
 				},
 				serve,

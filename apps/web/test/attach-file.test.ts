@@ -2,8 +2,8 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startTrack } from "./track-worker";
 
-// Agents attach files over MCP: `attach_file` hands out an upload address, a file's path and a
-// token signed with the app's secret, and the file gateway takes one upload to it with no session.
+// Agents attach files over MCP: `attach_file` hands out an upload address and a token signed with
+// the app's secret for a header, and the file gateway takes one upload with no session.
 // The file then shows in the issue as people's uploads do.
 
 const origin = "https://track.test";
@@ -101,6 +101,7 @@ interface Attached {
 	type: string;
 	size: number;
 	uploadUrl: string;
+	uploadHeaders: Record<string, string>;
 	method: string;
 	expiresAt: string;
 	attachmentMarkdown: string;
@@ -162,9 +163,12 @@ function base64Url(bytes: Uint8Array): string {
 }
 
 /** The fields an address's token carries. */
-function fieldsOf(url: string): unknown[] {
-	const token = new URL(url).searchParams.get("upload") ?? "";
+function fieldsOf(token: string): unknown[] {
 	return JSON.parse(Buffer.from(token.split(".")[0] ?? "", "base64url").toString());
+}
+
+function uploadHeaders(file: Attached, headers: Record<string, string>) {
+	return { ...file.uploadHeaders, ...headers };
 }
 
 // The smallest PNG there is: one transparent pixel.
@@ -203,8 +207,11 @@ describe("attaching files over MCP", () => {
 		const video = await address(mcp, "acme-attach", "walkthrough.mp4", "video/mp4", CLIP.length);
 		expect(image).toMatchObject({ name: "hero shot.png", type: "image/png", method: "PUT" });
 		expect(image.uploadUrl).toMatch(
-			new RegExp(`^${origin}/api/files/${acme}/[0-9a-f-]{36}/hero%20shot\\.png\\?upload=`),
+			new RegExp(`^${origin}/api/files/${acme}/[0-9a-f-]{36}/hero%20shot\\.png$`),
 		);
+		expect(image.uploadHeaders["x-track-upload"]).toBeTruthy();
+		// The URL Workers Logs write down does not carry the token.
+		expect(image.uploadUrl).not.toContain(image.uploadHeaders["x-track-upload"] ?? "token");
 		expect(image.attachmentMarkdown).toMatch(/^!\[hero shot\.png\]\(\/api\/files\//);
 		expect(video.attachmentMarkdown).toMatch(/^\[walkthrough\.mp4\]\(\/api\/files\//);
 		// About ten minutes.
@@ -212,8 +219,14 @@ describe("attaching files over MCP", () => {
 		expect(left).toBeGreaterThan(9 * 60 * 1000);
 		expect(left).toBeLessThanOrEqual(10 * 60 * 1000);
 
-		expect((await put(image.uploadUrl, PIXEL, { "content-type": "image/png" })).status).toBe(201);
-		expect((await put(video.uploadUrl, CLIP, { "content-type": "video/mp4" })).status).toBe(201);
+		expect(
+			(await put(image.uploadUrl, PIXEL, uploadHeaders(image, { "content-type": "image/png" })))
+				.status,
+		).toBe(201);
+		expect(
+			(await put(video.uploadUrl, CLIP, uploadHeaders(video, { "content-type": "video/mp4" })))
+				.status,
+		).toBe(201);
 
 		const comment = await mcp.callTool({
 			name: "add_comment",
@@ -227,8 +240,8 @@ describe("attaching files over MCP", () => {
 		await mcp.close();
 
 		// Members open them as they open people's uploads: the image and the video in place.
-		const imagePath = /\((\/api\/files\/[^)]+)\)/.exec(image.attachmentMarkdown)?.[1] ?? "";
-		const videoPath = /\((\/api\/files\/[^)]+)\)/.exec(video.attachmentMarkdown)?.[1] ?? "";
+		const imagePath = /\((\/api\/files\/[^)\s]+)/.exec(image.attachmentMarkdown)?.[1] ?? "";
+		const videoPath = /\((\/api\/files\/[^)\s]+)/.exec(video.attachmentMarkdown)?.[1] ?? "";
 		const shown = await download(imagePath, maya);
 		expect(shown.status).toBe(200);
 		expect(shown.headers.get("content-type")).toBe("image/png");
@@ -261,35 +274,38 @@ describe("attaching files over MCP", () => {
 		const file = await address(mcp, "acme-attach", "notes.txt", "text/plain", 5);
 		await mcp.close();
 		const text = { "content-type": "text/plain" };
-		const url = new URL(file.uploadUrl);
-		const fields = fieldsOf(file.uploadUrl);
-		const withToken = (token: string) => {
-			url.searchParams.set("upload", token);
-			return url.toString();
-		};
+		const token = file.uploadHeaders["x-track-upload"] ?? "";
+		const fields = fieldsOf(token);
+		const withToken = (value: string) => ({ ...text, "x-track-upload": value });
 
 		// The payload changed, the signature not: a bigger file than was asked for.
-		const [payload = "", signature = ""] = (url.searchParams.get("upload") ?? "").split(".");
+		const [payload = "", signature = ""] = token.split(".");
 		const bigger = base64Url(
 			new TextEncoder().encode(JSON.stringify(fields.map((value, i) => (i === 4 ? 6 : value)))),
 		);
-		expect((await put(withToken(`${bigger}.${signature}`), "hello!", text)).status).toBe(403);
-		expect((await put(withToken(`${payload}.${"A".repeat(43)}`), "hello", text)).status).toBe(403);
-		expect((await put(withToken(""), "hello", text)).status).toBe(403);
+		expect((await put(file.uploadUrl, "hello!", withToken(`${bigger}.${signature}`))).status).toBe(
+			403,
+		);
+		expect(
+			(await put(file.uploadUrl, "hello", withToken(`${payload}.${"A".repeat(43)}`))).status,
+		).toBe(403);
+		expect((await put(file.uploadUrl, "hello", withToken(""))).status).toBe(403);
 		// Signed by the secret but past its time.
 		const past = fields.map((value, i) => (i === 6 ? Math.floor(Date.now() / 1000) - 1 : value));
-		expect((await put(withToken(await signToken(past)), "hello", text)).status).toBe(403);
+		expect((await put(file.uploadUrl, "hello", withToken(await signToken(past)))).status).toBe(403);
 		// Another file's path under a valid token.
-		const elsewhere = file.uploadUrl.replace("/notes.txt?", "/other.txt?");
-		expect((await put(elsewhere, "hello", text)).status).toBe(403);
+		const elsewhere = file.uploadUrl.replace("/notes.txt", "/other.txt");
+		expect((await put(elsewhere, "hello", uploadHeaders(file, text))).status).toBe(403);
 
 		// The length is the size the agent named.
-		expect((await put(file.uploadUrl, "hello!", text)).status).toBe(400);
-		expect((await put(file.uploadUrl, "hell", text)).status).toBe(400);
+		expect((await put(file.uploadUrl, "hello!", uploadHeaders(file, text))).status).toBe(400);
+		expect((await put(file.uploadUrl, "hell", uploadHeaders(file, text))).status).toBe(400);
 		// The same fields signed here are taken, so it was the expiry that refused the one above.
-		expect((await put(withToken(await signToken(fields)), "hello", text)).status).toBe(201);
+		expect((await put(file.uploadUrl, "hello", withToken(await signToken(fields)))).status).toBe(
+			201,
+		);
 		// Once stored, it stays: the address answers as a retry by the one who stored it.
-		expect((await put(file.uploadUrl, "hullo", text)).status).toBe(409);
+		expect((await put(file.uploadUrl, "hullo", uploadHeaders(file, text))).status).toBe(409);
 		const path = new URL(file.uploadUrl).pathname;
 		expect(await (await download(path, maya)).text()).toBe("hello");
 	});
@@ -307,7 +323,11 @@ describe("attaching files over MCP", () => {
 			.prepare("DELETE FROM member WHERE organization_id = ? AND user_id = ?")
 			.bind(initech, agent.id)
 			.run();
-		const refused = await put(file.uploadUrl, PIXEL, { "content-type": "image/png" });
+		const refused = await put(
+			file.uploadUrl,
+			PIXEL,
+			uploadHeaders(file, { "content-type": "image/png" }),
+		);
 		expect(refused.status).toBe(404);
 		expect(await refused.json()).toEqual({ error: "Not found" });
 		expect(await track.fileKeys(`${initech}/`)).toEqual([]);
@@ -343,13 +363,20 @@ describe("attaching files over MCP", () => {
 				body: { keyId: await keyId(key) },
 			}),
 		);
-		const refused = await put(revoked.uploadUrl, PIXEL, { "content-type": "image/png" });
+		const refused = await put(
+			revoked.uploadUrl,
+			PIXEL,
+			uploadHeaders(revoked, { "content-type": "image/png" }),
+		);
 		expect(refused.status).toBe(404);
 		expect(await refused.json()).toEqual({ error: "Not found" });
 		expect(
 			await track.fileKeys(`${hooli}/${new URL(revoked.uploadUrl).pathname.split("/")[4]}/`),
 		).toEqual([]);
-		expect((await put(kept.uploadUrl, PIXEL, { "content-type": "image/png" })).status).toBe(201);
+		expect(
+			(await put(kept.uploadUrl, PIXEL, uploadHeaders(kept, { "content-type": "image/png" })))
+				.status,
+		).toBe(201);
 	});
 
 	it("holds an address's upload to the size limit and the workspace's quota", async () => {
@@ -361,7 +388,7 @@ describe("attaching files over MCP", () => {
 		// Past the quota of the copy that has one.
 		const full = await track.fetchIn(1, file.uploadUrl, {
 			method: "PUT",
-			headers: binary,
+			headers: uploadHeaders(file, binary),
 			body: new Uint8Array(2000),
 		});
 		expect(full.status).toBe(413);
@@ -371,10 +398,14 @@ describe("attaching files over MCP", () => {
 
 		// The tool never signs a size over the limit, and the gateway would not take one anyway.
 		const size = 25 * 1024 * 1024 + 1;
-		const fields = fieldsOf(file.uploadUrl).map((value, i) => (i === 4 ? size : value));
+		const token = file.uploadHeaders["x-track-upload"] ?? "";
+		const fields = fieldsOf(token).map((value, i) => (i === 4 ? size : value));
 		const url = new URL(file.uploadUrl);
-		url.searchParams.set("upload", await signToken(fields));
-		const answer = await put(url.toString(), new Uint8Array(size), binary).then(
+		const answer = await put(
+			file.uploadUrl,
+			new Uint8Array(size),
+			uploadHeaders(file, { ...binary, "x-track-upload": await signToken(fields) }),
+		).then(
 			async (response) => (await response.json()) as unknown,
 			(error: unknown) =>
 				String(error).includes("fetch failed") ? "closed" : Promise.reject(error),
@@ -413,8 +444,8 @@ describe("attaching files over MCP", () => {
 		).toBe(401);
 
 		// A token in a cookie is no token, and a session does not stand in for a failed one.
-		const token = new URL(file.uploadUrl).searchParams.get("upload") ?? "";
-		const bare = file.uploadUrl.split("?")[0] ?? "";
+		const token = file.uploadHeaders["x-track-upload"] ?? "";
+		const bare = file.uploadUrl;
 		expect((await put(bare, PIXEL, { ...png, cookie: `upload=${token}`, origin })).status).toBe(
 			401,
 		);
@@ -422,7 +453,7 @@ describe("attaching files over MCP", () => {
 			(await put(`${bare}?upload=forged`, PIXEL, { ...png, cookie: maya.cookie, origin })).status,
 		).toBe(403);
 		// The file is stored under the agent who asked, so a member's browser cannot take it over.
-		expect((await put(file.uploadUrl, PIXEL, png)).status).toBe(201);
+		expect((await put(file.uploadUrl, PIXEL, uploadHeaders(file, png))).status).toBe(201);
 		expect((await put(bare, PIXEL, { ...png, cookie: maya.cookie, origin })).status).toBe(412);
 	});
 });

@@ -62,13 +62,26 @@ jobs:
           name: smoke-staging
           path: apps/web/test-results-smoke
           retention-days: 7
+      # The commit under test can predate the reporter. This workflow itself comes from the
+      # default branch's commit (`github.sha` for workflow_run), so take just the reporter from there.
+      - name: Check out the workflow's smoke reporter
+        # Like the report itself, a problem here never turns the deploy red.
+        continue-on-error: true
+        if: always() && (steps.smoke.outcome == 'success' || steps.smoke.outcome == 'failure')
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .deploy-workflow
+          sparse-checkout: |
+            scripts/smoke-signal.mjs
+          sparse-checkout-cone-mode: false
       # A failed smoke test opens a Track alert, and the next pass clears it. It does nothing
       # until the repository has a TRACK_CI_EVENTS_KEY secret, and never prints it.
       - name: Report the smoke result to Track
         # A reporting problem never turns a green deploy red; the smoke step alone decides the job.
         continue-on-error: true
         if: always() && (steps.smoke.outcome == 'success' || steps.smoke.outcome == 'failure')
-        run: node scripts/smoke-signal.mjs
+        run: node .deploy-workflow/scripts/smoke-signal.mjs
         env:
           TRACK_CI_EVENTS_KEY: ${{ secrets.TRACK_CI_EVENTS_KEY }}
           SMOKE_ENVIRONMENT: staging

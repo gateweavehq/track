@@ -63,6 +63,7 @@ describe("a page", () => {
 		expect(response.status).toBe(200);
 		const policy = response.headers.get("content-security-policy");
 		expect(policy).toContain("default-src 'none'");
+		expect(policy).toContain("media-src 'self' blob:");
 		expect(policy).toContain("frame-ancestors 'none'");
 		expect(policy).toContain("base-uri 'none'");
 		expect(policy).toContain("form-action 'self'");

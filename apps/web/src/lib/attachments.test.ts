@@ -7,6 +7,7 @@ import {
 	isAttachmentPath,
 	isFileId,
 	isInlineType,
+	isVideoType,
 } from "./attachments";
 
 describe("attachmentName", () => {
@@ -67,6 +68,12 @@ describe("attachment links", () => {
 		expect(attachmentMarkdown("[draft].zip", path, "application/zip")).toBe(
 			`[\\[draft\\].zip](${path})`,
 		);
+		// A video stays a link in Markdown, with its type in the title for the renderer.
+		expect(attachmentMarkdown("walkthrough.mp4", path, "video/mp4")).toBe(
+			`[walkthrough.mp4](${path} "video/mp4")`,
+		);
+		expect(isVideoType("video/webm")).toBe(true);
+		expect(isVideoType("image/png")).toBe(false);
 		// SVG can carry scripts, so it is a download, never an image.
 		expect(attachmentMarkdown("logo.svg", path, "image/svg+xml")).toBe(`[logo.svg](${path})`);
 		expect(isInlineType("image/svg+xml")).toBe(false);
